@@ -2,18 +2,25 @@
 
 > A visual platform for building, composing, and evolving AI-powered workflows using the BaleyBots framework.
 
+**Repository**: https://github.com/jamesmcarthur-3999/BaleyUI
+
+---
+
 ## Table of Contents
 
 1. [Vision & Philosophy](#vision--philosophy)
-2. [Core Concepts](#core-concepts)
-3. [Architecture](#architecture)
-4. [Tech Stack](#tech-stack)
-5. [Database Schema](#database-schema)
-6. [Feature Roadmap](#feature-roadmap)
-7. [Component Structure](#component-structure)
-8. [API Design](#api-design)
-9. [Implementation Phases](#implementation-phases)
-10. [File Structure](#file-structure)
+2. [Guiding Principles](#guiding-principles)
+3. [Core Concepts](#core-concepts)
+4. [The Three Phases](#the-three-phases)
+   - [Phase 1: Foundation & Core Engine](#phase-1-foundation--core-engine)
+   - [Phase 2: Composition & Observability](#phase-2-composition--observability)
+   - [Phase 3: Intelligence & Evolution](#phase-3-intelligence--evolution)
+5. [Design System](#design-system)
+6. [Architecture](#architecture)
+7. [Tech Stack](#tech-stack)
+8. [Database Schema](#database-schema)
+9. [File Structure](#file-structure)
+10. [Success Metrics](#success-metrics)
 
 ---
 
@@ -58,6 +65,52 @@ const flow = pipeline(validateOrder, fraudScorer, routeByAction);
 ```
 
 The GUI makes this lifecycle **visible and actionable**.
+
+### The AI → Code Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    THE EVOLUTION CYCLE                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  PROTOTYPE               OBSERVE                 CODIFY         │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────┐ │
+│  │ Create AI Block │    │ View decisions  │    │ Extract     │ │
+│  │ with natural    │ →  │ Identify patterns│ →  │ patterns    │ │
+│  │ language goal   │    │ Mark correct/   │    │ Generate    │ │
+│  │                 │    │ incorrect       │    │ code        │ │
+│  └─────────────────┘    └─────────────────┘    └─────────────┘ │
+│         ↑                                              │        │
+│         │              OPTIMIZE                        │        │
+│         │         ┌─────────────────┐                 │        │
+│         └─────────│ Hybrid: Code for│←────────────────┘        │
+│                   │ common cases,   │                          │
+│                   │ AI for edge     │                          │
+│                   └─────────────────┘                          │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Guiding Principles
+
+These principles guide every decision we make:
+
+### 1. Functionality First
+Build working features before polishing UI. "Make it work, make it right, make it beautiful" - in that order.
+
+### 2. Design System from Day One
+All visual decisions flow through tokens and primitives. Change once, apply everywhere. No hardcoded colors, spacing, or typography.
+
+### 3. Modularity Over Monolith
+Every piece is replaceable and testable in isolation. Components know nothing about each other. Compose small pieces into larger systems.
+
+### 4. Type Safety End-to-End
+Database → API → Frontend fully typed. If it compiles, it works. Use Zod for runtime validation, TypeScript for compile-time safety.
+
+### 5. No Shortcuts
+Unlimited time means no technical debt. Build it right the first time. Every decision should optimize for long-term maintainability.
 
 ---
 
@@ -135,29 +188,466 @@ Decisions enable:
 - Pattern extraction
 - A/B testing AI vs Code
 
-### 4. The AI → Code Lifecycle
+### 4. Patterns
+
+**Patterns** are rules extracted from AI decision history:
+
+```typescript
+interface Pattern {
+  id: string;
+  blockId: string;
+  rule: string;           // Human-readable: "If new customer AND amount > 1000"
+  condition: JsonLogic;   // Machine-parseable condition
+  outputTemplate: any;    // What to output when condition matches
+  confidence: number;     // 0.0 to 1.0
+  supportCount: number;   // How many decisions support this pattern
+}
+```
+
+---
+
+## The Three Phases
+
+### Phase 1: Foundation & Core Engine
+
+**Goal**: Build the core engine that powers everything: blocks, execution, decisions. Establish the design system and data layer that all future work builds upon.
+
+**Why This First**: Everything else depends on these primitives. Design system ensures rapid iteration later. Data model must be solid before adding features.
+
+#### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    THE EVOLUTION CYCLE                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  PHASE 1: PROTOTYPE          PHASE 2: OBSERVE                  │
-│  ┌─────────────────────┐    ┌─────────────────────┐           │
-│  │ Create AI Block     │    │ View decisions      │           │
-│  │ with natural        │ →  │ Identify patterns   │           │
-│  │ language goal       │    │ Mark correct/wrong  │           │
-│  └─────────────────────┘    └─────────────────────┘           │
-│                                       ↓                        │
-│  PHASE 4: OPTIMIZE           PHASE 3: CODIFY                  │
-│  ┌─────────────────────┐    ┌─────────────────────┐           │
-│  │ Hybrid: Code for    │    │ Extract rules       │           │
-│  │ common cases, AI    │ ←  │ Generate Function   │           │
-│  │ for edge cases      │    │ block from patterns │           │
-│  └─────────────────────┘    └─────────────────────┘           │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              PHASE 1                                        │
+│                     Foundation & Core Engine                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        DESIGN SYSTEM                                │   │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐           │   │
+│  │  │  Tokens  │  │Primitives│  │ Patterns │  │ Layouts  │           │   │
+│  │  │(colors,  │  │(buttons, │  │(cards,   │  │(page,    │           │   │
+│  │  │ spacing, │  │ inputs,  │  │ forms,   │  │ sidebar, │           │   │
+│  │  │ typography│ │ badges)  │  │ tables)  │  │ panels)  │           │   │
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘           │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        DATA LAYER                                   │   │
+│  │  ┌───────────────────────────────────────────────────────────────┐ │   │
+│  │  │ Database Schema (Drizzle)                                      │ │   │
+│  │  │ • workspaces, connections, blocks, flows                       │ │   │
+│  │  │ • executions, block_executions, decisions                      │ │   │
+│  │  │ • patterns (for Phase 3)                                       │ │   │
+│  │  └───────────────────────────────────────────────────────────────┘ │   │
+│  │  ┌───────────────────────────────────────────────────────────────┐ │   │
+│  │  │ API Layer (tRPC)                                               │ │   │
+│  │  │ • Type-safe routers for all entities                          │ │   │
+│  │  │ • Validation with Zod schemas                                  │ │   │
+│  │  │ • Reusable procedures                                          │ │   │
+│  │  └───────────────────────────────────────────────────────────────┘ │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        CORE ENGINE                                  │   │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐       │   │
+│  │  │   Block        │  │   Execution    │  │   Decision     │       │   │
+│  │  │   Runtime      │  │   Engine       │  │   Logger       │       │   │
+│  │  │                │  │                │  │                │       │   │
+│  │  │ • Compile AI   │  │ • Run blocks   │  │ • Capture I/O  │       │   │
+│  │  │   blocks to    │  │ • Handle tools │  │ • Store reason │       │   │
+│  │  │   Baleybot     │  │ • Stream events│  │ • Track meta   │       │   │
+│  │  │ • Compile Fn   │  │ • Error handle │  │ • Enable query │       │   │
+│  │  │   blocks to    │  │ • Timeout mgmt │  │                │       │   │
+│  │  │   Deterministic│  │                │  │                │       │   │
+│  │  └────────────────┘  └────────────────┘  └────────────────┘       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        MINIMAL UI                                   │   │
+│  │  (Functional, not polished - using design system primitives)        │   │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐       │   │
+│  │  │  Connection    │  │   Block        │  │   Block        │       │   │
+│  │  │  Manager       │  │   Editor       │  │   Test Runner  │       │   │
+│  │  └────────────────┘  └────────────────┘  └────────────────┘       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+#### Deliverables
+
+| Category | Deliverable | Description |
+|----------|-------------|-------------|
+| **Design System** | Token definitions | Colors, typography, spacing, shadows, radii |
+| | Primitive components | Button, Input, Select, Badge, Card, Table |
+| | Layout components | Page, Sidebar, Panel, Modal, Sheet |
+| | Component documentation | Storybook or similar for component catalog |
+| **Data Layer** | Database schema | All tables with proper indexes and constraints |
+| | Drizzle models | Type-safe ORM with relations |
+| | tRPC routers | CRUD for all entities + test endpoint |
+| | Zod schemas | Validation for all inputs |
+| **Core Engine** | Block compiler | Convert block config → BaleyBots runtime |
+| | Execution engine | Run single blocks, capture results |
+| | Decision logger | Store AI decisions with full context |
+| | Provider manager | Manage LLM connections, test connectivity |
+| **Minimal UI** | Connection page | Add/edit/test LLM providers |
+| | Block library page | List all blocks |
+| | Block editor | Create/edit AI and Function blocks |
+| | Block test runner | Run block with JSON input, see output |
+
+#### Success Criteria
+
+- [ ] Can add OpenAI/Anthropic connection and verify it works
+- [ ] Can create an AI block with goal, model, and output schema
+- [ ] Can create a Function block with TypeScript code
+- [ ] Can test any block with sample input and see structured output
+- [ ] AI block decisions are stored in database with full context
+- [ ] All UI uses design system tokens (no hardcoded colors/spacing)
+- [ ] Changing a token value updates entire application
+
+---
+
+### Phase 2: Composition & Observability
+
+**Goal**: Enable visual composition of blocks into flows, and provide deep visibility into what the AI decides.
+
+**Why This Second**: Composition is the core value proposition (visual flow building). Observability enables the AI → Code evolution cycle. Both require the solid foundation from Phase 1.
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              PHASE 2                                        │
+│                    Composition & Observability                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     FLOW COMPOSITION                                │   │
+│  │                                                                      │   │
+│  │  ┌─────────────────────────────────────────────────────────────────┐│   │
+│  │  │                    Visual Flow Canvas                           ││   │
+│  │  │                                                                 ││   │
+│  │  │   ┌─────────┐     ┌─────────┐     ┌─────────┐                  ││   │
+│  │  │   │ Source  │────▶│ Block A │────▶│ Block B │────▶ ...        ││   │
+│  │  │   └─────────┘     └─────────┘     └─────────┘                  ││   │
+│  │  │        │                │                                       ││   │
+│  │  │        │          ┌─────┴─────┐                                ││   │
+│  │  │        │          ▼           ▼                                ││   │
+│  │  │        │    ┌─────────┐ ┌─────────┐                            ││   │
+│  │  │        └───▶│ Block C │ │ Block D │  (parallel/branch)         ││   │
+│  │  │             └─────────┘ └─────────┘                            ││   │
+│  │  └─────────────────────────────────────────────────────────────────┘│   │
+│  │                                                                      │   │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐        │   │
+│  │  │  Block Palette │  │  Connection    │  │  Composition   │        │   │
+│  │  │  (drag & drop) │  │  Validation    │  │  Patterns      │        │   │
+│  │  └────────────────┘  └────────────────┘  └────────────────┘        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     FLOW EXECUTION                                  │   │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐        │   │
+│  │  │   Triggers     │  │   Compiler     │  │   Runtime      │        │   │
+│  │  │ • Manual       │  │ Flow graph →   │  │ Execute flow   │        │   │
+│  │  │ • Webhook      │  │ BaleyBots code │  │ Track progress │        │   │
+│  │  │ • Schedule     │  │                │  │ Stream events  │        │   │
+│  │  └────────────────┘  └────────────────┘  └────────────────┘        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     OBSERVABILITY                                   │   │
+│  │  ┌─────────────────────────────────────────────────────────────────┐│   │
+│  │  │                  Decision Inspector                             ││   │
+│  │  │  • Filter by block, date, output                                ││   │
+│  │  │  • View full input/output/reasoning                             ││   │
+│  │  │  • Mark correct/incorrect                                       ││   │
+│  │  │  • Find similar decisions                                       ││   │
+│  │  └─────────────────────────────────────────────────────────────────┘│   │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐        │   │
+│  │  │ Decision Detail│  │ Execution      │  │ Feedback       │        │   │
+│  │  │ (full I/O)     │  │ Timeline       │  │ System         │        │   │
+│  │  └────────────────┘  └────────────────┘  └────────────────┘        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Deliverables
+
+| Category | Deliverable | Description |
+|----------|-------------|-------------|
+| **Flow Canvas** | React Flow integration | Custom canvas with zoom, pan, selection |
+| | Custom node types | AI Block, Function Block, Source, Sink |
+| | Block palette | Draggable block library sidebar |
+| | Edge connections | Schema-validated connections between blocks |
+| | Composition patterns | Visual representation of pipeline, parallel, route, loop |
+| **Flow Execution** | Flow compiler | Convert visual graph → BaleyBots code |
+| | Manual trigger | "Run" button with JSON input editor |
+| | Webhook trigger | Auto-generated URLs per flow |
+| | Schedule trigger | Cron expression support |
+| | Execution engine | Run flows, track per-block status |
+| | Real-time monitor | SSE/WebSocket for live execution updates |
+| **Observability** | Decision table | Paginated, sortable, filterable list |
+| | Decision detail view | Full input/output/reasoning display |
+| | Execution timeline | Visual timeline of flow execution |
+| | Feedback system | Like/dislike, notes, corrections |
+| | Export functionality | Export decisions as JSON/CSV |
+
+#### Success Criteria
+
+- [ ] Can drag blocks onto canvas and connect them
+- [ ] Connections validate schema compatibility
+- [ ] Can run a flow manually with test input
+- [ ] Can see real-time execution progress
+- [ ] Can inspect any AI decision with full context
+- [ ] Can mark decisions as correct/incorrect
+- [ ] Webhook URL triggers flow execution
+- [ ] All new UI continues using design system
+
+---
+
+### Phase 3: Intelligence & Evolution
+
+**Goal**: Enable the AI → Code evolution cycle: extract patterns from AI decisions, generate code, and enable hybrid operation.
+
+**Why This Last**: Requires substantial decision data (from Phase 2). Most advanced/complex features. Core value already delivered in Phases 1-2.
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              PHASE 3                                        │
+│                      Intelligence & Evolution                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     PATTERN EXTRACTION                              │   │
+│  │                                                                      │   │
+│  │  Analyze Decision History                                            │   │
+│  │  ┌───────────────────────────────────────────────────────────────┐  │   │
+│  │  │ 1,234 decisions for "fraud-scorer"                            │  │   │
+│  │  │ ├── 847 → "approve" (69%)                                     │  │   │
+│  │  │ ├── 312 → "review" (25%)                                      │  │   │
+│  │  │ └──  75 → "reject" (6%)                                       │  │   │
+│  │  │                                                                │  │   │
+│  │  │ Detected Patterns:                                             │  │   │
+│  │  │ ✓ IF customer.isNew AND amount > 1000 → review (94% conf)     │  │   │
+│  │  │ ✓ IF email.domain IN tempDomains → +30 score (89% conf)       │  │   │
+│  │  │ ✓ IF amount > 5000 → review (87% conf)                        │  │   │
+│  │  └───────────────────────────────────────────────────────────────┘  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     CODE GENERATION                                 │   │
+│  │                                                                      │   │
+│  │  Generated Function Block:                                           │   │
+│  │  ┌───────────────────────────────────────────────────────────────┐  │   │
+│  │  │ // Auto-generated from 1,234 AI decisions                     │  │   │
+│  │  │ // Coverage: 87% of historical cases                          │  │   │
+│  │  │                                                                │  │   │
+│  │  │ export const fraudScorer = Deterministic.create({             │  │   │
+│  │  │   name: 'fraud-scorer',                                       │  │   │
+│  │  │   processFn: (order) => {                                     │  │   │
+│  │  │     let score = 0;                                            │  │   │
+│  │  │     const reasons = [];                                       │  │   │
+│  │  │     if (order.customer.isNew && order.amount > 1000) {        │  │   │
+│  │  │       score += 40;                                            │  │   │
+│  │  │       reasons.push('New customer with high-value order');     │  │   │
+│  │  │     }                                                         │  │   │
+│  │  │     // ... more patterns                                      │  │   │
+│  │  │     return { riskScore: score, action: ..., reasons };        │  │   │
+│  │  │   }                                                           │  │   │
+│  │  │ });                                                           │  │   │
+│  │  └───────────────────────────────────────────────────────────────┘  │   │
+│  │                                                                      │   │
+│  │  [Preview Code] [Test Against History] [Deploy as Function Block]  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     HYBRID & A/B TESTING                            │   │
+│  │                                                                      │   │
+│  │  Execution Modes:                                                    │   │
+│  │  ○ AI Only        - All decisions by AI                             │   │
+│  │  ○ Code Only      - All decisions by generated code                 │   │
+│  │  ● Hybrid Mode    - Code for known patterns, AI for edge cases      │   │
+│  │  ○ A/B Test       - 50/50 split, compare results                    │   │
+│  │                                                                      │   │
+│  │  Block Swap: Replace AI block with Function block                   │   │
+│  │  (Flow continues working - same interface!)                         │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     ADVANCED FEATURES                               │   │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐        │   │
+│  │  │ Version        │  │ Analytics      │  │ Training       │        │   │
+│  │  │ Control        │  │ Dashboard      │  │ Data Export    │        │   │
+│  │  └────────────────┘  └────────────────┘  └────────────────┘        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Deliverables
+
+| Category | Deliverable | Description |
+|----------|-------------|-------------|
+| **Pattern Extraction** | Pattern analyzer | Identify rules from decision history |
+| | Confidence scoring | Statistical confidence for each pattern |
+| | Pattern visualization | Show patterns with supporting decisions |
+| | Manual pattern creation | User-defined rules |
+| **Code Generation** | Code generator | Convert patterns → Deterministic block |
+| | Code preview | Editable generated code |
+| | Historical testing | Test generated code against past decisions |
+| | Accuracy metrics | Show coverage percentage |
+| **Hybrid Mode** | Mode selector | AI only, Code only, Hybrid, A/B test |
+| | Routing logic | Route to code or AI based on pattern match |
+| | Fallback tracking | Log when AI fallback occurs |
+| **Block Swap** | Swap UI | Replace AI block with Function block |
+| | Schema validation | Ensure interfaces match |
+| | Flow preservation | No changes to flow connections |
+| **Advanced** | Version control | Block and flow versioning |
+| | Analytics dashboard | Decisions, costs, latency |
+| | Training export | Export for fine-tuning |
+
+#### Success Criteria
+
+- [ ] Can analyze decisions and see extracted patterns
+- [ ] Can generate Function block code from patterns
+- [ ] Generated code achieves 80%+ accuracy on historical data
+- [ ] Can run in Hybrid mode (code + AI fallback)
+- [ ] Can swap AI block for Function block without breaking flow
+- [ ] Can A/B test AI vs Code with metrics
+- [ ] Can export training data in JSONL format
+
+---
+
+## Design System
+
+A centralized design system ensures we can change the entire look and feel by modifying tokens, not hunting through components.
+
+### Layer 1: Tokens (CSS Variables)
+
+Semantic tokens that define the design language:
+
+```css
+/* src/styles/tokens.css */
+:root {
+  /* Colors - Semantic */
+  --color-background: hsl(0 0% 100%);
+  --color-foreground: hsl(0 0% 9%);
+  --color-primary: hsl(221 83% 53%);
+  --color-primary-foreground: hsl(0 0% 100%);
+  --color-muted: hsl(0 0% 96%);
+  --color-muted-foreground: hsl(0 0% 45%);
+  --color-border: hsl(0 0% 90%);
+  --color-success: hsl(142 76% 36%);
+  --color-warning: hsl(38 92% 50%);
+  --color-error: hsl(0 84% 60%);
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* Radii */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.1);
+}
+
+.dark {
+  --color-background: hsl(0 0% 9%);
+  --color-foreground: hsl(0 0% 95%);
+  /* ... dark mode overrides */
+}
+```
+
+### Layer 2: Primitives (Base Components)
+
+Atomic components that ONLY use tokens:
+
+```
+src/components/ui/
+├── button.tsx        # Variants: default, outline, ghost, link
+├── input.tsx         # Text, password, with icon slots
+├── select.tsx        # Dropdown with search
+├── badge.tsx         # Status indicators
+├── card.tsx          # Container with header/body/footer
+├── table.tsx         # Data table with sorting
+├── tabs.tsx          # Tab navigation
+├── dialog.tsx        # Modal dialogs
+├── sheet.tsx         # Slide-out panels
+├── toast.tsx         # Notifications
+└── ...               # All shadcn/ui components
+```
+
+### Layer 3: Patterns (Composed Components)
+
+Business logic components built from primitives:
+
+```
+src/components/
+├── forms/
+│   ├── FormField.tsx       # Label + Input + Error
+│   ├── SchemaForm.tsx      # Form from JSON Schema
+│   └── JsonEditor.tsx      # Monaco for JSON editing
+├── data-display/
+│   ├── DataTable.tsx       # Sortable, filterable table
+│   ├── JsonViewer.tsx      # Pretty JSON display
+│   └── CodeBlock.tsx       # Syntax highlighted code
+└── feedback/
+    ├── LoadingState.tsx    # Skeleton loaders
+    ├── EmptyState.tsx      # "No data" displays
+    └── ErrorState.tsx      # Error with retry
+```
+
+### Layer 4: Layouts (Page Structures)
+
+Page-level layout components:
+
+```
+src/components/layout/
+├── AppShell.tsx            # Sidebar + main content
+├── PageHeader.tsx          # Title + actions
+├── PageContent.tsx         # Padded content area
+├── SplitPane.tsx           # Resizable split view
+└── Panel.tsx               # Collapsible panel
+```
+
+### Design System Rules
+
+1. **Tokens are the source of truth** - No hardcoded colors, spacing, or typography
+2. **Primitives only use tokens** - Button, Input, etc. reference CSS variables
+3. **Patterns compose primitives** - Never write raw HTML in patterns
+4. **Layouts are content-agnostic** - They provide structure, not styling
+5. **Dark mode via token swap** - Just change the CSS variables
 
 ---
 
@@ -347,8 +837,8 @@ CREATE TABLE flow_executions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   flow_id UUID REFERENCES flows(id) ON DELETE CASCADE,
   flow_version INTEGER NOT NULL,
-  triggered_by JSONB NOT NULL, -- { type: 'webhook' | 'schedule' | 'manual', ... }
-  status VARCHAR(50) NOT NULL, -- 'pending', 'running', 'completed', 'failed', 'cancelled'
+  triggered_by JSONB NOT NULL,
+  status VARCHAR(50) NOT NULL,
   input JSONB,
   output JSONB,
   error JSONB,
@@ -362,7 +852,7 @@ CREATE TABLE block_executions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   flow_execution_id UUID REFERENCES flow_executions(id) ON DELETE CASCADE,
   block_id UUID REFERENCES blocks(id),
-  node_id VARCHAR(255) NOT NULL, -- React Flow node ID
+  node_id VARCHAR(255) NOT NULL,
   status VARCHAR(50) NOT NULL,
   input JSONB,
   output JSONB,
@@ -381,12 +871,10 @@ CREATE TABLE decisions (
   input JSONB NOT NULL,
   output JSONB NOT NULL,
   reasoning TEXT,
-  -- Metadata
   model VARCHAR(255),
   tokens_input INTEGER,
   tokens_output INTEGER,
   latency_ms INTEGER,
-  -- Feedback
   feedback_correct BOOLEAN,
   feedback_notes TEXT,
   feedback_corrected_output JSONB,
@@ -399,11 +887,11 @@ CREATE TABLE decisions (
 CREATE TABLE patterns (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   block_id UUID REFERENCES blocks(id) ON DELETE CASCADE,
-  rule TEXT NOT NULL, -- Human-readable rule
-  condition JSONB NOT NULL, -- Machine-parseable condition
-  output_template JSONB, -- What to output when condition matches
-  confidence DECIMAL(5,4), -- 0.0000 to 1.0000
-  support_count INTEGER, -- How many decisions support this pattern
+  rule TEXT NOT NULL,
+  condition JSONB NOT NULL,
+  output_template JSONB,
+  confidence DECIMAL(5,4),
+  support_count INTEGER,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -420,362 +908,6 @@ CREATE INDEX idx_decisions_created ON decisions(created_at);
 CREATE INDEX idx_patterns_block ON patterns(block_id);
 ```
 
-### Drizzle Schema (TypeScript)
-
-```typescript
-// src/db/schema.ts
-import { pgTable, uuid, varchar, text, jsonb, boolean, integer, decimal, timestamp } from 'drizzle-orm/pg-core';
-
-export const workspaces = pgTable('workspaces', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: varchar('name', { length: 255 }).notNull(),
-  slug: varchar('slug', { length: 255 }).unique().notNull(),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
-});
-
-export const connections = pgTable('connections', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'cascade' }),
-  type: varchar('type', { length: 50 }).notNull(),
-  name: varchar('name', { length: 255 }).notNull(),
-  config: jsonb('config').notNull(),
-  isDefault: boolean('is_default').default(false),
-  status: varchar('status', { length: 50 }).default('unconfigured'),
-  lastCheckedAt: timestamp('last_checked_at'),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
-});
-
-export const blocks = pgTable('blocks', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'cascade' }),
-  type: varchar('type', { length: 50 }).notNull(),
-  subtype: varchar('subtype', { length: 50 }),
-  name: varchar('name', { length: 255 }).notNull(),
-  description: text('description'),
-  inputSchema: jsonb('input_schema').notNull().default({}),
-  outputSchema: jsonb('output_schema').notNull().default({}),
-  config: jsonb('config').notNull().default({}),
-  connectionId: uuid('connection_id').references(() => connections.id),
-  model: varchar('model', { length: 255 }),
-  goal: text('goal'),
-  systemPrompt: text('system_prompt'),
-  temperature: decimal('temperature', { precision: 3, scale: 2 }),
-  maxTokens: integer('max_tokens'),
-  code: text('code'),
-  executionCount: integer('execution_count').default(0),
-  avgLatencyMs: integer('avg_latency_ms'),
-  lastExecutedAt: timestamp('last_executed_at'),
-  version: integer('version').default(1),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
-});
-
-// ... more tables
-```
-
----
-
-## Feature Roadmap
-
-### Phase 1: Foundation (MVP)
-
-**Goal**: Basic block creation and testing
-
-| Feature | Priority | Description |
-|---------|----------|-------------|
-| Workspace setup | P0 | Create workspace, basic auth |
-| Connection manager | P0 | Add OpenAI/Anthropic connections |
-| AI Block editor | P0 | Create Baleybot blocks with goal, schema |
-| Function Block editor | P0 | Create Deterministic blocks with code |
-| Block test runner | P0 | Run blocks with sample input |
-| Schema builder | P1 | Visual JSON Schema editor |
-
-**Deliverables**:
-- Users can create AI and Function blocks
-- Users can test blocks with sample data
-- Decisions are logged for AI blocks
-
-### Phase 2: Composition
-
-**Goal**: Connect blocks into flows
-
-| Feature | Priority | Description |
-|---------|----------|-------------|
-| Flow canvas | P0 | React Flow based visual editor |
-| Block palette | P0 | Drag blocks onto canvas |
-| Connection validation | P1 | Validate schema compatibility |
-| Pattern blocks | P1 | Pipeline, parallel, route, loop |
-| Manual trigger | P0 | Run flows with test input |
-| Webhook trigger | P1 | HTTP endpoint to trigger flows |
-
-**Deliverables**:
-- Users can compose blocks visually
-- Users can run flows manually or via webhook
-
-### Phase 3: Observability
-
-**Goal**: Understand what AI decides
-
-| Feature | Priority | Description |
-|---------|----------|-------------|
-| Decision log | P0 | View all AI decisions |
-| Decision detail | P0 | Input, output, reasoning view |
-| Filters & search | P1 | Filter by block, date, output |
-| Execution replay | P1 | Re-run with same input |
-| Feedback system | P1 | Mark decisions correct/incorrect |
-
-**Deliverables**:
-- Users can inspect every AI decision
-- Users can provide feedback on decisions
-
-### Phase 4: Evolution
-
-**Goal**: Turn AI patterns into code
-
-| Feature | Priority | Description |
-|---------|----------|-------------|
-| Pattern extraction | P0 | Identify rules from decisions |
-| Code generation | P0 | Generate Function block from patterns |
-| A/B testing | P1 | Run AI vs Code side-by-side |
-| Hybrid mode | P1 | Code for common, AI for edge cases |
-| Block swap | P1 | Replace AI block with Function block |
-
-**Deliverables**:
-- Users can generate code from AI behavior
-- Users can gradually replace AI with code
-
-### Phase 5: Production
-
-**Goal**: Run flows reliably at scale
-
-| Feature | Priority | Description |
-|---------|----------|-------------|
-| Schedule trigger | P0 | Cron-based flow execution |
-| DB trigger | P1 | Run on database changes |
-| Error handling | P0 | Retry, fallback, alerting |
-| Monitoring dashboard | P1 | Execution metrics, health |
-| Version control | P1 | Flow versioning, rollback |
-| Team collaboration | P2 | Invite members, roles |
-
----
-
-## Component Structure
-
-### Page Layout
-
-```
-src/
-├── app/
-│   ├── layout.tsx                 # Root layout
-│   ├── page.tsx                   # Landing/redirect
-│   ├── (auth)/
-│   │   ├── login/page.tsx
-│   │   └── signup/page.tsx
-│   ├── (dashboard)/
-│   │   ├── layout.tsx             # Dashboard layout with sidebar
-│   │   ├── page.tsx               # Dashboard home
-│   │   ├── blocks/
-│   │   │   ├── page.tsx           # Block library
-│   │   │   ├── new/page.tsx       # Create block
-│   │   │   └── [id]/
-│   │   │       ├── page.tsx       # Block detail/editor
-│   │   │       └── decisions/page.tsx  # Block decisions
-│   │   ├── flows/
-│   │   │   ├── page.tsx           # Flow list
-│   │   │   ├── new/page.tsx       # Create flow
-│   │   │   └── [id]/
-│   │   │       ├── page.tsx       # Flow editor (canvas)
-│   │   │       └── runs/page.tsx  # Execution history
-│   │   ├── decisions/
-│   │   │   └── page.tsx           # Global decision inspector
-│   │   └── settings/
-│   │       ├── page.tsx           # General settings
-│   │       └── connections/page.tsx  # Provider connections
-```
-
-### Key Components
-
-```
-src/
-├── components/
-│   ├── ui/                        # shadcn/ui components
-│   ├── blocks/
-│   │   ├── BlockCard.tsx          # Block preview card
-│   │   ├── BlockEditor.tsx        # Full block editor
-│   │   ├── AIBlockConfig.tsx      # AI-specific config
-│   │   ├── FunctionBlockConfig.tsx # Code editor
-│   │   ├── SchemaEditor.tsx       # JSON Schema builder
-│   │   └── BlockTestRunner.tsx    # Test with sample input
-│   ├── flows/
-│   │   ├── FlowCanvas.tsx         # React Flow canvas
-│   │   ├── BlockPalette.tsx       # Draggable blocks
-│   │   ├── NodeTypes/             # Custom React Flow nodes
-│   │   │   ├── AIBlockNode.tsx
-│   │   │   ├── FunctionBlockNode.tsx
-│   │   │   ├── SourceNode.tsx
-│   │   │   └── SinkNode.tsx
-│   │   ├── EdgeTypes/             # Custom edges
-│   │   └── FlowToolbar.tsx        # Run, save, settings
-│   ├── decisions/
-│   │   ├── DecisionTable.tsx      # Decision list
-│   │   ├── DecisionDetail.tsx     # Full decision view
-│   │   ├── DecisionFilters.tsx    # Filter controls
-│   │   └── FeedbackForm.tsx       # Mark correct/incorrect
-│   ├── connections/
-│   │   ├── ConnectionCard.tsx
-│   │   ├── ConnectionForm.tsx
-│   │   └── ProviderSelector.tsx
-│   └── layout/
-│       ├── Sidebar.tsx
-│       ├── Header.tsx
-│       └── WorkspaceSwitcher.tsx
-```
-
----
-
-## API Design
-
-### tRPC Routers
-
-```typescript
-// src/server/routers/index.ts
-export const appRouter = router({
-  workspace: workspaceRouter,
-  connection: connectionRouter,
-  block: blockRouter,
-  flow: flowRouter,
-  execution: executionRouter,
-  decision: decisionRouter,
-  pattern: patternRouter,
-});
-
-// Block Router
-export const blockRouter = router({
-  list: publicProcedure
-    .input(z.object({ workspaceId: z.string(), type: z.string().optional() }))
-    .query(async ({ input }) => { /* ... */ }),
-
-  get: publicProcedure
-    .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => { /* ... */ }),
-
-  create: publicProcedure
-    .input(createBlockSchema)
-    .mutation(async ({ input }) => { /* ... */ }),
-
-  update: publicProcedure
-    .input(updateBlockSchema)
-    .mutation(async ({ input }) => { /* ... */ }),
-
-  delete: publicProcedure
-    .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => { /* ... */ }),
-
-  test: publicProcedure
-    .input(z.object({ id: z.string(), input: z.any() }))
-    .mutation(async ({ input }) => { /* ... */ }),
-});
-
-// Decision Router
-export const decisionRouter = router({
-  list: publicProcedure
-    .input(z.object({
-      blockId: z.string().optional(),
-      startDate: z.date().optional(),
-      endDate: z.date().optional(),
-      output: z.any().optional(),
-      limit: z.number().default(50),
-      offset: z.number().default(0),
-    }))
-    .query(async ({ input }) => { /* ... */ }),
-
-  get: publicProcedure
-    .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => { /* ... */ }),
-
-  feedback: publicProcedure
-    .input(z.object({
-      id: z.string(),
-      correct: z.boolean(),
-      notes: z.string().optional(),
-      correctedOutput: z.any().optional(),
-    }))
-    .mutation(async ({ input }) => { /* ... */ }),
-
-  extractPatterns: publicProcedure
-    .input(z.object({ blockId: z.string() }))
-    .mutation(async ({ input }) => { /* ... */ }),
-});
-```
-
----
-
-## Implementation Phases
-
-### Phase 1: Foundation (Weeks 1-2)
-
-**Week 1: Setup & Core**
-- [ ] Initialize Next.js project with TypeScript
-- [ ] Set up Tailwind CSS and shadcn/ui
-- [ ] Configure Drizzle ORM with PostgreSQL
-- [ ] Create database schema and migrations
-- [ ] Set up tRPC with basic routers
-- [ ] Implement workspace and connection models
-
-**Week 2: Block Editor**
-- [ ] Create Block CRUD API
-- [ ] Build BlockEditor component
-- [ ] Implement AIBlockConfig (goal, model, schema)
-- [ ] Implement FunctionBlockConfig (Monaco editor)
-- [ ] Build SchemaEditor component
-- [ ] Create BlockTestRunner
-
-### Phase 2: Composition (Weeks 3-4)
-
-**Week 3: Flow Canvas**
-- [ ] Integrate React Flow
-- [ ] Create custom node types
-- [ ] Build BlockPalette with drag-drop
-- [ ] Implement connection validation
-- [ ] Create Flow CRUD API
-
-**Week 4: Execution**
-- [ ] Build flow compiler (visual → BaleyBots code)
-- [ ] Implement execution engine
-- [ ] Create manual trigger UI
-- [ ] Add webhook trigger endpoint
-- [ ] Build execution monitor
-
-### Phase 3: Observability (Weeks 5-6)
-
-**Week 5: Decision Logging**
-- [ ] Implement decision logging in execution engine
-- [ ] Create DecisionTable component
-- [ ] Build DecisionDetail view
-- [ ] Add filter and search
-
-**Week 6: Feedback & Analysis**
-- [ ] Implement feedback system
-- [ ] Create decision analytics dashboard
-- [ ] Build pattern extraction algorithm
-- [ ] Add decision export
-
-### Phase 4: Evolution (Weeks 7-8)
-
-**Week 7: Code Generation**
-- [ ] Build pattern-to-code generator
-- [ ] Create code preview UI
-- [ ] Implement "Convert to Function" flow
-- [ ] Add block swap functionality
-
-**Week 8: Advanced Features**
-- [ ] Implement A/B testing
-- [ ] Build hybrid mode
-- [ ] Add version control for blocks/flows
-- [ ] Polish and bug fixes
-
 ---
 
 ## File Structure
@@ -791,72 +923,124 @@ BaleyUI/
 │   │   ├── page.tsx
 │   │   ├── globals.css
 │   │   ├── (auth)/
+│   │   │   ├── login/page.tsx
+│   │   │   └── signup/page.tsx
 │   │   ├── (dashboard)/
+│   │   │   ├── layout.tsx
+│   │   │   ├── page.tsx
+│   │   │   ├── blocks/
+│   │   │   │   ├── page.tsx
+│   │   │   │   ├── new/page.tsx
+│   │   │   │   └── [id]/
+│   │   │   │       ├── page.tsx
+│   │   │   │       └── decisions/page.tsx
+│   │   │   ├── flows/
+│   │   │   │   ├── page.tsx
+│   │   │   │   ├── new/page.tsx
+│   │   │   │   └── [id]/
+│   │   │   │       ├── page.tsx
+│   │   │   │       └── runs/page.tsx
+│   │   │   ├── decisions/
+│   │   │   │   └── page.tsx
+│   │   │   └── settings/
+│   │   │       ├── page.tsx
+│   │   │       └── connections/page.tsx
 │   │   └── api/
 │   │       └── trpc/[trpc]/route.ts
 │   ├── components/
-│   │   ├── ui/
-│   │   ├── blocks/
-│   │   ├── flows/
-│   │   ├── decisions/
-│   │   ├── connections/
-│   │   └── layout/
+│   │   ├── ui/                        # shadcn/ui primitives
+│   │   ├── forms/                     # Form patterns
+│   │   ├── data-display/              # Data display patterns
+│   │   ├── feedback/                  # Loading/error/empty states
+│   │   ├── blocks/                    # Block-specific components
+│   │   ├── flows/                     # Flow-specific components
+│   │   ├── decisions/                 # Decision-specific components
+│   │   ├── connections/               # Connection-specific components
+│   │   └── layout/                    # Layout components
 │   ├── lib/
 │   │   ├── db/
 │   │   │   ├── index.ts
 │   │   │   ├── schema.ts
 │   │   │   └── migrations/
 │   │   ├── baleybots/
-│   │   │   ├── compiler.ts       # Flow → BaleyBots code
-│   │   │   ├── executor.ts       # Run compiled flows
-│   │   │   └── providers.ts      # Provider management
+│   │   │   ├── compiler.ts            # Flow → BaleyBots code
+│   │   │   ├── executor.ts            # Run compiled flows
+│   │   │   └── providers.ts           # Provider management
 │   │   ├── trpc/
 │   │   │   ├── client.ts
 │   │   │   ├── server.ts
 │   │   │   └── routers/
+│   │   │       ├── index.ts
+│   │   │       ├── workspace.ts
+│   │   │       ├── connection.ts
+│   │   │       ├── block.ts
+│   │   │       ├── flow.ts
+│   │   │       ├── execution.ts
+│   │   │       ├── decision.ts
+│   │   │       └── pattern.ts
 │   │   ├── patterns/
-│   │   │   ├── extractor.ts      # Extract patterns from decisions
-│   │   │   └── generator.ts      # Generate code from patterns
+│   │   │   ├── extractor.ts           # Extract patterns from decisions
+│   │   │   └── generator.ts           # Generate code from patterns
 │   │   └── utils/
-│   │       ├── schema.ts         # JSON Schema helpers
-│   │       └── crypto.ts         # Encrypt/decrypt API keys
+│   │       ├── schema.ts              # JSON Schema helpers
+│   │       └── crypto.ts              # Encrypt/decrypt API keys
 │   ├── hooks/
 │   │   ├── useBlock.ts
 │   │   ├── useFlow.ts
-│   │   └── useDecisions.ts
+│   │   ├── useDecisions.ts
+│   │   └── useConnection.ts
 │   ├── stores/
-│   │   ├── flowStore.ts          # React Flow state
-│   │   └── uiStore.ts            # UI state
+│   │   ├── flowStore.ts               # React Flow state
+│   │   └── uiStore.ts                 # UI state
+│   ├── styles/
+│   │   └── tokens.css                 # Design system tokens
 │   └── types/
 │       ├── block.ts
 │       ├── flow.ts
-│       └── decision.ts
+│       ├── decision.ts
+│       └── pattern.ts
 ├── public/
 ├── drizzle.config.ts
 ├── next.config.js
 ├── package.json
 ├── tailwind.config.ts
 ├── tsconfig.json
-├── PLAN.md                       # This file
+├── PLAN.md
 ├── README.md
-└── CHANGELOG.md
+├── CHANGELOG.md
+└── LICENSE
 ```
 
 ---
 
 ## Success Metrics
 
-### MVP Success Criteria
+### Phase 1 Success
 
-- [ ] User can create an AI block with goal and schema
-- [ ] User can create a Function block with code
-- [ ] User can test blocks with sample input
-- [ ] User can compose blocks into a flow
-- [ ] User can run a flow and see results
-- [ ] AI decisions are logged and viewable
-- [ ] User can provide feedback on decisions
+- [ ] Design system tokens defined and documented
+- [ ] All primitive components use only tokens
+- [ ] Database schema implemented with all indexes
+- [ ] tRPC API fully typed end-to-end
+- [ ] Can CRUD blocks and connections
+- [ ] Can test blocks and see decisions logged
 
-### Long-term Success Criteria
+### Phase 2 Success
+
+- [ ] Visual flow canvas fully functional
+- [ ] Flows compile to valid BaleyBots code
+- [ ] Flows execute with real-time progress
+- [ ] Decisions filterable and inspectable
+- [ ] Webhook triggers work
+
+### Phase 3 Success
+
+- [ ] Patterns extracted from decision history
+- [ ] Code generated with 80%+ accuracy
+- [ ] Hybrid mode operational
+- [ ] Block swap preserves flow functionality
+- [ ] Training data exportable
+
+### Long-term Success
 
 - [ ] 50%+ of AI blocks eventually converted to code
 - [ ] Average decision inspection time < 30 seconds
