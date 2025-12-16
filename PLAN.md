@@ -112,6 +112,9 @@ Database → API → Frontend fully typed. If it compiles, it works. Use Zod for
 ### 5. No Shortcuts
 Unlimited time means no technical debt. Build it right the first time. Every decision should optimize for long-term maintainability.
 
+### 6. Real-Time Streaming is Infrastructure
+Streaming is not a feature—it's the foundation. Every AI interaction streams from day one. First token appears in <100ms. No buffering, no delays, no compromises. The streaming layer must handle anything we throw at it: massive payloads, concurrent streams, multimodal data, tool calls mid-stream. Build it right or rebuild everything later.
+
 ---
 
 ## Core Concepts
@@ -286,26 +289,38 @@ interface Pattern {
 | | Primitive components | Button, Input, Select, Badge, Card, Table |
 | | Layout components | Page, Sidebar, Panel, Modal, Sheet |
 | | Component documentation | Storybook or similar for component catalog |
+| **Streaming Infrastructure** | StreamManager core | Connection pooling, auto-reconnect, heartbeat |
+| | EventBuffer | Backpressure handling, event ordering, burst handling |
+| | useStream hook | Core streaming hook with typed events |
+| | StreamingText component | Real-time text rendering with cursor |
+| | StreamingJSON component | Token-by-token JSON rendering |
+| | Multi-stream support | Handle 100+ concurrent streams |
 | **Data Layer** | Database schema | All tables with proper indexes and constraints |
 | | Drizzle models | Type-safe ORM with relations |
-| | tRPC routers | CRUD for all entities + test endpoint |
+| | tRPC routers | CRUD for all entities + streaming endpoints |
 | | Zod schemas | Validation for all inputs |
 | **Core Engine** | Block compiler | Convert block config → BaleyBots runtime |
-| | Execution engine | Run single blocks, capture results |
-| | Decision logger | Store AI decisions with full context |
+| | Execution engine | Run single blocks, stream results in real-time |
+| | Decision logger | Store AI decisions with full stream replay |
 | | Provider manager | Manage LLM connections, test connectivity |
+| **Testing Area** | Live Chat Test | Full conversational interface with streaming |
+| | Structured Test | JSON input/output with schema validation |
+| | Batch Test | Multiple test cases with parallel streaming |
+| | Use-case scenarios | Pre-built test templates |
 | **Minimal UI** | Connection page | Add/edit/test LLM providers |
 | | Block library page | List all blocks |
 | | Block editor | Create/edit AI and Function blocks |
-| | Block test runner | Run block with JSON input, see output |
+| | Block test runner | All 4 testing modes with real-time streaming |
 
 #### Success Criteria
 
 - [ ] Can add OpenAI/Anthropic connection and verify it works
 - [ ] Can create an AI block with goal, model, and output schema
 - [ ] Can create a Function block with TypeScript code
-- [ ] Can test any block with sample input and see structured output
-- [ ] AI block decisions are stored in database with full context
+- [ ] **First token appears in <100ms** (streaming works instantly)
+- [ ] **Can run 50+ parallel test cases** with real-time streaming for each
+- [ ] **Live chat test works** with multi-turn memory and file attachments
+- [ ] AI block decisions are stored with full stream event replay
 - [ ] All UI uses design system tokens (no hardcoded colors/spacing)
 - [ ] Changing a token value updates entire application
 
@@ -648,6 +663,546 @@ src/components/layout/
 3. **Patterns compose primitives** - Never write raw HTML in patterns
 4. **Layouts are content-agnostic** - They provide structure, not styling
 5. **Dark mode via token swap** - Just change the CSS variables
+
+---
+
+## Streaming Infrastructure
+
+Real-time streaming is the foundation of the entire platform. This is not negotiable—it's built from day one and must handle everything we throw at it.
+
+### Performance Requirements
+
+| Metric | Target | Non-Negotiable |
+|--------|--------|----------------|
+| **Time to First Token** | <100ms | Yes |
+| **Token-to-Token Latency** | <20ms | Yes |
+| **Concurrent Streams** | 100+ per user | Yes |
+| **Max Payload Size** | 10MB+ (images, docs) | Yes |
+| **Stream Recovery** | Auto-reconnect <1s | Yes |
+| **Backpressure Handling** | Zero dropped tokens | Yes |
+
+### Streaming Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        STREAMING INFRASTRUCTURE                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     CLIENT (Browser)                                │   │
+│  │                                                                      │   │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐        │   │
+│  │  │  StreamManager │  │  EventBuffer   │  │  UIRenderer    │        │   │
+│  │  │                │  │                │  │                │        │   │
+│  │  │ • Connection   │  │ • Queue events │  │ • Debounce     │        │   │
+│  │  │   pooling      │  │ • Handle burst │  │   renders      │        │   │
+│  │  │ • Auto-retry   │  │ • Backpressure │  │ • Virtual      │        │   │
+│  │  │ • Heartbeat    │  │ • Ordering     │  │   scrolling    │        │   │
+│  │  └────────────────┘  └────────────────┘  └────────────────┘        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                            SSE / WebSocket                                  │
+│                                    │                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     SERVER (Edge/Node)                              │   │
+│  │                                                                      │   │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐        │   │
+│  │  │  StreamRouter  │  │  EventEmitter  │  │  ConnectionMgr │        │   │
+│  │  │                │  │                │  │                │        │   │
+│  │  │ • Route to     │  │ • Fan-out to   │  │ • Track active │        │   │
+│  │  │   correct      │  │   subscribers  │  │   connections  │        │   │
+│  │  │   stream       │  │ • Buffer if    │  │ • Clean up     │        │   │
+│  │  │ • Multiplex    │  │   slow client  │  │   stale        │        │   │
+│  │  └────────────────┘  └────────────────┘  └────────────────┘        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    │                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     LLM PROVIDERS                                   │   │
+│  │                                                                      │   │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐        │   │
+│  │  │    OpenAI      │  │   Anthropic    │  │    Ollama      │        │   │
+│  │  │   (streaming)  │  │   (streaming)  │  │   (streaming)  │        │   │
+│  │  └────────────────┘  └────────────────┘  └────────────────┘        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Stream Event Types
+
+Every stream emits typed events that the UI can handle:
+
+```typescript
+type StreamEvent =
+  // Content streaming
+  | { type: 'text_delta'; content: string; }
+  | { type: 'structured_output_delta'; partial: unknown; path: string; }
+
+  // Tool calling (mid-stream)
+  | { type: 'tool_call_start'; toolName: string; toolId: string; }
+  | { type: 'tool_call_args_delta'; toolId: string; argsDelta: string; }
+  | { type: 'tool_call_complete'; toolId: string; args: unknown; }
+  | { type: 'tool_execution_start'; toolId: string; }
+  | { type: 'tool_execution_output'; toolId: string; output: unknown; }
+
+  // Reasoning (for reasoning models)
+  | { type: 'reasoning_delta'; content: string; }
+
+  // Metadata
+  | { type: 'metadata'; model: string; tokens?: { input: number; output: number; }; }
+
+  // Lifecycle
+  | { type: 'start'; streamId: string; }
+  | { type: 'complete'; streamId: string; finalOutput: unknown; }
+  | { type: 'error'; error: { message: string; code: string; }; };
+```
+
+### Client-Side Stream Handling
+
+```typescript
+// Core streaming hook - used everywhere
+function useStream<T>(options: {
+  onEvent: (event: StreamEvent) => void;
+  onComplete?: (result: T) => void;
+  onError?: (error: Error) => void;
+}) {
+  // Connection management
+  // Auto-reconnect on failure
+  // Event ordering guarantees
+  // Backpressure handling
+}
+
+// Specialized hooks built on useStream
+function useChatStream(blockId: string);      // For live chat testing
+function useBlockStream(blockId: string);      // For block test runner
+function useFlowStream(flowId: string);        // For flow execution
+function useMultiStream(streamIds: string[]);  // For parallel blocks
+```
+
+### Streaming Components
+
+```typescript
+// Real-time text rendering with cursor
+<StreamingText streamId={id} />
+
+// Token-by-token JSON rendering
+<StreamingJSON streamId={id} schema={outputSchema} />
+
+// Tool call visualization mid-stream
+<StreamingToolCalls streamId={id} />
+
+// Multi-stream dashboard
+<StreamDashboard streams={activeStreams} />
+```
+
+### Why This Matters
+
+Without rock-solid streaming:
+- Users wait for full responses (feels slow, even if fast)
+- Tool calls feel like black boxes
+- Debugging is impossible (can't see what's happening)
+- Concurrent operations break
+- Large payloads fail silently
+
+With rock-solid streaming:
+- First token appears instantly (feels responsive)
+- Tool calls are visible as they happen
+- Every event is logged and debuggable
+- 100 parallel streams work flawlessly
+- 10MB image + text response streams smoothly
+
+### Recommended Implementation Approach
+
+After researching industry best practices and production implementations, here's the recommended approach:
+
+#### Protocol: Server-Sent Events (SSE)
+
+**Why SSE over WebSockets for LLM streaming:**
+- Works over standard HTTP (better firewall/proxy compatibility)
+- Built-in reconnection handling
+- Simpler error handling and debugging
+- Perfect for unidirectional streaming (server → client)
+- Visible in browser DevTools Network tab
+- No additional infrastructure (no WebSocket servers)
+
+**Use WebSockets only when needed for:**
+- Multi-user collaborative sessions
+- Bidirectional tool progress updates
+- Real-time cursor sharing / co-browsing
+
+#### Foundation: Vercel AI SDK
+
+The **Vercel AI SDK** is the industry standard for LLM streaming. It provides:
+
+1. **Provider Abstraction** - Single API for OpenAI, Anthropic, Google, Ollama, etc.
+2. **Streaming Primitives** - `streamText()`, `streamObject()` with automatic chunking
+3. **React Hooks** - `useChat()`, `useCompletion()` with built-in state management
+4. **Data Stream Protocol** - Typed events beyond just text (tool calls, metadata)
+5. **Production Middleware** - Caching, rate limiting, telemetry
+
+```typescript
+// Server: Next.js API Route
+import { streamText } from 'ai';
+import { openai } from '@ai-sdk/openai';
+
+export async function POST(req: Request) {
+  const { messages } = await req.json();
+
+  const result = streamText({
+    model: openai('gpt-4o'),
+    messages,
+    onChunk: ({ chunk }) => {
+      // Log every chunk for debugging/replay
+    }
+  });
+
+  return result.toDataStreamResponse();
+}
+
+// Client: React Component
+import { useChat } from '@ai-sdk/react';
+
+function Chat() {
+  const { messages, input, handleSubmit, isLoading } = useChat({
+    api: '/api/chat',
+    onResponse: (response) => {
+      // First byte received
+    },
+    onFinish: (message) => {
+      // Stream complete
+    }
+  });
+
+  // Automatic streaming display, state management, error handling
+}
+```
+
+#### Why Build on Vercel AI SDK
+
+| Aspect | Vercel AI SDK | Custom Implementation |
+|--------|---------------|----------------------|
+| **Time to implement** | Days | Weeks/Months |
+| **Provider switching** | Config change | Major refactor |
+| **Edge cases handled** | Yes (battle-tested) | You discover them |
+| **Streaming protocol** | Proven | Design from scratch |
+| **React integration** | First-class hooks | Build yourself |
+| **Tool calling** | Built-in | Complex to implement |
+| **Error recovery** | Automatic | Manual implementation |
+
+#### Our Extension Layer
+
+We build **on top of** Vercel AI SDK, not replace it:
+
+```typescript
+// Our streaming infrastructure wraps AI SDK
+import { useChat } from '@ai-sdk/react';
+
+export function useBlockStream(blockId: string) {
+  const chat = useChat({
+    api: `/api/blocks/${blockId}/execute`,
+    // ... config
+  });
+
+  // Our extensions:
+  return {
+    ...chat,
+    // Decision logging
+    logDecision: () => { /* save to DB */ },
+    // Stream replay
+    replayStream: (decisionId: string) => { /* replay from stored events */ },
+    // Multi-stream coordination
+    streamId: generateStreamId(),
+    // Performance metrics
+    metrics: { ttft: null, tokensPerSecond: null },
+  };
+}
+```
+
+#### Streaming Component Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      OUR STREAMING COMPONENT STACK                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  APPLICATION LAYER (Our Code)                                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  • useBlockStream() - Block execution with decision logging          │   │
+│  │  • useChatTest() - Live chat testing with multi-turn memory         │   │
+│  │  • useFlowStream() - Multi-block flow execution                     │   │
+│  │  • StreamingText - Our text renderer with cursor                    │   │
+│  │  • StreamingJSON - Our JSON renderer with schema highlighting       │   │
+│  │  • StreamReplay - Replay from stored events                         │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  AI SDK LAYER (Vercel AI SDK)                                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  • useChat() - Core chat state management                           │   │
+│  │  • useCompletion() - Single-shot completions                        │   │
+│  │  • streamText() - Server-side streaming                             │   │
+│  │  • streamObject() - Structured output streaming                     │   │
+│  │  • Data Stream Protocol - Typed events                              │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  PROVIDER LAYER (AI SDK Providers)                                          │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  • @ai-sdk/openai - OpenAI integration                              │   │
+│  │  • @ai-sdk/anthropic - Anthropic integration                        │   │
+│  │  • ollama-ai-provider - Local Ollama                                │   │
+│  │  • Custom providers via BaleyBots                                   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Performance Optimizations
+
+```typescript
+// 1. Render batching - don't re-render on every token
+const RENDER_BATCH_MS = 30; // ~30fps
+const [displayText, setDisplayText] = useState('');
+const bufferRef = useRef('');
+
+useEffect(() => {
+  const interval = setInterval(() => {
+    if (bufferRef.current !== displayText) {
+      setDisplayText(bufferRef.current);
+    }
+  }, RENDER_BATCH_MS);
+  return () => clearInterval(interval);
+}, [displayText]);
+
+// 2. Virtual scrolling for long conversations
+<VirtualizedMessageList messages={messages} />
+
+// 3. Streaming JSON with progressive parsing
+<StreamingJSON
+  partial={partialOutput}
+  schema={outputSchema}
+  highlightChanges={true}
+/>
+```
+
+#### Integration with BaleyBots
+
+The AI SDK handles streaming transport; BaleyBots handles block logic:
+
+```typescript
+// Block execution combines both
+async function executeBlock(blockId: string, input: unknown) {
+  const block = await getBlock(blockId);
+
+  if (block.type === 'ai') {
+    // Use AI SDK for streaming
+    const result = streamText({
+      model: getProvider(block.connectionId)(block.model),
+      system: block.systemPrompt,
+      prompt: formatPrompt(block.goal, input),
+      // ...
+    });
+
+    return result;
+  } else {
+    // Use BaleyBots Deterministic for function blocks
+    const processor = Deterministic.create({
+      name: block.name,
+      processFn: evalBlockCode(block.code),
+    });
+
+    return processor.process(input);
+  }
+}
+```
+
+---
+
+## Testing Area
+
+The Testing Area is a first-class feature, not an afterthought. It's how users validate blocks work before deploying them into flows.
+
+### Testing Modes
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           TESTING AREA                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     1. LIVE CHAT TEST                               │   │
+│  │                                                                      │   │
+│  │  Real conversational interface for testing AI blocks                │   │
+│  │                                                                      │   │
+│  │  ┌─────────────────────────────────────────────────────────────┐   │   │
+│  │  │  ┌─────────────────────────────────────────────────────┐    │   │   │
+│  │  │  │ You: What's the fraud risk for this order?          │    │   │   │
+│  │  │  │     {orderId: "123", amount: 4500, customer: {...}} │    │   │   │
+│  │  │  └─────────────────────────────────────────────────────┘    │   │   │
+│  │  │                                                              │   │   │
+│  │  │  ┌─────────────────────────────────────────────────────┐    │   │   │
+│  │  │  │ AI: Analyzing order... ███████░░░ streaming         │    │   │   │
+│  │  │  │                                                      │    │   │   │
+│  │  │  │ Risk Score: 87 (HIGH)                               │    │   │   │
+│  │  │  │ Action: REVIEW                                       │    │   │   │
+│  │  │  │ Reasons:                                             │    │   │   │
+│  │  │  │ • New customer (0 prior orders)                     │    │   │   │
+│  │  │  │ • High-value order ($4,500)                         │    │   │   │
+│  │  │  │ • Temporary email domain                            │    │   │   │
+│  │  │  └─────────────────────────────────────────────────────┘    │   │   │
+│  │  │                                                              │   │   │
+│  │  │  [Type message...                              ] [Send]      │   │   │
+│  │  └─────────────────────────────────────────────────────────────┘   │   │
+│  │                                                                      │   │
+│  │  Features:                                                           │   │
+│  │  • Real-time streaming responses                                    │   │
+│  │  • Multi-turn conversation memory                                   │   │
+│  │  • Attach files/images (multimodal)                                 │   │
+│  │  • See tool calls as they happen                                    │   │
+│  │  • View reasoning (for reasoning models)                            │   │
+│  │  • Export conversation as test case                                 │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     2. STRUCTURED TEST                              │   │
+│  │                                                                      │   │
+│  │  JSON input → Block execution → Validated output                    │   │
+│  │                                                                      │   │
+│  │  ┌──────────────────────┐     ┌──────────────────────┐             │   │
+│  │  │ INPUT                │     │ OUTPUT               │             │   │
+│  │  │ {                    │     │ {                    │             │   │
+│  │  │   "orderId": "123",  │ ──▶ │   "riskScore": 87,   │             │   │
+│  │  │   "amount": 4500,    │     │   "action": "review",│             │   │
+│  │  │   "customer": {      │     │   "reasons": [...]   │             │   │
+│  │  │     "isNew": true    │     │ }                    │             │   │
+│  │  │   }                  │     │ ✓ Valid against      │             │   │
+│  │  │ }                    │     │   output schema      │             │   │
+│  │  └──────────────────────┘     └──────────────────────┘             │   │
+│  │                                                                      │   │
+│  │  Features:                                                           │   │
+│  │  • Schema-aware JSON editor (autocomplete from inputSchema)         │   │
+│  │  • Output validation against outputSchema                           │   │
+│  │  • Diff view for comparing runs                                     │   │
+│  │  • Save as test case                                                │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     3. BATCH TEST                                   │   │
+│  │                                                                      │   │
+│  │  Run multiple test cases, compare results                           │   │
+│  │                                                                      │   │
+│  │  ┌─────────────────────────────────────────────────────────────┐   │   │
+│  │  │ Test Case        │ Input      │ Expected   │ Actual │ Status│   │   │
+│  │  ├──────────────────┼────────────┼────────────┼────────┼───────┤   │   │
+│  │  │ High-risk order  │ {...}      │ review     │ review │ ✓     │   │   │
+│  │  │ Normal order     │ {...}      │ approve    │ approve│ ✓     │   │   │
+│  │  │ Edge case: $0    │ {...}      │ reject     │ approve│ ✗     │   │   │
+│  │  │ Repeat customer  │ {...}      │ approve    │ approve│ ✓     │   │   │
+│  │  └─────────────────────────────────────────────────────────────┘   │   │
+│  │                                                                      │   │
+│  │  Features:                                                           │   │
+│  │  • Import test cases from CSV/JSON                                  │   │
+│  │  • Run all tests in parallel (streaming)                            │   │
+│  │  • Generate test cases from decision history                        │   │
+│  │  • Regression testing on block changes                              │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     4. USE-CASE SCENARIOS                           │   │
+│  │                                                                      │   │
+│  │  Pre-built test scenarios for common patterns                       │   │
+│  │                                                                      │   │
+│  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │   │
+│  │  │ 📊 Classification│  │ 📝 Extraction    │  │ 🎯 Scoring       │  │   │
+│  │  │                  │  │                  │  │                  │  │   │
+│  │  │ • Spam/not spam  │  │ • Invoice fields │  │ • Lead quality   │  │   │
+│  │  │ • Sentiment      │  │ • Contact info   │  │ • Risk score     │  │   │
+│  │  │ • Category       │  │ • Key entities   │  │ • Priority       │  │   │
+│  │  │ • Intent         │  │ • Dates/amounts  │  │ • Confidence     │  │   │
+│  │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │   │
+│  │                                                                      │   │
+│  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │   │
+│  │  │ 🔀 Routing       │  │ ✍️ Generation     │  │ 🔧 Tool Use      │  │   │
+│  │  │                  │  │                  │  │                  │  │   │
+│  │  │ • Dept routing   │  │ • Email reply    │  │ • Web search     │  │   │
+│  │  │ • Escalation     │  │ • Summary        │  │ • API calls      │  │   │
+│  │  │ • Specialist     │  │ • Report         │  │ • Database       │  │   │
+│  │  │ • Multi-path     │  │ • Translation    │  │ • Multi-tool     │  │   │
+│  │  └──────────────────┘  └──────────────────┘  └──────────────────┘  │   │
+│  │                                                                      │   │
+│  │  Each scenario includes:                                            │   │
+│  │  • Sample input data                                                │   │
+│  │  • Expected output schema                                           │   │
+│  │  • Edge case examples                                               │   │
+│  │  • Performance benchmarks                                           │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Testing Infrastructure
+
+```typescript
+// Test case storage
+interface TestCase {
+  id: string;
+  blockId: string;
+  name: string;
+  description?: string;
+  input: unknown;
+  expectedOutput?: unknown;
+  assertions?: TestAssertion[];
+  tags: string[];
+  createdAt: Date;
+}
+
+interface TestAssertion {
+  path: string;           // JSON path: "riskScore", "action", "reasons[0]"
+  operator: 'equals' | 'contains' | 'gt' | 'lt' | 'matches' | 'exists';
+  value: unknown;
+}
+
+interface TestRun {
+  id: string;
+  testCaseId: string;
+  blockId: string;
+  blockVersion: number;
+  input: unknown;
+  output: unknown;
+  passed: boolean;
+  assertionResults: AssertionResult[];
+  streamEvents: StreamEvent[];  // Full stream log for replay
+  duration: number;
+  tokensUsed: number;
+  createdAt: Date;
+}
+```
+
+### Live Chat Component
+
+```typescript
+interface LiveChatTestProps {
+  blockId: string;
+  initialContext?: unknown;
+}
+
+function LiveChatTest({ blockId, initialContext }: LiveChatTestProps) {
+  // Full conversation state
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  // Real-time streaming
+  const { sendMessage, isStreaming, currentStream } = useChatStream(blockId);
+
+  // Features:
+  // - Multi-turn memory
+  // - File/image attachments
+  // - Tool call visualization
+  // - Reasoning display
+  // - Export conversation
+  // - Save as test case
+}
+```
 
 ---
 
