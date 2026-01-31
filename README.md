@@ -35,83 +35,126 @@ This means you can:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/BaleyUI.git
+git clone https://github.com/jamesmcarthur-3999/BaleyUI.git
 cd BaleyUI
 
-# Install dependencies
-npm install
+# Install dependencies (requires pnpm)
+pnpm install
 
 # Set up environment variables
 cp .env.example .env.local
+# Edit .env.local with your credentials
 
 # Run database migrations
-npm run db:migrate
+pnpm db:push
 
 # Start development server
-npm run dev
+pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) to see the app.
+
+## Tech Stack
+
+| Layer | Technology | Version |
+|-------|------------|---------|
+| Framework | Next.js | 15.1+ |
+| UI Library | React | 19.0+ |
+| Language | TypeScript | 5.7+ |
+| Styling | Tailwind CSS | 3.4+ |
+| Components | shadcn/ui + Radix | Latest |
+| Flow Editor | @xyflow/react | 12.3+ |
+| State | Zustand | 5.0+ |
+| Server State | TanStack Query | 5.62+ |
+| API | tRPC | 11.0+ |
+| Database | PostgreSQL + Drizzle | 0.38+ |
+| Auth | Clerk | 6.9+ |
+| AI Runtime | BaleyBots | Latest |
 
 ## Project Structure
 
 ```
 BaleyUI/
-├── src/
-│   ├── app/                    # Next.js App Router pages
-│   ├── components/             # React components
-│   │   ├── blocks/             # Block editor components
-│   │   ├── flows/              # Flow canvas components
-│   │   └── decisions/          # Decision inspector components
-│   ├── lib/
-│   │   ├── db/                 # Database schema and queries
-│   │   ├── baleybots/          # BaleyBots integration
-│   │   └── trpc/               # tRPC routers
-│   └── types/                  # TypeScript types
-├── PLAN.md                     # Detailed project plan
-└── README.md                   # This file
+├── apps/
+│   └── web/                      # Next.js 15 dashboard
+│       ├── src/
+│       │   ├── app/              # App Router pages
+│       │   │   ├── (dashboard)/  # Protected routes (blocks, flows)
+│       │   │   ├── (auth)/       # Auth routes (sign-in, sign-up)
+│       │   │   └── api/          # API routes (tRPC, streaming)
+│       │   ├── components/       # React components
+│       │   │   ├── ui/           # shadcn/ui primitives
+│       │   │   ├── blocks/       # Block editor components
+│       │   │   ├── streaming/    # Streaming UI components
+│       │   │   └── connections/  # LLM connection components
+│       │   ├── lib/              # Utilities and services
+│       │   └── hooks/            # Custom React hooks
+│       ├── next.config.ts
+│       └── package.json
+├── packages/
+│   ├── db/                       # @baleyui/db - Database schema
+│   │   ├── src/
+│   │   │   ├── schema.ts         # Drizzle schema
+│   │   │   └── types.ts          # Inferred types
+│   │   └── package.json
+│   ├── ui/                       # @baleyui/ui - Shared components
+│   └── core/                     # @baleyui/core - Core utilities
+├── pnpm-workspace.yaml           # Workspace configuration
+├── turbo.json                    # Turborepo config (optional)
+├── PLAN.md                       # Detailed project plan
+├── CODING_GUIDELINES.md          # Development standards
+├── AGENTS.md                     # AI agent task assignments
+└── README.md                     # This file
 ```
-
-## Tech Stack
-
-- **Framework**: Next.js 14 (App Router)
-- **UI**: React, Tailwind CSS, shadcn/ui
-- **Flow Editor**: React Flow
-- **Database**: PostgreSQL with Drizzle ORM
-- **API**: tRPC
-- **AI Runtime**: BaleyBots
 
 ## Documentation
 
-- [Project Plan](./PLAN.md) - Comprehensive project documentation
-- [Architecture](./PLAN.md#architecture) - System design
-- [Database Schema](./PLAN.md#database-schema) - Data model
-- [Feature Roadmap](./PLAN.md#feature-roadmap) - Implementation phases
+| Document | Description |
+|----------|-------------|
+| [Project Plan](./PLAN.md) | Vision, architecture, phases, database schema |
+| [Coding Guidelines](./CODING_GUIDELINES.md) | React 19, Next.js 15 patterns, best practices |
+| [Agent Tasks](./AGENTS.md) | Phase 1 task breakdown for AI agents |
 
 ## Development
 
 ```bash
-# Run development server
-npm run dev
+# Run development server (with Turbopack)
+pnpm dev
 
 # Run type checking
-npm run type-check
+pnpm type-check
 
 # Run linting
-npm run lint
+pnpm lint
 
 # Run tests
-npm run test
+pnpm test
 
-# Database migrations
-npm run db:generate    # Generate migration
-npm run db:migrate     # Apply migrations
-npm run db:studio      # Open Drizzle Studio
+# Database commands
+pnpm db:generate    # Generate migration from schema changes
+pnpm db:push        # Push schema to database (dev)
+pnpm db:migrate     # Apply migrations (prod)
+pnpm db:studio      # Open Drizzle Studio
+```
+
+## Environment Variables
+
+Copy `.env.example` to `.env.local` and configure:
+
+```bash
+# Required
+DATABASE_URL=           # PostgreSQL connection string
+CLERK_SECRET_KEY=       # Clerk secret key
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=  # Clerk publishable key
+
+# Optional
+UPSTASH_REDIS_REST_URL= # Redis for caching (optional)
+ENCRYPTION_KEY=         # For encrypting stored API keys
 ```
 
 ## Contributing
 
-Contributions are welcome! Please read the contributing guidelines before submitting a PR.
+See [AGENTS.md](./AGENTS.md) for the current task breakdown and how to contribute.
 
 ## License
 
@@ -121,3 +164,4 @@ MIT License - see [LICENSE](./LICENSE) for details.
 
 - [BaleyBots Framework](https://github.com/cbethin/baleybots)
 - [Project Plan](./PLAN.md)
+- [Coding Guidelines](./CODING_GUIDELINES.md)

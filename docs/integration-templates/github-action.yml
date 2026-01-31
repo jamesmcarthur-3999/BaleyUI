@@ -1,0 +1,219 @@
+# GitHub Actions Integration Template
+#
+# This workflow shows how to integrate BaleyUI with GitHub Actions
+# to automatically process issues, PRs, or other events.
+#
+# Usage:
+# 1. Copy this file to .github/workflows/baleyui.yml
+# 2. Add BALEYUI_API_KEY secret to your repository
+# 3. Update BALEYUI_FLOW_ID with your flow ID
+#
+# This example:
+# - Triggers on new issues
+# - Sends issue content to BaleyUI
+# - Posts AI-generated response as a comment
+
+name: BaleyUI Issue Assistant
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+# Prevent concurrent runs on the same issue
+concurrency:
+  group: baleyui-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  process-issue:
+    runs-on: ubuntu-latest
+    # Only run for new issues or comments mentioning @baleyui
+    if: |
+      github.event_name == 'issues' ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@baleyui'))
+
+    steps:
+      - name: Process with BaleyUI
+        uses: actions/github-script@v7
+        env:
+          BALEYUI_API_KEY: ${{ secrets.BALEYUI_API_KEY }}
+          BALEYUI_FLOW_ID: 'your-flow-id-here'
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const comment = context.payload.comment;
+
+            // Determine the content to process
+            const content = comment ? comment.body : issue.body;
+            const title = issue.title;
+
+            // Skip if this is our own comment
+            if (comment && comment.user.login === 'github-actions[bot]') {
+              console.log('Skipping bot comment');
+              return;
+            }
+
+            console.log(`Processing issue #${issue.number}: ${title}`);
+
+            // Execute BaleyUI flow
+            const response = await fetch(
+              `https://app.baleyui.com/api/v1/flows/${process.env.BALEYUI_FLOW_ID}/execute`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.BALEYUI_API_KEY}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  input: {
+                    title: title,
+                    body: content,
+                    author: issue.user.login,
+                    labels: issue.labels.map(l => l.name),
+                    repo: context.repo.repo,
+                    issueNumber: issue.number,
+                    isComment: !!comment,
+                  },
+                }),
+              }
+            );
+
+            if (!response.ok) {
+              throw new Error(`BaleyUI API error: ${response.status}`);
+            }
+
+            const { executionId } = await response.json();
+            console.log(`Execution started: ${executionId}`);
+
+            // Poll for completion
+            let result;
+            for (let i = 0; i < 60; i++) {
+              await new Promise(r => setTimeout(r, 2000));
+
+              const statusRes = await fetch(
+                `https://app.baleyui.com/api/v1/executions/${executionId}`,
+                {
+                  headers: {
+                    'Authorization': `Bearer ${process.env.BALEYUI_API_KEY}`,
+                  },
+                }
+              );
+
+              if (!statusRes.ok) {
+                throw new Error(`Status check failed: ${statusRes.status}`);
+              }
+
+              const { execution } = await statusRes.json();
+
+              if (['completed', 'failed', 'cancelled'].includes(execution.status)) {
+                result = execution;
+                break;
+              }
+            }
+
+            if (!result) {
+              throw new Error('Execution timed out');
+            }
+
+            if (result.status !== 'completed') {
+              console.log(`Execution ${result.status}`);
+              return;
+            }
+
+            // Extract response from output
+            const output = result.output;
+            const aiResponse = typeof output === 'string'
+              ? output
+              : (output?.response || output?.comment || JSON.stringify(output, null, 2));
+
+            // Post comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `${aiResponse}\n\n---\n*Powered by [BaleyUI](https://baleyui.com)*`,
+            });
+
+            console.log('Comment posted successfully');
+
+  # Example: Auto-label issues based on AI analysis
+  auto-label:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues'
+    needs: process-issue
+
+    steps:
+      - name: Label Issue
+        uses: actions/github-script@v7
+        env:
+          BALEYUI_API_KEY: ${{ secrets.BALEYUI_API_KEY }}
+          BALEYUI_CLASSIFIER_FLOW_ID: 'your-classifier-flow-id'
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            // Execute classifier flow
+            const response = await fetch(
+              `https://app.baleyui.com/api/v1/flows/${process.env.BALEYUI_CLASSIFIER_FLOW_ID}/execute`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.BALEYUI_API_KEY}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  input: {
+                    title: issue.title,
+                    body: issue.body,
+                  },
+                }),
+              }
+            );
+
+            if (!response.ok) return;
+
+            const { executionId } = await response.json();
+
+            // Wait for result (simplified)
+            await new Promise(r => setTimeout(r, 5000));
+
+            const statusRes = await fetch(
+              `https://app.baleyui.com/api/v1/executions/${executionId}`,
+              {
+                headers: {
+                  'Authorization': `Bearer ${process.env.BALEYUI_API_KEY}`,
+                },
+              }
+            );
+
+            const { execution } = await statusRes.json();
+
+            if (execution.status === 'completed' && execution.output?.labels) {
+              const labels = execution.output.labels;
+
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: labels,
+              });
+
+              console.log(`Added labels: ${labels.join(', ')}`);
+            }
+
+# Example Flow Configurations:
+#
+# Issue Responder Flow:
+# - Input: { title, body, author, labels, repo, issueNumber, isComment }
+# - AI Block: Analyze the issue and generate a helpful response
+# - Output: { response: string }
+#
+# Issue Classifier Flow:
+# - Input: { title, body }
+# - AI Block: Classify the issue type (bug, feature, question, etc.)
+# - Output: { labels: string[] }
+#
+# Repository Secrets Required:
+# - BALEYUI_API_KEY: Your BaleyUI API key
