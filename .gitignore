@@ -46,3 +46,6 @@ drizzle/meta/
 
 # Misc
 *.pem
+
+# Worktrees
+.worktrees/
