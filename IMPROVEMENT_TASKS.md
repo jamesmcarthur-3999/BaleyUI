@@ -9,28 +9,28 @@
 
 ### 1.1 Type Safety Remediation
 
-- [ ] **Fix CompiledNode type mismatch**
+- [x] **Fix CompiledNode type mismatch** ✅ COMPLETED
   - File: `/apps/web/src/lib/execution/types.ts:189-195`
-  - Change `incomingEdges: string[]` to `Array<{ sourceId: string; sourceHandle?: string }>`
-  - Change `outgoingEdges: string[]` to `Array<{ targetId: string; targetHandle?: string }>`
+  - Changed `incomingEdges: string[]` to `Array<{ sourceId: string; sourceHandle?: string }>`
+  - Changed `outgoingEdges: string[]` to `Array<{ targetId: string; targetHandle?: string }>`
 
-- [ ] **Replace `any` types in blocks router**
+- [x] **Replace `any` types in blocks router** ✅ COMPLETED
   - File: `/apps/web/src/lib/trpc/routers/blocks.ts`
-  - Line 56: `any[]` → `Array<typeof tools.$inferSelect>`
-  - Line 258: `any` → `Partial<typeof blocks.$inferInsert>`
+  - Line 56: `any[]` → `Tool` type from Drizzle's `$inferSelect`
+  - Line 258: `any` → `BlockUpdate` from Drizzle's `$inferInsert`
 
-- [ ] **Replace `any` types in BlockEditor**
+- [x] **Replace `any` types in BlockEditor** ✅ COMPLETED
   - File: `/apps/web/src/components/blocks/BlockEditor.tsx`
-  - Line 21: Type the block state properly
-  - Line 106: Type the onChange handler
+  - Created `BlockWithTools` and `BlockDataChanges` types
+  - Typed block state, onChange handlers properly
 
 - [ ] **Replace `any` types in flow store**
   - File: `/apps/web/src/stores/flow.ts`
   - Line 24: `updateNode` data parameter needs proper typing
 
-- [ ] **Add stricter ESLint rules**
-  - Add `@typescript-eslint/no-explicit-any` rule
-  - Add `@typescript-eslint/no-unsafe-assignment` rule
+- [x] **Add stricter ESLint rules** ✅ COMPLETED
+  - Added `@typescript-eslint/no-explicit-any` as error
+  - Note: `no-unsafe-*` rules require typed linting setup (see ESLint Violations section)
 
 ### 1.2 Security Hardening
 
@@ -277,6 +277,34 @@
 /.github/pull_request_template.md
 /docs/SETUP.md
 ```
+
+---
+
+## ESLint Violations
+
+**Status:** `@typescript-eslint/no-explicit-any` is now set to `error` level.
+
+The following files contain `any` type violations that need to be resolved:
+
+### API Routes
+- `/apps/web/src/app/api/executions/start/route.ts:71` - error handling
+- `/apps/web/src/app/api/v1/executions/[id]/stream/route.ts:60` - event type
+- `/apps/web/src/app/api/webhooks/[flowId]/[secret]/route.ts:20` - body type
+
+### Pages
+- `/apps/web/src/app/dashboard/decisions/page.tsx:66` - decision output type
+- `/apps/web/src/app/dashboard/executions/[id]/page.tsx:179` - event data type
+
+### Components
+- `/apps/web/src/components/analytics/BlockAnalytics.tsx:177` - chart tooltip
+- `/apps/web/src/components/analytics/ExportPanel.tsx:15,159,175` - export data
+- `/apps/web/src/components/blocks/AIBlockEditor.tsx:22-23` - block and onChange types
+- `/apps/web/src/components/blocks/BlockCard.tsx:88` - input schema
+
+### Note on no-unsafe-* Rules
+The `@typescript-eslint/no-unsafe-assignment`, `no-unsafe-member-access`, `no-unsafe-call`, and `no-unsafe-return` rules require typed linting configuration. To enable:
+1. Configure `parserOptions.project` in eslint config
+2. See: https://typescript-eslint.io/getting-started/typed-linting
 
 ---
 
