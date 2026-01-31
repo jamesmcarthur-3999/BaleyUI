@@ -10,6 +10,7 @@ import {
   updateWithLock,
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
+import { emitBuilderEvent, actorFromContext } from '@/lib/events/with-events';
 
 /**
  * Zod schema for flow validation
@@ -92,6 +93,18 @@ export const flowsRouter = router({
         })
         .returning();
 
+      // Emit FlowCreated event
+      if (flow) {
+        await emitBuilderEvent(
+          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
+          'FlowCreated',
+          {
+            flowId: flow.id,
+            name: flow.name,
+          }
+        );
+      }
+
       return flow;
     }),
 
@@ -145,6 +158,22 @@ export const flowsRouter = router({
         updateData
       );
 
+      // Emit FlowUpdated event
+      if (updated) {
+        await emitBuilderEvent(
+          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
+          'FlowUpdated',
+          {
+            flowId: input.id,
+            changes: updateData as Record<string, unknown>,
+            previousValues: Object.keys(updateData).reduce((acc, key) => {
+              acc[key] = existing[key as keyof typeof existing];
+              return acc;
+            }, {} as Record<string, unknown>),
+          }
+        );
+      }
+
       return updated;
     }),
 
@@ -171,6 +200,17 @@ export const flowsRouter = router({
       }
 
       const deleted = await softDelete(flows, input.id, ctx.userId);
+
+      // Emit FlowDeleted event
+      if (deleted) {
+        await emitBuilderEvent(
+          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
+          'FlowDeleted',
+          {
+            flowId: input.id,
+          }
+        );
+      }
 
       return deleted;
     }),
@@ -212,6 +252,18 @@ export const flowsRouter = router({
           updatedAt: new Date(),
         })
         .returning();
+
+      // Emit FlowCreated event for the duplicate
+      if (duplicated) {
+        await emitBuilderEvent(
+          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
+          'FlowCreated',
+          {
+            flowId: duplicated.id,
+            name: duplicated.name,
+          }
+        );
+      }
 
       return duplicated;
     }),
