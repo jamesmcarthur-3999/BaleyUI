@@ -3,6 +3,10 @@ import { router, protectedProcedure } from '../trpc';
 import { blocks, connections, tools, eq, and, notDeleted, softDelete, updateWithLock } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 
+// Type inference from Drizzle schema
+type Tool = typeof tools.$inferSelect;
+type BlockUpdate = Partial<typeof blocks.$inferInsert>;
+
 /**
  * Zod schema for block input validation
  */
@@ -53,9 +57,9 @@ export const blocksRouter = router({
       }
 
       // Fetch associated tools if toolIds exist
-      let blockTools: any[] = [];
+      let blockTools: Tool[] = [];
       if (block.toolIds && Array.isArray(block.toolIds) && block.toolIds.length > 0) {
-        blockTools = await ctx.db.query.tools.findMany({
+        const allTools = await ctx.db.query.tools.findMany({
           where: and(
             eq(tools.workspaceId, ctx.workspace.id),
             notDeleted(tools)
@@ -63,7 +67,7 @@ export const blocksRouter = router({
         });
 
         // Filter tools to only include those in the block's toolIds
-        blockTools = blockTools.filter((tool) => (block.toolIds as string[]).includes(tool.id));
+        blockTools = allTools.filter((tool) => (block.toolIds as string[]).includes(tool.id));
       }
 
       return {
@@ -255,7 +259,7 @@ export const blocksRouter = router({
       }
 
       // Prepare update data (only include fields that are provided)
-      const updateData: any = {};
+      const updateData: BlockUpdate = {};
 
       if (input.name !== undefined) updateData.name = input.name;
       if (input.description !== undefined) updateData.description = input.description;
