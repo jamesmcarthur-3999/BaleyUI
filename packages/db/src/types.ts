@@ -16,6 +16,7 @@ export type TestCase = InferSelectModel<typeof schema.testCases>;
 export type ExecutionEvent = InferSelectModel<typeof schema.executionEvents>;
 export type AuditLog = InferSelectModel<typeof schema.auditLogs>;
 export type BackgroundJob = InferSelectModel<typeof schema.backgroundJobs>;
+export type BuilderEvent = InferSelectModel<typeof schema.builderEvents>;
 
 // Insert types (for creating)
 export type NewWorkspace = InferInsertModel<typeof schema.workspaces>;
@@ -32,6 +33,7 @@ export type NewTestCase = InferInsertModel<typeof schema.testCases>;
 export type NewExecutionEvent = InferInsertModel<typeof schema.executionEvents>;
 export type NewAuditLog = InferInsertModel<typeof schema.auditLogs>;
 export type NewBackgroundJob = InferInsertModel<typeof schema.backgroundJobs>;
+export type NewBuilderEvent = InferInsertModel<typeof schema.builderEvents>;
 
 // Database type for dependency injection
 export type Database = typeof import('./index').db;

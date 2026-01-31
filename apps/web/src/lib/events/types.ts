@@ -69,8 +69,8 @@ export const BlockUpdatedSchema = BaseEventSchema.extend({
   type: z.literal('BlockUpdated'),
   data: z.object({
     blockId: z.string(),
-    changes: z.record(z.unknown()),
-    previousValues: z.record(z.unknown()).optional(),
+    changes: z.record(z.string(), z.unknown()),
+    previousValues: z.record(z.string(), z.unknown()).optional(),
   }),
 });
 
@@ -101,8 +101,8 @@ export const FlowUpdatedSchema = BaseEventSchema.extend({
   type: z.literal('FlowUpdated'),
   data: z.object({
     flowId: z.string(),
-    changes: z.record(z.unknown()),
-    previousValues: z.record(z.unknown()).optional(),
+    changes: z.record(z.string(), z.unknown()),
+    previousValues: z.record(z.string(), z.unknown()).optional(),
   }),
 });
 
@@ -120,7 +120,7 @@ export const FlowNodeAddedSchema = BaseEventSchema.extend({
     nodeId: z.string(),
     nodeType: z.string(),
     position: z.object({ x: z.number(), y: z.number() }).optional(),
-    data: z.record(z.unknown()).optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
   }),
 });
 
@@ -129,8 +129,8 @@ export const FlowNodeUpdatedSchema = BaseEventSchema.extend({
   data: z.object({
     flowId: z.string(),
     nodeId: z.string(),
-    changes: z.record(z.unknown()),
-    previousValues: z.record(z.unknown()).optional(),
+    changes: z.record(z.string(), z.unknown()),
+    previousValues: z.record(z.string(), z.unknown()).optional(),
   }),
 });
 
@@ -188,8 +188,8 @@ export const ConnectionUpdatedSchema = BaseEventSchema.extend({
   type: z.literal('ConnectionUpdated'),
   data: z.object({
     connectionId: z.string(),
-    changes: z.record(z.unknown()),
-    previousValues: z.record(z.unknown()).optional(),
+    changes: z.record(z.string(), z.unknown()),
+    previousValues: z.record(z.string(), z.unknown()).optional(),
   }),
 });
 
@@ -231,8 +231,8 @@ export const ToolUpdatedSchema = BaseEventSchema.extend({
   type: z.literal('ToolUpdated'),
   data: z.object({
     toolId: z.string(),
-    changes: z.record(z.unknown()),
-    previousValues: z.record(z.unknown()).optional(),
+    changes: z.record(z.string(), z.unknown()),
+    previousValues: z.record(z.string(), z.unknown()).optional(),
   }),
 });
 
