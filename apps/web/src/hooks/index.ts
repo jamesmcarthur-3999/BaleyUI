@@ -16,3 +16,6 @@ export * from './use-persisted-date-range';
 export * from './useVirtualList';
 export * from './useAutoSave';
 export * from './useOptimizedEvents';
+
+// Accessibility hooks
+export * from './useKeyboardNavigation';
