@@ -15,3 +15,6 @@ export type { OrbState, OrbActivity } from './OrbMode';
 
 export { CommandPalette, useCommandPalette } from './CommandPalette';
 export type { Command } from './CommandPalette';
+
+export { InlinePrompt, InlinePromptButton } from './InlinePrompt';
+export type { InlinePromptSuggestion, InlinePromptResult } from './InlinePrompt';
