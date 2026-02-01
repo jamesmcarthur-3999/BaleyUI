@@ -5,4 +5,5 @@
  */
 
 export { ReportTemplate } from './ReportTemplate';
+export { DashboardTemplate } from './DashboardTemplate';
 export * from './components';
