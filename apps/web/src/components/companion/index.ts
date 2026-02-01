@@ -12,3 +12,6 @@ export type { ChatMessage } from './ChatMode';
 
 export { OrbMode } from './OrbMode';
 export type { OrbState, OrbActivity } from './OrbMode';
+
+export { CommandPalette, useCommandPalette } from './CommandPalette';
+export type { Command } from './CommandPalette';
