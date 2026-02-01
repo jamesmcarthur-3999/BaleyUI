@@ -321,11 +321,11 @@ function getNestedValue(obj: unknown, path: string): unknown {
   if (!obj || typeof obj !== 'object') return undefined;
 
   const parts = path.split('.');
-  let current: any = obj;
+  let current: unknown = obj;
 
   for (const part of parts) {
     if (current && typeof current === 'object' && part in current) {
-      current = current[part];
+      current = (current as Record<string, unknown>)[part];
     } else {
       return undefined;
     }
