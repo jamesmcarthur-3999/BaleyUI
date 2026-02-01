@@ -18,3 +18,6 @@ export type { Command } from './CommandPalette';
 
 export { InlinePrompt, InlinePromptButton } from './InlinePrompt';
 export type { InlinePromptSuggestion, InlinePromptResult } from './InlinePrompt';
+
+export { VoiceMode, useVoiceMode } from './VoiceMode';
+export type { VoiceState, VoiceConfig, VoiceTranscript } from './VoiceMode';
