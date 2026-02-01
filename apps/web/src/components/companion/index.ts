@@ -9,3 +9,6 @@ export type { CompanionMode, CompanionState } from './CompanionContainer';
 
 export { ChatMode } from './ChatMode';
 export type { ChatMessage } from './ChatMode';
+
+export { OrbMode } from './OrbMode';
+export type { OrbState, OrbActivity } from './OrbMode';
