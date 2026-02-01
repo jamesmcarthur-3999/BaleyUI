@@ -12,6 +12,70 @@ import {
 import { TRPCError } from '@trpc/server';
 import { randomBytes } from 'crypto';
 
+// ============================================================================
+// TRIGGER TYPES
+// ============================================================================
+
+/**
+ * Webhook trigger configuration
+ */
+interface WebhookTrigger {
+  type: 'webhook';
+  secret: string;
+  signingSecret: string;
+  enabled: boolean;
+  createdAt: string;
+}
+
+/**
+ * Schedule trigger configuration
+ */
+interface ScheduleTrigger {
+  type: 'schedule';
+  cron: string;
+  enabled: boolean;
+  timezone?: string;
+}
+
+/**
+ * Manual trigger configuration
+ */
+interface ManualTrigger {
+  type: 'manual';
+  enabled: boolean;
+}
+
+/**
+ * Union of all trigger types
+ */
+type FlowTrigger = WebhookTrigger | ScheduleTrigger | ManualTrigger;
+
+/**
+ * Type guard to check if a trigger is a webhook trigger
+ */
+function isWebhookTrigger(trigger: unknown): trigger is WebhookTrigger {
+  return (
+    typeof trigger === 'object' &&
+    trigger !== null &&
+    'type' in trigger &&
+    trigger.type === 'webhook'
+  );
+}
+
+/**
+ * Parse triggers from database JSON
+ */
+function parseTriggers(triggers: unknown): FlowTrigger[] {
+  if (!Array.isArray(triggers)) return [];
+  return triggers.filter(
+    (t): t is FlowTrigger =>
+      typeof t === 'object' &&
+      t !== null &&
+      'type' in t &&
+      typeof t.type === 'string'
+  );
+}
+
 /**
  * Generate a random webhook secret
  */
@@ -64,14 +128,14 @@ export const webhooksRouter = router({
       const signingSecret = generateWebhookSecret();
 
       // Update flow triggers
-      const triggers = Array.isArray(flow.triggers) ? flow.triggers : [];
-      const existingWebhook = triggers.find((t: any) => t?.type === 'webhook');
+      const triggers = parseTriggers(flow.triggers);
+      const existingWebhook = triggers.find(isWebhookTrigger);
 
-      let updatedTriggers;
+      let updatedTriggers: FlowTrigger[];
       if (existingWebhook) {
         // Update existing webhook
-        updatedTriggers = triggers.map((t: any) =>
-          t?.type === 'webhook'
+        updatedTriggers = triggers.map((t) =>
+          isWebhookTrigger(t)
             ? { ...t, secret, signingSecret, enabled: true, createdAt: new Date().toISOString() }
             : t
         );
@@ -129,9 +193,9 @@ export const webhooksRouter = router({
       }
 
       // Remove webhook trigger from triggers array
-      const triggers = Array.isArray(flow.triggers) ? flow.triggers : [];
-      const updatedTriggers = triggers.map((t: any) =>
-        t?.type === 'webhook' ? { ...t, enabled: false } : t
+      const triggers = parseTriggers(flow.triggers);
+      const updatedTriggers = triggers.map((t) =>
+        isWebhookTrigger(t) ? { ...t, enabled: false } : t
       );
 
       // Update flow with new triggers
@@ -165,9 +229,9 @@ export const webhooksRouter = router({
       }
 
       // Find webhook trigger
-      const triggers = Array.isArray(flow.triggers) ? flow.triggers : [];
+      const triggers = parseTriggers(flow.triggers);
       const webhookTrigger = triggers.find(
-        (t: any) => t?.type === 'webhook' && t?.enabled === true
+        (t): t is WebhookTrigger => isWebhookTrigger(t) && t.enabled === true
       );
 
       if (!webhookTrigger) {
@@ -262,9 +326,9 @@ export const webhooksRouter = router({
       }
 
       // Find webhook trigger
-      const triggers = Array.isArray(flow.triggers) ? flow.triggers : [];
+      const triggers = parseTriggers(flow.triggers);
       const webhookTrigger = triggers.find(
-        (t: any) => t?.type === 'webhook' && t?.enabled === true
+        (t): t is WebhookTrigger => isWebhookTrigger(t) && t.enabled === true
       );
 
       if (!webhookTrigger) {
