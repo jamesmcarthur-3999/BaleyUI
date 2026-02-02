@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
-import { Canvas, ChatInput, ActionBar } from '@/components/creator';
+import { Canvas, ChatInput, ActionBar, ConversationThread } from '@/components/creator';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -597,6 +597,13 @@ export default function BaleybotPage() {
         className="border-t border-border/50 bg-background/80 backdrop-blur-sm px-4 py-4"
       >
         <div className="max-w-2xl mx-auto space-y-4">
+          {/* Conversation thread (Phase 2.7) */}
+          <ConversationThread
+            messages={messages}
+            defaultCollapsed={messages.length > 3}
+            maxHeight="250px"
+          />
+
           {/* Action bar (when ready) */}
           <ActionBar
             status={status}

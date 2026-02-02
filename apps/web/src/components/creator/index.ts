@@ -7,3 +7,4 @@
 export { Canvas } from './Canvas';
 export { ChatInput } from './ChatInput';
 export { ActionBar } from './ActionBar';
+export { ConversationThread } from './ConversationThread';
