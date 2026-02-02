@@ -234,9 +234,19 @@ export const baleybotsRouter = router({
       if (input.entityNames !== undefined) updateData.entityNames = input.entityNames;
       if (input.dependencies !== undefined) updateData.dependencies = input.dependencies;
 
-      const updated = await updateWithLock(baleybots, input.id, input.version, updateData);
-
-      return updated;
+      try {
+        const updated = await updateWithLock(baleybots, input.id, input.version, updateData);
+        return updated;
+      } catch (error) {
+        // Handle optimistic lock error (version mismatch)
+        if (error instanceof Error && error.message.includes('version')) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'BaleyBot was modified by another user. Please refresh and try again.',
+          });
+        }
+        throw error;
+      }
     }),
 
   /**
@@ -737,7 +747,6 @@ export const baleybotsRouter = router({
   sendCreatorMessage: protectedProcedure
     .input(
       z.object({
-        sessionId: z.string().uuid().optional(),
         baleybotId: z.string().uuid().optional(),
         message: z.string().min(1).max(10000),
         conversationHistory: z
@@ -754,9 +763,12 @@ export const baleybotsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       // Build generator context
-      // 1. Get connections from workspace
+      // 1. Get connections from workspace (excluding soft-deleted)
       const workspaceConnections = await ctx.db.query.connections.findMany({
-        where: eq(connections.workspaceId, ctx.workspace.id),
+        where: and(
+          eq(connections.workspaceId, ctx.workspace.id),
+          notDeleted(connections)
+        ),
       });
 
       // 2. Get existing BaleyBots from workspace
@@ -833,6 +845,9 @@ export const baleybotsRouter = router({
         description: z.string().optional(),
         icon: z.string().max(100).optional(),
         balCode: z.string().min(1),
+        // Optional structure cache (computed by BAL generator)
+        structure: z.record(z.string(), z.unknown()).optional(),
+        entityNames: z.array(z.string()).optional(),
         conversationHistory: z
           .array(
             z.object({
@@ -863,14 +878,27 @@ export const baleybotsRouter = router({
           });
         }
 
-        const updated = await updateWithLock(baleybots, input.baleybotId, existing.version, {
-          name: input.name,
-          description: input.description,
-          icon: input.icon,
-          balCode: input.balCode,
-        });
+        try {
+          const updated = await updateWithLock(baleybots, input.baleybotId, existing.version, {
+            name: input.name,
+            description: input.description,
+            icon: input.icon,
+            balCode: input.balCode,
+            structure: input.structure,
+            entityNames: input.entityNames,
+          });
 
-        return updated;
+          return updated;
+        } catch (error) {
+          // Handle optimistic lock error (version mismatch)
+          if (error instanceof Error && error.message.includes('version')) {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'BaleyBot was modified by another user. Please refresh and try again.',
+            });
+          }
+          throw error;
+        }
       } else {
         // Create new BaleyBot
         const [baleybot] = await ctx.db
@@ -882,6 +910,8 @@ export const baleybotsRouter = router({
             icon: input.icon,
             status: 'draft',
             balCode: input.balCode,
+            structure: input.structure,
+            entityNames: input.entityNames,
             executionCount: 0,
             createdBy: ctx.userId,
             createdAt: new Date(),
