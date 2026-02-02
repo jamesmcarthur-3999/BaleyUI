@@ -95,16 +95,14 @@ function SlidePanel({
           </div>
 
           {/* Footer */}
-          {footer && (
-            <div className="flex items-center justify-end gap-2 border-t px-6 py-4">
-              {footer}
-            </div>
-          )}
+          {footer}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );
 }
+
+SlidePanel.displayName = 'SlidePanel';
 
 // Convenience components for common footer patterns
 function SlidePanelFooter({
@@ -115,11 +113,13 @@ function SlidePanelFooter({
   className?: string;
 }) {
   return (
-    <div className={cn('flex items-center justify-end gap-2', className)}>
+    <div className={cn('flex items-center justify-end gap-2 border-t px-6 py-4', className)}>
       {children}
     </div>
   );
 }
+
+SlidePanelFooter.displayName = 'SlidePanelFooter';
 
 // Close button that auto-connects to panel
 const SlidePanelClose = DialogPrimitive.Close;
