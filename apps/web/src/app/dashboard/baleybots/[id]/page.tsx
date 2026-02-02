@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
-import { Canvas, ChatInput, ActionBar, ConversationThread } from '@/components/creator';
+import { Canvas, ChatInput, ActionBar, ConversationThread, ExecutionHistory } from '@/components/creator';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -670,6 +670,17 @@ export default function BaleybotPage() {
             defaultCollapsed={messages.length > 3}
             maxHeight="250px"
           />
+
+          {/* Execution history (Phase 2.9) */}
+          {!isNew && existingBaleybot?.executions && existingBaleybot.executions.length > 0 && (
+            <ExecutionHistory
+              executions={existingBaleybot.executions}
+              defaultCollapsed={true}
+              onExecutionClick={(executionId) => {
+                router.push(ROUTES.activity.execution(executionId));
+              }}
+            />
+          )}
 
           {/* Action bar (when ready) */}
           <ActionBar
