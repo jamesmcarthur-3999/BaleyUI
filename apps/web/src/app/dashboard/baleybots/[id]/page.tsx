@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
@@ -23,9 +23,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, Save, Loader2, ChevronDown, ChevronUp, Pencil } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, ChevronDown, ChevronUp, Pencil, Undo2, Redo2 } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
-import { useDirtyState, useDebouncedCallback, useNavigationGuard } from '@/hooks';
+import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } from '@/hooks';
 import { formatErrorWithAction, parseCreatorError } from '@/lib/errors/creator-errors';
 import type {
   VisualEntity,
@@ -47,6 +47,17 @@ interface RunResult {
  * Auto-save status for visual feedback
  */
 type AutoSaveStatus = 'idle' | 'saving' | 'saved';
+
+/**
+ * State snapshot for undo/redo history
+ */
+interface HistoryState {
+  entities: VisualEntity[];
+  connections: Connection[];
+  balCode: string;
+  name: string;
+  icon: string;
+}
 
 /**
  * Unified BaleyBot creation and detail page.
@@ -94,6 +105,33 @@ export default function BaleybotPage() {
 
   // Ref to track if initial prompt was sent (avoids effect dependency issues)
   const initialPromptSentRef = useRef(false);
+
+  // =====================================================================
+  // UNDO/REDO HISTORY (Phase 3.5)
+  // =====================================================================
+
+  /**
+   * Callback when undo/redo restores a state
+   */
+  const handleHistoryStateChange = useCallback((snapshot: HistoryState) => {
+    setEntities(snapshot.entities);
+    setConnections(snapshot.connections);
+    setBalCode(snapshot.balCode);
+    setName(snapshot.name);
+    setIcon(snapshot.icon);
+  }, []);
+
+  const {
+    push: pushHistory,
+    undo: handleUndo,
+    redo: handleRedo,
+    canUndo,
+    canRedo,
+  } = useHistory<HistoryState>({
+    maxStates: 20,
+    enableKeyboardShortcuts: true,
+    onStateChange: handleHistoryStateChange,
+  });
 
   // =====================================================================
   // DIRTY STATE TRACKING (Phase 1.1)
@@ -188,6 +226,18 @@ export default function BaleybotPage() {
       setBalCode(result.balCode);
       setName(result.name);
       setIcon(result.icon);
+
+      // 7.5 Push to undo history (Phase 3.5)
+      pushHistory(
+        {
+          entities: visualEntities,
+          connections: visualConnections,
+          balCode: result.balCode,
+          name: result.name,
+          icon: result.icon,
+        },
+        `AI response: ${result.name}`
+      );
 
       // 8. Add assistant message with brief summary
       const entityCount = visualEntities.length;
@@ -550,6 +600,46 @@ export default function BaleybotPage() {
                 (unsaved)
               </span>
             )}
+          </div>
+
+          {/* Undo/Redo buttons (Phase 3.5) */}
+          <div className="flex items-center gap-1">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleUndo}
+                    disabled={!canUndo}
+                    className="h-8 w-8"
+                  >
+                    <Undo2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Undo (Cmd+Z)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleRedo}
+                    disabled={!canRedo}
+                    className="h-8 w-8"
+                  >
+                    <Redo2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Redo (Cmd+Shift+Z)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
 
           {/* Save button with tooltip (Phase 1.8) */}
