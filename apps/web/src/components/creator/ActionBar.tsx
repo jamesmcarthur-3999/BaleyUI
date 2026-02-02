@@ -2,10 +2,21 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Code, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { Play, Code, Loader2, CheckCircle, XCircle, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import type { CreationStatus } from '@/lib/baleybot/creator-types';
 import { cn } from '@/lib/utils';
+
+/**
+ * Auto-save status type
+ */
+export type AutoSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface RunResult {
   success: boolean;
@@ -31,6 +42,10 @@ interface ActionBarProps {
   onRun: (input: string) => void;
   runResult?: RunResult;
   className?: string;
+  /** Whether the run button is locked (e.g., during auto-save) */
+  isRunLocked?: boolean;
+  /** Auto-save status to display */
+  autoSaveStatus?: AutoSaveStatus;
 }
 
 export function ActionBar({
@@ -39,6 +54,8 @@ export function ActionBar({
   onRun,
   runResult,
   className,
+  isRunLocked = false,
+  autoSaveStatus = 'idle',
 }: ActionBarProps) {
   const [testInput, setTestInput] = useState('');
   const [showCode, setShowCode] = useState(false);
@@ -49,6 +66,7 @@ export function ActionBar({
   }
 
   const isRunning = status === 'running';
+  const isRunDisabled = isRunning || isRunLocked;
 
   const handleRun = () => {
     onRun(testInput);
@@ -81,29 +99,86 @@ export function ActionBar({
           )}
         />
 
+        {/* Auto-Save Status Indicator */}
+        {autoSaveStatus !== 'idle' && (
+          <div
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm',
+              autoSaveStatus === 'saving' && 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400',
+              autoSaveStatus === 'saved' && 'bg-green-50 dark:bg-green-950/30 text-green-600 dark:text-green-400',
+              autoSaveStatus === 'error' && 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400'
+            )}
+            role="status"
+            aria-live="polite"
+          >
+            {autoSaveStatus === 'saving' && (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                <span>Saving...</span>
+              </>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <>
+                <CheckCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Saved</span>
+              </>
+            )}
+            {autoSaveStatus === 'error' && (
+              <>
+                <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Save failed</span>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Run Button */}
-        <Button
-          onClick={handleRun}
-          disabled={isRunning}
-          aria-label={isRunning ? 'Running BaleyBot' : 'Run BaleyBot'}
-          className={cn(
-            'btn-playful text-white rounded-xl',
-            'px-6 py-2.5 h-auto',
-            'flex items-center gap-2'
-          )}
-        >
-          {isRunning ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              Running...
-            </>
-          ) : (
-            <>
-              <Play className="h-4 w-4" aria-hidden="true" />
-              Run
-            </>
-          )}
-        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  onClick={handleRun}
+                  disabled={isRunDisabled}
+                  aria-label={
+                    isRunning
+                      ? 'Running BaleyBot'
+                      : isRunLocked
+                        ? 'Saving changes before run'
+                        : 'Run BaleyBot'
+                  }
+                  className={cn(
+                    'btn-playful text-white rounded-xl',
+                    'px-6 py-2.5 h-auto',
+                    'flex items-center gap-2'
+                  )}
+                >
+                  {isRunning ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      Running...
+                    </>
+                  ) : isRunLocked ? (
+                    <>
+                      <Save className="h-4 w-4 animate-pulse" aria-hidden="true" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4" aria-hidden="true" />
+                      Run
+                    </>
+                  )}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {isRunLocked && !isRunning && (
+              <TooltipContent>
+                <p>Saving changes before running...</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
 
         {/* Code Toggle Button */}
         <Button

@@ -1,14 +1,31 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
 import { Canvas, ChatInput, ActionBar } from '@/components/creator';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
+import { useDirtyState, useDebouncedCallback, useNavigationGuard } from '@/hooks';
 import type {
   VisualEntity,
   Connection,
@@ -24,6 +41,11 @@ interface RunResult {
   output: unknown;
   error?: string;
 }
+
+/**
+ * Auto-save status for visual feedback
+ */
+type AutoSaveStatus = 'idle' | 'saving' | 'saved';
 
 /**
  * Unified BaleyBot creation and detail page.
@@ -60,12 +82,31 @@ export default function BaleybotPage() {
 
   // Run state
   const [runResult, setRunResult] = useState<RunResult | undefined>(undefined);
+  const [isRunLocked, setIsRunLocked] = useState(false);
 
   // UI state
   const [isSaving, setIsSaving] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle');
 
   // Ref to track if initial prompt was sent (avoids effect dependency issues)
   const initialPromptSentRef = useRef(false);
+
+  // =====================================================================
+  // DIRTY STATE TRACKING (Phase 1.1)
+  // =====================================================================
+
+  const dirtyState = useMemo(
+    () => ({
+      entities,
+      connections,
+      balCode,
+      name,
+      icon,
+    }),
+    [entities, connections, balCode, name, icon]
+  );
+
+  const { isDirty, markClean } = useDirtyState(dirtyState);
 
   // =====================================================================
   // TRPC QUERIES AND MUTATIONS
@@ -172,10 +213,10 @@ export default function BaleybotPage() {
 
   /**
    * Handle saving the BaleyBot
-   * Returns the saved ID (for use in handleRun)
+   * Returns true if save was successful
    */
-  const handleSave = async (): Promise<string | null> => {
-    if (!balCode || !name) return null;
+  const handleSave = async (): Promise<boolean> => {
+    if (!balCode || !name) return false;
 
     setIsSaving(true);
 
@@ -207,7 +248,10 @@ export default function BaleybotPage() {
         utils.baleybots.get.invalidate({ id: savedBaleybotId });
       }
 
-      return result.id;
+      // Mark state as clean after successful save
+      markClean();
+
+      return true;
     } catch (error) {
       console.error('Save failed:', error);
 
@@ -221,39 +265,54 @@ export default function BaleybotPage() {
       setMessages((prev) => [...prev, errorMessage]);
       setStatus('error');
 
-      return null;
+      return false;
     } finally {
       setIsSaving(false);
     }
   };
 
+  // Debounced save to prevent rapid clicks (Phase 1.5)
+  const { debouncedFn: debouncedSave, isPending: isSavePending } = useDebouncedCallback(
+    handleSave,
+    500
+  );
+
   /**
-   * Handle running the BaleyBot
+   * Handle running the BaleyBot with execution lock (Phase 1.6)
    */
   const handleRun = async (input: string) => {
+    // Prevent concurrent runs
+    if (isRunLocked) return;
+    setIsRunLocked(true);
+
     let baleybotIdToRun = savedBaleybotId;
 
-    // 1. Auto-save if not saved yet
-    if (!baleybotIdToRun) {
-      const newId = await handleSave();
-      if (!newId) {
-        setRunResult({
-          success: false,
-          output: null,
-          error: 'Failed to save BaleyBot before running',
-        });
-        return;
-      }
-      baleybotIdToRun = newId;
-    }
-
-    // 2. Set status to 'running'
-    setStatus('running');
-
     try {
+      // 1. Auto-save if not saved yet (with visual indicator - Phase 1.7)
+      if (!baleybotIdToRun) {
+        setAutoSaveStatus('saving');
+        const saved = await handleSave();
+        if (!saved) {
+          setRunResult({
+            success: false,
+            output: null,
+            error: 'Failed to save BaleyBot before running',
+          });
+          setAutoSaveStatus('idle');
+          return;
+        }
+        baleybotIdToRun = savedBaleybotId;
+        setAutoSaveStatus('saved');
+        // Clear "saved" indicator after 2 seconds
+        setTimeout(() => setAutoSaveStatus('idle'), 2000);
+      }
+
+      // 2. Set status to 'running'
+      setStatus('running');
+
       // 3. Call execute mutation
       const result = await executeMutation.mutateAsync({
-        id: baleybotIdToRun,
+        id: baleybotIdToRun!,
         input: input || undefined,
         triggeredBy: 'manual',
       });
@@ -278,15 +337,46 @@ export default function BaleybotPage() {
 
       // Set status to 'error'
       setStatus('error');
+    } finally {
+      setIsRunLocked(false);
     }
   };
 
+  // =====================================================================
+  // NAVIGATION GUARD (Phase 1.3)
+  // =====================================================================
+
+  const {
+    guardedNavigate,
+    showDialog,
+    closeDialog,
+    handleDiscard,
+    handleSaveAndLeave,
+  } = useNavigationGuard(isDirty, handleSave);
+
   /**
-   * Handle back navigation
+   * Handle back navigation (uses guard)
    */
   const handleBack = () => {
-    router.push(ROUTES.baleybots.list);
+    guardedNavigate(ROUTES.baleybots.list);
   };
+
+  // =====================================================================
+  // BEFOREUNLOAD HANDLER (Phase 1.2)
+  // =====================================================================
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        // Modern browsers ignore custom messages, but we set it for older ones
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
 
   // =====================================================================
   // EFFECTS
@@ -315,8 +405,11 @@ export default function BaleybotPage() {
         );
         setEntities(visualEntities);
       }
+
+      // Mark as clean since we just loaded from database
+      markClean();
     }
-  }, [isNew, existingBaleybot]);
+  }, [isNew, existingBaleybot, markClean]);
 
   // Auto-send initial prompt if provided (using ref to track sent state)
   // Note: handleSendMessage is intentionally excluded from deps - we use ref to ensure single execution
@@ -365,7 +458,7 @@ export default function BaleybotPage() {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gradient-hero">
         <h1 className="text-2xl font-bold mb-4">BaleyBot not found</h1>
-        <Button onClick={handleBack}>
+        <Button onClick={() => router.push(ROUTES.baleybots.list)}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to BaleyBots
         </Button>
@@ -379,10 +472,38 @@ export default function BaleybotPage() {
 
   const displayName = name || 'New BaleyBot';
   const displayIcon = icon || '✨';
-  const canSave = status === 'ready' && balCode && name;
+  const canSave = status === 'ready' && balCode && name && !isSaving && !isSavePending;
+
+  // Compute save button disabled reason for tooltip (Phase 1.8)
+  const saveDisabledReason = !balCode || !name
+    ? 'Build something first'
+    : !isDirty
+    ? 'No changes to save'
+    : null;
 
   return (
     <div className="flex flex-col h-screen bg-gradient-hero">
+      {/* Navigation Guard Dialog (Phase 1.3) */}
+      <AlertDialog open={showDialog} onOpenChange={(open) => !open && closeDialog()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved changes. What would you like to do?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={closeDialog}>Cancel</AlertDialogCancel>
+            <Button variant="destructive" onClick={handleDiscard}>
+              Discard
+            </Button>
+            <AlertDialogAction onClick={handleSaveAndLeave}>
+              Save & Leave
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Header */}
       <motion.header
         initial={{ opacity: 0, y: -10 }}
@@ -400,27 +521,46 @@ export default function BaleybotPage() {
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <span className="text-2xl">{displayIcon}</span>
             <h1 className="text-lg font-semibold truncate">{displayName}</h1>
+            {/* Unsaved indicator */}
+            {isDirty && (
+              <span className="text-amber-500 text-xs font-medium" title="Unsaved changes">
+                (unsaved)
+              </span>
+            )}
           </div>
 
-          {/* Save button */}
-          <Button
-            onClick={() => handleSave()}
-            disabled={!canSave || isSaving}
-            size="sm"
-            className="shrink-0"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4 mr-2" />
-                Save
-              </>
-            )}
-          </Button>
+          {/* Save button with tooltip (Phase 1.8) */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={saveDisabledReason ? 0 : undefined}>
+                  <Button
+                    onClick={() => debouncedSave()}
+                    disabled={!canSave || !!saveDisabledReason}
+                    size="sm"
+                    className="shrink-0"
+                  >
+                    {isSaving || isSavePending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save
+                      </>
+                    )}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {saveDisabledReason && (
+                <TooltipContent>
+                  <p>{saveDisabledReason}</p>
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </motion.header>
 
@@ -450,6 +590,8 @@ export default function BaleybotPage() {
             balCode={balCode}
             onRun={handleRun}
             runResult={runResult}
+            isRunLocked={isRunLocked}
+            autoSaveStatus={autoSaveStatus}
           />
 
           {/* Chat input (always visible) */}

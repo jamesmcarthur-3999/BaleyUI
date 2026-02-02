@@ -15,3 +15,4 @@ export * from './use-persisted-date-range';
 // State management hooks
 export * from './useDirtyState';
 export * from './useDebounce';
+export * from './useNavigationGuard';
