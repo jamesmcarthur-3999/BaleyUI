@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
@@ -63,8 +63,9 @@ export default function BaleybotPage() {
 
   // UI state
   const [isSaving, setIsSaving] = useState(false);
-  const [isLoading, setIsLoading] = useState(!isNew);
-  const [initialPromptSent, setInitialPromptSent] = useState(false);
+
+  // Ref to track if initial prompt was sent (avoids effect dependency issues)
+  const initialPromptSentRef = useRef(false);
 
   // =====================================================================
   // TRPC QUERIES AND MUTATIONS
@@ -84,138 +85,97 @@ export default function BaleybotPage() {
   const executeMutation = trpc.baleybots.execute.useMutation();
 
   // =====================================================================
-  // EFFECTS
-  // =====================================================================
-
-  // Initialize state from existing BaleyBot
-  useEffect(() => {
-    if (!isNew && existingBaleybot) {
-      setName(existingBaleybot.name);
-      setIcon(existingBaleybot.icon || '');
-      setBalCode(existingBaleybot.balCode);
-      setStatus('ready');
-      setIsLoading(false);
-
-      // If we have entityNames, create basic entities for display
-      if (existingBaleybot.entityNames && existingBaleybot.entityNames.length > 0) {
-        const visualEntities: VisualEntity[] = existingBaleybot.entityNames.map(
-          (entityName, index) => ({
-            id: `entity-${index}`,
-            name: entityName,
-            icon: '🤖',
-            purpose: '',
-            tools: [],
-            position: { x: 0, y: 0 },
-            status: 'stable' as const,
-          })
-        );
-        setEntities(visualEntities);
-      }
-    }
-  }, [isNew, existingBaleybot]);
-
-  // Auto-send initial prompt if provided
-  useEffect(() => {
-    if (isNew && initialPrompt && !initialPromptSent && status === 'empty') {
-      setInitialPromptSent(true);
-      handleSendMessage(initialPrompt);
-    }
-  }, [isNew, initialPrompt, initialPromptSent, status]);
-
-  // =====================================================================
   // HANDLERS
   // =====================================================================
 
   /**
    * Handle sending a message to the Creator Bot
    */
-  const handleSendMessage = useCallback(
-    async (message: string) => {
-      // 1. Add user message to messages
-      const userMessage: CreatorMessage = {
-        id: `msg-${Date.now()}`,
-        role: 'user',
-        content: message,
+  const handleSendMessage = async (message: string) => {
+    // 1. Add user message to messages
+    const userMessage: CreatorMessage = {
+      id: `msg-${Date.now()}`,
+      role: 'user',
+      content: message,
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, userMessage]);
+
+    // 2. Set status to 'building'
+    setStatus('building');
+
+    // 3. Clear runResult
+    setRunResult(undefined);
+
+    try {
+      // 4. Call sendCreatorMessage mutation
+      const result = await creatorMutation.mutateAsync({
+        baleybotId: savedBaleybotId ?? undefined,
+        message,
+        conversationHistory: messages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp,
+        })),
+      });
+
+      // 5. Transform result entities to VisualEntity[] (add position, status: 'stable')
+      const visualEntities: VisualEntity[] = result.entities.map((entity, index) => ({
+        ...entity,
+        position: { x: 0, y: 0 }, // Canvas will position them
+        status: 'stable' as const,
+      }));
+
+      // 6. Transform result connections to Connection[] (add id, status: 'stable')
+      const visualConnections: Connection[] = result.connections.map((conn, index) => ({
+        id: `conn-${index}`,
+        from: conn.from,
+        to: conn.to,
+        label: conn.label,
+        status: 'stable' as const,
+      }));
+
+      // 7. Update all state
+      setEntities(visualEntities);
+      setConnections(visualConnections);
+      setBalCode(result.balCode);
+      setName(result.name);
+      setIcon(result.icon);
+
+      // 8. Add assistant message with brief summary
+      const entityCount = visualEntities.length;
+      const assistantMessage: CreatorMessage = {
+        id: `msg-${Date.now()}-assistant`,
+        role: 'assistant',
+        content: `I've created a BaleyBot with ${entityCount} ${entityCount === 1 ? 'entity' : 'entities'}. ${result.thinking || ''}`.trim(),
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, userMessage]);
+      setMessages((prev) => [...prev, assistantMessage]);
 
-      // 2. Set status to 'building'
-      setStatus('building');
+      // 9. Set status to 'ready'
+      setStatus('ready');
+    } catch (error) {
+      console.error('Creator message failed:', error);
+      setStatus('error');
 
-      // 3. Clear runResult
-      setRunResult(undefined);
-
-      try {
-        // 4. Call sendCreatorMessage mutation
-        const result = await creatorMutation.mutateAsync({
-          baleybotId: savedBaleybotId ?? undefined,
-          message,
-          conversationHistory: messages.map((m) => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            timestamp: m.timestamp,
-          })),
-        });
-
-        // 5. Transform result entities to VisualEntity[] (add position, status: 'stable')
-        const visualEntities: VisualEntity[] = result.entities.map((entity, index) => ({
-          ...entity,
-          position: { x: 0, y: 0 }, // Canvas will position them
-          status: 'stable' as const,
-        }));
-
-        // 6. Transform result connections to Connection[] (add id, status: 'stable')
-        const visualConnections: Connection[] = result.connections.map((conn, index) => ({
-          id: `conn-${index}`,
-          from: conn.from,
-          to: conn.to,
-          label: conn.label,
-          status: 'stable' as const,
-        }));
-
-        // 7. Update all state
-        setEntities(visualEntities);
-        setConnections(visualConnections);
-        setBalCode(result.balCode);
-        setName(result.name);
-        setIcon(result.icon);
-
-        // 8. Add assistant message with brief summary
-        const entityCount = visualEntities.length;
-        const assistantMessage: CreatorMessage = {
-          id: `msg-${Date.now()}-assistant`,
-          role: 'assistant',
-          content: `I've created a BaleyBot with ${entityCount} ${entityCount === 1 ? 'entity' : 'entities'}. ${result.thinking || ''}`.trim(),
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
-
-        // 9. Set status to 'ready'
-        setStatus('ready');
-      } catch (error) {
-        console.error('Creator message failed:', error);
-        setStatus('error');
-
-        // Add error message
-        const errorMessage: CreatorMessage = {
-          id: `msg-${Date.now()}-error`,
-          role: 'assistant',
-          content: 'Sorry, I encountered an error. Please try again.',
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, errorMessage]);
-      }
-    },
-    [creatorMutation, messages, savedBaleybotId]
-  );
+      // Add error message
+      const errorMessage: CreatorMessage = {
+        id: `msg-${Date.now()}-error`,
+        role: 'assistant',
+        content: 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    }
+  };
 
   /**
    * Handle saving the BaleyBot
+   * Returns the saved ID (for use in handleRun)
    */
-  const handleSave = useCallback(async () => {
-    if (!balCode || !name) return;
+  const handleSave = async (): Promise<string | null> => {
+    if (!balCode || !name) return null;
 
     setIsSaving(true);
 
@@ -246,26 +206,37 @@ export default function BaleybotPage() {
       if (savedBaleybotId) {
         utils.baleybots.get.invalidate({ id: savedBaleybotId });
       }
+
+      return result.id;
     } catch (error) {
       console.error('Save failed:', error);
+
+      // Add error message to conversation for user feedback
+      const errorMessage: CreatorMessage = {
+        id: `msg-${Date.now()}-save-error`,
+        role: 'assistant',
+        content: `Failed to save: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+      setStatus('error');
+
+      return null;
     } finally {
       setIsSaving(false);
     }
-  }, [saveMutation, savedBaleybotId, name, icon, balCode, messages, utils]);
+  };
 
   /**
    * Handle running the BaleyBot
    */
-  const handleRun = useCallback(
-    async (input: string) => {
-      // 1. Auto-save if not saved yet
-      if (!savedBaleybotId) {
-        await handleSave();
-      }
+  const handleRun = async (input: string) => {
+    let baleybotIdToRun = savedBaleybotId;
 
-      // Use the saved ID (might have just been created)
-      const baleybotIdToRun = savedBaleybotId;
-      if (!baleybotIdToRun) {
+    // 1. Auto-save if not saved yet
+    if (!baleybotIdToRun) {
+      const newId = await handleSave();
+      if (!newId) {
         setRunResult({
           success: false,
           output: null,
@@ -273,55 +244,93 @@ export default function BaleybotPage() {
         });
         return;
       }
+      baleybotIdToRun = newId;
+    }
 
-      // 2. Set status to 'running'
-      setStatus('running');
+    // 2. Set status to 'running'
+    setStatus('running');
 
-      try {
-        // 3. Call execute mutation
-        const result = await executeMutation.mutateAsync({
-          id: baleybotIdToRun,
-          input: input || undefined,
-          triggeredBy: 'manual',
-        });
+    try {
+      // 3. Call execute mutation
+      const result = await executeMutation.mutateAsync({
+        id: baleybotIdToRun,
+        input: input || undefined,
+        triggeredBy: 'manual',
+      });
 
-        // 4. Set runResult
-        setRunResult({
-          success: true,
-          output: result,
-        });
+      // 4. Set runResult
+      setRunResult({
+        success: true,
+        output: result,
+      });
 
-        // 5. Set status to 'ready'
-        setStatus('ready');
-      } catch (error) {
-        console.error('Execution failed:', error);
+      // 5. Set status to 'ready'
+      setStatus('ready');
+    } catch (error) {
+      console.error('Execution failed:', error);
 
-        // Set error result
-        setRunResult({
-          success: false,
-          output: null,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
+      // Set error result
+      setRunResult({
+        success: false,
+        output: null,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
 
-        // Set status to 'error'
-        setStatus('error');
-      }
-    },
-    [executeMutation, savedBaleybotId, handleSave]
-  );
+      // Set status to 'error'
+      setStatus('error');
+    }
+  };
 
   /**
    * Handle back navigation
    */
-  const handleBack = useCallback(() => {
+  const handleBack = () => {
     router.push(ROUTES.baleybots.list);
-  }, [router]);
+  };
+
+  // =====================================================================
+  // EFFECTS
+  // =====================================================================
+
+  // Initialize state from existing BaleyBot
+  useEffect(() => {
+    if (!isNew && existingBaleybot) {
+      setName(existingBaleybot.name);
+      setIcon(existingBaleybot.icon || '');
+      setBalCode(existingBaleybot.balCode);
+      setStatus('ready');
+
+      // If we have entityNames, create basic entities for display
+      if (existingBaleybot.entityNames && existingBaleybot.entityNames.length > 0) {
+        const visualEntities: VisualEntity[] = existingBaleybot.entityNames.map(
+          (entityName, index) => ({
+            id: `entity-${index}`,
+            name: entityName,
+            icon: '🤖',
+            purpose: '',
+            tools: [],
+            position: { x: 0, y: 0 },
+            status: 'stable' as const,
+          })
+        );
+        setEntities(visualEntities);
+      }
+    }
+  }, [isNew, existingBaleybot]);
+
+  // Auto-send initial prompt if provided (using ref to track sent state)
+  useEffect(() => {
+    if (isNew && initialPrompt && !initialPromptSentRef.current && status === 'empty') {
+      initialPromptSentRef.current = true;
+      handleSendMessage(initialPrompt);
+    }
+  }, [isNew, initialPrompt, status]);
 
   // =====================================================================
   // LOADING STATE
   // =====================================================================
 
-  if (!isNew && (isLoadingBaleybot || isLoading)) {
+  if (!isNew && isLoadingBaleybot) {
     return (
       <div className="flex flex-col h-screen bg-gradient-hero">
         {/* Header skeleton */}
@@ -393,7 +402,7 @@ export default function BaleybotPage() {
 
           {/* Save button */}
           <Button
-            onClick={handleSave}
+            onClick={() => handleSave()}
             disabled={!canSave || isSaving}
             size="sm"
             className="shrink-0"
