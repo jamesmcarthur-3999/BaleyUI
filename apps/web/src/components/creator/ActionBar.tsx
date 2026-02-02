@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/tooltip';
 import type { CreationStatus } from '@/lib/baleybot/creator-types';
 import { cn } from '@/lib/utils';
+import { BalCodeHighlighter } from './BalCodeHighlighter';
 
 /**
  * Auto-save status type
@@ -340,11 +341,9 @@ export function ActionBar({
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              {/* Code content */}
+              {/* Code content with syntax highlighting */}
               <div className="p-4">
-                <pre className="text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
-                  <code>{balCode || '// No BAL code generated yet'}</code>
-                </pre>
+                <BalCodeHighlighter code={balCode} showLineNumbers />
               </div>
             </div>
           </motion.div>

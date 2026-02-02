@@ -9,3 +9,4 @@ export { ChatInput } from './ChatInput';
 export { ActionBar } from './ActionBar';
 export { ConversationThread } from './ConversationThread';
 export { ExecutionHistory } from './ExecutionHistory';
+export { BalCodeHighlighter } from './BalCodeHighlighter';
