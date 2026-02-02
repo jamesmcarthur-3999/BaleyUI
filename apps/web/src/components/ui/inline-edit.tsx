@@ -46,6 +46,8 @@ function InlineEdit({
   const [error, setError] = useState<string | undefined>();
   const [showFlash, setShowFlash] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const flashTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const errorId = React.useId();
 
   // Update edit value when prop changes
   useEffect(() => {
@@ -61,6 +63,15 @@ function InlineEdit({
       inputRef.current.select();
     }
   }, [state]);
+
+  // Clean up flash timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (flashTimeoutRef.current) {
+        clearTimeout(flashTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const startEditing = () => {
     if (disabled) return;
@@ -93,7 +104,7 @@ function InlineEdit({
       setState('display');
       // Show save flash
       setShowFlash(true);
-      setTimeout(() => setShowFlash(false), 400);
+      flashTimeoutRef.current = setTimeout(() => setShowFlash(false), 400);
     } catch {
       setError('Failed to save');
       setState('editing');
@@ -137,9 +148,10 @@ function InlineEdit({
               inputClassName
             )}
             aria-invalid={!!error}
+            aria-describedby={error ? errorId : undefined}
           />
           {error && (
-            <p className="absolute -bottom-5 left-0 text-xs text-destructive">
+            <p id={errorId} role="alert" className="absolute -bottom-5 left-0 text-xs text-destructive">
               {error}
             </p>
           )}
@@ -150,9 +162,13 @@ function InlineEdit({
           className="h-7 w-7"
           onClick={handleSave}
           disabled={state === 'saving'}
+          aria-label="Save changes"
         >
           {state === 'saving' ? (
-            <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            <span aria-live="polite" role="status">
+              <span className="sr-only">Saving</span>
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            </span>
           ) : (
             <Check className="h-3.5 w-3.5 text-green-600" />
           )}
@@ -161,8 +177,12 @@ function InlineEdit({
           variant="ghost"
           size="icon"
           className="h-7 w-7"
-          onClick={handleCancel}
+          onMouseDown={(e) => {
+            e.preventDefault(); // Prevent blur from firing
+            handleCancel();
+          }}
           disabled={state === 'saving'}
+          aria-label="Cancel editing"
         >
           <X className="h-3.5 w-3.5" />
         </Button>
