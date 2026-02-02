@@ -2,10 +2,17 @@
 
 import { cn } from '@/lib/utils';
 
+/**
+ * Maximum lines to display before truncating (Phase 5.2)
+ */
+const MAX_DISPLAY_LINES = 1000;
+
 interface BalCodeHighlighterProps {
   code: string;
   className?: string;
   showLineNumbers?: boolean;
+  /** Maximum lines to display (default: 1000) */
+  maxLines?: number;
 }
 
 /**
@@ -155,6 +162,7 @@ export function BalCodeHighlighter({
   code,
   className,
   showLineNumbers = true,
+  maxLines = MAX_DISPLAY_LINES,
 }: BalCodeHighlighterProps) {
   if (!code) {
     return (
@@ -164,49 +172,75 @@ export function BalCodeHighlighter({
     );
   }
 
-  const lines = code.split('\n');
+  const allLines = code.split('\n');
+  const totalLines = allLines.length;
+  const isTruncated = totalLines > maxLines;
+  const lines = isTruncated ? allLines.slice(0, maxLines) : allLines;
 
   return (
-    <pre
-      className={cn(
-        'text-sm font-mono overflow-x-auto',
-        showLineNumbers && 'grid',
-        className
+    <div className={className}>
+      {/* Truncation warning (Phase 5.2) */}
+      {isTruncated && (
+        <div className="mb-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            Showing first {maxLines.toLocaleString()} of {totalLines.toLocaleString()} lines.
+            {' '}
+            <span className="text-muted-foreground">
+              ({(totalLines - maxLines).toLocaleString()} lines hidden)
+            </span>
+          </p>
+        </div>
       )}
-      style={
-        showLineNumbers
-          ? {
-              gridTemplateColumns: `${Math.max(2, String(lines.length).length)}ch 1fr`,
-              gap: '0 1rem',
-            }
-          : undefined
-      }
-    >
-      {lines.map((line, lineIndex) => {
-        const tokens = tokenize(line);
 
-        return (
-          <div key={lineIndex} className="contents">
-            {showLineNumbers && (
-              <span className="text-muted-foreground/50 select-none text-right">
-                {lineIndex + 1}
-              </span>
-            )}
-            <code className="whitespace-pre-wrap break-words">
-              {tokens.length > 0 ? (
-                tokens.map((token, tokenIndex) => (
-                  <span key={tokenIndex} className={getTokenClass(token.type)}>
-                    {token.value}
-                  </span>
-                ))
-              ) : (
-                '\n'
+      <pre
+        className={cn(
+          'text-sm font-mono overflow-x-auto',
+          showLineNumbers && 'grid'
+        )}
+        style={
+          showLineNumbers
+            ? {
+                gridTemplateColumns: `${Math.max(2, String(totalLines).length)}ch 1fr`,
+                gap: '0 1rem',
+              }
+            : undefined
+        }
+      >
+        {lines.map((line, lineIndex) => {
+          const tokens = tokenize(line);
+
+          return (
+            <div key={lineIndex} className="contents">
+              {showLineNumbers && (
+                <span className="text-muted-foreground/50 select-none text-right">
+                  {lineIndex + 1}
+                </span>
               )}
-            </code>
-          </div>
-        );
-      })}
-    </pre>
+              <code className="whitespace-pre-wrap break-words">
+                {tokens.length > 0 ? (
+                  tokens.map((token, tokenIndex) => (
+                    <span key={tokenIndex} className={getTokenClass(token.type)}>
+                      {token.value}
+                    </span>
+                  ))
+                ) : (
+                  '\n'
+                )}
+              </code>
+            </div>
+          );
+        })}
+      </pre>
+
+      {/* Bottom truncation indicator */}
+      {isTruncated && (
+        <div className="mt-2 text-center">
+          <span className="text-xs text-muted-foreground">
+            ... {(totalLines - maxLines).toLocaleString()} more lines ...
+          </span>
+        </div>
+      )}
+    </div>
   );
 }
 
