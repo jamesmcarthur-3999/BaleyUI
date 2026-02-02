@@ -9,6 +9,7 @@ import { patternsRouter } from './patterns';
 import { analyticsRouter } from './analytics';
 import { codegenRouter } from './codegen';
 import { apiKeysRouter } from './api-keys';
+import { baleybotsRouter } from './baleybots';
 
 export const appRouter = router({
   workspaces: workspacesRouter,
@@ -21,6 +22,7 @@ export const appRouter = router({
   analytics: analyticsRouter,
   codegen: codegenRouter,
   apiKeys: apiKeysRouter,
+  baleybots: baleybotsRouter,
 });
 
 export type AppRouter = typeof appRouter;
