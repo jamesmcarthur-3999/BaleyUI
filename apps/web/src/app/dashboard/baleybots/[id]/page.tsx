@@ -26,6 +26,7 @@ import {
 import { ArrowLeft, Save, Loader2, ChevronDown, ChevronUp, Pencil } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard } from '@/hooks';
+import { formatErrorWithAction, parseCreatorError } from '@/lib/errors/creator-errors';
 import type {
   VisualEntity,
   Connection,
@@ -204,11 +205,12 @@ export default function BaleybotPage() {
       console.error('Creator message failed:', error);
       setStatus('error');
 
-      // Add error message
+      // Add user-friendly error message
+      const parsed = parseCreatorError(error);
       const errorMessage: CreatorMessage = {
         id: `msg-${Date.now()}-error`,
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: `${parsed.title}: ${parsed.message}${parsed.action ? ` ${parsed.action}` : ''}`,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -259,11 +261,12 @@ export default function BaleybotPage() {
     } catch (error) {
       console.error('Save failed:', error);
 
-      // Add error message to conversation for user feedback
+      // Add user-friendly error message to conversation
+      const errorContent = formatErrorWithAction(error);
       const errorMessage: CreatorMessage = {
         id: `msg-${Date.now()}-save-error`,
         role: 'assistant',
-        content: `Failed to save: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
+        content: `Save failed: ${errorContent}`,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -332,11 +335,12 @@ export default function BaleybotPage() {
     } catch (error) {
       console.error('Execution failed:', error);
 
-      // Set error result
+      // Set user-friendly error result
+      const parsed = parseCreatorError(error);
       setRunResult({
         success: false,
         output: null,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: `${parsed.title}: ${parsed.message}`,
       });
 
       // Set status to 'error'
