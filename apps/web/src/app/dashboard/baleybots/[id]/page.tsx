@@ -36,6 +36,19 @@ import type {
 } from '@/lib/baleybot/creator-types';
 
 /**
+ * Maximum length for BaleyBot names (Phase 5.1)
+ */
+const MAX_NAME_LENGTH = 100;
+
+/**
+ * Truncate a string to a maximum length
+ */
+function truncateName(name: string, maxLength: number = MAX_NAME_LENGTH): string {
+  if (name.length <= maxLength) return name;
+  return name.slice(0, maxLength).trim();
+}
+
+/**
  * Result from running a BaleyBot
  */
 interface RunResult {
@@ -232,23 +245,24 @@ export default function BaleybotPage() {
         status: 'stable' as const,
       }));
 
-      // 7. Update all state
+      // 7. Update all state (with name truncation - Phase 5.1)
       setEntities(visualEntities);
       setConnections(visualConnections);
       setBalCode(result.balCode);
-      setName(result.name);
+      setName(truncateName(result.name));
       setIcon(result.icon);
 
       // 7.5 Push to undo history (Phase 3.5)
+      const truncatedName = truncateName(result.name);
       pushHistory(
         {
           entities: visualEntities,
           connections: visualConnections,
           balCode: result.balCode,
-          name: result.name,
+          name: truncatedName,
           icon: result.icon,
         },
-        `AI response: ${result.name}`
+        `AI response: ${truncatedName}`
       );
 
       // 8. Generate change summary and add assistant message (Phase 3.2)
@@ -626,13 +640,29 @@ export default function BaleybotPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
 
-          {/* Icon and name */}
+          {/* Icon and name (Phase 5.1: Handle long names) */}
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <span className="text-2xl">{displayIcon}</span>
-            <h1 className="text-lg font-semibold truncate">{displayName}</h1>
+            <span className="text-2xl shrink-0">{displayIcon}</span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <h1
+                    className="text-lg font-semibold truncate max-w-[200px] sm:max-w-[300px] md:max-w-[400px]"
+                    title={displayName}
+                  >
+                    {displayName}
+                  </h1>
+                </TooltipTrigger>
+                {displayName.length > 25 && (
+                  <TooltipContent side="bottom" className="max-w-xs">
+                    <p className="break-words">{displayName}</p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
             {/* Unsaved indicator */}
             {isDirty && (
-              <span className="text-amber-500 text-xs font-medium" title="Unsaved changes">
+              <span className="text-amber-500 text-xs font-medium shrink-0" title="Unsaved changes">
                 (unsaved)
               </span>
             )}
