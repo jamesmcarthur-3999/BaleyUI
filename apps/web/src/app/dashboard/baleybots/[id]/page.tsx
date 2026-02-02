@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
-import { Canvas, ChatInput, ActionBar, ConversationThread, ExecutionHistory, KeyboardShortcutsDialog, useKeyboardShortcutsDialog } from '@/components/creator';
+import { Canvas, ChatInput, ActionBar, ConversationThread, ExecutionHistory, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus } from '@/components/creator';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -152,6 +152,12 @@ export default function BaleybotPage() {
   // =====================================================================
 
   const { isOpen: isShortcutsOpen, setIsOpen: setShortcutsOpen } = useKeyboardShortcutsDialog();
+
+  // =====================================================================
+  // NETWORK STATUS (Phase 5.6)
+  // =====================================================================
+
+  const { isOffline, isReconnecting } = useNetworkStatus();
 
   // =====================================================================
   // DIRTY STATE TRACKING (Phase 1.1)
@@ -605,6 +611,9 @@ export default function BaleybotPage() {
 
   return (
     <div className="flex flex-col h-screen bg-gradient-hero">
+      {/* Network Status Banner (Phase 5.6) */}
+      <NetworkStatus isOffline={isOffline} isReconnecting={isReconnecting} className="fixed top-4 left-1/2 -translate-x-1/2 z-50" />
+
       {/* Navigation Guard Dialog (Phase 1.3) */}
       <AlertDialog open={showDialog} onOpenChange={(open) => !open && closeDialog()}>
         <AlertDialogContent>
