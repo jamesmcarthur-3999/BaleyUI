@@ -10,3 +10,4 @@ export { ActionBar } from './ActionBar';
 export { ConversationThread } from './ConversationThread';
 export { ExecutionHistory } from './ExecutionHistory';
 export { BalCodeHighlighter } from './BalCodeHighlighter';
+export { KeyboardShortcutsDialog, useKeyboardShortcutsDialog } from './KeyboardShortcutsDialog';

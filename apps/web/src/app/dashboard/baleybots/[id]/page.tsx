@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
-import { Canvas, ChatInput, ActionBar, ConversationThread, ExecutionHistory } from '@/components/creator';
+import { Canvas, ChatInput, ActionBar, ConversationThread, ExecutionHistory, KeyboardShortcutsDialog, useKeyboardShortcutsDialog } from '@/components/creator';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -23,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, Save, Loader2, ChevronDown, ChevronUp, Pencil, Undo2, Redo2 } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, ChevronDown, ChevronUp, Pencil, Undo2, Redo2, Keyboard } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } from '@/hooks';
 import { formatErrorWithAction, parseCreatorError } from '@/lib/errors/creator-errors';
@@ -132,6 +132,12 @@ export default function BaleybotPage() {
     enableKeyboardShortcuts: true,
     onStateChange: handleHistoryStateChange,
   });
+
+  // =====================================================================
+  // KEYBOARD SHORTCUTS DIALOG (Phase 3.8)
+  // =====================================================================
+
+  const { isOpen: isShortcutsOpen, setIsOpen: setShortcutsOpen } = useKeyboardShortcutsDialog();
 
   // =====================================================================
   // DIRTY STATE TRACKING (Phase 1.1)
@@ -640,6 +646,24 @@ export default function BaleybotPage() {
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
+            <div className="w-px h-4 bg-border mx-1" />
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShortcutsOpen(true)}
+                    className="h-8 w-8"
+                  >
+                    <Keyboard className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Keyboard shortcuts (?)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
 
           {/* Save button with tooltip (Phase 1.8) */}
@@ -794,6 +818,9 @@ export default function BaleybotPage() {
           />
         </div>
       </motion.div>
+
+      {/* Keyboard Shortcuts Dialog (Phase 3.8) */}
+      <KeyboardShortcutsDialog open={isShortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
   );
 }
