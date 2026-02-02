@@ -1,7 +1,7 @@
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
-import { Settings, Plug, User, Shield, Key } from 'lucide-react';
+import { Settings, Plug, User, Shield, Key, ShieldCheck } from 'lucide-react';
 
 export default function SettingsPage() {
   const settingsSections = [
@@ -16,6 +16,12 @@ export default function SettingsPage() {
       description: 'Manage API keys for programmatic access',
       icon: Key,
       href: '/dashboard/settings/api-keys',
+    },
+    {
+      title: 'Approval Patterns',
+      description: 'Manage auto-approval rules for BaleyBot tool usage',
+      icon: ShieldCheck,
+      href: '/dashboard/settings/approvals',
     },
     {
       title: 'Workspace',

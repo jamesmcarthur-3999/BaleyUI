@@ -1,12 +1,16 @@
 # BaleyUI Implementation Roadmap
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Execute ALL phases continuously without stopping for review between phases.
 
 **Goal:** Transform BaleyUI from its current state into the vision defined in `2026-01-30-architecture-and-vision-design.md` — a fully event-sourced, dual-path AI platform with invisible UI and ambient AI companion.
 
 **Architecture:** Full event-sourcing with tRPC commands, hybrid builder views (Profile, Flow, Timeline), AI companion as ambient presence, and subscription-gated UI tiers.
 
 **Tech Stack:** Next.js 15, React 19, TypeScript, tRPC, Drizzle ORM, PostgreSQL, BaleyBots, Zustand, SSE
+
+**Working Directory:** `/Users/jamesmcarthur/Documents/GitHub/BaleyUI`
+
+**Execution Mode:** Full autonomous execution of all phases. Commit after each task. Continue through all phases without pausing.
 
 ---
 
