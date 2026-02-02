@@ -49,6 +49,7 @@ export * from './separator';
 export * from './table';
 export { StatusBadge } from './status-badge';
 export { StatusIndicator } from './status-indicator';
+export { Kbd, KeyboardShortcut, useIsMac } from './kbd';
 
 // Loading States
 export { Skeleton } from './skeleton';
