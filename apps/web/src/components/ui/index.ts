@@ -21,6 +21,7 @@ export * from './card';
 export * from './collapsible';
 export * from './dialog';
 export * from './scroll-area';
+export { SlidePanel, SlidePanelFooter, SlidePanelClose, type SlidePanelProps } from './slide-panel';
 
 // Forms & Inputs
 export * from './checkbox';
