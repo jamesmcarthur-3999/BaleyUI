@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -9,21 +10,22 @@ import {
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { KeyboardShortcut } from '@/components/ui/kbd';
+import { ROUTES } from '@/lib/routes';
+import { trpc } from '@/lib/trpc/client';
 import {
   Search,
   Sparkles,
-  GitBranch,
-  Blocks,
-  Play,
   Settings,
-  HelpCircle,
   ArrowRight,
   Clock,
-  Star,
   Plus,
-  Zap,
-  FileText,
   MessageCircle,
+  Bot,
+  Workflow,
+  Key,
+  Plug,
+  FileText,
 } from 'lucide-react';
 
 // ============================================================================
@@ -35,7 +37,7 @@ export interface Command {
   title: string;
   description?: string;
   icon?: typeof Sparkles;
-  category: 'ai' | 'flow' | 'block' | 'action' | 'recent';
+  category: 'quick' | 'recent' | 'agents' | 'flows' | 'settings' | 'help';
   shortcut?: string;
   action: () => void;
   keywords?: string[];
@@ -44,117 +46,21 @@ export interface Command {
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  commands?: Command[];
-  recentCommands?: string[];
-  onSearch?: (query: string) => void;
+  onAskAI?: (query: string) => void;
   className?: string;
 }
 
 // ============================================================================
-// DEFAULT COMMANDS
+// CATEGORY CONFIG
 // ============================================================================
 
-const defaultCommands: Command[] = [
-  {
-    id: 'new-agent',
-    title: 'Create New Agent',
-    description: 'Build a new AI agent from scratch',
-    icon: Plus,
-    category: 'ai',
-    shortcut: 'N',
-    action: () => {},
-    keywords: ['agent', 'new', 'create', 'build'],
-  },
-  {
-    id: 'new-flow',
-    title: 'Create New Flow',
-    description: 'Design a new workflow composition',
-    icon: GitBranch,
-    category: 'flow',
-    shortcut: 'F',
-    action: () => {},
-    keywords: ['flow', 'workflow', 'new', 'create'],
-  },
-  {
-    id: 'run-flow',
-    title: 'Run Current Flow',
-    description: 'Execute the active workflow',
-    icon: Play,
-    category: 'action',
-    shortcut: 'R',
-    action: () => {},
-    keywords: ['run', 'execute', 'start'],
-  },
-  {
-    id: 'ask-ai',
-    title: 'Ask AI Assistant',
-    description: 'Get help from the AI companion',
-    icon: MessageCircle,
-    category: 'ai',
-    shortcut: '/',
-    action: () => {},
-    keywords: ['ask', 'help', 'assistant', 'chat'],
-  },
-  {
-    id: 'generate-code',
-    title: 'Generate Code',
-    description: 'Generate code from agent output schema',
-    icon: FileText,
-    category: 'ai',
-    action: () => {},
-    keywords: ['code', 'generate', 'export', 'typescript'],
-  },
-  {
-    id: 'quick-action',
-    title: 'Quick Action',
-    description: 'Perform a one-shot AI task',
-    icon: Zap,
-    category: 'ai',
-    action: () => {},
-    keywords: ['quick', 'action', 'task'],
-  },
-  {
-    id: 'browse-blocks',
-    title: 'Browse Blocks',
-    description: 'View and manage all blocks',
-    icon: Blocks,
-    category: 'block',
-    shortcut: 'B',
-    action: () => {},
-    keywords: ['blocks', 'browse', 'library'],
-  },
-  {
-    id: 'settings',
-    title: 'Open Settings',
-    description: 'Configure preferences',
-    icon: Settings,
-    category: 'action',
-    shortcut: ',',
-    action: () => {},
-    keywords: ['settings', 'preferences', 'config'],
-  },
-  {
-    id: 'help',
-    title: 'Help & Documentation',
-    description: 'View guides and documentation',
-    icon: HelpCircle,
-    category: 'action',
-    shortcut: '?',
-    action: () => {},
-    keywords: ['help', 'docs', 'documentation', 'guide'],
-  },
-];
-
-// ============================================================================
-// CATEGORY LABELS
-// ============================================================================
-
-const categoryLabels: Record<Command['category'], { label: string; icon: typeof Sparkles }> = {
-  ai: { label: 'AI', icon: Sparkles },
-  flow: { label: 'Flows', icon: GitBranch },
-  block: { label: 'Blocks', icon: Blocks },
-  action: { label: 'Actions', icon: Zap },
-  recent: { label: 'Recent', icon: Clock },
+const categoryConfig: Record<Command['category'], { label: string; icon: React.ReactNode }> = {
+  quick: { label: 'Quick Actions', icon: <Sparkles className="h-3.5 w-3.5" /> },
+  recent: { label: 'Recent', icon: <Clock className="h-3.5 w-3.5" /> },
+  agents: { label: 'Agents', icon: <Bot className="h-3.5 w-3.5" /> },
+  flows: { label: 'Flows', icon: <Workflow className="h-3.5 w-3.5" /> },
+  settings: { label: 'Settings', icon: <Settings className="h-3.5 w-3.5" /> },
+  help: { label: 'Help', icon: <MessageCircle className="h-3.5 w-3.5" /> },
 };
 
 // ============================================================================
@@ -202,16 +108,14 @@ function CommandItem({
       </div>
 
       {command.shortcut && (
-        <kbd
+        <KeyboardShortcut
+          shortcut={command.shortcut}
           className={cn(
-            'px-2 py-1 rounded text-xs font-mono',
             isSelected
-              ? 'bg-primary/20 text-primary'
-              : 'bg-muted text-muted-foreground'
+              ? 'bg-primary/20 text-primary border-primary/30'
+              : ''
           )}
-        >
-          {command.shortcut}
-        </kbd>
+        />
       )}
 
       <ArrowRight
@@ -231,14 +135,106 @@ function CommandItem({
 export function CommandPalette({
   open,
   onOpenChange,
-  commands = defaultCommands,
-  recentCommands = [],
-  onSearch,
+  onAskAI,
   className,
 }: CommandPaletteProps) {
+  const router = useRouter();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch real data from tRPC
+  const { data: blocks } = trpc.blocks.list.useQuery(undefined, {
+    enabled: open,
+  });
+  const { data: flows } = trpc.flows.list.useQuery(undefined, {
+    enabled: open,
+  });
+
+  // Build commands dynamically (React 19 handles optimization automatically)
+  const commands: Command[] = [
+    // Quick Actions
+    {
+      id: 'create-agent',
+      title: 'Create new agent',
+      description: 'Build a new AI agent from scratch',
+      icon: Plus,
+      category: 'quick',
+      shortcut: 'mod+n',
+      action: () => router.push(ROUTES.blocks.create),
+      keywords: ['agent', 'new', 'create', 'build', 'block'],
+    },
+    {
+      id: 'create-flow',
+      title: 'Create new flow',
+      description: 'Design a new workflow composition',
+      icon: Plus,
+      category: 'quick',
+      shortcut: 'mod+shift+n',
+      action: () => router.push(ROUTES.flows.create),
+      keywords: ['flow', 'workflow', 'new', 'create'],
+    },
+    // Agents (first 5 from blocks)
+    ...(blocks?.slice(0, 5).map((block) => ({
+      id: `agent-${block.id}`,
+      title: block.name,
+      description: block.description || `${block.type} block`,
+      icon: Bot,
+      category: 'agents' as const,
+      action: () => router.push(ROUTES.blocks.detail(block.id)),
+      keywords: ['agent', 'block', block.type, block.name.toLowerCase()],
+    })) || []),
+    // Flows (first 5)
+    ...(flows?.slice(0, 5).map((flow) => ({
+      id: `flow-${flow.id}`,
+      title: flow.name,
+      description: flow.description || 'Workflow',
+      icon: Workflow,
+      category: 'flows' as const,
+      action: () => router.push(ROUTES.flows.detail(flow.id)),
+      keywords: ['flow', 'workflow', flow.name.toLowerCase()],
+    })) || []),
+    // Settings
+    {
+      id: 'settings',
+      title: 'Settings',
+      description: 'Configure preferences',
+      icon: Settings,
+      category: 'settings',
+      shortcut: 'mod+,',
+      action: () => router.push(ROUTES.settings.root),
+      keywords: ['settings', 'preferences', 'config'],
+    },
+    {
+      id: 'connections',
+      title: 'Connections',
+      description: 'Manage AI provider connections',
+      icon: Plug,
+      category: 'settings',
+      action: () => router.push(ROUTES.settings.connections),
+      keywords: ['connections', 'providers', 'api', 'openai', 'anthropic'],
+    },
+    {
+      id: 'api-keys',
+      title: 'API Keys',
+      description: 'Manage your API keys',
+      icon: Key,
+      category: 'settings',
+      action: () => router.push(ROUTES.settings.apiKeys),
+      keywords: ['api', 'keys', 'tokens', 'authentication'],
+    },
+    // Help
+    {
+      id: 'documentation',
+      title: 'Documentation',
+      description: 'View API documentation and guides',
+      icon: FileText,
+      category: 'help',
+      shortcut: 'mod+/',
+      action: () => router.push(ROUTES.apiDocs),
+      keywords: ['docs', 'documentation', 'help', 'guide', 'api'],
+    },
+  ];
 
   // Filter commands based on query
   const filteredCommands = query
@@ -246,7 +242,7 @@ export function CommandPalette({
         const searchText = `${cmd.title} ${cmd.description || ''} ${cmd.keywords?.join(' ') || ''}`.toLowerCase();
         return searchText.includes(query.toLowerCase());
       })
-    : commands;
+    : commands.filter((cmd) => cmd.category === 'quick' || cmd.category === 'recent');
 
   // Group by category
   const groupedCommands = filteredCommands.reduce(
@@ -295,6 +291,10 @@ export function CommandPalette({
         if (flatCommands[selectedIndex]) {
           flatCommands[selectedIndex].action();
           onOpenChange(false);
+        } else if (query.trim() && onAskAI) {
+          // Natural language passthrough when no commands match
+          onAskAI(query.trim());
+          onOpenChange(false);
         }
         break;
       case 'Escape':
@@ -329,7 +329,6 @@ export function CommandPalette({
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
-              onSearch?.(e.target.value);
             }}
             placeholder="Type a command or search..."
             className="border-0 shadow-none focus-visible:ring-0 px-0 text-base"
@@ -346,19 +345,29 @@ export function CommandPalette({
           <div className="p-2">
             {Object.entries(groupedCommands).length === 0 ? (
               <div className="py-8 text-center">
-                <Search className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">No commands found</p>
+                {query.trim() && onAskAI ? (
+                  <>
+                    <MessageCircle className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">
+                      Press <KeyboardShortcut shortcut="Enter" className="mx-1" /> to ask AI: &quot;{query}&quot;
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Search className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">No commands found</p>
+                  </>
+                )}
               </div>
             ) : (
               Object.entries(groupedCommands).map(([category, cmds]) => {
-                const { label, icon: CategoryIcon } =
-                  categoryLabels[category as Command['category']];
+                const config = categoryConfig[category as Command['category']];
 
                 return (
                   <div key={category} className="mb-4 last:mb-0">
                     <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground font-medium uppercase tracking-wide">
-                      <CategoryIcon className="h-3.5 w-3.5" />
-                      {label}
+                      {config.icon}
+                      {config.label}
                     </div>
                     <div className="space-y-0.5">
                       {cmds.map((command) => {
