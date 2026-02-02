@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useMemo } from 'react';
+// React 19 - no manual memoization needed
 import { motion, AnimatePresence } from 'framer-motion';
 import type { VisualEntity, Connection, CreationStatus } from '@/lib/baleybot/creator-types';
 import { cn } from '@/lib/utils';
@@ -396,21 +396,18 @@ function EntityCard({
  * progressively builds the BaleyBot structure.
  */
 export function Canvas({ entities, connections, status, className }: CanvasProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
   // Determine what to show based on status and entities
   const showEmpty = status === 'empty';
   const showBuilding = status === 'building' && entities.length === 0;
   const showEntities = entities.length > 0;
 
-  // Memoize sorted entities for consistent rendering
-  const sortedEntities = useMemo(() => {
-    return [...entities].sort((a, b) => a.id.localeCompare(b.id));
-  }, [entities]);
+  // Sort entities for consistent rendering (React 19 handles this efficiently)
+  const sortedEntities = [...entities].sort((a, b) => a.id.localeCompare(b.id));
 
   return (
     <div
-      ref={containerRef}
+      role="region"
+      aria-label={`BaleyBot canvas - ${status === 'empty' ? 'empty' : status === 'building' ? 'building' : `${entities.length} entities`}`}
       className={cn(
         'relative w-full h-full min-h-[500px] overflow-hidden',
         'bg-gradient-playful rounded-2xl',

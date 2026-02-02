@@ -13,6 +13,18 @@ interface RunResult {
   error?: string;
 }
 
+/**
+ * Safely stringify an unknown value, handling circular references
+ */
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    // Handle circular references or other serialization errors
+    return String(value);
+  }
+}
+
 interface ActionBarProps {
   status: CreationStatus;
   balCode: string;
@@ -58,6 +70,7 @@ export function ActionBar({
           onChange={(e) => setTestInput(e.target.value)}
           placeholder="Optional test input..."
           disabled={isRunning}
+          aria-label="Test input for BaleyBot execution"
           className={cn(
             'flex-1 px-4 py-2.5 rounded-xl border-2',
             'bg-background text-foreground',
@@ -72,6 +85,7 @@ export function ActionBar({
         <Button
           onClick={handleRun}
           disabled={isRunning}
+          aria-label={isRunning ? 'Running BaleyBot' : 'Run BaleyBot'}
           className={cn(
             'btn-playful text-white rounded-xl',
             'px-6 py-2.5 h-auto',
@@ -80,12 +94,12 @@ export function ActionBar({
         >
           {isRunning ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               Running...
             </>
           ) : (
             <>
-              <Play className="h-4 w-4" />
+              <Play className="h-4 w-4" aria-hidden="true" />
               Run
             </>
           )}
@@ -95,13 +109,15 @@ export function ActionBar({
         <Button
           variant="outline"
           onClick={() => setShowCode(!showCode)}
+          aria-expanded={showCode}
+          aria-controls="bal-code-viewer"
           className={cn(
             'rounded-xl px-4 py-2.5 h-auto',
             'flex items-center gap-2',
             showCode && 'bg-muted'
           )}
         >
-          <Code className="h-4 w-4" />
+          <Code className="h-4 w-4" aria-hidden="true" />
           {showCode ? 'Hide Code' : 'View Code'}
         </Button>
       </div>
@@ -110,11 +126,14 @@ export function ActionBar({
       <AnimatePresence>
         {showCode && (
           <motion.div
+            id="bal-code-viewer"
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.2, ease: 'easeInOut' }}
             className="overflow-hidden"
+            role="region"
+            aria-label="Generated BAL code"
           >
             <div className="rounded-xl bg-muted/50 border p-4">
               <pre className="text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
@@ -169,7 +188,7 @@ export function ActionBar({
                     )}
                   >
                     {runResult.success
-                      ? JSON.stringify(runResult.output, null, 2)
+                      ? safeJsonStringify(runResult.output)
                       : runResult.error || 'Unknown error'}
                   </pre>
                 </div>

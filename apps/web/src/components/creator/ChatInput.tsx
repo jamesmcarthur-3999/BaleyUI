@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -72,7 +72,7 @@ export function ChatInput({
   }, [status]);
 
   // Auto-resize textarea
-  const adjustHeight = useCallback(() => {
+  const adjustHeight = () => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
@@ -81,13 +81,13 @@ export function ChatInput({
     // Set to scrollHeight but cap at max height (120px for ~3 lines)
     const newHeight = Math.min(textarea.scrollHeight, 120);
     textarea.style.height = `${newHeight}px`;
-  }, []);
+  };
 
   useEffect(() => {
     adjustHeight();
-  }, [value, adjustHeight]);
+  }, [value]);
 
-  const handleSend = useCallback(() => {
+  const handleSend = () => {
     const trimmedValue = value.trim();
     if (!trimmedValue || isDisabled) return;
 
@@ -98,11 +98,15 @@ export function ChatInput({
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [value, isDisabled, onSend]);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter to send, Shift+Enter for newline
+    // Also support Cmd/Ctrl+Enter to send
     if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSend();
     }
@@ -136,6 +140,8 @@ export function ChatInput({
           disabled={isDisabled}
           placeholder={getPlaceholder(status)}
           rows={1}
+          aria-label="Message to BaleyBot creator"
+          aria-describedby="chat-input-hint"
           className={cn(
             'flex-1 resize-none bg-transparent text-base leading-6 placeholder:text-muted-foreground/60 focus:outline-none disabled:cursor-not-allowed',
             'min-h-[24px] max-h-[120px]'
@@ -149,21 +155,22 @@ export function ChatInput({
           variant={hasContent ? 'default' : 'ghost'}
           disabled={!hasContent || isDisabled}
           onClick={handleSend}
+          aria-label={isProcessing ? 'Sending message' : 'Send message'}
           className={cn(
             'h-9 w-9 shrink-0 rounded-xl transition-all',
             hasContent && !isDisabled && 'bg-primary hover:bg-primary/90'
           )}
         >
           {isProcessing ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           ) : (
-            <Send className="h-4 w-4" />
+            <Send className="h-4 w-4" aria-hidden="true" />
           )}
         </Button>
       </motion.div>
 
       {/* Hint text */}
-      <p className="mt-2 text-center text-xs text-muted-foreground/60">
+      <p id="chat-input-hint" className="mt-2 text-center text-xs text-muted-foreground/60">
         Press Enter to send, Shift+Enter for new line
       </p>
     </div>
