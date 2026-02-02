@@ -31,14 +31,74 @@ export {
   formatExistingBaleybots,
 } from './generator';
 
-// Executor (to be implemented in Phase 2.2)
-// export { executeBaleybot } from './executor';
+// Executor
+export {
+  executeBaleybot,
+  canExecute,
+  getEntityNames,
+  getStructure,
+  type ExecutorContext,
+  type RuntimeToolDefinition,
+} from './executor';
 
-// Approval Checker (to be implemented in Phase 2.3)
-// export { checkApproval } from './approval-checker';
+// Approval Checker
+export {
+  checkApproval,
+  findMatchingPatterns,
+  createPatternFromRequest,
+  generalizePattern,
+  type PatternMatchResult,
+  type ApprovalCheckContext,
+} from './approval-checker';
 
-// Pattern Learner (to be implemented in Phase 2.4)
-// export { proposePattern, savePattern } from './pattern-learner';
+// Pattern Learner
+export {
+  proposePattern,
+  analyzeRequestHistory,
+  suggestGeneralization,
+  validatePattern,
+  describePattern,
+  type PatternSuggestion,
+  type LearnPatternResult,
+  type LearnerContext,
+} from './pattern-learner';
 
 // Reviewer (to be implemented in Phase 7.1)
 // export { reviewExecution } from './reviewer';
+
+// Creator Bot - Conversational BaleyBot creation
+export {
+  createCreatorBot,
+  processCreatorMessage,
+  streamCreatorMessage,
+  type CreatorBotOptions,
+  type CreatorStreamChunk,
+} from './creator-bot';
+
+// Creator Types (selective exports to avoid conflicts with types.ts)
+export {
+  // Visual entity types
+  type EntityStatus,
+  type EntityPosition,
+  type VisualEntity,
+  // Connection types (using different names to avoid conflict)
+  type ConnectionStatus,
+  type Connection as VisualConnection,
+  // Message types
+  type MessageRole,
+  type CreatorMessage,
+  // Canvas state types
+  type CreationStatus,
+  type CanvasState,
+  // Session types
+  type CreationSession,
+  // Streaming types
+  type CreatorStreamChunkType,
+  type CreatorStreamChunk as CreatorStreamChunkData,
+  // AI output
+  creatorOutputSchema,
+  type CreatorOutput,
+  // Helper functions
+  createInitialCanvasState,
+  createSession,
+} from './creator-types';
