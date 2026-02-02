@@ -1,7 +1,7 @@
 'use client';
 
 import { WorkspaceGuard } from '@/components/WorkspaceGuard';
-import { AppShell } from '@/components/layout';
+import { AppShell, BreadcrumbProvider } from '@/components/layout';
 
 export default function DashboardLayout({
   children,
@@ -10,7 +10,9 @@ export default function DashboardLayout({
 }) {
   return (
     <WorkspaceGuard>
-      <AppShell>{children}</AppShell>
+      <BreadcrumbProvider>
+        <AppShell>{children}</AppShell>
+      </BreadcrumbProvider>
     </WorkspaceGuard>
   );
 }

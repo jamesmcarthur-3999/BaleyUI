@@ -14,15 +14,15 @@ import {
 } from '@/components/companion';
 import { Toaster } from '@/components/ui/toaster';
 import { ROUTES } from '@/lib/routes';
+import { useBreadcrumbs } from './breadcrumb-context';
 
 interface AppShellProps {
   children: React.ReactNode;
-  /** Optional breadcrumb items */
-  breadcrumbs?: Array<{ label: string; href?: string }>;
 }
 
-function AppShell({ children, breadcrumbs }: AppShellProps) {
+function AppShell({ children }: AppShellProps) {
   const commandPalette = useCommandPalette();
+  const { breadcrumbs } = useBreadcrumbs();
 
   return (
     <div className="min-h-screen flex flex-col">
