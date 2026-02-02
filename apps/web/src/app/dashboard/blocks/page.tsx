@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { BlocksList } from '@/components/blocks/BlocksList';
 import { CreateBlockDialog } from '@/components/blocks/CreateBlockDialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -13,64 +12,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useToast } from '@/components/ui/use-toast';
 import { trpc } from '@/lib/trpc/client';
 import { Search, Filter, Boxes, Sparkles, Code2, Activity } from 'lucide-react';
 
 export default function BlocksPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const { toast } = useToast();
-  const utils = trpc.useUtils();
 
   // Fetch blocks
   const { data: blocks, isLoading } = trpc.blocks.list.useQuery();
-
-  // Delete mutation
-  const deleteMutation = trpc.blocks.delete.useMutation({
-    onSuccess: () => {
-      toast({
-        title: 'Block Deleted',
-        description: 'The block has been deleted successfully.',
-      });
-      utils.blocks.list.invalidate();
-    },
-    onError: (error) => {
-      toast({
-        title: 'Failed to Delete Block',
-        description: error.message,
-        variant: 'destructive',
-      });
-    },
-  });
-
-  // Duplicate mutation (create a copy)
-  const duplicateMutation = trpc.blocks.duplicate.useMutation({
-    onSuccess: () => {
-      toast({
-        title: 'Block Duplicated',
-        description: 'The block has been duplicated successfully.',
-      });
-      utils.blocks.list.invalidate();
-    },
-    onError: (error) => {
-      toast({
-        title: 'Failed to Duplicate Block',
-        description: error.message,
-        variant: 'destructive',
-      });
-    },
-  });
-
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this block?')) {
-      deleteMutation.mutate({ id });
-    }
-  };
-
-  const handleDuplicate = (id: string) => {
-    duplicateMutation.mutate({ id });
-  };
 
   // Filter blocks based on search and type
   const filteredBlocks = blocks?.filter((block) => {
@@ -183,12 +133,7 @@ export default function BlocksPage() {
         )}
 
         {/* Blocks List */}
-        <BlocksList
-          blocks={filteredBlocks || []}
-          isLoading={isLoading}
-          onDelete={handleDelete}
-          onDuplicate={handleDuplicate}
-        />
+        <BlocksList blocks={filteredBlocks || []} isLoading={isLoading} />
       </div>
     </div>
   );
