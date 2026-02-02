@@ -40,6 +40,7 @@ export * from './breadcrumbs';
 export * from './dropdown-menu';
 export * from './tabs';
 export * from './tooltip';
+export { ActionPopover, type ActionPopoverProps, type ActionItem, type ActionGroup } from './action-popover';
 
 // Data Display
 export * from './badge';
