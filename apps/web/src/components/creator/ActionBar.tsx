@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Code, Loader2, CheckCircle, XCircle, Save, Copy, Check, Braces, Type } from 'lucide-react';
+import { Play, Code, Loader2, CheckCircle, XCircle, Save, Copy, Check, Braces, Type, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -26,6 +26,12 @@ interface RunResult {
 }
 
 /**
+ * Maximum output length before truncation (Phase 5.5)
+ */
+const MAX_OUTPUT_LENGTH = 10000;
+const MAX_OUTPUT_LINES = 200;
+
+/**
  * Safely stringify an unknown value, handling circular references
  */
 function safeJsonStringify(value: unknown): string {
@@ -35,6 +41,65 @@ function safeJsonStringify(value: unknown): string {
     // Handle circular references or other serialization errors
     return String(value);
   }
+}
+
+/**
+ * Truncate output for display (Phase 5.5)
+ */
+interface TruncatedOutput {
+  display: string;
+  full: string;
+  isTruncated: boolean;
+  totalLength: number;
+  totalLines: number;
+}
+
+function truncateOutput(value: unknown): TruncatedOutput {
+  const full = safeJsonStringify(value);
+  const totalLength = full.length;
+  const totalLines = full.split('\n').length;
+
+  let display = full;
+  let isTruncated = false;
+
+  // Truncate by length
+  if (totalLength > MAX_OUTPUT_LENGTH) {
+    display = full.slice(0, MAX_OUTPUT_LENGTH);
+    isTruncated = true;
+  }
+
+  // Also truncate by lines
+  const lines = display.split('\n');
+  if (lines.length > MAX_OUTPUT_LINES) {
+    display = lines.slice(0, MAX_OUTPUT_LINES).join('\n');
+    isTruncated = true;
+  }
+
+  return { display, full, isTruncated, totalLength, totalLines };
+}
+
+/**
+ * Download output as a file
+ */
+function downloadOutput(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Format byte size for display
+ */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 interface ActionBarProps {
@@ -351,7 +416,7 @@ export function ActionBar({
         )}
       </AnimatePresence>
 
-      {/* Run Result Display */}
+      {/* Run Result Display (Phase 5.5: Handle large output) */}
       <AnimatePresence>
         {runResult && (
           <motion.div
@@ -361,46 +426,88 @@ export function ActionBar({
             transition={{ duration: 0.2, ease: 'easeInOut' }}
             className="overflow-hidden"
           >
-            <div
-              className={cn(
-                'rounded-xl p-4',
-                runResult.success
-                  ? 'bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800'
-                  : 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800'
-              )}
-            >
-              <div className="flex items-start gap-3">
-                {runResult.success ? (
-                  <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-                ) : (
-                  <XCircle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <p
-                    className={cn(
-                      'font-medium text-sm mb-1',
-                      runResult.success
-                        ? 'text-green-800 dark:text-green-200'
-                        : 'text-red-800 dark:text-red-200'
+            {(() => {
+              const outputData = runResult.success
+                ? truncateOutput(runResult.output)
+                : { display: runResult.error || 'Unknown error', full: runResult.error || 'Unknown error', isTruncated: false, totalLength: 0, totalLines: 0 };
+
+              return (
+                <div
+                  className={cn(
+                    'rounded-xl p-4',
+                    runResult.success
+                      ? 'bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800'
+                      : 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800'
+                  )}
+                >
+                  {/* Truncation warning */}
+                  {outputData.isTruncated && runResult.success && (
+                    <div className="mb-3 px-3 py-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg flex items-center justify-between">
+                      <p className="text-xs text-amber-700 dark:text-amber-300">
+                        Output truncated ({formatBytes(outputData.totalLength)}, {outputData.totalLines.toLocaleString()} lines)
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => downloadOutput(outputData.full, `baleybot-output-${Date.now()}.json`)}
+                        className="h-7 px-2 text-xs"
+                      >
+                        <Download className="h-3 w-3 mr-1" />
+                        Download Full
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="flex items-start gap-3">
+                    {runResult.success ? (
+                      <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <XCircle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                     )}
-                  >
-                    {runResult.success ? 'Execution Successful' : 'Execution Failed'}
-                  </p>
-                  <pre
-                    className={cn(
-                      'text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words',
-                      runResult.success
-                        ? 'text-green-700 dark:text-green-300'
-                        : 'text-red-700 dark:text-red-300'
-                    )}
-                  >
-                    {runResult.success
-                      ? safeJsonStringify(runResult.output)
-                      : runResult.error || 'Unknown error'}
-                  </pre>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <p
+                          className={cn(
+                            'font-medium text-sm',
+                            runResult.success
+                              ? 'text-green-800 dark:text-green-200'
+                              : 'text-red-800 dark:text-red-200'
+                          )}
+                        >
+                          {runResult.success ? 'Execution Successful' : 'Execution Failed'}
+                        </p>
+                        {runResult.success && !outputData.isTruncated && outputData.totalLength > 1000 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => downloadOutput(outputData.full, `baleybot-output-${Date.now()}.json`)}
+                            className="h-6 px-2 text-xs text-muted-foreground"
+                          >
+                            <Download className="h-3 w-3 mr-1" />
+                            Download
+                          </Button>
+                        )}
+                      </div>
+                      <pre
+                        className={cn(
+                          'text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto',
+                          runResult.success
+                            ? 'text-green-700 dark:text-green-300'
+                            : 'text-red-700 dark:text-red-300'
+                        )}
+                      >
+                        {outputData.display}
+                      </pre>
+                      {outputData.isTruncated && (
+                        <p className="mt-2 text-xs text-muted-foreground text-center">
+                          ... output truncated ...
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              );
+            })()}
           </motion.div>
         )}
       </AnimatePresence>
