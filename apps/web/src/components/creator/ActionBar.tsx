@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Code, Loader2, CheckCircle, XCircle, Save } from 'lucide-react';
+import { Play, Code, Loader2, CheckCircle, XCircle, Save, Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -59,6 +59,21 @@ export function ActionBar({
 }: ActionBarProps) {
   const [testInput, setTestInput] = useState('');
   const [showCode, setShowCode] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  /**
+   * Copy BAL code to clipboard
+   */
+  const handleCopy = async () => {
+    if (!balCode) return;
+    try {
+      await navigator.clipboard.writeText(balCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
 
   // Only render when status is 'ready', 'running', or 'error'
   if (status !== 'ready' && status !== 'running' && status !== 'error') {
@@ -210,10 +225,45 @@ export function ActionBar({
             role="region"
             aria-label="Generated BAL code"
           >
-            <div className="rounded-xl bg-muted/50 border p-4">
-              <pre className="text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
-                <code>{balCode || '// No BAL code generated yet'}</code>
-              </pre>
+            <div className="rounded-xl bg-muted/50 border overflow-hidden">
+              {/* Code header with copy button */}
+              <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+                <span className="text-xs font-medium text-muted-foreground">BAL Code</span>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleCopy}
+                        disabled={!balCode}
+                        className="h-7 px-2 text-xs"
+                      >
+                        {copied ? (
+                          <>
+                            <Check className="h-3.5 w-3.5 mr-1 text-green-500" aria-hidden="true" />
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3.5 w-3.5 mr-1" aria-hidden="true" />
+                            Copy
+                          </>
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{copied ? 'Copied to clipboard!' : 'Copy code to clipboard'}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              {/* Code content */}
+              <div className="p-4">
+                <pre className="text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words">
+                  <code>{balCode || '// No BAL code generated yet'}</code>
+                </pre>
+              </div>
             </div>
           </motion.div>
         )}
