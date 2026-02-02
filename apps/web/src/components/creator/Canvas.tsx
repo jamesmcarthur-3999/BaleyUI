@@ -228,9 +228,11 @@ function BuildingIndicator() {
 function ConnectionLine({
   connection,
   entities,
+  dimmed = false,
 }: {
   connection: Connection;
   entities: VisualEntity[];
+  dimmed?: boolean;
 }) {
   const endpoints = getConnectionEndpoints(connection.from, connection.to, entities);
 
@@ -268,7 +270,7 @@ function ConnectionLine({
         initial={{ pathLength: 0, opacity: 0 }}
         animate={{
           pathLength: connection.status === 'drawing' ? 0.5 : 1,
-          opacity: connection.status === 'removing' ? 0 : 1,
+          opacity: connection.status === 'removing' ? 0 : dimmed ? 0.3 : 1,
         }}
         transition={{
           pathLength: { duration: 0.8, ease: 'easeInOut' },
@@ -284,7 +286,7 @@ function ConnectionLine({
         initial={{ scale: 0, opacity: 0 }}
         animate={{
           scale: connection.status === 'removing' ? 0 : 1,
-          opacity: connection.status === 'removing' ? 0 : 1,
+          opacity: connection.status === 'removing' ? 0 : dimmed ? 0.3 : 1,
         }}
         transition={{ delay: 0.6 }}
       />
@@ -299,10 +301,12 @@ function EntityCard({
   entity,
   index,
   total,
+  dimmed = false,
 }: {
   entity: VisualEntity;
   index: number;
   total: number;
+  dimmed?: boolean;
 }) {
   const position = getEntityPosition(index, total);
 
@@ -316,7 +320,7 @@ function EntityCard({
       }}
       variants={entityVariants}
       initial="initial"
-      animate="animate"
+      animate={dimmed ? { opacity: 0.4, scale: 0.95, y: 0 } : 'animate'}
       exit="exit"
       transition={{
         ...springConfig,
@@ -328,8 +332,10 @@ function EntityCard({
         className={cn(
           'card-playful rounded-2xl p-4 min-w-[200px] max-w-[280px]',
           'border border-border/50',
+          'transition-all duration-300',
           entity.status === 'appearing' && 'ring-2 ring-primary/50',
-          entity.status === 'removing' && 'opacity-50'
+          entity.status === 'removing' && 'opacity-50',
+          dimmed && 'grayscale-[30%]'
         )}
       >
         {/* Icon and name */}
@@ -399,6 +405,7 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
   // Determine what to show based on status and entities
   const showEmpty = status === 'empty';
   const showBuilding = status === 'building' && entities.length === 0;
+  const isRebuilding = status === 'building' && entities.length > 0;
   const showEntities = entities.length > 0;
 
   // Sort entities for consistent rendering (React 19 handles this efficiently)
@@ -439,6 +446,7 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
                 key={connection.id}
                 connection={connection}
                 entities={sortedEntities}
+                dimmed={isRebuilding}
               />
             ))}
           </AnimatePresence>
@@ -454,10 +462,55 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
               entity={entity}
               index={index}
               total={sortedEntities.length}
+              dimmed={isRebuilding}
             />
           ))}
         </AnimatePresence>
       </div>
+
+      {/* Rebuilding overlay */}
+      <AnimatePresence>
+        {isRebuilding && (
+          <motion.div
+            className="absolute inset-0 flex items-center justify-center pointer-events-none"
+            style={{ zIndex: 3 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <motion.div
+              className="bg-background/80 backdrop-blur-sm rounded-2xl px-6 py-4 shadow-lg border border-border/50"
+              initial={{ scale: 0.9, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 10 }}
+              transition={springConfig}
+            >
+              <div className="flex items-center gap-3">
+                <motion.div
+                  className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-primary/60"
+                  animate={{
+                    scale: [1, 1.1, 1],
+                    boxShadow: [
+                      '0 0 10px hsl(262 83% 58% / 0.3)',
+                      '0 0 20px hsl(262 83% 58% / 0.5)',
+                      '0 0 10px hsl(262 83% 58% / 0.3)',
+                    ],
+                  }}
+                  transition={{
+                    duration: 1.5,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
+                />
+                <p className="text-sm font-medium text-foreground">
+                  Updating your BaleyBot...
+                </p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Status indicator */}
       {status === 'ready' && entities.length > 0 && (
