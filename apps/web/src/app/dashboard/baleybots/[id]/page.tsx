@@ -27,6 +27,7 @@ import { ArrowLeft, Save, Loader2, ChevronDown, ChevronUp, Pencil, Undo2, Redo2,
 import { ROUTES } from '@/lib/routes';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } from '@/hooks';
 import { formatErrorWithAction, parseCreatorError } from '@/lib/errors/creator-errors';
+import { generateChangeSummary, formatChangeSummaryForChat } from '@/lib/baleybot/change-summary';
 import type {
   VisualEntity,
   Connection,
@@ -182,6 +183,11 @@ export default function BaleybotPage() {
    * Handle sending a message to the Creator Bot
    */
   const handleSendMessage = async (message: string) => {
+    // 0. Capture previous state for change summary (Phase 3.2)
+    const prevEntities = [...entities];
+    const prevConnections = [...connections];
+    const prevName = name;
+
     // 1. Add user message to messages
     const userMessage: CreatorMessage = {
       id: `msg-${Date.now()}`,
@@ -245,12 +251,36 @@ export default function BaleybotPage() {
         `AI response: ${result.name}`
       );
 
-      // 8. Add assistant message with brief summary
-      const entityCount = visualEntities.length;
+      // 8. Generate change summary and add assistant message (Phase 3.2)
+      const changeSummary = generateChangeSummary(
+        prevEntities,
+        visualEntities,
+        prevConnections,
+        visualConnections,
+        prevName,
+        result.name
+      );
+      const summaryText = formatChangeSummaryForChat(changeSummary);
+
+      // Build response message
+      let responseContent = '';
+      if (prevEntities.length === 0) {
+        // Initial creation
+        responseContent = `I've created "${result.name}" with ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}.`;
+      } else {
+        // Update - include change summary
+        responseContent = summaryText || `Updated "${result.name}".`;
+      }
+
+      // Add AI thinking if available
+      if (result.thinking) {
+        responseContent += ` ${result.thinking}`;
+      }
+
       const assistantMessage: CreatorMessage = {
         id: `msg-${Date.now()}-assistant`,
         role: 'assistant',
-        content: `I've created a BaleyBot with ${entityCount} ${entityCount === 1 ? 'entity' : 'entities'}. ${result.thinking || ''}`.trim(),
+        content: responseContent.trim(),
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
