@@ -70,6 +70,45 @@ const config: Config = {
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
       },
+      keyframes: {
+        'slide-in-from-right': {
+          '0%': { transform: 'translateX(100%)' },
+          '100%': { transform: 'translateX(0)' },
+        },
+        'slide-out-to-right': {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(100%)' },
+        },
+        'fade-in': {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        'fade-out': {
+          '0%': { opacity: '1' },
+          '100%': { opacity: '0' },
+        },
+        'scale-in': {
+          '0%': { transform: 'scale(0.95)', opacity: '0' },
+          '100%': { transform: 'scale(1)', opacity: '1' },
+        },
+        'scale-out': {
+          '0%': { transform: 'scale(1)', opacity: '1' },
+          '100%': { transform: 'scale(0.95)', opacity: '0' },
+        },
+        'flash-green': {
+          '0%': { backgroundColor: 'rgb(34 197 94 / 0.2)' },
+          '100%': { backgroundColor: 'transparent' },
+        },
+      },
+      animation: {
+        'slide-in-right': 'slide-in-from-right 200ms ease-out',
+        'slide-out-right': 'slide-out-to-right 150ms ease-in',
+        'fade-in': 'fade-in 150ms ease-out',
+        'fade-out': 'fade-out 150ms ease-in',
+        'scale-in': 'scale-in 150ms ease-out',
+        'scale-out': 'scale-out 150ms ease-in',
+        'flash-green': 'flash-green 500ms ease-out',
+      },
     },
   },
   plugins: [tailwindcssAnimate],
