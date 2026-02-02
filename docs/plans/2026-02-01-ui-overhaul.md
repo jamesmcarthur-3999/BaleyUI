@@ -6,7 +6,7 @@
 
 **Architecture:** Build new design system components first (ConfirmButton, InlineEdit, SlidePanel, etc.), then overhaul the shell (minimal nav, enhanced command palette), then update each feature area to use the new patterns. All changes follow the interaction hierarchy: inline → transform → popover → panel → modal.
 
-**Tech Stack:** React 18, TypeScript, Tailwind CSS, Radix UI primitives, class-variance-authority, Lucide icons
+**Tech Stack:** React 19, TypeScript, Tailwind CSS, Radix UI primitives, class-variance-authority, Lucide icons
 
 **Reference:** `docs/design-system.md` for all design patterns and component specifications.
 

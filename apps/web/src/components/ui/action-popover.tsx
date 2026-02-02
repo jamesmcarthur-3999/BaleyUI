@@ -76,7 +76,8 @@ function ActionPopover({
   const [search, setSearch] = React.useState('');
 
   // Filter actions based on search
-  const filteredActions = React.useMemo(() => {
+  // React 19 compiler handles memoization automatically
+  const getFilteredActions = () => {
     if (!search) return actions;
 
     const query = search.toLowerCase();
@@ -95,7 +96,9 @@ function ActionPopover({
     return actions.filter(item =>
       item.label.toLowerCase().includes(query)
     );
-  }, [actions, search]);
+  };
+
+  const filteredActions = getFilteredActions();
 
   // Reset search when closing
   React.useEffect(() => {
