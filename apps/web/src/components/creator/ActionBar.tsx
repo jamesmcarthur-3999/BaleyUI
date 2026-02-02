@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Code, Loader2, CheckCircle, XCircle, Save, Copy, Check } from 'lucide-react';
+import { Play, Code, Loader2, CheckCircle, XCircle, Save, Copy, Check, Braces, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -60,6 +60,47 @@ export function ActionBar({
   const [testInput, setTestInput] = useState('');
   const [showCode, setShowCode] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [inputMode, setInputMode] = useState<'simple' | 'json'>('simple');
+  const [jsonError, setJsonError] = useState<string | null>(null);
+
+  /**
+   * Validate JSON input when in JSON mode
+   */
+  const validateJsonInput = (value: string) => {
+    if (!value.trim()) {
+      setJsonError(null);
+      return;
+    }
+    try {
+      JSON.parse(value);
+      setJsonError(null);
+    } catch (e) {
+      setJsonError(e instanceof Error ? e.message : 'Invalid JSON');
+    }
+  };
+
+  /**
+   * Handle test input change
+   */
+  const handleInputChange = (value: string) => {
+    setTestInput(value);
+    if (inputMode === 'json') {
+      validateJsonInput(value);
+    }
+  };
+
+  /**
+   * Toggle between simple and JSON mode
+   */
+  const toggleInputMode = () => {
+    const newMode = inputMode === 'simple' ? 'json' : 'simple';
+    setInputMode(newMode);
+    if (newMode === 'json') {
+      validateJsonInput(testInput);
+    } else {
+      setJsonError(null);
+    }
+  };
 
   /**
    * Copy BAL code to clipboard
@@ -94,25 +135,66 @@ export function ActionBar({
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className={cn('space-y-4', className)}
     >
+      {/* Test Input Section */}
+      <div className="space-y-2">
+        <div className="flex items-start gap-2">
+          {/* Mode Toggle */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={toggleInputMode}
+                  className="shrink-0 h-10 px-3"
+                  disabled={isRunning}
+                >
+                  {inputMode === 'simple' ? (
+                    <Type className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <Braces className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{inputMode === 'simple' ? 'Switch to JSON mode' : 'Switch to simple mode'}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Test Input Field - Textarea */}
+          <textarea
+            value={testInput}
+            onChange={(e) => handleInputChange(e.target.value)}
+            placeholder={inputMode === 'json' ? '{"key": "value"}' : 'Optional test input...'}
+            disabled={isRunning}
+            aria-label="Test input for BaleyBot execution"
+            rows={inputMode === 'json' && testInput.includes('\n') ? 3 : 1}
+            className={cn(
+              'flex-1 px-4 py-2.5 rounded-xl border-2 resize-none',
+              'bg-background text-foreground',
+              'placeholder:text-muted-foreground',
+              'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
+              'transition-all duration-200',
+              inputMode === 'json' && 'font-mono text-sm',
+              jsonError && 'border-red-500 focus:border-red-500'
+            )}
+            style={{
+              minHeight: '42px',
+              height: inputMode === 'json' && testInput.includes('\n') ? 'auto' : '42px',
+            }}
+          />
+        </div>
+
+        {/* JSON Error Message */}
+        {jsonError && inputMode === 'json' && (
+          <p className="text-xs text-red-500 pl-12">{jsonError}</p>
+        )}
+      </div>
+
       {/* Controls Row */}
       <div className="flex items-center gap-3">
-        {/* Test Input Field */}
-        <input
-          type="text"
-          value={testInput}
-          onChange={(e) => setTestInput(e.target.value)}
-          placeholder="Optional test input..."
-          disabled={isRunning}
-          aria-label="Test input for BaleyBot execution"
-          className={cn(
-            'flex-1 px-4 py-2.5 rounded-xl border-2',
-            'bg-background text-foreground',
-            'placeholder:text-muted-foreground',
-            'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary',
-            'disabled:opacity-50 disabled:cursor-not-allowed',
-            'transition-all duration-200'
-          )}
-        />
 
         {/* Auto-Save Status Indicator */}
         {autoSaveStatus !== 'idle' && (
