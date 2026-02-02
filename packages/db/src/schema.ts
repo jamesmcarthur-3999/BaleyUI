@@ -558,6 +558,16 @@ export const baleybots = pgTable(
     // BB dependencies (other BBs this one can call via spawn_baleybot)
     dependencies: jsonb('dependencies').$type<string[]>(),
 
+    // Conversation history (for Creator Bot interactions)
+    conversationHistory: jsonb('conversation_history').$type<
+      Array<{
+        id: string;
+        role: 'user' | 'assistant';
+        content: string;
+        timestamp: string;
+      }>
+    >(),
+
     // Execution metrics
     executionCount: integer('execution_count').default(0),
     lastExecutedAt: timestamp('last_executed_at'),

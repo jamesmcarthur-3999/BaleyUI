@@ -406,6 +406,19 @@ export default function BaleybotPage() {
         setEntities(visualEntities);
       }
 
+      // Load conversation history (Phase 2.6)
+      if (existingBaleybot.conversationHistory && Array.isArray(existingBaleybot.conversationHistory)) {
+        const loadedMessages: CreatorMessage[] = existingBaleybot.conversationHistory.map(
+          (msg: { id: string; role: 'user' | 'assistant'; content: string; timestamp: string }) => ({
+            id: msg.id,
+            role: msg.role,
+            content: msg.content,
+            timestamp: new Date(msg.timestamp),
+          })
+        );
+        setMessages(loadedMessages);
+      }
+
       // Mark as clean since we just loaded from database
       markClean();
     }

@@ -878,6 +878,16 @@ export const baleybotsRouter = router({
           });
         }
 
+        // Truncate conversation history to last 50 messages
+        const truncatedHistory = input.conversationHistory
+          ? input.conversationHistory.slice(-50).map((msg) => ({
+              id: msg.id,
+              role: msg.role,
+              content: msg.content,
+              timestamp: msg.timestamp.toISOString(),
+            }))
+          : undefined;
+
         try {
           const updated = await updateWithLock(baleybots, input.baleybotId, existing.version, {
             name: input.name,
@@ -886,6 +896,7 @@ export const baleybotsRouter = router({
             balCode: input.balCode,
             structure: input.structure,
             entityNames: input.entityNames,
+            conversationHistory: truncatedHistory,
           });
 
           return updated;
@@ -900,6 +911,16 @@ export const baleybotsRouter = router({
           throw error;
         }
       } else {
+        // Truncate conversation history to last 50 messages
+        const truncatedHistory = input.conversationHistory
+          ? input.conversationHistory.slice(-50).map((msg) => ({
+              id: msg.id,
+              role: msg.role,
+              content: msg.content,
+              timestamp: msg.timestamp.toISOString(),
+            }))
+          : undefined;
+
         // Create new BaleyBot
         const [baleybot] = await ctx.db
           .insert(baleybots)
@@ -912,6 +933,7 @@ export const baleybotsRouter = router({
             balCode: input.balCode,
             structure: input.structure,
             entityNames: input.entityNames,
+            conversationHistory: truncatedHistory,
             executionCount: 0,
             createdBy: ctx.userId,
             createdAt: new Date(),
