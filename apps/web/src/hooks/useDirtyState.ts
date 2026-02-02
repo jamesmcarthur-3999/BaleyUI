@@ -39,6 +39,7 @@ export interface CreatorDirtyState {
   connections: unknown[];
   balCode: string;
   name: string;
+  description: string;
   icon: string;
 }
 
@@ -118,6 +119,9 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
 
     if (currentState.name !== saved.name) {
       changes.push('Name');
+    }
+    if (currentState.description !== saved.description) {
+      changes.push('Description');
     }
     if (currentState.icon !== saved.icon) {
       changes.push('Icon');

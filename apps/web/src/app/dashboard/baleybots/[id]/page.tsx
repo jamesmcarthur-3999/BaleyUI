@@ -23,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, Save, Loader2 } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, ChevronDown, ChevronUp, Pencil } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard } from '@/hooks';
 import type {
@@ -76,6 +76,7 @@ export default function BaleybotPage() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [balCode, setBalCode] = useState<string>('');
   const [name, setName] = useState<string>('');
+  const [description, setDescription] = useState<string>('');
   const [icon, setIcon] = useState<string>('');
   const [messages, setMessages] = useState<CreatorMessage[]>([]);
   const [savedBaleybotId, setSavedBaleybotId] = useState<string | null>(isNew ? null : id);
@@ -87,6 +88,8 @@ export default function BaleybotPage() {
   // UI state
   const [isSaving, setIsSaving] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle');
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [showFullDescription, setShowFullDescription] = useState(false);
 
   // Ref to track if initial prompt was sent (avoids effect dependency issues)
   const initialPromptSentRef = useRef(false);
@@ -101,9 +104,10 @@ export default function BaleybotPage() {
       connections,
       balCode,
       name,
+      description,
       icon,
     }),
-    [entities, connections, balCode, name, icon]
+    [entities, connections, balCode, name, description, icon]
   );
 
   const { isDirty, markClean } = useDirtyState(dirtyState);
@@ -224,7 +228,7 @@ export default function BaleybotPage() {
       const result = await saveMutation.mutateAsync({
         baleybotId: savedBaleybotId ?? undefined,
         name,
-        description: messages[0]?.content,
+        description: description || messages[0]?.content,
         icon: icon || undefined,
         balCode,
         conversationHistory: messages.map((m) => ({
@@ -386,6 +390,7 @@ export default function BaleybotPage() {
   useEffect(() => {
     if (!isNew && existingBaleybot) {
       setName(existingBaleybot.name);
+      setDescription(existingBaleybot.description || '');
       setIcon(existingBaleybot.icon || '');
       setBalCode(existingBaleybot.balCode);
       setStatus('ready');
@@ -522,9 +527,10 @@ export default function BaleybotPage() {
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="flex items-center justify-between px-4 py-3 border-b border-border/50 bg-background/80 backdrop-blur-sm"
+        className="border-b border-border/50 bg-background/80 backdrop-blur-sm"
       >
-        <div className="flex items-center gap-3 max-w-6xl mx-auto w-full">
+        {/* Main header row */}
+        <div className="flex items-center gap-3 max-w-6xl mx-auto w-full px-4 py-3">
           {/* Back button */}
           <Button variant="ghost" size="icon" onClick={handleBack} className="shrink-0">
             <ArrowLeft className="h-4 w-4" />
@@ -575,6 +581,67 @@ export default function BaleybotPage() {
             </Tooltip>
           </TooltipProvider>
         </div>
+
+        {/* Description row (Phase 2.8) */}
+        {(description || isEditingDescription || status === 'ready') && (
+          <div className="max-w-6xl mx-auto w-full px-4 pb-3 pl-14">
+            {isEditingDescription ? (
+              <div className="flex gap-2">
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Add a description..."
+                  className="flex-1 text-sm text-muted-foreground bg-muted/50 border rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  rows={2}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setIsEditingDescription(false);
+                    }
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setIsEditingDescription(false)}
+                >
+                  Done
+                </Button>
+              </div>
+            ) : (
+              <div className="group flex items-start gap-2">
+                {description ? (
+                  <>
+                    <p
+                      className={`text-sm text-muted-foreground flex-1 ${
+                        !showFullDescription && description.length > 100 ? 'line-clamp-1' : ''
+                      }`}
+                    >
+                      {description}
+                    </p>
+                    {description.length > 100 && (
+                      <button
+                        onClick={() => setShowFullDescription(!showFullDescription)}
+                        className="text-xs text-primary hover:underline shrink-0"
+                      >
+                        {showFullDescription ? 'Show less' : 'Show more'}
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground/50 italic">No description</p>
+                )}
+                <button
+                  onClick={() => setIsEditingDescription(true)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted"
+                  title="Edit description"
+                >
+                  <Pencil className="h-3 w-3 text-muted-foreground" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </motion.header>
 
       {/* Canvas area */}
