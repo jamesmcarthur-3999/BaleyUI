@@ -14,6 +14,7 @@ export { useToast } from './use-toast';
 // Buttons & Actions
 export { Button, buttonVariants } from './button';
 export { ConfirmButton, type ConfirmButtonProps } from './confirm-button';
+export { InlineEdit, type InlineEditProps } from './inline-edit';
 
 // Cards & Containers
 export * from './card';
