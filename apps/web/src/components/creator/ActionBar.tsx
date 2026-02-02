@@ -139,7 +139,7 @@ export function ActionBar({
       {/* Test Input Section */}
       <div className="space-y-2">
         <div className="flex items-start gap-2">
-          {/* Mode Toggle */}
+          {/* Mode Toggle - min 44px touch target (Phase 4.2) */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -147,7 +147,7 @@ export function ActionBar({
                   variant="outline"
                   size="sm"
                   onClick={toggleInputMode}
-                  className="shrink-0 h-10 px-3"
+                  className="shrink-0 min-h-11 min-w-11 h-11 px-3"
                   disabled={isRunning}
                 >
                   {inputMode === 'simple' ? (
@@ -235,6 +235,7 @@ export function ActionBar({
           <Tooltip>
             <TooltipTrigger asChild>
               <span>
+                {/* Run button - min 44px touch target (Phase 4.2) */}
                 <Button
                   onClick={handleRun}
                   disabled={isRunDisabled}
@@ -247,7 +248,7 @@ export function ActionBar({
                   }
                   className={cn(
                     'btn-playful text-white rounded-xl',
-                    'px-6 py-2.5 h-auto',
+                    'px-6 min-h-11 h-auto',
                     'flex items-center gap-2'
                   )}
                 >
@@ -278,14 +279,14 @@ export function ActionBar({
           </Tooltip>
         </TooltipProvider>
 
-        {/* Code Toggle Button */}
+        {/* Code Toggle Button - min 44px touch target (Phase 4.2) */}
         <Button
           variant="outline"
           onClick={() => setShowCode(!showCode)}
           aria-expanded={showCode}
           aria-controls="bal-code-viewer"
           className={cn(
-            'rounded-xl px-4 py-2.5 h-auto',
+            'rounded-xl px-4 min-h-11 h-auto',
             'flex items-center gap-2',
             showCode && 'bg-muted'
           )}

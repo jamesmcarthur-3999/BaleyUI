@@ -115,8 +115,8 @@ function tokenize(code: string): Token[] {
       continue;
     }
 
-    // Fallback: take one character
-    tokens.push({ type: 'plain', value: remaining[0] });
+    // Fallback: take one character (guaranteed non-empty by while condition)
+    tokens.push({ type: 'plain', value: remaining[0]! });
     remaining = remaining.slice(1);
   }
 
@@ -159,7 +159,7 @@ export function BalCodeHighlighter({
   if (!code) {
     return (
       <pre className={cn('text-sm font-mono', className)}>
-        <code className="text-muted-foreground">// No BAL code generated yet</code>
+        <code className="text-muted-foreground">{'// No BAL code generated yet'}</code>
       </pre>
     );
   }

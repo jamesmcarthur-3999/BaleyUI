@@ -678,7 +678,7 @@ export default function BaleybotPage() {
                     size="icon"
                     onClick={handleUndo}
                     disabled={!canUndo}
-                    className="h-8 w-8"
+                    className="min-h-11 min-w-11 h-11 w-11"
                   >
                     <Undo2 className="h-4 w-4" />
                   </Button>
@@ -696,7 +696,7 @@ export default function BaleybotPage() {
                     size="icon"
                     onClick={handleRedo}
                     disabled={!canRedo}
-                    className="h-8 w-8"
+                    className="min-h-11 min-w-11 h-11 w-11"
                   >
                     <Redo2 className="h-4 w-4" />
                   </Button>
@@ -714,7 +714,7 @@ export default function BaleybotPage() {
                     variant="ghost"
                     size="icon"
                     onClick={() => setShortcutsOpen(true)}
-                    className="h-8 w-8"
+                    className="min-h-11 min-w-11 h-11 w-11"
                   >
                     <Keyboard className="h-4 w-4" />
                   </Button>

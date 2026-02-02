@@ -149,6 +149,7 @@ export function ChatInput({
           style={{ height: 'auto' }}
         />
 
+        {/* Send button - min 44px touch target (Phase 4.2) */}
         <Button
           type="button"
           size="icon"
@@ -157,14 +158,14 @@ export function ChatInput({
           onClick={handleSend}
           aria-label={isProcessing ? 'Sending message' : 'Send message'}
           className={cn(
-            'h-9 w-9 shrink-0 rounded-xl transition-all',
+            'min-h-11 min-w-11 h-11 w-11 shrink-0 rounded-xl transition-all',
             hasContent && !isDisabled && 'bg-primary hover:bg-primary/90'
           )}
         >
           {isProcessing ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
           ) : (
-            <Send className="h-4 w-4" aria-hidden="true" />
+            <Send className="h-5 w-5" aria-hidden="true" />
           )}
         </Button>
       </motion.div>
