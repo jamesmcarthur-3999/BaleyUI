@@ -3,14 +3,19 @@ import { router, protectedProcedure } from '../trpc';
 import {
   baleybots,
   baleybotExecutions,
+  approvalPatterns,
+  connections,
   eq,
   and,
   desc,
+  isNull,
   notDeleted,
   softDelete,
   updateWithLock,
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
+import { processCreatorMessage } from '@/lib/baleybot/creator-bot';
+import type { CreatorMessage } from '@/lib/baleybot/creator-types';
 
 /**
  * Status values for BaleyBots
@@ -519,5 +524,372 @@ export const baleybotsRouter = router({
       });
 
       return dependents;
+    }),
+
+  // ===== Approval System Endpoints =====
+
+  /**
+   * List approval patterns for the workspace.
+   */
+  listApprovalPatterns: protectedProcedure
+    .input(
+      z.object({
+        tool: z.string().optional(),
+        trustLevel: z.enum(['provisional', 'trusted', 'permanent']).optional(),
+        includeRevoked: z.boolean().optional().default(false),
+        limit: z.number().int().min(1).max(100).optional().default(50),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const conditions = [eq(approvalPatterns.workspaceId, ctx.workspace.id)];
+
+      if (input?.tool) {
+        conditions.push(eq(approvalPatterns.tool, input.tool));
+      }
+
+      if (input?.trustLevel) {
+        conditions.push(eq(approvalPatterns.trustLevel, input.trustLevel));
+      }
+
+      if (!input?.includeRevoked) {
+        conditions.push(isNull(approvalPatterns.revokedAt));
+      }
+
+      const patterns = await ctx.db.query.approvalPatterns.findMany({
+        where: and(...conditions),
+        orderBy: [desc(approvalPatterns.createdAt)],
+        limit: input?.limit ?? 50,
+      });
+
+      return patterns;
+    }),
+
+  /**
+   * Create a new approval pattern.
+   */
+  createApprovalPattern: protectedProcedure
+    .input(
+      z.object({
+        tool: z.string().min(1),
+        actionPattern: z.record(z.string(), z.unknown()),
+        entityGoalPattern: z.string().optional(),
+        trustLevel: z.enum(['provisional', 'trusted', 'permanent']).default('provisional'),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Calculate expiration for provisional patterns (24 hours)
+      const expiresAt =
+        input.trustLevel === 'provisional'
+          ? new Date(Date.now() + 24 * 60 * 60 * 1000)
+          : null;
+
+      const [pattern] = await ctx.db
+        .insert(approvalPatterns)
+        .values({
+          workspaceId: ctx.workspace.id,
+          tool: input.tool,
+          actionPattern: input.actionPattern,
+          entityGoalPattern: input.entityGoalPattern,
+          trustLevel: input.trustLevel,
+          approvedBy: ctx.userId,
+          approvedAt: new Date(),
+          expiresAt,
+        })
+        .returning();
+
+      return pattern;
+    }),
+
+  /**
+   * Revoke an approval pattern.
+   */
+  revokeApprovalPattern: protectedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        reason: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify the pattern belongs to this workspace
+      const existing = await ctx.db.query.approvalPatterns.findFirst({
+        where: and(
+          eq(approvalPatterns.id, input.id),
+          eq(approvalPatterns.workspaceId, ctx.workspace.id)
+        ),
+      });
+
+      if (!existing) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Approval pattern not found',
+        });
+      }
+
+      const [updated] = await ctx.db
+        .update(approvalPatterns)
+        .set({
+          revokedAt: new Date(),
+          revokedBy: ctx.userId,
+          revokeReason: input.reason,
+        })
+        .where(eq(approvalPatterns.id, input.id))
+        .returning();
+
+      return updated;
+    }),
+
+  /**
+   * Increment usage count for an approval pattern.
+   */
+  incrementPatternUsage: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.query.approvalPatterns.findFirst({
+        where: and(
+          eq(approvalPatterns.id, input.id),
+          eq(approvalPatterns.workspaceId, ctx.workspace.id)
+        ),
+      });
+
+      if (!existing) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Approval pattern not found',
+        });
+      }
+
+      const [updated] = await ctx.db
+        .update(approvalPatterns)
+        .set({
+          timesUsed: (existing.timesUsed ?? 0) + 1,
+        })
+        .where(eq(approvalPatterns.id, input.id))
+        .returning();
+
+      return updated;
+    }),
+
+  /**
+   * Handle approval decision for a pending tool call.
+   * This is called when a user approves or denies a tool execution.
+   */
+  handleApprovalDecision: protectedProcedure
+    .input(
+      z.object({
+        executionId: z.string().uuid(),
+        toolCallId: z.string(),
+        approved: z.boolean(),
+        denyReason: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify the execution belongs to a BB in this workspace
+      const execution = await ctx.db.query.baleybotExecutions.findFirst({
+        where: eq(baleybotExecutions.id, input.executionId),
+        with: { baleybot: true },
+      });
+
+      if (!execution || execution.baleybot.workspaceId !== ctx.workspace.id) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Execution not found',
+        });
+      }
+
+      // In a real implementation, this would:
+      // 1. Find the pending approval request in the execution state
+      // 2. Resume the execution with the approval decision
+      // For now, we just record the decision
+
+      // Update execution segments to record the approval decision
+      const currentSegments = (execution.segments as unknown[]) || [];
+      const updatedSegments = [
+        ...currentSegments,
+        {
+          type: 'approval_decision',
+          toolCallId: input.toolCallId,
+          approved: input.approved,
+          denyReason: input.denyReason,
+          decidedBy: ctx.userId,
+          decidedAt: new Date().toISOString(),
+        },
+      ];
+
+      await ctx.db
+        .update(baleybotExecutions)
+        .set({ segments: updatedSegments })
+        .where(eq(baleybotExecutions.id, input.executionId));
+
+      return {
+        approved: input.approved,
+        executionId: input.executionId,
+        toolCallId: input.toolCallId,
+      };
+    }),
+
+  // ===== Creator Bot Endpoints =====
+
+  /**
+   * Send a message to the Creator Bot and get a response.
+   * Used for conversational BaleyBot creation.
+   */
+  sendCreatorMessage: protectedProcedure
+    .input(
+      z.object({
+        sessionId: z.string().uuid().optional(),
+        baleybotId: z.string().uuid().optional(),
+        message: z.string().min(1).max(10000),
+        conversationHistory: z
+          .array(
+            z.object({
+              id: z.string(),
+              role: z.enum(['user', 'assistant']),
+              content: z.string(),
+              timestamp: z.coerce.date(),
+            })
+          )
+          .optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Build generator context
+      // 1. Get connections from workspace
+      const workspaceConnections = await ctx.db.query.connections.findMany({
+        where: eq(connections.workspaceId, ctx.workspace.id),
+      });
+
+      // 2. Get existing BaleyBots from workspace
+      const existingBaleybots = await ctx.db.query.baleybots.findMany({
+        where: and(
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots)
+        ),
+        columns: {
+          id: true,
+          name: true,
+          description: true,
+          icon: true,
+        },
+      });
+
+      // 3. Format connections for the generator context
+      const formattedConnections = workspaceConnections.map((conn) => ({
+        id: conn.id,
+        type: conn.type,
+        name: conn.name,
+        status: conn.status ?? 'unknown',
+        isDefault: conn.isDefault ?? false,
+      }));
+
+      // 4. Format existing BaleyBots for the generator context
+      const formattedBaleybots = existingBaleybots.map((bb) => ({
+        id: bb.id,
+        name: bb.name,
+        description: bb.description,
+        icon: bb.icon,
+        status: 'active' as const,
+        executionCount: 0,
+        lastExecutedAt: null,
+      }));
+
+      // 5. Convert conversation history to CreatorMessage format
+      const conversationHistory: CreatorMessage[] = (input.conversationHistory ?? []).map(
+        (msg) => ({
+          id: msg.id,
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp,
+        })
+      );
+
+      // 6. Call processCreatorMessage
+      const result = await processCreatorMessage(
+        {
+          context: {
+            workspaceId: ctx.workspace.id,
+            availableTools: [], // Will be populated from tool catalog in the future
+            workspacePolicies: null, // Will be populated from workspace settings in the future
+            connections: formattedConnections,
+            existingBaleybots: formattedBaleybots,
+          },
+          conversationHistory,
+        },
+        input.message
+      );
+
+      return result;
+    }),
+
+  /**
+   * Save a creation session as a BaleyBot.
+   * Creates a new BaleyBot or updates an existing one.
+   */
+  saveFromSession: protectedProcedure
+    .input(
+      z.object({
+        baleybotId: z.string().uuid().optional(),
+        name: z.string().min(1).max(255),
+        description: z.string().optional(),
+        icon: z.string().max(100).optional(),
+        balCode: z.string().min(1),
+        conversationHistory: z
+          .array(
+            z.object({
+              id: z.string(),
+              role: z.enum(['user', 'assistant']),
+              content: z.string(),
+              timestamp: z.coerce.date(),
+            })
+          )
+          .optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.baleybotId) {
+        // Update existing BaleyBot
+        const existing = await ctx.db.query.baleybots.findFirst({
+          where: and(
+            eq(baleybots.id, input.baleybotId),
+            eq(baleybots.workspaceId, ctx.workspace.id),
+            notDeleted(baleybots)
+          ),
+        });
+
+        if (!existing) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'BaleyBot not found',
+          });
+        }
+
+        const updated = await updateWithLock(baleybots, input.baleybotId, existing.version, {
+          name: input.name,
+          description: input.description,
+          icon: input.icon,
+          balCode: input.balCode,
+        });
+
+        return updated;
+      } else {
+        // Create new BaleyBot
+        const [baleybot] = await ctx.db
+          .insert(baleybots)
+          .values({
+            workspaceId: ctx.workspace.id,
+            name: input.name,
+            description: input.description,
+            icon: input.icon,
+            status: 'draft',
+            balCode: input.balCode,
+            executionCount: 0,
+            createdBy: ctx.userId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .returning();
+
+        return baleybot;
+      }
     }),
 });
