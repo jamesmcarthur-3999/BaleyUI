@@ -43,15 +43,6 @@ const ConfirmButton = React.forwardRef<HTMLButtonElement, ConfirmButtonProps>(
     const [state, setState] = useState<ConfirmState>('default');
     const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Clear timeout on unmount
-    useEffect(() => {
-      return () => {
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-        }
-      };
-    }, []);
-
     // Reset to default after timeout
     useEffect(() => {
       if (state === 'confirming') {
@@ -101,12 +92,13 @@ const ConfirmButton = React.forwardRef<HTMLButtonElement, ConfirmButtonProps>(
 
     if (state === 'confirming') {
       return (
-        <div ref={buttonRef} className="inline-flex items-center gap-1">
+        <div ref={buttonRef} className="inline-flex items-center gap-1" role="group" aria-label="Confirm action">
           <Button
             variant="ghost"
             size={size}
             onClick={handleCancel}
             className={cn('text-muted-foreground', className)}
+            aria-label="Cancel"
           >
             {label}?
             <X className="h-3 w-3 ml-1" />
@@ -138,10 +130,14 @@ const ConfirmButton = React.forwardRef<HTMLButtonElement, ConfirmButtonProps>(
           className
         )}
         title={shortcut ? `${label} (${shortcut})` : label}
+        aria-keyshortcuts={shortcut}
         {...props}
       >
         {state === 'loading' ? (
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          <span aria-live="polite" role="status">
+            <span className="sr-only">Loading</span>
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          </span>
         ) : (
           icon
         )}
