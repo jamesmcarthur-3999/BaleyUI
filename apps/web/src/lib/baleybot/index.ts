@@ -72,7 +72,6 @@ export {
   processCreatorMessage,
   streamCreatorMessage,
   type CreatorBotOptions,
-  type CreatorStreamChunk,
 } from './creator-bot';
 
 // Creator Types (selective exports to avoid conflicts with types.ts)
@@ -93,8 +92,7 @@ export {
   // Session types
   type CreationSession,
   // Streaming types
-  type CreatorStreamChunkType,
-  type CreatorStreamChunk as CreatorStreamChunkData,
+  type CreatorStreamChunk,
   // AI output
   creatorOutputSchema,
   type CreatorOutput,

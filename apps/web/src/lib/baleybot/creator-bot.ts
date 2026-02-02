@@ -7,7 +7,12 @@
  */
 
 import { Baleybot, type Processable } from '@baleybots/core';
-import { creatorOutputSchema, type CreatorOutput, type CreatorMessage } from './creator-types';
+import {
+  creatorOutputSchema,
+  type CreatorOutput,
+  type CreatorMessage,
+  type CreatorStreamChunk,
+} from './creator-types';
 import type { GeneratorContext } from './types';
 import { buildToolCatalog, formatToolCatalogForAI } from './tool-catalog';
 
@@ -214,15 +219,6 @@ export async function processCreatorMessage(
 // ============================================================================
 
 /**
- * Stream chunk types for the Creator Bot output
- */
-export type CreatorStreamChunk =
-  | { type: 'status'; data: { message: string } }
-  | { type: 'entity'; data: CreatorOutput['entities'][number] }
-  | { type: 'connection'; data: CreatorOutput['connections'][number] }
-  | { type: 'complete'; data: CreatorOutput };
-
-/**
  * Stream the Creator Bot response.
  *
  * This async generator simulates streaming by yielding chunks as they become
@@ -256,8 +252,14 @@ export async function* streamCreatorMessage(
   for (const entity of result.entities) {
     yield {
       type: 'entity',
-      data: entity,
-    };
+      data: {
+        id: entity.id,
+        name: entity.name,
+        icon: entity.icon,
+        purpose: entity.purpose,
+        tools: entity.tools,
+      },
+    } as CreatorStreamChunk;
   }
 
   // Yield connecting status
@@ -271,8 +273,13 @@ export async function* streamCreatorMessage(
     for (const connection of result.connections) {
       yield {
         type: 'connection',
-        data: connection,
-      };
+        data: {
+          id: `conn-${connection.from}-${connection.to}`,
+          from: connection.from,
+          to: connection.to,
+          label: connection.label,
+        },
+      } as CreatorStreamChunk;
     }
   }
 

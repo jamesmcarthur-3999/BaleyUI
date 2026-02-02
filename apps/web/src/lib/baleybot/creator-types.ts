@@ -157,28 +157,19 @@ export interface CreationSession {
 // ============================================================================
 
 /**
- * Type of streaming chunk from the creator AI
- */
-export type CreatorStreamChunkType =
-  | 'thinking'
-  | 'entity_add'
-  | 'entity_remove'
-  | 'connection_add'
-  | 'connection_remove'
-  | 'status'
-  | 'complete'
-  | 'error';
-
-/**
  * A streaming chunk from the creator AI.
  * Used to progressively update the canvas as the AI builds the bot.
+ * Discriminated union for type-safe streaming.
  */
-export interface CreatorStreamChunk {
-  /** Type of the chunk */
-  type: CreatorStreamChunkType;
-  /** Payload data (varies by type) */
-  data: unknown;
-}
+export type CreatorStreamChunk =
+  | { type: 'status'; data: { message: string } }
+  | { type: 'thinking'; data: { content: string } }
+  | { type: 'entity'; data: Omit<VisualEntity, 'position' | 'status'> }
+  | { type: 'entity_remove'; data: { id: string } }
+  | { type: 'connection'; data: Omit<Connection, 'status'> }
+  | { type: 'connection_remove'; data: { id: string } }
+  | { type: 'complete'; data: CreatorOutput }
+  | { type: 'error'; data: { message: string; code?: string } };
 
 // ============================================================================
 // AI OUTPUT SCHEMA
@@ -192,37 +183,39 @@ export const creatorOutputSchema = z.object({
   /** AI's thinking/reasoning (shown to user) */
   thinking: z.string().optional(),
   /** Entities to create/update */
-  entities: z.array(
-    z.object({
-      /** Entity identifier */
-      id: z.string(),
-      /** Display name */
-      name: z.string(),
-      /** Icon (emoji or icon name) */
-      icon: z.string(),
-      /** Purpose/description of the entity */
-      purpose: z.string(),
-      /** Tools assigned to this entity */
-      tools: z.array(z.string()),
-    })
-  ),
+  entities: z
+    .array(
+      z.object({
+        /** Entity identifier */
+        id: z.string().min(1, 'Entity ID is required'),
+        /** Display name */
+        name: z.string().min(1, 'Entity name is required'),
+        /** Icon (emoji or icon name) */
+        icon: z.string().min(1, 'Entity icon is required'),
+        /** Purpose/description of the entity */
+        purpose: z.string().min(1, 'Entity purpose is required'),
+        /** Tools assigned to this entity */
+        tools: z.array(z.string()),
+      })
+    )
+    .min(1, 'At least one entity is required'),
   /** Connections between entities */
   connections: z.array(
     z.object({
       /** Source entity ID */
-      from: z.string(),
+      from: z.string().min(1, 'Connection source is required'),
       /** Target entity ID */
-      to: z.string(),
+      to: z.string().min(1, 'Connection target is required'),
       /** Optional connection label */
       label: z.string().optional(),
     })
   ),
   /** Generated BAL code */
-  balCode: z.string(),
+  balCode: z.string().min(1, 'BAL code is required'),
   /** Suggested name for the BaleyBot */
-  name: z.string(),
+  name: z.string().min(1, 'Name is required').max(255),
   /** Suggested icon (emoji) */
-  icon: z.string(),
+  icon: z.string().min(1, 'Icon is required'),
   /** Creation status */
   status: z.enum(['building', 'ready']),
 });
@@ -252,11 +245,14 @@ export function createInitialCanvasState(): CanvasState {
 /**
  * Create a new creation session
  */
-export function createSession(workspaceId: string, baleybotId?: string): CreationSession {
+export function createSession(
+  workspaceId: string,
+  baleybotId: string | null = null
+): CreationSession {
   const now = new Date();
   return {
     id: crypto.randomUUID(),
-    baleybotId: baleybotId ?? null,
+    baleybotId,
     workspaceId,
     messages: [],
     canvasState: createInitialCanvasState(),
