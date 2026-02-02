@@ -121,7 +121,7 @@ export default function BaleybotPage() {
       });
 
       // 5. Transform result entities to VisualEntity[] (add position, status: 'stable')
-      const visualEntities: VisualEntity[] = result.entities.map((entity, index) => ({
+      const visualEntities: VisualEntity[] = result.entities.map((entity) => ({
         ...entity,
         position: { x: 0, y: 0 }, // Canvas will position them
         status: 'stable' as const,
@@ -319,11 +319,13 @@ export default function BaleybotPage() {
   }, [isNew, existingBaleybot]);
 
   // Auto-send initial prompt if provided (using ref to track sent state)
+  // Note: handleSendMessage is intentionally excluded from deps - we use ref to ensure single execution
   useEffect(() => {
     if (isNew && initialPrompt && !initialPromptSentRef.current && status === 'empty') {
       initialPromptSentRef.current = true;
       handleSendMessage(initialPrompt);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew, initialPrompt, status]);
 
   // =====================================================================
