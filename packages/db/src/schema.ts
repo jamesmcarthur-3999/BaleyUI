@@ -529,8 +529,198 @@ export const backgroundJobs = pgTable(
 );
 
 // ============================================================================
+// BALEYBOTS (BAL-first architecture)
+// ============================================================================
+
+export const baleybots = pgTable(
+  'baleybots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // User-facing
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
+    icon: varchar('icon', { length: 100 }), // emoji or icon name
+    status: varchar('status', { length: 50 }).notNull().default('draft'), // draft, active, paused, error
+
+    // BAL source of truth
+    balCode: text('bal_code').notNull(),
+
+    // Cached structure for visualization (from Pipeline.getStructure())
+    structure: jsonb('structure'),
+
+    // Entity names in this BB (for quick lookup)
+    entityNames: jsonb('entity_names').$type<string[]>(),
+
+    // BB dependencies (other BBs this one can call via spawn_baleybot)
+    dependencies: jsonb('dependencies').$type<string[]>(),
+
+    // Execution metrics
+    executionCount: integer('execution_count').default(0),
+    lastExecutedAt: timestamp('last_executed_at'),
+
+    // User who created this BB
+    createdBy: varchar('created_by', { length: 255 }),
+
+    // Soft delete fields
+    deletedAt: timestamp('deleted_at'),
+    deletedBy: varchar('deleted_by', { length: 255 }),
+
+    // Optimistic locking
+    version: integer('version').default(1).notNull(),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('baleybots_workspace_idx').on(table.workspaceId),
+    index('baleybots_status_idx').on(table.status),
+  ]
+);
+
+// ============================================================================
+// BALEYBOT EXECUTIONS
+// ============================================================================
+
+export const baleybotExecutions = pgTable(
+  'baleybot_executions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    baleybotId: uuid('baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    status: varchar('status', { length: 50 }).notNull().default('pending'), // pending, running, completed, failed, cancelled
+
+    input: jsonb('input'),
+    output: jsonb('output'),
+    error: text('error'),
+
+    // StreamSegments stored for replay (BaleybotStreamEvent[])
+    segments: jsonb('segments').$type<unknown[]>(),
+
+    // Metrics
+    startedAt: timestamp('started_at'),
+    completedAt: timestamp('completed_at'),
+    durationMs: integer('duration_ms'),
+    tokenCount: integer('token_count'),
+
+    // Trigger info
+    triggeredBy: varchar('triggered_by', { length: 50 }), // 'manual', 'schedule', 'webhook', 'other_bb'
+    triggerSource: varchar('trigger_source', { length: 255 }), // e.g., BB ID if triggered by another BB
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('baleybot_executions_baleybot_idx').on(table.baleybotId),
+    index('baleybot_executions_status_idx').on(table.status),
+    index('baleybot_executions_created_idx').on(table.createdAt),
+  ]
+);
+
+// ============================================================================
+// APPROVAL PATTERNS (learned from "Approve & Remember")
+// ============================================================================
+
+export const approvalPatterns = pgTable(
+  'approval_patterns',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Pattern definition
+    tool: varchar('tool', { length: 255 }).notNull(), // Tool name
+    actionPattern: jsonb('action_pattern').notNull(), // e.g., { action: "refund", amount: "<=100" }
+    entityGoalPattern: text('entity_goal_pattern'), // regex for matching entity goals
+
+    // Trust level
+    trustLevel: varchar('trust_level', { length: 50 }).notNull().default('provisional'), // provisional, trusted, permanent
+    timesUsed: integer('times_used').notNull().default(0),
+
+    // Audit
+    approvedBy: varchar('approved_by', { length: 255 }),
+    approvedAt: timestamp('approved_at'),
+    expiresAt: timestamp('expires_at'),
+
+    // Can be revoked
+    revokedAt: timestamp('revoked_at'),
+    revokedBy: varchar('revoked_by', { length: 255 }),
+    revokeReason: text('revoke_reason'),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('approval_patterns_workspace_idx').on(table.workspaceId),
+    index('approval_patterns_tool_idx').on(table.tool),
+  ]
+);
+
+// ============================================================================
+// WORKSPACE POLICIES (tool governance)
+// ============================================================================
+
+export const workspacePolicies = pgTable('workspace_policies', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id')
+    .references(() => workspaces.id, { onDelete: 'cascade' })
+    .notNull()
+    .unique(),
+
+  // Tool policies
+  allowedTools: jsonb('allowed_tools').$type<string[]>(),
+  forbiddenTools: jsonb('forbidden_tools').$type<string[]>(),
+  requiresApprovalTools: jsonb('requires_approval_tools').$type<string[]>(),
+
+  // Global limits
+  maxAutoApproveAmount: integer('max_auto_approve_amount'),
+  reapprovalIntervalDays: integer('reapproval_interval_days').default(90),
+  maxAutoFiresBeforeReview: integer('max_auto_fires_before_review').default(100),
+
+  // Pattern learning manual (natural language guidelines for AI)
+  learningManual: text('learning_manual'),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
+
+export const baleybotsRelations = relations(baleybots, ({ one, many }) => ({
+  workspace: one(workspaces, {
+    fields: [baleybots.workspaceId],
+    references: [workspaces.id],
+  }),
+  executions: many(baleybotExecutions),
+}));
+
+export const baleybotExecutionsRelations = relations(baleybotExecutions, ({ one }) => ({
+  baleybot: one(baleybots, {
+    fields: [baleybotExecutions.baleybotId],
+    references: [baleybots.id],
+  }),
+}));
+
+export const approvalPatternsRelations = relations(approvalPatterns, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [approvalPatterns.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
+
+export const workspacePoliciesRelations = relations(workspacePolicies, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [workspacePolicies.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
 
 export const blockExecutionsRelations = relations(blockExecutions, ({ one, many }) => ({
   block: one(blocks, {
@@ -567,12 +757,15 @@ export const executionEventsRelations = relations(executionEvents, ({ one }) => 
   }),
 }));
 
-export const workspacesRelations = relations(workspaces, ({ many }) => ({
+export const workspacesRelations = relations(workspaces, ({ many, one }) => ({
   connections: many(connections),
   tools: many(tools),
   blocks: many(blocks),
   flows: many(flows),
   apiKeys: many(apiKeys),
+  baleybots: many(baleybots),
+  approvalPatterns: many(approvalPatterns),
+  workspacePolicies: one(workspacePolicies),
 }));
 
 export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
