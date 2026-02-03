@@ -471,18 +471,38 @@ export default function BaleybotPage() {
       // 2. Set status to 'running'
       setStatus('running');
 
-      // 3. Call execute mutation
-      const result = await executeMutation.mutateAsync({
+      // 3. Call execute mutation (Phase 2.1: Real execution)
+      const execution = await executeMutation.mutateAsync({
         id: baleybotIdToRun!,
         input: input || undefined,
         triggeredBy: 'manual',
       });
 
-      // 4. Set runResult
-      setRunResult({
-        success: true,
-        output: result,
-      });
+      // 4. Set runResult based on execution status
+      if (execution.status === 'completed') {
+        setRunResult({
+          success: true,
+          output: execution.output,
+        });
+      } else if (execution.status === 'failed') {
+        setRunResult({
+          success: false,
+          output: null,
+          error: execution.error || 'Execution failed',
+        });
+      } else if (execution.status === 'cancelled') {
+        setRunResult({
+          success: false,
+          output: null,
+          error: 'Execution was cancelled',
+        });
+      } else {
+        // Pending or running - shouldn't happen but handle gracefully
+        setRunResult({
+          success: true,
+          output: execution,
+        });
+      }
 
       // 5. Set status to 'ready'
       setStatus('ready');
