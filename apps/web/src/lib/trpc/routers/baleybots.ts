@@ -20,6 +20,7 @@ import type { CreatorMessage } from '@/lib/baleybot/creator-types';
 import { executeBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { verifyNestedOwnership } from '../helpers';
 
 /**
  * Status values for BaleyBots
@@ -545,21 +546,8 @@ export const baleybotsRouter = router({
         });
       }
 
-      // Check if baleybot relation exists (could be null for orphaned executions)
-      if (!execution.baleybot) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Execution not found',
-        });
-      }
-
-      // Verify the BaleyBot belongs to the workspace
-      if (execution.baleybot.workspaceId !== ctx.workspace.id) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Execution not found',
-        });
-      }
+      // Verify the BaleyBot exists and belongs to the workspace
+      verifyNestedOwnership(execution.baleybot, ctx.workspace.id, 'Execution');
 
       return execution;
     }),
@@ -790,12 +778,15 @@ export const baleybotsRouter = router({
         with: { baleybot: true },
       });
 
-      if (!execution || !execution.baleybot || execution.baleybot.workspaceId !== ctx.workspace.id) {
+      if (!execution) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Execution not found',
         });
       }
+
+      // Verify the BaleyBot exists and belongs to the workspace
+      verifyNestedOwnership(execution.baleybot, ctx.workspace.id, 'Execution');
 
       // In a real implementation, this would:
       // 1. Find the pending approval request in the execution state
