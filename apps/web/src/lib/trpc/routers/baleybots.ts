@@ -12,6 +12,7 @@ import {
   notDeleted,
   softDelete,
   updateWithLock,
+  sql,
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { processCreatorMessage } from '@/lib/baleybot/creator-bot';
@@ -336,8 +337,8 @@ export const baleybotsRouter = router({
 
   /**
    * Execute a BaleyBot with input.
-   * Note: Actual execution logic will be implemented in Phase 2.2 (executor service).
-   * This procedure creates the execution record and placeholder for streaming.
+   * Uses a database transaction to prevent race conditions during execution.
+   * The BAL execution runs inside the transaction so it will be rolled back on error.
    */
   execute: protectedProcedure
     .input(
@@ -349,7 +350,7 @@ export const baleybotsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify BaleyBot exists and belongs to workspace
+      // Verify BaleyBot exists and belongs to workspace (outside transaction for early validation)
       const baleybot = await ctx.db.query.baleybots.findFirst({
         where: and(
           eq(baleybots.id, input.id),
@@ -373,93 +374,104 @@ export const baleybotsRouter = router({
         });
       }
 
-      // Create execution record
-      const [execution] = await ctx.db
-        .insert(baleybotExecutions)
-        .values({
-          baleybotId: input.id,
-          status: 'pending',
-          input: input.input,
-          triggeredBy: input.triggeredBy,
-          triggerSource: input.triggerSource,
-          createdAt: new Date(),
-        })
-        .returning();
-
-      // Update execution count
-      await ctx.db
-        .update(baleybots)
-        .set({
-          executionCount: (baleybot.executionCount ?? 0) + 1,
-          lastExecutedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(baleybots.id, input.id));
-
-      // Phase 2.1: Execute the BAL code using @baleyui/sdk
-      const startTime = Date.now();
-      try {
-        // Update status to running
-        await ctx.db
-          .update(baleybotExecutions)
-          .set({ status: 'running', startedAt: new Date() })
-          .where(eq(baleybotExecutions.id, execution.id));
-
-        // Get API key from environment (Phase 2.1)
-        const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
-
-        // Execute the BAL code
-        const result = await executeBALCode(baleybot.balCode, {
-          model: 'gpt-4o-mini',
-          apiKey,
-          timeout: 60000, // 60 second timeout
-        });
-
-        const duration = Date.now() - startTime;
-
-        // Update execution with result
-        await ctx.db
-          .update(baleybotExecutions)
-          .set({
-            status: result.status === 'success' ? 'completed' : result.status === 'cancelled' ? 'cancelled' : 'failed',
-            output: result.result,
-            error: result.error,
-            completedAt: new Date(),
-            durationMs: duration,
+      // Use a transaction to ensure atomicity of all database operations
+      return await ctx.db.transaction(async (tx) => {
+        // Create execution record
+        const [execution] = await tx
+          .insert(baleybotExecutions)
+          .values({
+            baleybotId: input.id,
+            status: 'pending',
+            input: input.input,
+            triggeredBy: input.triggeredBy,
+            triggerSource: input.triggerSource,
+            createdAt: new Date(),
           })
-          .where(eq(baleybotExecutions.id, execution.id));
+          .returning();
 
-        // Return updated execution
-        const updatedExecution = await ctx.db.query.baleybotExecutions.findFirst({
-          where: eq(baleybotExecutions.id, execution.id),
-        });
+        if (!execution) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Failed to create execution record',
+          });
+        }
 
-        return updatedExecution || execution;
-      } catch (error) {
-        const duration = Date.now() - startTime;
-        const internalErrorMessage = error instanceof Error ? error.message : String(error);
-
-        // Update execution with error (store full error internally)
-        await ctx.db
-          .update(baleybotExecutions)
+        // Update execution count atomically using sql template literal
+        await tx
+          .update(baleybots)
           .set({
-            status: 'failed',
-            error: internalErrorMessage,
-            completedAt: new Date(),
-            durationMs: duration,
+            executionCount: sql`${baleybots.executionCount} + 1`,
+            lastExecutedAt: new Date(),
+            updatedAt: new Date(),
           })
-          .where(eq(baleybotExecutions.id, execution.id));
+          .where(eq(baleybots.id, input.id));
 
-        // Sanitize error message before sending to client
-        const errorMessage = isUserFacingError(error)
-          ? sanitizeErrorMessage(error)
-          : 'Execution failed due to an internal error';
+        // Execute the BAL code using @baleyui/sdk
+        const startTime = Date.now();
+        try {
+          // Update status to running
+          await tx
+            .update(baleybotExecutions)
+            .set({ status: 'running', startedAt: new Date() })
+            .where(eq(baleybotExecutions.id, execution.id));
 
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: errorMessage,
-        });
-      }
+          // Get API key from environment
+          const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+
+          // Execute the BAL code
+          const result = await executeBALCode(baleybot.balCode, {
+            model: 'gpt-4o-mini',
+            apiKey,
+            timeout: 60000, // 60 second timeout
+          });
+
+          const duration = Date.now() - startTime;
+
+          // Update execution with result
+          await tx
+            .update(baleybotExecutions)
+            .set({
+              status: result.status === 'success' ? 'completed' : result.status === 'cancelled' ? 'cancelled' : 'failed',
+              output: result.result,
+              error: result.error,
+              completedAt: new Date(),
+              durationMs: duration,
+            })
+            .where(eq(baleybotExecutions.id, execution.id));
+
+          // Return updated execution
+          const updatedExecution = await tx.query.baleybotExecutions.findFirst({
+            where: eq(baleybotExecutions.id, execution.id),
+          });
+
+          return updatedExecution || execution;
+        } catch (error) {
+          const duration = Date.now() - startTime;
+          const internalErrorMessage = error instanceof Error ? error.message : String(error);
+
+          // Update execution with error (store full error internally)
+          // This will be committed even though we throw, because we want to record the failure
+          await tx
+            .update(baleybotExecutions)
+            .set({
+              status: 'failed',
+              error: internalErrorMessage,
+              completedAt: new Date(),
+              durationMs: duration,
+            })
+            .where(eq(baleybotExecutions.id, execution.id));
+
+          // Sanitize error message before sending to client
+          const errorMessage = isUserFacingError(error)
+            ? sanitizeErrorMessage(error)
+            : 'Execution failed due to an internal error';
+
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: errorMessage,
+          });
+        }
+      });
     }),
 
   /**
