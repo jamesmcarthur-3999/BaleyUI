@@ -7,16 +7,15 @@
  * ENCRYPTION_KEY=$(openssl rand -hex 32) npm test
  */
 
-import { describe, test, expect, beforeAll } from 'vitest';
+import { describe, test, expect, beforeEach } from 'vitest';
 import { encrypt, decrypt, isEncrypted } from '../index';
 
-// Set up test encryption key
-beforeAll(() => {
-  if (!process.env.ENCRYPTION_KEY) {
-    // Generate a test key (32 bytes = 64 hex characters)
-    process.env.ENCRYPTION_KEY =
-      'a'.repeat(64); // Simple test key for demonstration
-  }
+// Test encryption key (32 bytes = 64 hex characters)
+const TEST_ENCRYPTION_KEY = 'a'.repeat(64);
+
+// Set up test encryption key before each test to ensure isolation
+beforeEach(() => {
+  process.env.ENCRYPTION_KEY = TEST_ENCRYPTION_KEY;
 });
 
 describe('encrypt/decrypt', () => {

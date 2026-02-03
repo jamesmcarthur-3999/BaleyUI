@@ -1167,6 +1167,9 @@ export const baleybotsRelations = relations(baleybots, ({ one, many }) => ({
   metricAggregates: many(baleybotMetricAggregates),
   alerts: many(baleybotAlerts),
   usage: many(baleybotUsage),
+  // Trigger relations (BB completion chains)
+  triggeredBy: many(baleybotTriggers, { relationName: 'triggeredBy' }),
+  triggeredTargets: many(baleybotTriggers, { relationName: 'triggeredTargets' }),
 }));
 
 export const baleybotUsageRelations = relations(baleybotUsage, ({ one }) => ({
@@ -1282,6 +1285,23 @@ export const approvalPatternsRelations = relations(approvalPatterns, ({ one }) =
   workspace: one(workspaces, {
     fields: [approvalPatterns.workspaceId],
     references: [workspaces.id],
+  }),
+}));
+
+export const baleybotTriggersRelations = relations(baleybotTriggers, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [baleybotTriggers.workspaceId],
+    references: [workspaces.id],
+  }),
+  sourceBaleybot: one(baleybots, {
+    fields: [baleybotTriggers.sourceBaleybotId],
+    references: [baleybots.id],
+    relationName: 'triggeredBy',
+  }),
+  targetBaleybot: one(baleybots, {
+    fields: [baleybotTriggers.targetBaleybotId],
+    references: [baleybots.id],
+    relationName: 'triggeredTargets',
   }),
 }));
 

@@ -21,6 +21,7 @@ describe('compileBALCode', () => {
 
   it('returns entities and structure on success', () => {
     mockedCompileBAL.mockReturnValue({
+      executable: null,
       entityNames: ['Researcher', 'Writer'],
       pipelineStructure: { type: 'sequential', steps: [] },
       runInput: 'test input',
@@ -48,6 +49,7 @@ describe('compileBALCode', () => {
 
   it('includes web search tool when enabled with API key', () => {
     mockedCompileBAL.mockReturnValue({
+      executable: null,
       entityNames: [],
       pipelineStructure: null,
       runInput: null,
@@ -70,6 +72,7 @@ describe('compileBALCode', () => {
 
   it('does not include web search without API key', () => {
     mockedCompileBAL.mockReturnValue({
+      executable: null,
       entityNames: [],
       pipelineStructure: null,
       runInput: null,
@@ -96,11 +99,13 @@ describe('executeBALCode', () => {
 
   it('returns success result on successful execution', async () => {
     mockedCompileBAL.mockReturnValue({
+      executable: {} as any, // Mock executable
       entityNames: ['Test'],
-      pipelineStructure: { type: 'single', entity: 'Test' },
+      pipelineStructure: { type: 'bot', name: 'Test' },
       runInput: 'input',
     });
     mockedExecuteBAL.mockResolvedValue({
+      status: 'success',
       result: 'test output',
     });
 
@@ -124,6 +129,7 @@ describe('executeBALCode', () => {
 
   it('returns success with no-op message when no pipeline exists', async () => {
     mockedCompileBAL.mockReturnValue({
+      executable: null,
       entityNames: ['Test'],
       pipelineStructure: null,
       runInput: null,
@@ -141,8 +147,9 @@ describe('executeBALCode', () => {
 
   it('handles timeout', async () => {
     mockedCompileBAL.mockReturnValue({
+      executable: {} as any,
       entityNames: ['Test'],
-      pipelineStructure: { type: 'single', entity: 'Test' },
+      pipelineStructure: { type: 'bot', name: 'Test' },
       runInput: 'input',
     });
     mockedExecuteBAL.mockImplementation(
@@ -158,11 +165,12 @@ describe('executeBALCode', () => {
 
   it('calls onEvent callback with events', async () => {
     mockedCompileBAL.mockReturnValue({
+      executable: {} as any,
       entityNames: ['Test'],
-      pipelineStructure: { type: 'single', entity: 'Test' },
+      pipelineStructure: { type: 'bot', name: 'Test' },
       runInput: 'input',
     });
-    mockedExecuteBAL.mockResolvedValue({ result: 'output' });
+    mockedExecuteBAL.mockResolvedValue({ status: 'success', result: 'output' });
 
     const events: unknown[] = [];
     await executeBALCode('@entity Test @run Test("input")', {
@@ -183,11 +191,12 @@ describe('streamBALExecution', () => {
 
   it('yields events in order', async () => {
     mockedCompileBAL.mockReturnValue({
+      executable: {} as any,
       entityNames: ['Test'],
-      pipelineStructure: { type: 'single', entity: 'Test' },
+      pipelineStructure: { type: 'bot', name: 'Test' },
       runInput: 'input',
     });
-    mockedExecuteBAL.mockResolvedValue({ result: 'output' });
+    mockedExecuteBAL.mockResolvedValue({ status: 'success', result: 'output' });
 
     const events: unknown[] = [];
     const generator = streamBALExecution('@entity Test @run Test("input")');
@@ -205,11 +214,12 @@ describe('streamBALExecution', () => {
 
   it('completes generator successfully', async () => {
     mockedCompileBAL.mockReturnValue({
+      executable: {} as any,
       entityNames: ['Test'],
-      pipelineStructure: { type: 'single', entity: 'Test' },
+      pipelineStructure: { type: 'bot', name: 'Test' },
       runInput: 'input',
     });
-    mockedExecuteBAL.mockResolvedValue({ result: 'output' });
+    mockedExecuteBAL.mockResolvedValue({ status: 'success', result: 'output' });
 
     const generator = streamBALExecution('@entity Test @run Test("input")');
 

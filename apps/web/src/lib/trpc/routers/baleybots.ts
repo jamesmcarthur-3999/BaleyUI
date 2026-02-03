@@ -416,12 +416,21 @@ export const baleybotsRouter = router({
             .set({ status: 'running', startedAt: new Date() })
             .where(eq(baleybotExecutions.id, execution.id));
 
-          // Get API key from environment
-          const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+          // Get API key from environment and determine appropriate model
+          const openaiKey = process.env.OPENAI_API_KEY;
+          const anthropicKey = process.env.ANTHROPIC_API_KEY;
+
+          // Determine provider and model based on available API key
+          const apiKey = openaiKey || anthropicKey;
+          const model = openaiKey
+            ? 'openai:gpt-4o-mini'
+            : anthropicKey
+              ? 'anthropic:claude-sonnet-4-20250514'
+              : 'openai:gpt-4o-mini'; // fallback
 
           // Execute the BAL code
           const result = await executeBALCode(baleybot.balCode, {
-            model: 'gpt-4o-mini',
+            model,
             apiKey,
             timeout: 60000, // 60 second timeout
           });
