@@ -191,10 +191,17 @@ export default function BaleybotPage() {
   const utils = trpc.useUtils();
 
   // Fetch existing BaleyBot (only if not new)
-  const { data: existingBaleybot, isLoading: isLoadingBaleybot } = trpc.baleybots.get.useQuery(
+  const { data: existingBaleybot, isLoading: isLoadingBaleybot, isFetching: isFetchingBaleybot } = trpc.baleybots.get.useQuery(
     { id },
     { enabled: !isNew }
   );
+
+  // Track whether initial data has been loaded and state has been initialized
+  // This prevents rendering with stale state before the effect populates data
+  const [isStateInitialized, setIsStateInitialized] = useState(isNew);
+
+  // Combined loading check: loading, fetching, or state not yet initialized from fetched data
+  const isFullyLoaded = isNew || (!isLoadingBaleybot && !isFetchingBaleybot && isStateInitialized && existingBaleybot);
 
   // Mutations
   const creatorMutation = trpc.baleybots.sendCreatorMessage.useMutation();
@@ -608,6 +615,9 @@ export default function BaleybotPage() {
 
       // Mark as clean since we just loaded from database
       markClean();
+
+      // Mark state as initialized after all state updates
+      setIsStateInitialized(true);
     }
   }, [isNew, existingBaleybot, markClean]);
 
@@ -625,7 +635,10 @@ export default function BaleybotPage() {
   // LOADING STATE
   // =====================================================================
 
-  if (!isNew && isLoadingBaleybot) {
+  // Show loading skeleton when:
+  // - Not a new BaleyBot AND (loading OR fetching OR state not initialized)
+  // This prevents race conditions where component renders before state is populated
+  if (!isFullyLoaded) {
     return (
       <div className="flex flex-col h-screen bg-gradient-hero">
         {/* Header skeleton */}
@@ -654,7 +667,8 @@ export default function BaleybotPage() {
   // NOT FOUND STATE
   // =====================================================================
 
-  if (!isNew && !existingBaleybot && !isLoadingBaleybot) {
+  // At this point, isFullyLoaded is true, so if existingBaleybot is missing, it's not found
+  if (!isNew && !existingBaleybot) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gradient-hero">
         <h1 className="text-2xl font-bold mb-4">BaleyBot not found</h1>
