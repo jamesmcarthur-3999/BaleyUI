@@ -379,7 +379,7 @@ async function createAgentImpl(
 }
 
 // ============================================================================
-// CREATE TOOL (Phase 8 - placeholder for now)
+// CREATE TOOL
 // ============================================================================
 
 interface CreateToolArgs {
@@ -393,13 +393,29 @@ async function createToolImpl(
   args: CreateToolArgs,
   ctx: BuiltInToolContext
 ): Promise<CreateToolResult> {
-  // Phase 8 implementation - for now, return a placeholder
-  console.log(`[create_tool] Would create tool: ${args.name} - ${args.description}`);
+  console.log(`[create_tool] Creating ephemeral tool: ${args.name}`);
 
-  return {
-    created: false,
-    tool_name: args.name,
+  // Convert args to ephemeral tool config
+  const config: EphemeralToolConfig = {
+    name: args.name,
+    description: args.description,
+    inputSchema: args.input_schema,
+    implementation: args.implementation,
   };
+
+  // Create the ephemeral tool
+  const result = await ephemeralToolService.create(config, ctx);
+
+  // If tool was created successfully, add it to the parent tools store
+  // so it can be used in subsequent tool calls in this execution
+  if (result.created && parentToolsStore) {
+    const tool = ephemeralToolService.getTool(args.name);
+    if (tool) {
+      parentToolsStore.set(args.name, tool);
+    }
+  }
+
+  return result;
 }
 
 // ============================================================================

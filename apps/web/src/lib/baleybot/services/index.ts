@@ -54,6 +54,14 @@ export {
   type EphemeralAgentConfig,
 } from './ephemeral-agent-service';
 
+// Ephemeral Tool
+export {
+  createEphemeralToolService,
+  ephemeralToolService,
+  type EphemeralToolService,
+  type EphemeralToolConfig,
+} from './ephemeral-tool-service';
+
 // ============================================================================
 // SERVICE INITIALIZATION
 // ============================================================================
