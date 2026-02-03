@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { ArrowLeft, Save, Loader2, ChevronDown, ChevronUp, Pencil, Undo2, Redo2, Keyboard } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
+import { ErrorBoundary } from '@/components/errors';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } from '@/hooks';
 import { formatErrorWithAction, parseCreatorError } from '@/lib/errors/creator-errors';
 import { generateChangeSummary, formatChangeSummaryForChat } from '@/lib/baleybot/change-summary';
@@ -915,12 +916,20 @@ export default function BaleybotPage() {
       {/* Canvas area - responsive padding (Phase 4.6, 4.8) */}
       <div className="flex-1 relative overflow-hidden p-2 sm:p-4 md:p-6">
         <div className="max-w-4xl mx-auto h-full">
-          <Canvas
-            entities={entities}
-            connections={connections}
-            status={status}
-            className="h-full"
-          />
+          <ErrorBoundary
+            fallback={
+              <div className="h-full flex items-center justify-center bg-muted/20 rounded-2xl">
+                <p className="text-muted-foreground">Failed to render canvas. Please refresh.</p>
+              </div>
+            }
+          >
+            <Canvas
+              entities={entities}
+              connections={connections}
+              status={status}
+              className="h-full"
+            />
+          </ErrorBoundary>
         </div>
       </div>
 
