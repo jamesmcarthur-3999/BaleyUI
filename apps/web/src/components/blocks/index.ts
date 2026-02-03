@@ -13,3 +13,4 @@ export { FunctionBlockEditor } from './FunctionBlockEditor';
 export { ExecutionModeSelector } from './ExecutionModeSelector';
 export { HybridSettings } from './HybridSettings';
 export { FallbackLog } from './FallbackLog';
+export { AgentProfileView } from './AgentProfileView';

@@ -14,7 +14,11 @@ const eslintConfig = [
   {
     rules: {
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-      '@typescript-eslint/no-explicit-any': 'warn',
+      // Type safety: Prevent explicit any usage
+      '@typescript-eslint/no-explicit-any': 'error',
+      // Note: no-unsafe-* rules require typed linting configuration.
+      // To enable them, set up parserOptions.project in a typescript-eslint config.
+      // See: https://typescript-eslint.io/getting-started/typed-linting
     },
   },
 ];

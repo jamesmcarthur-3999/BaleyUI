@@ -9,21 +9,21 @@ interface Block {
   id: string;
   type: string;
   name: string;
+  version: number;
   description: string | null;
   executionCount: number | null;
   lastExecutedAt: Date | null;
   model: string | null;
   createdAt: Date;
+  updatedAt?: Date;
 }
 
 interface BlocksListProps {
   blocks: Block[];
   isLoading?: boolean;
-  onDelete: (id: string) => void;
-  onDuplicate: (id: string) => void;
 }
 
-export function BlocksList({ blocks, isLoading, onDelete, onDuplicate }: BlocksListProps) {
+export function BlocksList({ blocks, isLoading }: BlocksListProps) {
   if (isLoading) {
     return <ListSkeleton variant="card" count={6} />;
   }
@@ -41,12 +41,7 @@ export function BlocksList({ blocks, isLoading, onDelete, onDuplicate }: BlocksL
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {blocks.map((block) => (
-        <BlockCard
-          key={block.id}
-          block={block}
-          onDelete={onDelete}
-          onDuplicate={onDuplicate}
-        />
+        <BlockCard key={block.id} block={block} />
       ))}
     </div>
   );

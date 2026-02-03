@@ -49,8 +49,9 @@ function getClientIp(request: NextRequest): string | undefined {
 
 /**
  * Generate a random webhook secret
+ * Note: This is a local helper, not exported (Next.js route files should only export route handlers)
  */
-export function generateWebhookSecret(): string {
+function generateWebhookSecret(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let secret = 'whk_';
   for (let i = 0; i < 32; i++) {

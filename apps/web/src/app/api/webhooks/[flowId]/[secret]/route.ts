@@ -11,16 +11,39 @@ import { db, flows, webhookLogs, eq, and, notDeleted } from '@baleyui/db';
 import { FlowExecutor } from '@/lib/execution';
 
 /**
+ * Webhook trigger shape
+ */
+interface WebhookTrigger {
+  type: 'webhook';
+  secret: string;
+  enabled: boolean;
+}
+
+/**
+ * Type guard for webhook trigger
+ */
+function isWebhookTrigger(trigger: unknown): trigger is WebhookTrigger {
+  return (
+    typeof trigger === 'object' &&
+    trigger !== null &&
+    'type' in trigger &&
+    trigger.type === 'webhook' &&
+    'secret' in trigger &&
+    typeof (trigger as WebhookTrigger).secret === 'string'
+  );
+}
+
+/**
  * Extract webhook secret from triggers array
  */
 function getWebhookSecret(triggers: unknown): string | null {
   if (!Array.isArray(triggers)) return null;
 
   const webhookTrigger = triggers.find(
-    (t: any) => t?.type === 'webhook' && t?.enabled === true
+    (t): t is WebhookTrigger => isWebhookTrigger(t) && t.enabled === true
   );
 
-  return webhookTrigger?.secret || null;
+  return webhookTrigger?.secret ?? null;
 }
 
 /**

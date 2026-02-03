@@ -4,8 +4,8 @@
  * Components for testing AI blocks with different interfaces.
  */
 
-export * from './LiveChat';
-export * from './SingleTest';
-export * from './TestInput';
-export * from './TestOutput';
-export * from './TestHistory';
+export { LiveChat } from './LiveChat';
+export { SingleTest } from './SingleTest';
+export { TestInput } from './TestInput';
+export { TestOutput, TestOutputWithTabs } from './TestOutput';
+export { TestHistory } from './TestHistory';

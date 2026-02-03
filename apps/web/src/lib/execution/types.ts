@@ -190,8 +190,8 @@ export interface CompiledNode {
   nodeId: string;
   type: FlowNodeType;
   data: FlowNodeData;
-  incomingEdges: string[];
-  outgoingEdges: string[];
+  incomingEdges: Array<{ sourceId: string; sourceHandle?: string }>;
+  outgoingEdges: Array<{ targetId: string; targetHandle?: string }>;
 }
 
 export interface NodeExecutorContext {

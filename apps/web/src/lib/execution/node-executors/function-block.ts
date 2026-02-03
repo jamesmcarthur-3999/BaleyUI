@@ -4,104 +4,100 @@
  * Executes deterministic function blocks using the BaleyBots Deterministic primitive.
  * This ensures function blocks implement the Processable interface and integrate
  * properly with the BaleyBots composition patterns.
+ *
+ * SECURITY: Uses isolated-vm for true V8 isolate sandboxing to prevent:
+ * - Access to Node.js globals (process, require, etc.)
+ * - Prototype pollution attacks
+ * - Constructor escape attacks
+ * - Memory exhaustion (enforced memory limits)
+ * - CPU exhaustion (enforced timeouts)
  */
 
 import { db, blocks, eq } from '@baleyui/db';
 import { Deterministic } from '@baleybots/core';
+import ivm from 'isolated-vm';
 import type { NodeExecutor, CompiledNode, NodeExecutorContext } from './index';
 import type { FunctionBlockNodeData } from '@/lib/baleybots/types';
 import { withRetry } from '../retry';
 import { ExecutionError, ErrorCode, TimeoutError } from '../errors';
 
-/**
- * Create a sandboxed function from code string
- *
- * The function receives the input as its first argument and should return the output.
- * Available globals: console, JSON, Math, Date, Array, Object, String, Number, Boolean
- */
-function createSandboxedFunction(code: string): (input: unknown) => unknown {
-  // Create a restricted scope
-  const allowedGlobals = {
-    console: {
-      log: (...args: unknown[]) => console.log('[Function Block]', ...args),
-      warn: (...args: unknown[]) => console.warn('[Function Block]', ...args),
-      error: (...args: unknown[]) => console.error('[Function Block]', ...args),
-    },
-    JSON,
-    Math,
-    Date,
-    Array,
-    Object,
-    String,
-    Number,
-    Boolean,
-    parseInt,
-    parseFloat,
-    isNaN,
-    isFinite,
-    encodeURIComponent,
-    decodeURIComponent,
-    encodeURI,
-    decodeURI,
-  };
+// Memory limit for isolate (128MB)
+const ISOLATE_MEMORY_LIMIT = 128;
 
-  // Wrap the code in a function
-  const wrappedCode = `
-    return (function(input) {
-      "use strict";
-      ${code}
-    });
-  `;
+// Execution timeout (30 seconds)
+const EXECUTION_TIMEOUT_MS = 30000;
+
+/**
+ * Execute code in a sandboxed V8 isolate
+ *
+ * Uses isolated-vm to create a true V8 isolate with:
+ * - Memory limits
+ * - CPU timeout
+ * - No access to Node.js globals
+ */
+async function executeSandboxed(code: string, input: unknown): Promise<unknown> {
+  const isolate = new ivm.Isolate({ memoryLimit: ISOLATE_MEMORY_LIMIT });
 
   try {
-    // Create the function with restricted scope
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    const createFn = new Function(...Object.keys(allowedGlobals), wrappedCode);
-    return createFn(...Object.values(allowedGlobals));
-  } catch (error) {
-    throw new Error(
-      `Failed to compile function: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
+    const context = await isolate.createContext();
+    const jail = context.global;
+
+    // Set up limited safe globals
+    await jail.set('global', jail.derefInto());
+
+    // Inject input as a copy
+    await jail.set('__input__', new ivm.ExternalCopy(input).copyInto());
+
+    // Create a console proxy that logs safely
+    const logCallback = new ivm.Reference((...args: unknown[]) => {
+      console.log('[Function Block]', ...args);
+    });
+    await jail.set('__log__', logCallback);
+
+    const warnCallback = new ivm.Reference((...args: unknown[]) => {
+      console.warn('[Function Block]', ...args);
+    });
+    await jail.set('__warn__', warnCallback);
+
+    const errorCallback = new ivm.Reference((...args: unknown[]) => {
+      console.error('[Function Block]', ...args);
+    });
+    await jail.set('__error__', errorCallback);
+
+    // Build the sandboxed code with safe globals
+    const wrappedCode = `
+      "use strict";
+
+      // Create safe console
+      const console = {
+        log: (...args) => __log__.apply(undefined, args, { arguments: { copy: true } }),
+        warn: (...args) => __warn__.apply(undefined, args, { arguments: { copy: true } }),
+        error: (...args) => __error__.apply(undefined, args, { arguments: { copy: true } }),
+      };
+
+      // Execute user code with input
+      const input = __input__;
+      const __userFn__ = (function(input) {
+        ${code}
+      });
+
+      // Return result
+      __userFn__(input);
+    `;
+
+    const script = await isolate.compileScript(wrappedCode);
+    const result = await script.run(context, { timeout: EXECUTION_TIMEOUT_MS });
+
+    // Clean up references
+    logCallback.release();
+    warnCallback.release();
+    errorCallback.release();
+
+    return result;
+  } finally {
+    // Always dispose the isolate to free memory
+    isolate.dispose();
   }
-}
-
-/**
- * Execute function with timeout
- */
-async function executeWithTimeout<T>(
-  fn: () => T | Promise<T>,
-  timeoutMs: number = 30000
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new TimeoutError(
-        `Function execution timed out after ${timeoutMs}ms`,
-        timeoutMs
-      ));
-    }, timeoutMs);
-
-    try {
-      const result = fn();
-
-      if (result instanceof Promise) {
-        result
-          .then((value) => {
-            clearTimeout(timer);
-            resolve(value);
-          })
-          .catch((error) => {
-            clearTimeout(timer);
-            reject(error);
-          });
-      } else {
-        clearTimeout(timer);
-        resolve(result);
-      }
-    } catch (error) {
-      clearTimeout(timer);
-      reject(error);
-    }
-  });
 }
 
 export const functionBlockExecutor: NodeExecutor = {
@@ -161,31 +157,14 @@ export const functionBlockExecutor: NodeExecutor = {
       );
     }
 
-    // Create the sandboxed function
-    let sandboxedFn: (input: unknown) => unknown;
-    try {
-      sandboxedFn = createSandboxedFunction(block.code);
-    } catch (error) {
-      throw new ExecutionError(
-        `Failed to compile function: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        ErrorCode.VALIDATION_FAILED,
-        {
-          nodeId: node.nodeId,
-          nodeType: node.type,
-          flowId: context.flowId,
-          executionId: context.executionId,
-          blockId: data.blockId,
-        }
-      );
-    }
-
     // Wrap in a BaleyBots Deterministic processor
     // This ensures it implements the Processable interface and integrates
     // with the BaleyBots composition patterns
     const processor = Deterministic.create({
       name: block.name || `function-block-${data.blockId}`,
       processFn: async (input: unknown) => {
-        return executeWithTimeout(() => sandboxedFn(input));
+        // Execute in isolated V8 sandbox with memory and timeout limits
+        return executeSandboxed(block.code!, input);
       },
     });
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useUser } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
@@ -11,10 +12,11 @@ import {
   CreateBaleybotPrompt,
   RecentActivityFeed,
 } from '@/components/baleybots';
-import { Bot, ArrowRight, Sparkles, Zap, Star } from 'lucide-react';
+import { Bot, ArrowRight, Sparkles, Zap } from 'lucide-react';
 
-export default function DashboardPage() {
+export default function HomePage() {
   const { user } = useUser();
+  const router = useRouter();
 
   // Fetch BaleyBots
   const { data: baleybots, isLoading: baleybotsLoading } =

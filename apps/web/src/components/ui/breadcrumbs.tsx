@@ -20,29 +20,31 @@ export interface BreadcrumbsProps {
   addDashboardHome?: boolean;
 }
 
+function getBreadcrumbItems(items: BreadcrumbItem[], addDashboardHome: boolean): BreadcrumbItem[] {
+  const firstItem = items[0];
+  const hasHomeItem = items.length > 0 && firstItem &&
+    (firstItem.href === ROUTES.dashboard ||
+     firstItem.href === '/' ||
+     firstItem.label.toLowerCase() === 'home' ||
+     firstItem.label.toLowerCase() === 'dashboard');
+
+  if (addDashboardHome && !hasHomeItem) {
+    return [
+      { label: 'Dashboard', href: ROUTES.dashboard },
+      ...items,
+    ];
+  }
+
+  return items;
+}
+
 function Breadcrumbs({
   items,
   className,
   addDashboardHome = true,
 }: BreadcrumbsProps) {
   // Ensure we have a home/dashboard item at the start
-  const breadcrumbItems = React.useMemo(() => {
-    const firstItem = items[0];
-    const hasHomeItem = items.length > 0 && firstItem &&
-      (firstItem.href === ROUTES.dashboard ||
-       firstItem.href === '/' ||
-       firstItem.label.toLowerCase() === 'home' ||
-       firstItem.label.toLowerCase() === 'dashboard');
-
-    if (addDashboardHome && !hasHomeItem) {
-      return [
-        { label: 'Dashboard', href: ROUTES.dashboard },
-        ...items,
-      ];
-    }
-
-    return items;
-  }, [items, addDashboardHome]);
+  const breadcrumbItems = getBreadcrumbItems(items, addDashboardHome);
 
   if (breadcrumbItems.length === 0) {
     return null;

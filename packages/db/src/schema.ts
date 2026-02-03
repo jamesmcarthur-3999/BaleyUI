@@ -531,6 +531,52 @@ export const backgroundJobs = pgTable(
 );
 
 // ============================================================================
+// BUILDER EVENTS (Event-Sourcing for UI Actions)
+// ============================================================================
+
+/**
+ * Builder Events table stores immutable event records for all builder actions.
+ * Enables: "watch AI build", undo/redo, time-travel, audit trail.
+ */
+export const builderEvents = pgTable(
+  'builder_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    // Event metadata
+    type: varchar('type', { length: 50 }).notNull(), // e.g., 'BlockCreated', 'FlowNodeAdded'
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Actor who caused this event
+    actor: jsonb('actor').notNull(), // { type: 'user'|'ai-agent'|'system', userId/agentId, ... }
+
+    // Event payload
+    data: jsonb('data').notNull(), // Event-specific data (blockId, changes, etc.)
+
+    // Versioning
+    version: integer('version').default(1).notNull(),
+
+    // For efficient querying by entity
+    entityType: varchar('entity_type', { length: 50 }), // 'block', 'flow', 'connection', 'tool'
+    entityId: uuid('entity_id'),
+
+    // Sequence number for ordering within workspace
+    sequenceNumber: integer('sequence_number').generatedAlwaysAsIdentity(),
+
+    timestamp: timestamp('timestamp', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('builder_events_workspace_idx').on(table.workspaceId),
+    index('builder_events_entity_idx').on(table.entityType, table.entityId),
+    index('builder_events_timestamp_idx').on(table.timestamp),
+    index('builder_events_sequence_idx').on(table.sequenceNumber),
+    index('builder_events_type_idx').on(table.type),
+  ]
+);
+
+// ============================================================================
 // BALEYBOTS (BAL-first architecture)
 // ============================================================================
 
@@ -1101,6 +1147,13 @@ export const baleybotAlerts = pgTable(
 // RELATIONS
 // ============================================================================
 
+export const builderEventsRelations = relations(builderEvents, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [builderEvents.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
+
 export const baleybotsRelations = relations(baleybots, ({ one, many }) => ({
   workspace: one(workspaces, {
     fields: [baleybots.workspaceId],
@@ -1280,6 +1333,7 @@ export const workspacesRelations = relations(workspaces, ({ many, one }) => ({
   blocks: many(blocks),
   flows: many(flows),
   apiKeys: many(apiKeys),
+  builderEvents: many(builderEvents),
   baleybots: many(baleybots),
   approvalPatterns: many(approvalPatterns),
   workspacePolicies: one(workspacePolicies),

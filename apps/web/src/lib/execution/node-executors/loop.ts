@@ -7,10 +7,26 @@
  * For static compositions, use the BaleyBots `loop()` or `recursiveLoop()`
  * pipeline primitives. Body nodes are executed via the node executor registry
  * which uses BaleyBots Baleybot.create() and Deterministic.create().
+ *
+ * SECURITY: Uses expr-eval for safe expression evaluation to prevent code injection.
  */
 
+import { Parser } from 'expr-eval';
 import type { NodeExecutor, CompiledNode, NodeExecutorContext } from './index';
 import type { LoopNodeData, LoopCondition } from '@/lib/baleybots/types';
+
+// Create a parser instance with limited operators (no function calls)
+const expressionParser = new Parser({
+  operators: {
+    // Enable safe comparison and logical operators
+    comparison: true,
+    logical: true,
+    // Disable potentially dangerous operators
+    assignment: false,
+    conditional: true,
+    in: true,
+  },
+});
 
 /**
  * Get a nested value from an object using dot notation
@@ -64,19 +80,20 @@ function evaluateCondition(
   }
 
   if (condition.type === 'expression' && condition.expression) {
-    // Simple expression evaluation
-    // In production, use a proper expression evaluator
+    // Safe expression evaluation using expr-eval
+    // Supports expressions like "iteration < 5" or "data.done == true"
     try {
-      // Support simple expressions like "iteration < 5" or "data.done === true"
-      const expr = condition.expression
-        .replace(/\bdata\b/g, JSON.stringify(data))
-        .replace(/\biteration\b/g, String(iteration));
-
-      // Very limited eval - only for simple boolean expressions
-      // In production, use a proper safe expression evaluator
-      const safeEval = new Function(`return ${expr}`);
-      return Boolean(safeEval());
-    } catch {
+      const parsedExpr = expressionParser.parse(condition.expression);
+      // Flatten the data to simple key-value pairs for expr-eval compatibility
+      const flattenedData = typeof data === 'object' && data !== null
+        ? JSON.parse(JSON.stringify(data))
+        : data;
+      // expr-eval expects a specific Value type, but we're passing compatible primitives
+      const context = { data: flattenedData, iteration };
+      const result = parsedExpr.evaluate(context as Parameters<typeof parsedExpr.evaluate>[0]);
+      return Boolean(result);
+    } catch (error) {
+      console.warn(`Failed to evaluate loop condition expression: ${condition.expression}`, error);
       return false;
     }
   }

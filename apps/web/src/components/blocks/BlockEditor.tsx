@@ -16,9 +16,32 @@ import { useToast } from '@/components/ui/use-toast';
 import { trpc } from '@/lib/trpc/client';
 import { Save, Loader2 } from 'lucide-react';
 import type { ExecutionMode } from './ExecutionModeSelector';
+import type { Block, Tool } from '@baleyui/db';
+
+// Extended block type with associated tools (as returned by blocks.getById)
+export interface BlockWithTools extends Block {
+  tools: Tool[];
+}
+
+// Block data changes type for child editors
+export type BlockDataChanges = Partial<Pick<Block,
+  | 'goal'
+  | 'systemPrompt'
+  | 'temperature'
+  | 'maxTokens'
+  | 'maxToolIterations'
+  | 'connectionId'
+  | 'model'
+  | 'toolIds'
+  | 'code'
+  | 'inputSchema'
+  | 'outputSchema'
+  | 'routerConfig'
+  | 'loopConfig'
+>>;
 
 interface BlockEditorProps {
-  block: any;
+  block: BlockWithTools;
 }
 
 export function BlockEditor({ block }: BlockEditorProps) {
@@ -27,7 +50,7 @@ export function BlockEditor({ block }: BlockEditorProps) {
 
   const [name, setName] = useState(block.name);
   const [description, setDescription] = useState(block.description || '');
-  const [blockData, setBlockData] = useState(block);
+  const [blockData, setBlockData] = useState<BlockWithTools>(block);
   const [executionMode, setExecutionMode] = useState<ExecutionMode>(
     (block.executionMode as ExecutionMode) || 'ai_only'
   );
@@ -93,17 +116,37 @@ export function BlockEditor({ block }: BlockEditorProps) {
   );
 
   const handleSave = () => {
+    // Extract only the fields that can be updated, omitting metadata fields
+    // Convert null to undefined since the mutation schema uses optional (undefined) rather than nullable
+    const {
+      goal, systemPrompt, temperature, maxTokens, maxToolIterations,
+      connectionId, model, toolIds, code, inputSchema, outputSchema,
+      routerConfig, loopConfig
+    } = blockData;
+
     updateMutation.mutate({
       id: block.id,
       version: block.version,
       name,
-      description,
-      ...blockData,
+      description: description || undefined,
+      goal: goal ?? undefined,
+      systemPrompt: systemPrompt ?? undefined,
+      temperature: temperature ? parseFloat(String(temperature)) : undefined,
+      maxTokens: maxTokens ?? undefined,
+      maxToolIterations: maxToolIterations ?? undefined,
+      connectionId: connectionId ?? undefined,
+      model: model ?? undefined,
+      toolIds: (toolIds as string[] | null) ?? undefined,
+      code: code ?? undefined,
+      inputSchema: (inputSchema as Record<string, unknown> | null) ?? undefined,
+      outputSchema: (outputSchema as Record<string, unknown> | null) ?? undefined,
+      routerConfig: (routerConfig as Record<string, unknown> | null) ?? undefined,
+      loopConfig: (loopConfig as Record<string, unknown> | null) ?? undefined,
     });
   };
 
-  const handleBlockDataChange = (data: any) => {
-    setBlockData((prev: any) => ({ ...prev, ...data }));
+  const handleBlockDataChange = (data: BlockDataChanges) => {
+    setBlockData((prev) => ({ ...prev, ...data }));
   };
 
   const handleExecutionModeChange = (mode: ExecutionMode) => {

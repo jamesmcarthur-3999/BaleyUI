@@ -1,6 +1,5 @@
 'use client';
 
-import { useMemo } from 'react';
 import {
   Select,
   SelectContent,
@@ -32,35 +31,34 @@ const ANTHROPIC_MODELS = [
   { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku' },
 ];
 
+function getModelsForConnection(connection: { type: string; availableModels?: unknown } | undefined) {
+  if (!connection) return [];
+
+  switch (connection.type) {
+    case 'openai':
+      return OPENAI_MODELS;
+    case 'anthropic':
+      return ANTHROPIC_MODELS;
+    case 'ollama':
+      // For Ollama, use the availableModels from the connection
+      if (connection.availableModels && Array.isArray(connection.availableModels)) {
+        return connection.availableModels.map((model: any) => ({
+          id: model.name || model,
+          name: model.name || model,
+        }));
+      }
+      return [];
+    default:
+      return [];
+  }
+}
+
 export function ModelSelector({ connectionId, value, onChange }: ModelSelectorProps) {
   // Fetch connections to get the connection type
   const { data: connections } = trpc.connections.list.useQuery();
 
-  const connection = useMemo(() => {
-    return connections?.find((c) => c.id === connectionId);
-  }, [connections, connectionId]);
-
-  const availableModels = useMemo(() => {
-    if (!connection) return [];
-
-    switch (connection.type) {
-      case 'openai':
-        return OPENAI_MODELS;
-      case 'anthropic':
-        return ANTHROPIC_MODELS;
-      case 'ollama':
-        // For Ollama, use the availableModels from the connection
-        if (connection.availableModels && Array.isArray(connection.availableModels)) {
-          return connection.availableModels.map((model: any) => ({
-            id: model.name || model,
-            name: model.name || model,
-          }));
-        }
-        return [];
-      default:
-        return [];
-    }
-  }, [connection]);
+  const connection = connections?.find((c) => c.id === connectionId);
+  const availableModels = getModelsForConnection(connection);
 
   if (!connectionId) {
     return (

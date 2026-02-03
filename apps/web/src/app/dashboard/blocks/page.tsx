@@ -4,7 +4,6 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { BlocksList } from '@/components/blocks/BlocksList';
 import { CreateBlockDialog } from '@/components/blocks/CreateBlockDialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -15,7 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useToast } from '@/components/ui/use-toast';
 import { trpc } from '@/lib/trpc/client';
 import { Search, Filter, Boxes, Sparkles, Code2, Activity, AlertTriangle, ArrowRight } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
@@ -23,57 +21,9 @@ import { ROUTES } from '@/lib/routes';
 export default function BlocksPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
-  const { toast } = useToast();
-  const utils = trpc.useUtils();
 
   // Fetch blocks
   const { data: blocks, isLoading } = trpc.blocks.list.useQuery();
-
-  // Delete mutation
-  const deleteMutation = trpc.blocks.delete.useMutation({
-    onSuccess: () => {
-      toast({
-        title: 'Block Deleted',
-        description: 'The block has been deleted successfully.',
-      });
-      utils.blocks.list.invalidate();
-    },
-    onError: (error) => {
-      toast({
-        title: 'Failed to Delete Block',
-        description: error.message,
-        variant: 'destructive',
-      });
-    },
-  });
-
-  // Duplicate mutation (create a copy)
-  const duplicateMutation = trpc.blocks.duplicate.useMutation({
-    onSuccess: () => {
-      toast({
-        title: 'Block Duplicated',
-        description: 'The block has been duplicated successfully.',
-      });
-      utils.blocks.list.invalidate();
-    },
-    onError: (error) => {
-      toast({
-        title: 'Failed to Duplicate Block',
-        description: error.message,
-        variant: 'destructive',
-      });
-    },
-  });
-
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this block?')) {
-      deleteMutation.mutate({ id });
-    }
-  };
-
-  const handleDuplicate = (id: string) => {
-    duplicateMutation.mutate({ id });
-  };
 
   // Filter blocks based on search and type
   const filteredBlocks = blocks?.filter((block) => {
@@ -88,7 +38,7 @@ export default function BlocksPage() {
   });
 
   return (
-    <div className="container py-10">
+    <div className="container max-w-6xl mx-auto py-10">
       <div className="flex flex-col gap-8">
         {/* Deprecation Notice */}
         <Alert className="border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/20">
@@ -204,12 +154,7 @@ export default function BlocksPage() {
         )}
 
         {/* Blocks List */}
-        <BlocksList
-          blocks={filteredBlocks || []}
-          isLoading={isLoading}
-          onDelete={handleDelete}
-          onDuplicate={handleDuplicate}
-        />
+        <BlocksList blocks={filteredBlocks || []} isLoading={isLoading} />
       </div>
     </div>
   );

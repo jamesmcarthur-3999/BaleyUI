@@ -1,155 +1,182 @@
 'use client';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Copy, Edit, Trash2 } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { ActionPopover, type ActionItem } from '@/components/ui/action-popover';
+import { InlineEdit } from '@/components/ui/inline-edit';
 import { ROUTES } from '@/lib/routes';
-
-interface Block {
-  id: string;
-  type: string;
-  name: string;
-  description: string | null;
-  executionCount: number | null;
-  lastExecutedAt: Date | null;
-  model: string | null;
-  createdAt: Date;
-}
+import { trpc } from '@/lib/trpc/client';
+import {
+  Bot,
+  Code,
+  Play,
+  MoreVertical,
+  Copy,
+  Trash2,
+  Settings,
+  BarChart2,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface BlockCardProps {
-  block: Block;
-  onDelete: (id: string) => void;
-  onDuplicate: (id: string) => void;
+  block: {
+    id: string;
+    name: string;
+    type: string;
+    version: number;
+    description?: string | null;
+    createdAt: Date;
+    updatedAt?: Date;
+  };
+  onDelete?: () => void;
 }
 
-export function BlockCard({ block, onDelete, onDuplicate }: BlockCardProps) {
+export function BlockCard({ block, onDelete }: BlockCardProps) {
   const router = useRouter();
+  const utils = trpc.useUtils();
 
-  const getTypeBadgeVariant = () => {
-    switch (block.type) {
-      case 'ai':
-        return 'ai';
-      case 'function':
-        return 'function';
-      case 'router':
-        return 'router';
-      case 'parallel':
-        return 'parallel';
-      default:
-        return 'default';
-    }
-  };
+  const updateMutation = trpc.blocks.update.useMutation({
+    onSuccess: () => utils.blocks.list.invalidate(),
+  });
 
-  const getTypeLabel = () => {
-    switch (block.type) {
-      case 'ai':
-        return 'AI Block';
-      case 'function':
-        return 'Function Block';
-      case 'router':
-        return 'Router Block';
-      case 'parallel':
-        return 'Parallel Block';
-      default:
-        return block.type;
-    }
-  };
+  const deleteMutation = trpc.blocks.delete.useMutation({
+    onSuccess: () => {
+      utils.blocks.list.invalidate();
+      onDelete?.();
+    },
+  });
 
-  const handleCardClick = () => {
-    router.push(ROUTES.blocks.detail(block.id));
-  };
+  const duplicateMutation = trpc.blocks.duplicate.useMutation({
+    onSuccess: () => utils.blocks.list.invalidate(),
+  });
 
-  const formatDate = (date: Date | null) => {
-    if (!date) return 'Never';
-    return new Date(date).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
+  const handleRename = async (newName: string) => {
+    await updateMutation.mutateAsync({
+      id: block.id,
+      version: block.version,
+      name: newName,
     });
   };
 
+  const handleDelete = async () => {
+    await deleteMutation.mutateAsync({ id: block.id });
+  };
+
+  const handleDuplicate = async () => {
+    await duplicateMutation.mutateAsync({ id: block.id });
+  };
+
+  const actions: ActionItem[] = [
+    {
+      id: 'run',
+      label: 'Run',
+      icon: <Play className="h-4 w-4" />,
+      shortcut: '⌘R',
+      onSelect: () => router.push(ROUTES.blocks.test(block.id)),
+    },
+    {
+      id: 'configure',
+      label: 'Configure',
+      icon: <Settings className="h-4 w-4" />,
+      onSelect: () => router.push(ROUTES.blocks.detail(block.id)),
+    },
+    {
+      id: 'duplicate',
+      label: 'Duplicate',
+      icon: <Copy className="h-4 w-4" />,
+      shortcut: '⌘D',
+      onSelect: handleDuplicate,
+    },
+    {
+      id: 'analytics',
+      label: 'View analytics',
+      icon: <BarChart2 className="h-4 w-4" />,
+      onSelect: () => router.push(ROUTES.blocks.patterns(block.id)),
+    },
+    {
+      id: 'delete',
+      label: 'Delete',
+      icon: <Trash2 className="h-4 w-4" />,
+      shortcut: '⌘⌫',
+      destructive: true,
+      onSelect: handleDelete,
+    },
+  ];
+
+  const Icon = block.type === 'ai' ? Bot : Code;
+
   return (
-    <Card
-      className="cursor-pointer transition-all hover:shadow-md"
-      onClick={handleCardClick}
-    >
-      <CardHeader>
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <CardTitle className="text-lg">{block.name}</CardTitle>
+    <Card variant="interactive" className="group relative">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div
+              className={cn(
+                'h-11 w-11 rounded-xl flex items-center justify-center shrink-0 transition-colors',
+                block.type === 'ai'
+                  ? 'bg-block-ai/10 group-hover:bg-block-ai/15'
+                  : 'bg-block-function/10 group-hover:bg-block-function/15'
+              )}
+            >
+              <Icon
+                className={cn(
+                  'h-5 w-5',
+                  block.type === 'ai' ? 'text-block-ai' : 'text-block-function'
+                )}
+              />
             </div>
-            <CardDescription className="mt-1">
-              {block.description || 'No description'}
-            </CardDescription>
-          </div>
-          <Badge variant={getTypeBadgeVariant() as any}>
-            {getTypeLabel()}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          {/* Block Details */}
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            {block.model && (
-              <div>
-                <span className="text-muted-foreground">Model:</span>{' '}
-                <span className="font-mono text-xs">{block.model}</span>
-              </div>
-            )}
-            <div>
-              <span className="text-muted-foreground">Executions:</span>{' '}
-              <span className="font-semibold">{block.executionCount || 0}</span>
-            </div>
-            <div className="col-span-2">
-              <span className="text-muted-foreground">Last executed:</span>{' '}
-              <span className="text-xs">{formatDate(block.lastExecutedAt)}</span>
+            <div className="min-w-0">
+              <InlineEdit
+                value={block.name}
+                onSave={handleRename}
+                textClassName="font-semibold"
+              />
+              <Badge variant="secondary" className="mt-1.5 text-xs">
+                {block.type}
+              </Badge>
             </div>
           </div>
 
-          {/* Actions */}
-          <div
-            className="flex items-center gap-2 pt-2 border-t"
-            onClick={(e) => e.stopPropagation()}
-          >
+          {/* Actions - show on hover */}
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
             <Button
-              variant="outline"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                router.push(ROUTES.blocks.detail(block.id));
-              }}
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => router.push(ROUTES.blocks.test(block.id))}
             >
-              <Edit className="h-4 w-4 mr-1" />
-              Edit
+              <Play className="h-4 w-4" />
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDuplicate(block.id);
-              }}
-            >
-              <Copy className="h-4 w-4 mr-1" />
-              Duplicate
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(block.id);
-              }}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            <ActionPopover
+              trigger={
+                <Button variant="ghost" size="icon-sm">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              }
+              actions={actions}
+            />
           </div>
         </div>
-      </CardContent>
+      </CardHeader>
+
+      {block.description && (
+        <CardContent className="pt-0">
+          <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
+            {block.description}
+          </p>
+        </CardContent>
+      )}
+
+      {/* Click area for navigation */}
+      <Link
+        href={ROUTES.blocks.detail(block.id)}
+        className="absolute inset-0 z-0"
+        aria-label={`View ${block.name}`}
+      />
     </Card>
   );
 }
+
+BlockCard.displayName = 'BlockCard';

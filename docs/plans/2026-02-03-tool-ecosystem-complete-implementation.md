@@ -544,6 +544,74 @@ export async function POST(
 
 ---
 
+### Production Readiness Addendum (Phase 3)
+
+These items are required for production readiness on Vercel and should be implemented alongside Tasks 3.1–3.2 to avoid rework. They are specific to cron + webhook triggers and do not change the core trigger UX.
+
+**Task PR-3.1: Make Cron Processing Idempotent + Time-Bounded**
+
+**Files:**
+- Modify: `apps/web/src/app/api/cron/process-scheduled-tasks/route.ts`
+
+**Expected Outcome:**
+- Each scheduled task is claimed exactly once per run window
+- Cron handler respects Vercel time limits and does not attempt more work than it can finish
+
+**Implementation Details:**
+1. Claim tasks atomically using a single update with `status = 'pending' AND runAt <= now` and `RETURNING` to avoid duplicate processing on concurrent invocations.
+2. Enforce a time budget per invocation (for example, stop after 40–45 seconds) and return partial results if more work remains.
+3. Limit per-task execution time so the handler can safely complete within `maxDuration`.
+
+**Verification:**
+- Two concurrent cron invocations do not execute the same task
+- Handler exits before Vercel timeout when many tasks are due
+
+---
+
+**Task PR-3.2: Secure Webhook Secrets + Log Hygiene**
+
+**Files:**
+- Modify: `apps/web/src/app/api/webhooks/[workspaceId]/[baleybotId]/route.ts`
+- Modify: `packages/db/src/schema.ts` (if storing secret hashes or metadata)
+- Modify: any webhook log storage (if applicable)
+
+**Expected Outcome:**
+- Webhook secrets are cryptographically secure
+- Logs do not store raw secrets or sensitive request payloads
+
+**Implementation Details:**
+1. Generate secrets using `crypto.randomBytes` (not `Math.random`).
+2. Store a hash of the secret (or store only a prefix for display); never persist raw secrets in logs.
+3. Redact or limit logged headers and bodies to avoid storing PII or tokens.
+
+**Verification:**
+- Newly generated secrets are high entropy and cannot be trivially guessed
+- Logs contain redacted payloads and do not include the raw webhook secret
+
+---
+
+**Task PR-3.3: Per-Workspace API Keys for Triggered Executions**
+
+**Files:**
+- Modify: `apps/web/src/app/api/cron/process-scheduled-tasks/route.ts`
+- Modify: `apps/web/src/app/api/webhooks/[workspaceId]/[baleybotId]/route.ts`
+- Modify: `packages/db/src/schema.ts` (workspace settings / connections if needed)
+
+**Expected Outcome:**
+- Scheduled and webhook executions run with workspace-scoped credentials
+- No global `OPENAI_API_KEY` dependency for tenant-specific runs
+
+**Implementation Details:**
+1. Resolve API keys from workspace settings or connections at execution time.
+2. Fail gracefully if no key is configured for the workspace (explicit error to user).
+3. Preserve an audit trail that records which workspace credential was used.
+
+**Verification:**
+- Two workspaces execute with different API keys
+- Execution fails with a clear error when a workspace lacks a configured key
+
+---
+
 ### Task 3.3: Implement BB Completion Trigger
 
 **Files:**

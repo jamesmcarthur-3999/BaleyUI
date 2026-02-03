@@ -5,8 +5,49 @@
  * Supports single BBs, chains, parallel execution, and conditional flows.
  */
 
-import { parseBalCode, parseTriggerString } from '../generator';
+import { parseBalCode } from '../generator';
 import type { TriggerConfig } from '../types';
+
+// ============================================================================
+// TRIGGER PARSING (moved inline after generator refactor)
+// ============================================================================
+
+/**
+ * Parse a trigger string into a TriggerConfig object
+ * Handles formats like: "manual", "schedule:0 9 * * *", "webhook", "bb_completion:entity_name"
+ */
+function parseTriggerString(trigger: string): TriggerConfig | null {
+  if (!trigger || typeof trigger !== 'string') {
+    return null;
+  }
+
+  const trimmed = trigger.trim().toLowerCase();
+
+  // Simple manual trigger
+  if (trimmed === 'manual') {
+    return { type: 'manual' };
+  }
+
+  // Simple webhook trigger
+  if (trimmed === 'webhook') {
+    return { type: 'webhook' };
+  }
+
+  // Schedule trigger with cron expression
+  if (trimmed.startsWith('schedule:')) {
+    const schedule = trigger.slice('schedule:'.length).trim();
+    return { type: 'schedule', schedule };
+  }
+
+  // BB completion trigger
+  if (trimmed.startsWith('bb_completion:')) {
+    const sourceBaleybotId = trigger.slice('bb_completion:'.length).trim();
+    return { type: 'other_bb', sourceBaleybotId };
+  }
+
+  // Default to manual if unrecognized
+  return { type: 'manual' };
+}
 
 // ============================================================================
 // TYPES

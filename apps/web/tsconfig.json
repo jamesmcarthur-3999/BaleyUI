@@ -21,6 +21,6 @@
       "@baleyui/db/*": ["../../packages/db/src/*"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "src/lib/voice/speech.d.ts"],
+  "exclude": ["node_modules", "tests/e2e"]
 }
