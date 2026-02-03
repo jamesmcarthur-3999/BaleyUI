@@ -692,50 +692,51 @@ export default function BaleybotPage() {
         baleybotName={name || undefined}
       />
 
-      {/* Header */}
+      {/* Header - Adaptive layout (Phase 4.6) */}
       <motion.header
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
         className="border-b border-border/50 bg-background/80 backdrop-blur-sm"
       >
-        {/* Main header row */}
-        <div className="flex items-center gap-3 max-w-6xl mx-auto w-full px-4 py-3">
+        {/* Main header row - responsive padding (Phase 4.6) */}
+        <div className="flex items-center gap-2 sm:gap-3 max-w-6xl mx-auto w-full px-2 sm:px-4 py-2 sm:py-3">
           {/* Back button */}
-          <Button variant="ghost" size="icon" onClick={handleBack} className="shrink-0">
+          <Button variant="ghost" size="icon" onClick={handleBack} className="shrink-0 min-h-10 min-w-10 sm:min-h-11 sm:min-w-11">
             <ArrowLeft className="h-4 w-4" />
           </Button>
 
           {/* Icon and name (Phase 5.1: Handle long names) */}
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <span className="text-2xl shrink-0">{displayIcon}</span>
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+            <span className="text-xl sm:text-2xl shrink-0">{displayIcon}</span>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <h1
-                    className="text-lg font-semibold truncate max-w-[200px] sm:max-w-[300px] md:max-w-[400px]"
+                    className="text-base sm:text-lg font-semibold truncate max-w-[120px] sm:max-w-[200px] md:max-w-[300px] lg:max-w-[400px]"
                     title={displayName}
                   >
                     {displayName}
                   </h1>
                 </TooltipTrigger>
-                {displayName.length > 25 && (
+                {displayName.length > 15 && (
                   <TooltipContent side="bottom" className="max-w-xs">
                     <p className="break-words">{displayName}</p>
                   </TooltipContent>
                 )}
               </Tooltip>
             </TooltipProvider>
-            {/* Unsaved indicator */}
+            {/* Unsaved indicator - shorter text on mobile (Phase 4.6) */}
             {isDirty && (
               <span className="text-amber-500 text-xs font-medium shrink-0" title="Unsaved changes">
-                (unsaved)
+                <span className="hidden sm:inline">(unsaved)</span>
+                <span className="sm:hidden">•</span>
               </span>
             )}
           </div>
 
-          {/* Undo/Redo buttons (Phase 3.5) */}
-          <div className="flex items-center gap-1">
+          {/* Undo/Redo buttons - hidden on mobile (Phase 4.6) */}
+          <div className="hidden sm:flex items-center gap-1">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -792,7 +793,7 @@ export default function BaleybotPage() {
             </TooltipProvider>
           </div>
 
-          {/* Save button with tooltip (Phase 1.8) */}
+          {/* Save button with tooltip (Phase 1.8) - compact on mobile (Phase 4.6) */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -801,17 +802,17 @@ export default function BaleybotPage() {
                     onClick={() => debouncedSave()}
                     disabled={!canSave || !!saveDisabledReason}
                     size="sm"
-                    className="shrink-0"
+                    className="shrink-0 min-h-10 sm:min-h-9"
                   >
                     {isSaving || isSavePending ? (
                       <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Saving...
+                        <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" />
+                        <span className="hidden sm:inline">Saving...</span>
                       </>
                     ) : (
                       <>
-                        <Save className="h-4 w-4 mr-2" />
-                        Save
+                        <Save className="h-4 w-4 sm:mr-2" />
+                        <span className="hidden sm:inline">Save</span>
                       </>
                     )}
                   </Button>
@@ -826,9 +827,9 @@ export default function BaleybotPage() {
           </TooltipProvider>
         </div>
 
-        {/* Description row (Phase 2.8) */}
+        {/* Description row (Phase 2.8) - hidden on mobile (Phase 4.6) */}
         {(description || isEditingDescription || status === 'ready') && (
-          <div className="max-w-6xl mx-auto w-full px-4 pb-3 pl-14">
+          <div className="hidden sm:block max-w-6xl mx-auto w-full px-4 pb-3 pl-14">
             {isEditingDescription ? (
               <div className="flex gap-2">
                 <textarea
@@ -888,8 +889,8 @@ export default function BaleybotPage() {
         )}
       </motion.header>
 
-      {/* Canvas area */}
-      <div className="flex-1 relative overflow-hidden p-4">
+      {/* Canvas area - responsive padding (Phase 4.6) */}
+      <div className="flex-1 relative overflow-hidden p-2 sm:p-4">
         <div className="max-w-4xl mx-auto h-full">
           <Canvas
             entities={entities}
@@ -900,12 +901,12 @@ export default function BaleybotPage() {
         </div>
       </div>
 
-      {/* Bottom controls */}
+      {/* Bottom controls - responsive padding (Phase 4.6) */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay: 0.1 }}
-        className="border-t border-border/50 bg-background/80 backdrop-blur-sm px-4 py-4"
+        className="border-t border-border/50 bg-background/80 backdrop-blur-sm px-2 sm:px-4 py-3 sm:py-4"
       >
         <div className="max-w-2xl mx-auto space-y-4">
           {/* Conversation thread (Phase 2.7) */}
