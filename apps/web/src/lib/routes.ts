@@ -4,8 +4,27 @@
  */
 
 export const ROUTES = {
-  // Dashboard
+  // Dashboard (Home)
   dashboard: '/dashboard',
+
+  // BaleyBots (primary feature)
+  baleybots: {
+    list: '/dashboard/baleybots',
+    create: '/dashboard/baleybots/new',
+    detail: (id: string) => `/dashboard/baleybots/${id}`,
+    execute: (id: string) => `/dashboard/baleybots/${id}/execute`,
+  },
+
+  // Activity (executions, decisions, analytics combined)
+  activity: {
+    list: '/dashboard/activity',
+    execution: (id: string) => `/dashboard/activity/executions/${id}`,
+    decisions: '/dashboard/activity/decisions',
+    analytics: '/dashboard/activity/analytics',
+  },
+
+  // Legacy routes (kept for backwards compatibility during transition)
+  // TODO: Remove after migration complete
 
   // Blocks
   blocks: {
@@ -49,6 +68,8 @@ export const ROUTES = {
     connections: '/dashboard/settings/connections',
     apiKeys: '/dashboard/settings/api-keys',
     workspace: '/dashboard/settings/workspace',
+    policies: '/dashboard/settings/policies',
+    approvals: '/dashboard/settings/approvals',
   },
 
   // Auth

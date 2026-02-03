@@ -1,211 +1,193 @@
 # @baleyui/sdk
 
-Official JavaScript/TypeScript SDK for BaleyUI - Execute AI flows and blocks programmatically.
+Official JavaScript/TypeScript SDK for BaleyUI. Execute AI flows and blocks programmatically.
 
 ## Installation
 
 ```bash
 npm install @baleyui/sdk
 # or
-yarn add @baleyui/sdk
-# or
 pnpm add @baleyui/sdk
 ```
 
+## Requirements
+
+- Node.js >= 18.0.0
+- TypeScript >= 4.7.0 (optional, for type definitions)
+
 ## Quick Start
 
+### BAL Code Execution
+
+Execute BAL (Baleybots Assembly Language) code directly:
+
 ```typescript
-import { BaleyUI } from '@baleyui/sdk';
+import { executeBALCode, compileBALCode } from '@baleyui/sdk';
 
-const client = new BaleyUI({
-  apiKey: process.env.BALEYUI_API_KEY!,
+// Compile BAL code (validation only, no execution)
+const compiled = compileBALCode(`
+  @entity Researcher
+  instructions: "Research the given topic"
+  tools: [web_search]
+
+  @run Researcher("What is TypeScript?")
+`);
+
+if (compiled.errors) {
+  console.error('Compilation errors:', compiled.errors);
+} else {
+  console.log('Entities:', compiled.entities);
+  console.log('Structure:', compiled.structure);
+}
+
+// Execute BAL code
+const result = await executeBALCode(`
+  @entity Researcher
+  instructions: "Research the given topic"
+  tools: [web_search]
+
+  @run Researcher("What is TypeScript?")
+`, {
+  model: 'gpt-4o-mini',
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: 60000, // 60 seconds
+  enableWebSearch: true,
+  tavilyApiKey: process.env.TAVILY_API_KEY,
 });
 
-// Execute a flow
-const execution = await client.flows.execute('flow-id', {
-  input: { message: 'Hello, world!' },
-});
-
-// Wait for completion
-const result = await execution.waitForCompletion();
-console.log(result.output);
+if (result.status === 'success') {
+  console.log('Result:', result.result);
+} else if (result.status === 'error') {
+  console.error('Error:', result.error);
+}
 ```
 
-## Usage
+### Streaming Execution
 
-### Initialize the Client
-
-```typescript
-import { BaleyUI } from '@baleyui/sdk';
-
-const client = new BaleyUI({
-  apiKey: 'bui_live_xxxxxxxxxxxx',
-  // Optional settings
-  baseUrl: 'https://app.baleyui.com', // Default
-  timeout: 30000, // 30 seconds
-  maxRetries: 3,
-});
-```
-
-### List Flows
+For real-time progress updates:
 
 ```typescript
-const { flows } = await client.flows.list();
-console.log(`Found ${flows.length} flows`);
-```
+import { streamBALExecution } from '@baleyui/sdk';
 
-### Execute a Flow
-
-```typescript
-// Start execution (returns immediately)
-const execution = await client.flows.execute('flow-id', {
-  input: { query: 'What is AI?' },
+const generator = streamBALExecution(balCode, {
+  model: 'gpt-4o-mini',
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
-console.log(`Execution started: ${execution.id}`);
-
-// Check status
-const status = await execution.getStatus();
-console.log(`Status: ${status.status}`);
-
-// Wait for completion
-const result = await execution.waitForCompletion();
-console.log(`Output: ${JSON.stringify(result.output)}`);
-```
-
-### Stream Execution Events
-
-```typescript
-const execution = await client.flows.execute('flow-id', {
-  input: { message: 'Hello!' },
-});
-
-// Stream events in real-time
-for await (const event of execution.stream()) {
+for await (const event of generator) {
   switch (event.type) {
-    case 'node_start':
-      console.log(`Node ${event.nodeId} started`);
+    case 'parsing':
+      console.log('Parsing BAL code...');
       break;
-    case 'node_stream':
-      // Streaming content from AI
-      process.stdout.write(event.data?.content || '');
+    case 'compiled':
+      console.log('Entities:', event.entities);
       break;
-    case 'node_complete':
-      console.log(`Node ${event.nodeId} completed`);
+    case 'started':
+      console.log('Execution started with input:', event.input);
       break;
-    case 'execution_complete':
-      console.log('Execution complete!');
+    case 'progress':
+      console.log(`[${event.botName}] ${event.message}`);
       break;
-    case 'execution_error':
-      console.error('Execution failed:', event.data?.error);
+    case 'completed':
+      console.log('Result:', event.result);
+      break;
+    case 'error':
+      console.error('Error:', event.error);
       break;
   }
 }
 ```
 
-### Run a Single Block
+### Cancellation
+
+Cancel a running execution:
 
 ```typescript
-const execution = await client.blocks.run('block-id', {
-  input: { text: 'Summarize this article...' },
+const controller = new AbortController();
+
+// Start execution with abort signal
+const resultPromise = executeBALCode(balCode, {
+  signal: controller.signal,
+  // ... other options
 });
 
-const result = await execution.waitForCompletion();
-console.log(result.output);
-```
+// Cancel after 10 seconds
+setTimeout(() => controller.abort(), 10000);
 
-### Error Handling
-
-```typescript
-import {
-  BaleyUI,
-  AuthenticationError,
-  NotFoundError,
-  RateLimitError,
-} from '@baleyui/sdk';
-
-try {
-  const result = await client.flows.execute('flow-id');
-} catch (error) {
-  if (error instanceof AuthenticationError) {
-    console.error('Invalid API key');
-  } else if (error instanceof NotFoundError) {
-    console.error('Flow not found');
-  } else if (error instanceof RateLimitError) {
-    console.error(`Rate limited. Retry after ${error.retryAfter}s`);
-  } else {
-    throw error;
-  }
+const result = await resultPromise;
+if (result.status === 'cancelled') {
+  console.log('Execution was cancelled');
 }
 ```
 
 ## API Reference
 
-### `BaleyUI`
+### `executeBALCode(code, options)`
 
-Main client class.
+Execute BAL code and return the result.
 
-#### Constructor Options
+**Parameters:**
+- `code: string` - The BAL code to execute
+- `options: BALExecutionOptions` - Execution options
 
+**Options:**
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `apiKey` | `string` | *required* | Your BaleyUI API key |
-| `baseUrl` | `string` | `https://app.baleyui.com` | API base URL |
-| `timeout` | `number` | `30000` | Request timeout (ms) |
-| `maxRetries` | `number` | `3` | Max retry attempts |
+| `model` | string | `'gpt-4o-mini'` | Model to use for execution |
+| `apiKey` | string | - | API key for the model provider |
+| `timeout` | number | `60000` | Maximum execution time in ms |
+| `enableWebSearch` | boolean | `false` | Enable web search tool |
+| `tavilyApiKey` | string | - | Tavily API key (required if enableWebSearch) |
+| `enableSequentialThinking` | boolean | `false` | Enable sequential thinking tool |
+| `signal` | AbortSignal | - | Abort signal for cancellation |
+| `onEvent` | function | - | Callback for streaming events |
 
-### `client.flows`
+**Returns:** `Promise<BALExecutionResult>`
 
-#### `list()` → `Promise<ListFlowsResult>`
+### `compileBALCode(code, options)`
 
-List all flows in the workspace.
+Compile BAL code without executing it. Useful for validation.
 
-#### `get(id)` → `Promise<FlowDetail>`
+**Parameters:**
+- `code: string` - The BAL code to compile
+- `options: BALExecutionOptions` - Compilation options
 
-Get a specific flow with full details.
+**Returns:** `BALCompileResult`
 
-#### `execute(id, options?)` → `Promise<ExecutionHandle>`
+### `streamBALExecution(code, options)`
 
-Execute a flow.
+Execute BAL code with streaming events.
 
-### `client.blocks`
-
-#### `list()` → `Promise<ListBlocksResult>`
-
-List all blocks in the workspace.
-
-#### `run(id, options?)` → `Promise<ExecutionHandle>`
-
-Run a single block.
-
-### `client.executions`
-
-#### `get(id)` → `Promise<Execution>`
-
-Get execution status and result.
-
-#### `waitForCompletion(id, timeout?)` → `Promise<Execution>`
-
-Wait for an execution to complete.
-
-#### `stream(id)` → `AsyncGenerator<ExecutionEvent>`
-
-Stream execution events.
-
-### `ExecutionHandle`
-
-Returned from `execute()` and `run()`.
-
-| Method | Description |
-|--------|-------------|
-| `id` | The execution ID |
-| `getStatus()` | Get current status |
-| `waitForCompletion(timeout?)` | Wait for completion |
-| `stream()` | Stream events |
+**Returns:** `AsyncGenerator<BALExecutionEvent, BALExecutionResult>`
 
 ## Types
 
-See [src/types.ts](./src/types.ts) for complete type definitions.
+### BALExecutionResult
+
+```typescript
+interface BALExecutionResult {
+  status: 'success' | 'error' | 'cancelled' | 'timeout';
+  result?: unknown;
+  error?: string;
+  entities?: string[];
+  structure?: PipelineStructure | null;
+  duration?: number;
+}
+```
+
+### BALExecutionEvent
+
+```typescript
+type BALExecutionEvent =
+  | { type: 'parsing'; message: string }
+  | { type: 'compiled'; entities: string[]; structure: PipelineStructure | null }
+  | { type: 'started'; input: unknown }
+  | { type: 'token'; botName: string; event: BaleybotStreamEvent }
+  | { type: 'progress'; botName: string; message: string }
+  | { type: 'completed'; result: unknown }
+  | { type: 'error'; error: string }
+  | { type: 'cancelled' };
+```
 
 ## License
 

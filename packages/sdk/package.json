@@ -21,6 +21,8 @@
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "type-check": "tsc --noEmit",
     "lint": "eslint src",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -44,9 +46,14 @@
   "bugs": {
     "url": "https://github.com/baleyui/baleyui/issues"
   },
+  "dependencies": {
+    "@baleybots/core": "^0.0.1-alpha.95",
+    "@baleybots/tools": "^0.0.1-alpha.95"
+  },
   "devDependencies": {
     "tsup": "^8.0.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.0.16"
   },
   "peerDependencies": {
     "typescript": ">=4.7.0"

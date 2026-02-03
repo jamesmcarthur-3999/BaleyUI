@@ -19,3 +19,9 @@ export * from './useOptimizedEvents';
 
 // Accessibility hooks
 export * from './useKeyboardNavigation';
+
+// State management hooks
+export * from './useDirtyState';
+export * from './useDebounce';
+export * from './useNavigationGuard';
+export * from './useHistory';

@@ -575,12 +575,368 @@ export const builderEvents = pgTable(
 );
 
 // ============================================================================
+// BALEYBOTS (BAL-first architecture)
+// ============================================================================
+
+export const baleybots = pgTable(
+  'baleybots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // User-facing
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
+    icon: varchar('icon', { length: 100 }), // emoji or icon name
+    status: varchar('status', { length: 50 }).notNull().default('draft'), // draft, active, paused, error
+
+    // Webhook trigger (optional secret for HTTP triggers)
+    webhookSecret: varchar('webhook_secret', { length: 100 }),
+    webhookEnabled: boolean('webhook_enabled').default(false),
+
+    // BAL source of truth
+    balCode: text('bal_code').notNull(),
+
+    // Cached structure for visualization (from Pipeline.getStructure())
+    structure: jsonb('structure'),
+
+    // Entity names in this BB (for quick lookup)
+    entityNames: jsonb('entity_names').$type<string[]>(),
+
+    // BB dependencies (other BBs this one can call via spawn_baleybot)
+    dependencies: jsonb('dependencies').$type<string[]>(),
+
+    // Conversation history (for Creator Bot interactions)
+    conversationHistory: jsonb('conversation_history').$type<
+      Array<{
+        id: string;
+        role: 'user' | 'assistant';
+        content: string;
+        timestamp: string;
+      }>
+    >(),
+
+    // Execution metrics
+    executionCount: integer('execution_count').default(0),
+    lastExecutedAt: timestamp('last_executed_at'),
+
+    // User who created this BB
+    createdBy: varchar('created_by', { length: 255 }),
+
+    // Soft delete fields
+    deletedAt: timestamp('deleted_at'),
+    deletedBy: varchar('deleted_by', { length: 255 }),
+
+    // Optimistic locking
+    version: integer('version').default(1).notNull(),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('baleybots_workspace_idx').on(table.workspaceId),
+    index('baleybots_status_idx').on(table.status),
+  ]
+);
+
+// ============================================================================
+// BALEYBOT EXECUTIONS
+// ============================================================================
+
+export const baleybotExecutions = pgTable(
+  'baleybot_executions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    baleybotId: uuid('baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    status: varchar('status', { length: 50 }).notNull().default('pending'), // pending, running, completed, failed, cancelled
+
+    input: jsonb('input'),
+    output: jsonb('output'),
+    error: text('error'),
+
+    // StreamSegments stored for replay (BaleybotStreamEvent[])
+    segments: jsonb('segments').$type<unknown[]>(),
+
+    // Metrics
+    startedAt: timestamp('started_at'),
+    completedAt: timestamp('completed_at'),
+    durationMs: integer('duration_ms'),
+    tokenCount: integer('token_count'),
+
+    // Trigger info
+    triggeredBy: varchar('triggered_by', { length: 50 }), // 'manual', 'schedule', 'webhook', 'other_bb'
+    triggerSource: varchar('trigger_source', { length: 255 }), // e.g., BB ID if triggered by another BB
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('baleybot_executions_baleybot_idx').on(table.baleybotId),
+    index('baleybot_executions_status_idx').on(table.status),
+    index('baleybot_executions_created_idx').on(table.createdAt),
+  ]
+);
+
+// ============================================================================
+// APPROVAL PATTERNS (learned from "Approve & Remember")
+// ============================================================================
+
+export const approvalPatterns = pgTable(
+  'approval_patterns',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Pattern definition
+    tool: varchar('tool', { length: 255 }).notNull(), // Tool name
+    actionPattern: jsonb('action_pattern').notNull(), // e.g., { action: "refund", amount: "<=100" }
+    entityGoalPattern: text('entity_goal_pattern'), // regex for matching entity goals
+
+    // Trust level
+    trustLevel: varchar('trust_level', { length: 50 }).notNull().default('provisional'), // provisional, trusted, permanent
+    timesUsed: integer('times_used').notNull().default(0),
+
+    // Audit
+    approvedBy: varchar('approved_by', { length: 255 }),
+    approvedAt: timestamp('approved_at'),
+    expiresAt: timestamp('expires_at'),
+
+    // Can be revoked
+    revokedAt: timestamp('revoked_at'),
+    revokedBy: varchar('revoked_by', { length: 255 }),
+    revokeReason: text('revoke_reason'),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('approval_patterns_workspace_idx').on(table.workspaceId),
+    index('approval_patterns_tool_idx').on(table.tool),
+  ]
+);
+
+// ============================================================================
+// WORKSPACE POLICIES (tool governance)
+// ============================================================================
+
+export const workspacePolicies = pgTable('workspace_policies', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id')
+    .references(() => workspaces.id, { onDelete: 'cascade' })
+    .notNull()
+    .unique(),
+
+  // Tool policies
+  allowedTools: jsonb('allowed_tools').$type<string[]>(),
+  forbiddenTools: jsonb('forbidden_tools').$type<string[]>(),
+  requiresApprovalTools: jsonb('requires_approval_tools').$type<string[]>(),
+
+  // Global limits
+  maxAutoApproveAmount: integer('max_auto_approve_amount'),
+  reapprovalIntervalDays: integer('reapproval_interval_days').default(90),
+  maxAutoFiresBeforeReview: integer('max_auto_fires_before_review').default(100),
+
+  // Pattern learning manual (natural language guidelines for AI)
+  learningManual: text('learning_manual'),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ============================================================================
+// BALEYBOT MEMORY (for store_memory tool)
+// ============================================================================
+
+export const baleybotMemory = pgTable(
+  'baleybot_memory',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    baleybotId: uuid('baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Key-value storage
+    key: varchar('key', { length: 255 }).notNull(),
+    value: jsonb('value').notNull(),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('baleybot_memory_unique_key').on(
+      table.workspaceId,
+      table.baleybotId,
+      table.key
+    ),
+    index('baleybot_memory_workspace_idx').on(table.workspaceId),
+    index('baleybot_memory_baleybot_idx').on(table.baleybotId),
+  ]
+);
+
+// ============================================================================
+// NOTIFICATIONS (for send_notification tool)
+// ============================================================================
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Who to notify
+    userId: varchar('user_id', { length: 255 }).notNull(), // Clerk user ID
+
+    // Notification content
+    title: varchar('title', { length: 255 }).notNull(),
+    message: text('message').notNull(),
+    priority: varchar('priority', { length: 20 }).notNull().default('normal'), // low, normal, high
+
+    // Source tracking
+    sourceType: varchar('source_type', { length: 50 }), // 'baleybot', 'system', etc.
+    sourceId: uuid('source_id'), // e.g., baleybot ID that sent it
+    executionId: uuid('execution_id'), // e.g., execution that triggered it
+
+    // Status
+    readAt: timestamp('read_at'),
+    dismissedAt: timestamp('dismissed_at'),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('notifications_workspace_idx').on(table.workspaceId),
+    index('notifications_user_idx').on(table.userId),
+    index('notifications_unread_idx').on(table.userId, table.readAt),
+    index('notifications_created_idx').on(table.createdAt),
+  ]
+);
+
+// ============================================================================
+// SCHEDULED TASKS (for schedule_task tool)
+// ============================================================================
+
+export const scheduledTasks = pgTable(
+  'scheduled_tasks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    baleybotId: uuid('baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Scheduling
+    runAt: timestamp('run_at').notNull(), // When to run
+    cronExpression: varchar('cron_expression', { length: 100 }), // For recurring tasks
+
+    // Input to pass when running
+    input: jsonb('input'),
+
+    // Status
+    status: varchar('status', { length: 50 }).notNull().default('pending'), // pending, running, completed, failed, cancelled
+
+    // Execution tracking
+    lastRunAt: timestamp('last_run_at'),
+    lastRunStatus: varchar('last_run_status', { length: 50 }),
+    lastRunError: text('last_run_error'),
+    executionId: uuid('execution_id'), // Links to baleybotExecutions when run
+
+    // For recurring tasks
+    runCount: integer('run_count').default(0),
+    maxRuns: integer('max_runs'), // null = unlimited
+
+    // Approval tracking
+    approvedBy: varchar('approved_by', { length: 255 }),
+    approvedAt: timestamp('approved_at'),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('scheduled_tasks_workspace_idx').on(table.workspaceId),
+    index('scheduled_tasks_baleybot_idx').on(table.baleybotId),
+    index('scheduled_tasks_pending_idx').on(table.status, table.runAt),
+  ]
+);
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 
 export const builderEventsRelations = relations(builderEvents, ({ one }) => ({
   workspace: one(workspaces, {
     fields: [builderEvents.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
+
+export const baleybotsRelations = relations(baleybots, ({ one, many }) => ({
+  workspace: one(workspaces, {
+    fields: [baleybots.workspaceId],
+    references: [workspaces.id],
+  }),
+  executions: many(baleybotExecutions),
+  memory: many(baleybotMemory),
+  scheduledTasks: many(scheduledTasks),
+}));
+
+export const baleybotMemoryRelations = relations(baleybotMemory, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [baleybotMemory.workspaceId],
+    references: [workspaces.id],
+  }),
+  baleybot: one(baleybots, {
+    fields: [baleybotMemory.baleybotId],
+    references: [baleybots.id],
+  }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [notifications.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
+
+export const scheduledTasksRelations = relations(scheduledTasks, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [scheduledTasks.workspaceId],
+    references: [workspaces.id],
+  }),
+  baleybot: one(baleybots, {
+    fields: [scheduledTasks.baleybotId],
+    references: [baleybots.id],
+  }),
+}));
+
+export const baleybotExecutionsRelations = relations(baleybotExecutions, ({ one }) => ({
+  baleybot: one(baleybots, {
+    fields: [baleybotExecutions.baleybotId],
+    references: [baleybots.id],
+  }),
+}));
+
+export const approvalPatternsRelations = relations(approvalPatterns, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [approvalPatterns.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
+
+export const workspacePoliciesRelations = relations(workspacePolicies, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [workspacePolicies.workspaceId],
     references: [workspaces.id],
   }),
 }));
@@ -620,13 +976,19 @@ export const executionEventsRelations = relations(executionEvents, ({ one }) => 
   }),
 }));
 
-export const workspacesRelations = relations(workspaces, ({ many }) => ({
+export const workspacesRelations = relations(workspaces, ({ many, one }) => ({
   connections: many(connections),
   tools: many(tools),
   blocks: many(blocks),
   flows: many(flows),
   apiKeys: many(apiKeys),
   builderEvents: many(builderEvents),
+  baleybots: many(baleybots),
+  approvalPatterns: many(approvalPatterns),
+  workspacePolicies: one(workspacePolicies),
+  baleybotMemory: many(baleybotMemory),
+  notifications: many(notifications),
+  scheduledTasks: many(scheduledTasks),
 }));
 
 export const apiKeysRelations = relations(apiKeys, ({ one }) => ({

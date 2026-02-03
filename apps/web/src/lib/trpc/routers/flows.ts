@@ -312,8 +312,14 @@ export const flowsRouter = router({
         })
         .returning();
 
-      // TODO: Integrate with BaleyBots execution engine to actually run the flow
-      // For now, we just create the execution record
+      // Flow execution integration
+      // TODO(Phase 3): Implement flow execution by:
+      // 1. Parse flow.nodes to extract BaleyBot IDs
+      // 2. Build execution graph from flow.edges
+      // 3. Execute each BaleyBot in topological order
+      // 4. Pass outputs between connected nodes
+      // 5. Update flowExecution status as nodes complete
+      // See: packages/sdk/src/bal-executor.ts for BaleyBot execution pattern
 
       return execution;
     }),
@@ -479,7 +485,11 @@ export const flowsRouter = router({
         .where(eq(flowExecutions.id, input.id))
         .returning();
 
-      // TODO: Integrate with BaleyBots to actually stop the execution
+      // TODO(Phase 3): Implement flow cancellation by:
+      // 1. Get running BaleyBot executions from flowExecution.blockExecutions
+      // 2. Signal cancellation to each running executor via AbortController
+      // 3. Update individual block execution statuses
+      // See: packages/sdk/src/bal-executor.ts for cancellation pattern
 
       return cancelled;
     }),

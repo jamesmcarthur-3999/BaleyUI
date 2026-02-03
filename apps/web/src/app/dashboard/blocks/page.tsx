@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { BlocksList } from '@/components/blocks/BlocksList';
 import { CreateBlockDialog } from '@/components/blocks/CreateBlockDialog';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Select,
   SelectContent,
@@ -13,7 +15,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { trpc } from '@/lib/trpc/client';
-import { Search, Filter, Boxes, Sparkles, Code2, Activity } from 'lucide-react';
+import { Search, Filter, Boxes, Sparkles, Code2, Activity, AlertTriangle, ArrowRight } from 'lucide-react';
+import { ROUTES } from '@/lib/routes';
 
 export default function BlocksPage() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -37,6 +40,24 @@ export default function BlocksPage() {
   return (
     <div className="container py-10">
       <div className="flex flex-col gap-8">
+        {/* Deprecation Notice */}
+        <Alert className="border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/20">
+          <AlertTriangle className="h-4 w-4 text-yellow-600" />
+          <AlertTitle className="text-yellow-800 dark:text-yellow-200">
+            Legacy Feature
+          </AlertTitle>
+          <AlertDescription className="text-yellow-700 dark:text-yellow-300">
+            Blocks are being replaced by BaleyBots - a more powerful, task-focused approach.
+            <Link
+              href={ROUTES.dashboard}
+              className="inline-flex items-center gap-1 ml-2 font-medium underline hover:no-underline"
+            >
+              Try BaleyBots
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </AlertDescription>
+        </Alert>
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>

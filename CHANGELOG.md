@@ -7,58 +7,125 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 4: Tool Ecosystem (In Progress)
+
+**Current Branch:** `feature/tool-ecosystem`
+
+Implementation of the complete BaleyBot tool ecosystem:
+- 35 tasks across 8 sub-phases
+- Built-in tools with full implementations
+- Database connection-derived tools
+- Trigger system (cron, webhooks, BB completion)
+- Analytics and cost tracking
+- Visual BAL editor
+- Dynamic tool creation
+
+See: `docs/plans/2026-02-03-tool-ecosystem-complete-implementation.md`
+
+### Added (Phase 4 - Partial)
+- Web search service with Tavily integration and AI fallback
+- Ephemeral agent service (`create_agent` tool implementation)
+- Ephemeral tool service (`create_tool` tool implementation)
+- Tool ecosystem implementation plan (35 tasks)
+
+---
+
+## [0.4.0] - 2026-02-02 - Phase 3 Complete
+
 ### Added
-- Initial project structure and documentation
-- Comprehensive project plan (PLAN.md)
-- README with project overview
-- Package.json with dependencies
-- Environment variable template
-- **Resilience Architecture** (December 2024):
-  - "Resilience by Design" core philosophy - executions are server-independent
-  - Execution-first API with reconnection protocol
-  - Execution state machine (pending → running → complete/failed/stale)
-  - Server startup recovery for stale/orphaned executions
-  - Data integrity layer with transactions, soft deletes, optimistic locking
-  - Audit logging for all operations
-  - AES-256-GCM encryption for API keys
-  - New database tables: `executionEvents`, `auditLogs`, `backgroundJobs`
-  - New Task 1.10: Data Integrity Layer
+- **Conversational Creation**: Creator Bot for natural language BB building
+- **BAL-First Architecture**: BaleyBots Assembly Language as source of truth
+- **Testing Interface**: Live chat testing for blocks
+- **Streaming Infrastructure**: Server-independent execution with reconnection
+- **Execution Observability**: Full event logging and replay
 
 ### Changed
-- **Tech Stack Upgrade** (December 2024):
-  - Upgraded from Next.js 14 to **Next.js 15.1** with Turbopack
-  - Upgraded from React 18 to **React 19** with compiler support
-  - Upgraded from reactflow to **@xyflow/react 12.3** (modern API)
-  - Upgraded Zustand to **5.0** for React 19 compatibility
-  - Added **Clerk** for authentication (replacing NextAuth consideration)
-  - Added **Hono** for high-performance streaming endpoints
-  - Added **@tanstack/react-virtual** for list virtualization
-  - Added **Comlink** for Web Worker communication
-  - Added **@upstash/redis** for caching and rate limiting
-  - Added all four **BaleyBots packages** (@baleybots/core, chat, react, tools)
+- Unified BB representation via BAL
+- Refactored executor for streaming support
+- Enhanced connection management UI
 
-### Documentation
-- Created **CODING_GUIDELINES.md** - React 19, Next.js 15 patterns and best practices
-- Created **AGENTS.md** - Phase 1 task breakdown for AI agents
-- Updated **.env.example** for Clerk authentication
-- Resolved open questions in PLAN.md (Auth: Clerk, Multi-tenancy: Single DB)
-- Updated **PLAN.md** with "Resilience by Design" philosophy (Core Philosophy §0)
-- Updated **PLAN.md** with execution-first API and reconnection protocol
-- Updated **PLAN.md** with resilience database tables and schema additions
-- Updated **AGENTS.md** with Task 1.10: Data Integrity Layer
-- Updated **AGENTS.md** Task 1.7 with server-independent execution requirements
+---
 
-### Planned
-- Phase 1: Foundation (Block Editor, Connections, Testing)
-- Phase 2: Composition (Flow Canvas, Triggers)
-- Phase 3: Integration (Embeddable Components, Database Connectors)
-- Phase 4: Evolution (Pattern Extraction, Code Generation)
+## [0.3.0] - 2026-01-31 - Phase 2 Complete
 
-## [0.0.1] - Initial Planning
+### Added
+- **Flow Canvas**: React Flow-based visual editor
+- **Composition Patterns**: Pipeline, router, parallel, loop nodes
+- **Trigger System**: Schedule, webhook, BB completion triggers
+- **Streaming UI**: Real-time token streaming with 60fps performance
+- **Tool Calling**: Visual tool execution display
+
+### Changed
+- Upgraded streaming to RAF-batched DOM updates
+- Added virtualization for large execution lists
+
+---
+
+## [0.2.0] - 2026-01-28 - Phase 1 Complete
+
+### Added
+- **Foundation Infrastructure**:
+  - Next.js 15.1 with Turbopack
+  - React 19 with compiler support
+  - PostgreSQL + Drizzle ORM
+  - tRPC API layer
+  - Clerk authentication
+
+- **Data Integrity Layer**:
+  - Transaction helpers (`withTransaction`)
+  - Optimistic locking (`updateWithLock`)
+  - Soft deletes with audit trail
+  - AES-256-GCM encryption for API keys
+
+- **Database Schema**:
+  - `workspaces`, `connections`, `tools`, `baleybots`
+  - `flows`, `flowExecutions`, `baleybotExecutions`
+  - `executionEvents`, `auditLogs`, `notifications`
+  - `scheduledTasks`, `baleybotMemory`
+
+- **Connections Module**:
+  - OpenAI, Anthropic, Ollama provider support
+  - PostgreSQL, MySQL database connections
+  - Connection testing and validation
+  - Encrypted credential storage
+
+- **BaleyBot Execution**:
+  - BAL parsing and compilation
+  - Runtime tool injection
+  - Streaming event system
+
+### Technical Stack
+- Next.js 15.1+ with Turbopack
+- React 19.0+ with compiler
+- TypeScript 5.7+
+- Tailwind CSS 3.4+
+- @xyflow/react 12.3+
+- Zustand 5.0+
+- TanStack Query 5.62+
+- tRPC 11.0+
+- Drizzle ORM 0.38+
+- Clerk 6.9+
+
+---
+
+## [0.1.0] - 2026-01-25 - Initial Planning
 
 ### Added
 - Project vision and philosophy
 - BaleyBots integration strategy
 - Database schema design
 - Four-phase development plan
-- Internal bots (dogfooding) architecture
+- PLAN.md with architecture documentation
+- CODING_GUIDELINES.md with React 19 patterns
+- AGENTS.md with task breakdowns
+
+---
+
+## Version History
+
+| Version | Date | Phase | Status |
+|---------|------|-------|--------|
+| 0.4.0 | 2026-02-02 | Phase 3 | ✅ Complete |
+| 0.3.0 | 2026-01-31 | Phase 2 | ✅ Complete |
+| 0.2.0 | 2026-01-28 | Phase 1 | ✅ Complete |
+| 0.1.0 | 2026-01-25 | Planning | ✅ Complete |
