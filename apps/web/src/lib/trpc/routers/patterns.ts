@@ -3,6 +3,7 @@ import { router, protectedProcedure } from '../trpc';
 import { patterns, blocks, decisions, eq, and, desc, isNull } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { analyzeDecisions } from '@/lib/patterns/pattern-analyzer';
+import type { PatternCondition, PatternOutputTemplate, PartialUpdateData } from '@/lib/types';
 
 /**
  * tRPC router for managing patterns (extracted rules from decisions).
@@ -93,8 +94,8 @@ export const patternsRouter = router({
       z.object({
         blockId: z.string().uuid(),
         rule: z.string().min(1),
-        condition: z.any(),
-        outputTemplate: z.any().optional(),
+        condition: z.unknown(),
+        outputTemplate: z.unknown().optional(),
         confidence: z.number().min(0).max(1).optional(),
         supportCount: z.number().int().min(0).optional(),
         generatedCode: z.string().optional(),
@@ -140,8 +141,8 @@ export const patternsRouter = router({
       z.object({
         id: z.string().uuid(),
         rule: z.string().min(1).optional(),
-        condition: z.any().optional(),
-        outputTemplate: z.any().optional(),
+        condition: z.unknown().optional(),
+        outputTemplate: z.unknown().optional(),
         confidence: z.number().min(0).max(1).optional(),
         supportCount: z.number().int().min(0).optional(),
         generatedCode: z.string().optional(),
@@ -164,7 +165,7 @@ export const patternsRouter = router({
       }
 
       // Build update object
-      const updateData: any = {
+      const updateData: PartialUpdateData = {
         updatedAt: new Date(),
       };
 

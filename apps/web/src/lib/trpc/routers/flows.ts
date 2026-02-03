@@ -18,23 +18,25 @@ const log = createLogger('flows-router');
 
 /**
  * Zod schema for flow node validation
+ * Note: Uses permissive types to accommodate React Flow node structure
  */
 const flowNodeSchema = z.array(z.object({
   id: z.string(),
-  type: z.string(),
+  type: z.string().optional(),
   position: z.object({ x: z.number(), y: z.number() }),
-  data: z.record(z.string(), z.unknown()),
+  data: z.record(z.string(), z.unknown()).optional(),
 }).passthrough()).optional();
 
 /**
  * Zod schema for flow edge validation
+ * Note: Uses permissive types to accommodate React Flow edge structure
  */
 const flowEdgeSchema = z.array(z.object({
   id: z.string(),
   source: z.string(),
   target: z.string(),
-  sourceHandle: z.string().optional(),
-  targetHandle: z.string().optional(),
+  sourceHandle: z.string().nullish(),
+  targetHandle: z.string().nullish(),
 }).passthrough()).optional();
 
 /**

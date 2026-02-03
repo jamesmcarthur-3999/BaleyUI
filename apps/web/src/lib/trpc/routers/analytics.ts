@@ -14,6 +14,7 @@ import {
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { calculateCost } from '@/lib/analytics/cost-calculator';
+import type { TrainingDataItem } from '@/lib/types';
 
 /**
  * tRPC router for analytics and metrics.
@@ -433,8 +434,8 @@ export const analyticsRouter = router({
         .limit(10000); // Limit to prevent extremely large exports
 
       // Transform to JSONL format
-      const jsonlLines = exportData.map((item) => {
-        const trainingItem: any = {
+      const jsonlLines: TrainingDataItem[] = exportData.map((item) => {
+        const trainingItem: TrainingDataItem = {
           messages: [
             {
               role: 'user',

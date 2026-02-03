@@ -5,18 +5,22 @@ import { TRPCError } from '@trpc/server';
 import { encrypt, decrypt } from '@/lib/encryption';
 import { testConnection } from '@/lib/connections/test';
 import { listOllamaModels } from '@/lib/connections/ollama';
+import type { ConnectionConfig, PartialUpdateData } from '@/lib/types';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('connections-router');
 
 /**
  * Encrypt an object's sensitive fields.
  */
-function encryptObject<T extends Record<string, any>>(
+function encryptObject<T extends ConnectionConfig>(
   obj: T,
   sensitiveFields: (keyof T)[]
 ): T {
   const result = { ...obj };
   for (const field of sensitiveFields) {
     if (result[field] && typeof result[field] === 'string') {
-      result[field] = encrypt(result[field] as string) as any;
+      (result as Record<string, unknown>)[field as string] = encrypt(result[field] as string);
     }
   }
   return result;
@@ -25,7 +29,7 @@ function encryptObject<T extends Record<string, any>>(
 /**
  * Decrypt an object's sensitive fields.
  */
-function decryptObject<T extends Record<string, any>>(
+function decryptObject<T extends ConnectionConfig>(
   obj: T,
   sensitiveFields: (keyof T)[]
 ): T {
@@ -33,10 +37,10 @@ function decryptObject<T extends Record<string, any>>(
   for (const field of sensitiveFields) {
     if (result[field] && typeof result[field] === 'string') {
       try {
-        result[field] = decrypt(result[field] as string) as any;
+        (result as Record<string, unknown>)[field as string] = decrypt(result[field] as string);
       } catch (error) {
         // If decryption fails, leave as is (might not be encrypted)
-        console.error(`Failed to decrypt field ${String(field)}:`, error);
+        log.warn(`Failed to decrypt field ${String(field)}`, { error });
       }
     }
   }
@@ -68,7 +72,7 @@ export const connectionsRouter = router({
 
     // Decrypt API keys for display (masked)
     return allConnections.map((conn) => {
-      const config = conn.config as Record<string, any>;
+      const config = conn.config as ConnectionConfig;
 
       // Return masked API key for security
       if (config.apiKey) {
@@ -111,7 +115,7 @@ export const connectionsRouter = router({
       }
 
       // Decrypt sensitive fields for editing
-      const config = connection.config as Record<string, any>;
+      const config = connection.config as ConnectionConfig;
       const decryptedConfig = decryptObject(config, ['apiKey']);
 
       return {
@@ -192,7 +196,7 @@ export const connectionsRouter = router({
       }
 
       // Prepare update data
-      const updateData: any = {
+      const updateData: PartialUpdateData = {
         updatedAt: new Date(),
         version: existing.version + 1,
       };
@@ -264,7 +268,7 @@ export const connectionsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      let config: Record<string, any>;
+      let config: ConnectionConfig;
       let type: string;
 
       if (input.id) {
@@ -285,7 +289,7 @@ export const connectionsRouter = router({
         }
 
         type = connection.type;
-        config = decryptObject(connection.config as Record<string, any>, ['apiKey']);
+        config = decryptObject(connection.config as ConnectionConfig, ['apiKey']);
       } else if (input.type && input.config) {
         // Test new connection config
         type = input.type;
@@ -400,7 +404,7 @@ export const connectionsRouter = router({
         });
       }
 
-      const config = decryptObject(connection.config as Record<string, any>, ['apiKey']);
+      const config = decryptObject(connection.config as ConnectionConfig, ['apiKey']);
       const models = await listOllamaModels(config.baseUrl || 'http://localhost:11434');
 
       const [updated] = await ctx.db

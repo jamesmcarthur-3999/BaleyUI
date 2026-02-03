@@ -12,6 +12,7 @@ import {
 import { TRPCError } from '@trpc/server';
 import { randomBytes } from 'crypto';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
+import { isWebhookTrigger, isEnabledWebhookTrigger, type Trigger, type WebhookTrigger } from '@/lib/types';
 
 /**
  * Generate a random webhook secret
@@ -65,14 +66,14 @@ export const webhooksRouter = router({
       const signingSecret = generateWebhookSecret();
 
       // Update flow triggers
-      const triggers = Array.isArray(flow.triggers) ? flow.triggers : [];
-      const existingWebhook = triggers.find((t: any) => t?.type === 'webhook');
+      const triggers = (Array.isArray(flow.triggers) ? flow.triggers : []) as Trigger[];
+      const existingWebhook = triggers.find((t): t is WebhookTrigger => isWebhookTrigger(t));
 
-      let updatedTriggers;
+      let updatedTriggers: Trigger[];
       if (existingWebhook) {
         // Update existing webhook
-        updatedTriggers = triggers.map((t: any) =>
-          t?.type === 'webhook'
+        updatedTriggers = triggers.map((t) =>
+          isWebhookTrigger(t)
             ? { ...t, secret, signingSecret, enabled: true, createdAt: new Date().toISOString() }
             : t
         );
@@ -130,9 +131,9 @@ export const webhooksRouter = router({
       }
 
       // Remove webhook trigger from triggers array
-      const triggers = Array.isArray(flow.triggers) ? flow.triggers : [];
-      const updatedTriggers = triggers.map((t: any) =>
-        t?.type === 'webhook' ? { ...t, enabled: false } : t
+      const triggers = (Array.isArray(flow.triggers) ? flow.triggers : []) as Trigger[];
+      const updatedTriggers = triggers.map((t) =>
+        isWebhookTrigger(t) ? { ...t, enabled: false } : t
       );
 
       // Update flow with new triggers
@@ -166,10 +167,8 @@ export const webhooksRouter = router({
       }
 
       // Find webhook trigger
-      const triggers = Array.isArray(flow.triggers) ? flow.triggers : [];
-      const webhookTrigger = triggers.find(
-        (t: any) => t?.type === 'webhook' && t?.enabled === true
-      );
+      const triggers = (Array.isArray(flow.triggers) ? flow.triggers : []) as Trigger[];
+      const webhookTrigger = triggers.find((t): t is WebhookTrigger => isEnabledWebhookTrigger(t));
 
       if (!webhookTrigger) {
         return null;
@@ -242,7 +241,7 @@ export const webhooksRouter = router({
     .input(
       z.object({
         flowId: z.string().uuid(),
-        samplePayload: z.any().optional(),
+        samplePayload: z.unknown().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -263,10 +262,8 @@ export const webhooksRouter = router({
       }
 
       // Find webhook trigger
-      const triggers = Array.isArray(flow.triggers) ? flow.triggers : [];
-      const webhookTrigger = triggers.find(
-        (t: any) => t?.type === 'webhook' && t?.enabled === true
-      );
+      const triggers = (Array.isArray(flow.triggers) ? flow.triggers : []) as Trigger[];
+      const webhookTrigger = triggers.find((t): t is WebhookTrigger => isEnabledWebhookTrigger(t));
 
       if (!webhookTrigger) {
         throw new TRPCError({

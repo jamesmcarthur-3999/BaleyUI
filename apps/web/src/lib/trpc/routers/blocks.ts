@@ -2,15 +2,16 @@ import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { blocks, connections, tools, eq, and, notDeleted, softDelete, updateWithLock } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
+import type { BlockSchema, RouterConfig, LoopConfig, PartialUpdateData, ToolReference } from '@/lib/types';
 
 /**
  * Zod schema for block input validation
  */
-const blockInputSchemaValidator = z.record(z.string(), z.any()).optional();
-const blockOutputSchemaValidator = z.record(z.string(), z.any()).optional();
+const blockInputSchemaValidator = z.record(z.string(), z.unknown()).optional();
+const blockOutputSchemaValidator = z.record(z.string(), z.unknown()).optional();
 const blockToolIdsValidator = z.array(z.string().uuid()).optional();
-const blockRouterConfigValidator = z.record(z.string(), z.any()).optional();
-const blockLoopConfigValidator = z.record(z.string(), z.any()).optional();
+const blockRouterConfigValidator = z.record(z.string(), z.unknown()).optional();
+const blockLoopConfigValidator = z.record(z.string(), z.unknown()).optional();
 
 /**
  * tRPC router for managing blocks (AI and Function blocks).
@@ -53,7 +54,7 @@ export const blocksRouter = router({
       }
 
       // Fetch associated tools if toolIds exist
-      let blockTools: any[] = [];
+      let blockTools: ToolReference[] = [];
       if (block.toolIds && Array.isArray(block.toolIds) && block.toolIds.length > 0) {
         blockTools = await ctx.db.query.tools.findMany({
           where: and(
@@ -255,7 +256,7 @@ export const blocksRouter = router({
       }
 
       // Prepare update data (only include fields that are provided)
-      const updateData: any = {};
+      const updateData: PartialUpdateData = {};
 
       if (input.name !== undefined) updateData.name = input.name;
       if (input.description !== undefined) updateData.description = input.description;

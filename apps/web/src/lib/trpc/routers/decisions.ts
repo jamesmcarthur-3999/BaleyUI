@@ -168,7 +168,7 @@ export const decisionsRouter = router({
         correct: z.boolean(),
         category: z.enum(['hallucination', 'wrong_format', 'missing_info', 'perfect', 'partial']).optional(),
         notes: z.string().optional(),
-        correctedOutput: z.any().optional(),
+        correctedOutput: z.unknown().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
