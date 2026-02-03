@@ -3,8 +3,10 @@ import { router, protectedProcedure } from '../trpc';
 import {
   flows,
   flowExecutions,
+  baleybots,
   eq,
   and,
+  inArray,
   notDeleted,
   softDelete,
   updateWithLock,
@@ -13,6 +15,7 @@ import { TRPCError } from '@trpc/server';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import type { FlowNode, FlowEdge, Trigger, PartialUpdateData } from '@/lib/types';
 import { createLogger } from '@/lib/logger';
+import { executeFlow } from '@/lib/flow-executor';
 
 const log = createLogger('flows-router');
 
@@ -297,16 +300,85 @@ export const flowsRouter = router({
         })
         .returning();
 
-      // Flow execution integration
-      // TODO(Phase 3): Implement flow execution by:
-      // 1. Parse flow.nodes to extract BaleyBot IDs
-      // 2. Build execution graph from flow.edges
-      // 3. Execute each BaleyBot in topological order
-      // 4. Pass outputs between connected nodes
-      // 5. Update flowExecution status as nodes complete
-      // See: packages/sdk/src/bal-executor.ts for BaleyBot execution pattern
+      // Extract BaleyBot IDs from flow nodes
+      const nodes = (flow.nodes || []) as FlowNode[];
+      const edges = (flow.edges || []) as FlowEdge[];
+      const baleybotIds = nodes
+        .filter((n) => n.type === 'baleybot' && n.data?.baleybotId)
+        .map((n) => n.data.baleybotId as string);
 
-      return execution;
+      // Fetch all referenced baleybots
+      const baleybotMap = new Map<string, { balCode: string }>();
+      if (baleybotIds.length > 0) {
+        const fetchedBaleybots = await ctx.db.query.baleybots.findMany({
+          where: and(
+            inArray(baleybots.id, baleybotIds),
+            eq(baleybots.workspaceId, ctx.workspace.id),
+            notDeleted(baleybots)
+          ),
+          columns: {
+            id: true,
+            balCode: true,
+          },
+        });
+        for (const bot of fetchedBaleybots) {
+          if (bot.balCode) {
+            baleybotMap.set(bot.id, { balCode: bot.balCode });
+          }
+        }
+      }
+
+      // Update execution status to running
+      await ctx.db
+        .update(flowExecutions)
+        .set({ status: 'running' })
+        .where(eq(flowExecutions.id, execution.id));
+
+      // Execute the flow
+      try {
+        const result = await executeFlow({
+          flowId: input.flowId,
+          executionId: execution.id,
+          nodes,
+          edges,
+          input: input.input,
+          apiKey: process.env.ANTHROPIC_API_KEY || '',
+          baleybots: baleybotMap,
+        });
+
+        // Update execution with result
+        const [completed] = await ctx.db
+          .update(flowExecutions)
+          .set({
+            status: result.status === 'success' ? 'completed' : 'failed',
+            output: result.outputs,
+            error: result.error || null,
+            completedAt: new Date(),
+          })
+          .where(eq(flowExecutions.id, execution.id))
+          .returning();
+
+        return completed;
+      } catch (error) {
+        // Update execution as failed
+        const [failed] = await ctx.db
+          .update(flowExecutions)
+          .set({
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+            completedAt: new Date(),
+          })
+          .where(eq(flowExecutions.id, execution.id))
+          .returning();
+
+        log.error('Flow execution failed', {
+          executionId: execution.id,
+          flowId: input.flowId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        return failed;
+      }
     }),
 
   /**
