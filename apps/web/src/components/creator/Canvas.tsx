@@ -1,7 +1,9 @@
 'use client';
 
-// React 19 - no manual memoization needed
+import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import type { VisualEntity, Connection, CreationStatus } from '@/lib/baleybot/creator-types';
 import { cn } from '@/lib/utils';
 
@@ -28,6 +30,12 @@ const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 800;
 const ENTITY_SPACING = 180;
 const ENTITY_START_Y = 100;
+
+// Zoom constants (Phase 5.3)
+const MIN_ZOOM = 0.3;
+const MAX_ZOOM = 1.5;
+const ZOOM_STEP = 0.1;
+const ENTITIES_BEFORE_AUTO_ZOOM = 5;
 
 // Animation variants for entities
 const entityVariants = {
@@ -402,6 +410,9 @@ function EntityCard({
  * progressively builds the BaleyBot structure.
  */
 export function Canvas({ entities, connections, status, className }: CanvasProps) {
+  // Zoom state (Phase 5.3)
+  const [zoom, setZoom] = useState(1);
+
   // Determine what to show based on status and entities
   const showEmpty = status === 'empty';
   const showBuilding = status === 'building' && entities.length === 0;
@@ -410,6 +421,28 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
 
   // Sort entities for consistent rendering (React 19 handles this efficiently)
   const sortedEntities = [...entities].sort((a, b) => a.id.localeCompare(b.id));
+
+  // Auto-zoom when many entities (Phase 5.3)
+  const calculateAutoZoom = useCallback((entityCount: number) => {
+    if (entityCount <= ENTITIES_BEFORE_AUTO_ZOOM) return 1;
+    // Gradually reduce zoom as entities increase
+    const excess = entityCount - ENTITIES_BEFORE_AUTO_ZOOM;
+    const reduction = Math.min(excess * 0.08, 1 - MIN_ZOOM);
+    return Math.max(MIN_ZOOM, 1 - reduction);
+  }, []);
+
+  // Apply auto-zoom when entity count changes significantly
+  const handleZoomIn = useCallback(() => {
+    setZoom((prev) => Math.min(MAX_ZOOM, prev + ZOOM_STEP));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom((prev) => Math.max(MIN_ZOOM, prev - ZOOM_STEP));
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    setZoom(calculateAutoZoom(entities.length));
+  }, [calculateAutoZoom, entities.length]);
 
   return (
     <div
@@ -434,38 +467,52 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
         {showBuilding && <BuildingIndicator />}
       </AnimatePresence>
 
-      {/* Connections layer (SVG) */}
-      {showEntities && (
-        <svg
-          className="absolute inset-0 w-full h-full pointer-events-none"
-          style={{ zIndex: 1 }}
+      {/* Zoomable content container (Phase 5.3) */}
+      <div
+        className="absolute inset-0 overflow-auto"
+        style={{ zIndex: 1 }}
+      >
+        <div
+          className="relative w-full h-full origin-center transition-transform duration-200"
+          style={{
+            transform: `scale(${zoom})`,
+            minWidth: CANVAS_WIDTH,
+            minHeight: CANVAS_HEIGHT,
+          }}
         >
-          <AnimatePresence>
-            {connections.map((connection) => (
-              <ConnectionLine
-                key={connection.id}
-                connection={connection}
-                entities={sortedEntities}
-                dimmed={isRebuilding}
-              />
-            ))}
-          </AnimatePresence>
-        </svg>
-      )}
+          {/* Connections layer (SVG) */}
+          {showEntities && (
+            <svg
+              className="absolute inset-0 w-full h-full pointer-events-none"
+            >
+              <AnimatePresence>
+                {connections.map((connection) => (
+                  <ConnectionLine
+                    key={connection.id}
+                    connection={connection}
+                    entities={sortedEntities}
+                    dimmed={isRebuilding}
+                  />
+                ))}
+              </AnimatePresence>
+            </svg>
+          )}
 
-      {/* Entities layer */}
-      <div className="absolute inset-0" style={{ zIndex: 2 }}>
-        <AnimatePresence mode="popLayout">
-          {sortedEntities.map((entity, index) => (
-            <EntityCard
-              key={entity.id}
-              entity={entity}
-              index={index}
-              total={sortedEntities.length}
-              dimmed={isRebuilding}
-            />
-          ))}
-        </AnimatePresence>
+          {/* Entities layer */}
+          <div className="absolute inset-0">
+            <AnimatePresence mode="popLayout">
+              {sortedEntities.map((entity, index) => (
+                <EntityCard
+                  key={entity.id}
+                  entity={entity}
+                  index={index}
+                  total={sortedEntities.length}
+                  dimmed={isRebuilding}
+                />
+              ))}
+            </AnimatePresence>
+          </div>
+        </div>
       </div>
 
       {/* Rebuilding overlay */}
@@ -473,7 +520,7 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
         {isRebuilding && (
           <motion.div
             className="absolute inset-0 flex items-center justify-center pointer-events-none"
-            style={{ zIndex: 3 }}
+            style={{ zIndex: 5 }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -511,6 +558,45 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Zoom controls (Phase 5.3) */}
+      {showEntities && (
+        <div className="absolute bottom-4 right-4 flex items-center gap-1 bg-background/80 backdrop-blur-sm rounded-lg border border-border/50 p-1 shadow-sm" style={{ zIndex: 10 }}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleZoomOut}
+            disabled={zoom <= MIN_ZOOM}
+            aria-label="Zoom out"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <span className="text-xs font-medium text-muted-foreground min-w-[3rem] text-center">
+            {Math.round(zoom * 100)}%
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleZoomIn}
+            disabled={zoom >= MAX_ZOOM}
+            aria-label="Zoom in"
+          >
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+          <div className="w-px h-4 bg-border mx-1" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleZoomReset}
+            aria-label="Fit to view"
+          >
+            <Maximize2 className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
       {/* Status indicator */}
       {status === 'ready' && entities.length > 0 && (
