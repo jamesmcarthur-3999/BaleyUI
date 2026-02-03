@@ -757,7 +757,8 @@ export const baleybotsRouter = router({
       const [updated] = await ctx.db
         .update(approvalPatterns)
         .set({
-          timesUsed: (existing.timesUsed ?? 0) + 1,
+          timesUsed: sql`COALESCE(${approvalPatterns.timesUsed}, 0) + 1`,
+          updatedAt: new Date(),
         })
         .where(eq(approvalPatterns.id, input.id))
         .returning();
