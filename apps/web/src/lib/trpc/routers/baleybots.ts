@@ -16,6 +16,7 @@ import {
 import { TRPCError } from '@trpc/server';
 import { processCreatorMessage } from '@/lib/baleybot/creator-bot';
 import type { CreatorMessage } from '@/lib/baleybot/creator-types';
+import { executeBALCode } from '@baleyui/sdk';
 
 /**
  * Status values for BaleyBots
@@ -394,9 +395,65 @@ export const baleybotsRouter = router({
         })
         .where(eq(baleybots.id, input.id));
 
-      // TODO: Phase 2.2 - Actually execute the BAL code using Pipeline.from()
-      // For now, just return the execution record
-      return execution;
+      // Phase 2.1: Execute the BAL code using @baleyui/sdk
+      const startTime = Date.now();
+      try {
+        // Update status to running
+        await ctx.db
+          .update(baleybotExecutions)
+          .set({ status: 'running', startedAt: new Date() })
+          .where(eq(baleybotExecutions.id, execution.id));
+
+        // Get API key from environment (Phase 2.1)
+        const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+
+        // Execute the BAL code
+        const result = await executeBALCode(baleybot.balCode, {
+          model: 'gpt-4o-mini',
+          apiKey,
+          timeout: 60000, // 60 second timeout
+        });
+
+        const duration = Date.now() - startTime;
+
+        // Update execution with result
+        await ctx.db
+          .update(baleybotExecutions)
+          .set({
+            status: result.status === 'success' ? 'completed' : result.status === 'cancelled' ? 'cancelled' : 'failed',
+            output: result.result,
+            error: result.error,
+            completedAt: new Date(),
+            durationMs: duration,
+          })
+          .where(eq(baleybotExecutions.id, execution.id));
+
+        // Return updated execution
+        const updatedExecution = await ctx.db.query.baleybotExecutions.findFirst({
+          where: eq(baleybotExecutions.id, execution.id),
+        });
+
+        return updatedExecution || execution;
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Update execution with error
+        await ctx.db
+          .update(baleybotExecutions)
+          .set({
+            status: 'failed',
+            error: errorMessage,
+            completedAt: new Date(),
+            durationMs: duration,
+          })
+          .where(eq(baleybotExecutions.id, execution.id));
+
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Execution failed: ${errorMessage}`,
+        });
+      }
     }),
 
   /**
