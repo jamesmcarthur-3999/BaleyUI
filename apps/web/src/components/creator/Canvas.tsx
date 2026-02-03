@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -26,10 +26,16 @@ interface CanvasProps {
 // CONSTANTS
 // ============================================================================
 
+// Desktop dimensions
 const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 800;
 const ENTITY_SPACING = 180;
 const ENTITY_START_Y = 100;
+
+// Mobile dimensions (Phase 4.1)
+const MOBILE_CANVAS_WIDTH = 320;
+const MOBILE_ENTITY_SPACING = 140;
+const MOBILE_ENTITY_START_Y = 80;
 
 // Zoom constants (Phase 5.3)
 const MIN_ZOOM = 0.3;
@@ -57,24 +63,32 @@ const springConfig = {
 
 /**
  * Calculate entity position based on index
+ * Responsive to mobile/desktop (Phase 4.1)
  */
-function getEntityPosition(index: number, total: number) {
-  const centerX = CANVAS_WIDTH / 2;
-  const totalHeight = (total - 1) * ENTITY_SPACING;
-  const startY = Math.max(ENTITY_START_Y, (CANVAS_HEIGHT - totalHeight) / 2);
+function getEntityPosition(index: number, total: number, isMobile: boolean) {
+  const canvasWidth = isMobile ? MOBILE_CANVAS_WIDTH : CANVAS_WIDTH;
+  const spacing = isMobile ? MOBILE_ENTITY_SPACING : ENTITY_SPACING;
+  const startYBase = isMobile ? MOBILE_ENTITY_START_Y : ENTITY_START_Y;
+  const canvasHeight = CANVAS_HEIGHT;
+
+  const centerX = canvasWidth / 2;
+  const totalHeight = (total - 1) * spacing;
+  const startY = Math.max(startYBase, (canvasHeight - totalHeight) / 2);
   return {
     x: centerX,
-    y: startY + index * ENTITY_SPACING,
+    y: startY + index * spacing,
   };
 }
 
 /**
  * Get connection endpoints based on entity positions
+ * Responsive to mobile/desktop (Phase 4.1)
  */
 function getConnectionEndpoints(
   fromId: string,
   toId: string,
-  entities: VisualEntity[]
+  entities: VisualEntity[],
+  isMobile: boolean
 ) {
   const fromEntity = entities.find((e) => e.id === fromId);
   const toEntity = entities.find((e) => e.id === toId);
@@ -83,12 +97,15 @@ function getConnectionEndpoints(
 
   const fromIndex = entities.indexOf(fromEntity);
   const toIndex = entities.indexOf(toEntity);
-  const fromPos = getEntityPosition(fromIndex, entities.length);
-  const toPos = getEntityPosition(toIndex, entities.length);
+  const fromPos = getEntityPosition(fromIndex, entities.length, isMobile);
+  const toPos = getEntityPosition(toIndex, entities.length, isMobile);
+
+  // Smaller card offset on mobile
+  const cardOffset = isMobile ? 32 : 40;
 
   return {
-    from: { x: fromPos.x, y: fromPos.y + 40 }, // Bottom of card
-    to: { x: toPos.x, y: toPos.y - 40 }, // Top of card
+    from: { x: fromPos.x, y: fromPos.y + cardOffset },
+    to: { x: toPos.x, y: toPos.y - cardOffset },
   };
 }
 
@@ -232,17 +249,20 @@ function BuildingIndicator() {
 
 /**
  * Connection line between entities
+ * Responsive to mobile/desktop (Phase 4.1)
  */
 function ConnectionLine({
   connection,
   entities,
   dimmed = false,
+  isMobile = false,
 }: {
   connection: Connection;
   entities: VisualEntity[];
   dimmed?: boolean;
+  isMobile?: boolean;
 }) {
-  const endpoints = getConnectionEndpoints(connection.from, connection.to, entities);
+  const endpoints = getConnectionEndpoints(connection.from, connection.to, entities, isMobile);
 
   if (!endpoints) return null;
 
@@ -304,19 +324,22 @@ function ConnectionLine({
 
 /**
  * Entity card component
+ * Responsive to mobile/desktop (Phase 4.1)
  */
 function EntityCard({
   entity,
   index,
   total,
   dimmed = false,
+  isMobile = false,
 }: {
   entity: VisualEntity;
   index: number;
   total: number;
   dimmed?: boolean;
+  isMobile?: boolean;
 }) {
-  const position = getEntityPosition(index, total);
+  const position = getEntityPosition(index, total, isMobile);
 
   return (
     <motion.div
@@ -338,36 +361,44 @@ function EntityCard({
     >
       <div
         className={cn(
-          'card-playful rounded-2xl p-4 min-w-[200px] max-w-[280px]',
-          'border border-border/50',
-          'transition-all duration-300',
+          'card-playful rounded-2xl border border-border/50 transition-all duration-300',
+          // Responsive sizing (Phase 4.1)
+          isMobile ? 'p-3 min-w-[160px] max-w-[200px]' : 'p-4 min-w-[200px] max-w-[280px]',
           entity.status === 'appearing' && 'ring-2 ring-primary/50',
           entity.status === 'removing' && 'opacity-50',
           dimmed && 'grayscale-[30%]'
         )}
       >
         {/* Icon and name */}
-        <div className="flex items-start gap-3 mb-2">
+        <div className={cn('flex items-start mb-2', isMobile ? 'gap-2' : 'gap-3')}>
           <div
             className={cn(
-              'flex items-center justify-center w-10 h-10 rounded-xl text-xl',
-              'bg-gradient-to-br from-primary/20 to-accent/10'
+              'flex items-center justify-center rounded-xl',
+              'bg-gradient-to-br from-primary/20 to-accent/10',
+              // Responsive icon size (Phase 4.1)
+              isMobile ? 'w-8 h-8 text-base' : 'w-10 h-10 text-xl'
             )}
           >
             {entity.icon}
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-sm text-foreground truncate">
+            <h3 className={cn(
+              'font-semibold text-foreground truncate',
+              isMobile ? 'text-xs' : 'text-sm'
+            )}>
               {entity.name}
             </h3>
-            <p className="text-xs text-muted-foreground line-clamp-2">
+            <p className={cn(
+              'text-muted-foreground line-clamp-2',
+              isMobile ? 'text-[10px]' : 'text-xs'
+            )}>
               {entity.purpose}
             </p>
           </div>
         </div>
 
-        {/* Tool badges */}
-        {entity.tools.length > 0 && (
+        {/* Tool badges - hide on mobile to save space */}
+        {entity.tools.length > 0 && !isMobile && (
           <div className="flex flex-wrap gap-1 mt-3">
             {entity.tools.slice(0, 4).map((tool) => (
               <span
@@ -394,6 +425,14 @@ function EntityCard({
             )}
           </div>
         )}
+        {/* Show tool count on mobile */}
+        {entity.tools.length > 0 && isMobile && (
+          <div className="mt-2">
+            <span className="text-[9px] text-muted-foreground">
+              {entity.tools.length} tool{entity.tools.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -412,6 +451,19 @@ function EntityCard({
 export function Canvas({ entities, connections, status, className }: CanvasProps) {
   // Zoom state (Phase 5.3)
   const [zoom, setZoom] = useState(1);
+
+  // Responsive state (Phase 4.1)
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile screen size (Phase 4.1)
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 640); // Tailwind's sm breakpoint
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Determine what to show based on status and entities
   const showEmpty = status === 'empty';
@@ -449,7 +501,9 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
       role="region"
       aria-label={`BaleyBot canvas - ${status === 'empty' ? 'empty' : status === 'building' ? 'building' : `${entities.length} entities`}`}
       className={cn(
-        'relative w-full h-full min-h-[500px] overflow-hidden',
+        'relative w-full h-full overflow-hidden',
+        // Responsive min-height (Phase 4.1)
+        'min-h-[300px] sm:min-h-[500px]',
         'bg-gradient-playful rounded-2xl',
         className
       )}
@@ -467,7 +521,7 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
         {showBuilding && <BuildingIndicator />}
       </AnimatePresence>
 
-      {/* Zoomable content container (Phase 5.3) */}
+      {/* Zoomable content container (Phase 5.3, responsive Phase 4.1) */}
       <div
         className="absolute inset-0 overflow-auto"
         style={{ zIndex: 1 }}
@@ -476,7 +530,7 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
           className="relative w-full h-full origin-center transition-transform duration-200"
           style={{
             transform: `scale(${zoom})`,
-            minWidth: CANVAS_WIDTH,
+            minWidth: isMobile ? MOBILE_CANVAS_WIDTH : CANVAS_WIDTH,
             minHeight: CANVAS_HEIGHT,
           }}
         >
@@ -492,6 +546,7 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
                     connection={connection}
                     entities={sortedEntities}
                     dimmed={isRebuilding}
+                    isMobile={isMobile}
                   />
                 ))}
               </AnimatePresence>
@@ -508,6 +563,7 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
                   index={index}
                   total={sortedEntities.length}
                   dimmed={isRebuilding}
+                  isMobile={isMobile}
                 />
               ))}
             </AnimatePresence>
@@ -559,41 +615,51 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
         )}
       </AnimatePresence>
 
-      {/* Zoom controls (Phase 5.3) */}
+      {/* Zoom controls (Phase 5.3, responsive Phase 4.1) */}
       {showEntities && (
-        <div className="absolute bottom-4 right-4 flex items-center gap-1 bg-background/80 backdrop-blur-sm rounded-lg border border-border/50 p-1 shadow-sm" style={{ zIndex: 10 }}>
+        <div
+          className={cn(
+            'absolute flex items-center bg-background/80 backdrop-blur-sm rounded-lg border border-border/50 shadow-sm',
+            // Responsive positioning and sizing (Phase 4.1)
+            isMobile ? 'bottom-2 right-2 gap-0.5 p-0.5' : 'bottom-4 right-4 gap-1 p-1'
+          )}
+          style={{ zIndex: 10 }}
+        >
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className={isMobile ? 'h-7 w-7' : 'h-8 w-8'}
             onClick={handleZoomOut}
             disabled={zoom <= MIN_ZOOM}
             aria-label="Zoom out"
           >
-            <ZoomOut className="h-4 w-4" />
+            <ZoomOut className={isMobile ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
           </Button>
-          <span className="text-xs font-medium text-muted-foreground min-w-[3rem] text-center">
+          <span className={cn(
+            'font-medium text-muted-foreground text-center',
+            isMobile ? 'text-[10px] min-w-[2.5rem]' : 'text-xs min-w-[3rem]'
+          )}>
             {Math.round(zoom * 100)}%
           </span>
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className={isMobile ? 'h-7 w-7' : 'h-8 w-8'}
             onClick={handleZoomIn}
             disabled={zoom >= MAX_ZOOM}
             aria-label="Zoom in"
           >
-            <ZoomIn className="h-4 w-4" />
+            <ZoomIn className={isMobile ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
           </Button>
-          <div className="w-px h-4 bg-border mx-1" />
+          <div className={cn('w-px bg-border', isMobile ? 'h-3 mx-0.5' : 'h-4 mx-1')} />
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className={isMobile ? 'h-7 w-7' : 'h-8 w-8'}
             onClick={handleZoomReset}
             aria-label="Fit to view"
           >
-            <Maximize2 className="h-4 w-4" />
+            <Maximize2 className={isMobile ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
           </Button>
         </div>
       )}
