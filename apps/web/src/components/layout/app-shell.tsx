@@ -28,7 +28,7 @@ function AppShell({ children }: AppShellProps) {
     <div className="min-h-screen flex flex-col">
       {/* Minimal Top Navigation */}
       <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-14 items-center justify-between">
+        <div className="container max-w-4xl mx-auto flex h-14 items-center justify-between">
           {/* Logo */}
           <Link
             href={ROUTES.dashboard}
@@ -79,7 +79,7 @@ function AppShell({ children }: AppShellProps) {
 
       {/* Breadcrumbs */}
       {breadcrumbs && breadcrumbs.length > 0 && (
-        <nav className="container py-2 border-b" aria-label="Breadcrumb">
+        <nav className="container max-w-4xl mx-auto py-2 border-b" aria-label="Breadcrumb">
           <ol className="flex items-center gap-2 text-sm">
             {breadcrumbs.map((crumb, index) => (
               <li key={crumb.label} className="flex items-center gap-2">

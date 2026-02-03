@@ -207,7 +207,7 @@ export function CreateBlockDialog({ variant = 'button' }: CreateBlockDialogProps
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{renderTrigger()}</DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg glass elevation-3 border-border/50">
         <DialogHeader>
           <DialogTitle>Create New Block</DialogTitle>
           <DialogDescription>
@@ -222,13 +222,13 @@ export function CreateBlockDialog({ variant = 'button' }: CreateBlockDialogProps
               <button
                 type="button"
                 onClick={() => handleTypeChange('ai')}
-                className={`flex items-center gap-3 rounded-lg border-2 p-3 transition-all ${
+                className={`flex items-center gap-3 rounded-xl border-2 p-4 transition-all ${
                   blockType === 'ai'
-                    ? 'border-primary bg-primary/5'
-                    : 'border-muted hover:border-muted-foreground/50'
+                    ? 'border-block-ai/50 bg-block-ai/10'
+                    : 'border-border hover:border-block-ai/30 hover:bg-block-ai/5'
                 }`}
               >
-                <Sparkles className="h-5 w-5 text-purple-500" />
+                <Sparkles className="h-5 w-5 text-block-ai" />
                 <div className="text-left">
                   <span className="font-medium text-sm">AI Block</span>
                   <p className="text-xs text-muted-foreground">Use natural language</p>
@@ -238,13 +238,13 @@ export function CreateBlockDialog({ variant = 'button' }: CreateBlockDialogProps
               <button
                 type="button"
                 onClick={() => handleTypeChange('function')}
-                className={`flex items-center gap-3 rounded-lg border-2 p-3 transition-all ${
+                className={`flex items-center gap-3 rounded-xl border-2 p-4 transition-all ${
                   blockType === 'function'
-                    ? 'border-primary bg-primary/5'
-                    : 'border-muted hover:border-muted-foreground/50'
+                    ? 'border-block-function/50 bg-block-function/10'
+                    : 'border-border hover:border-block-function/30 hover:bg-block-function/5'
                 }`}
               >
-                <Code className="h-5 w-5 text-blue-500" />
+                <Code className="h-5 w-5 text-block-function" />
                 <div className="text-left">
                   <span className="font-medium text-sm">Code Block</span>
                   <p className="text-xs text-muted-foreground">Write TypeScript</p>

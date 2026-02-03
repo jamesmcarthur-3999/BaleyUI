@@ -8,7 +8,7 @@
  * Falls back to JSON textarea for complex schemas.
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -294,9 +294,9 @@ export function SchemaForm({
   const [jsonValue, setJsonValue] = useState(() => JSON.stringify(value, null, 2));
   const [jsonError, setJsonError] = useState<string | null>(null);
 
-  const canUseForm = useMemo(() => isSimpleSchema(schema), [schema]);
+  const canUseForm = isSimpleSchema(schema);
 
-  const handleJsonChange = useCallback((newJson: string) => {
+  const handleJsonChange = (newJson: string) => {
     setJsonValue(newJson);
     try {
       const parsed = JSON.parse(newJson);
@@ -305,13 +305,13 @@ export function SchemaForm({
     } catch (e) {
       setJsonError((e as Error).message);
     }
-  }, [onChange]);
+  };
 
-  const handleFieldChange = useCallback((fieldName: string, fieldValue: unknown) => {
+  const handleFieldChange = (fieldName: string, fieldValue: unknown) => {
     const newValue = { ...value, [fieldName]: fieldValue };
     onChange(newValue);
     setJsonValue(JSON.stringify(newValue, null, 2));
-  }, [value, onChange]);
+  };
 
   // If no schema or complex schema, show JSON only
   if (!schema || !schema.properties) {

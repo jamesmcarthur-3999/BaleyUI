@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useFlowStore } from '@/stores/flow';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
@@ -71,7 +71,7 @@ export function NodeConfigPanel({ onSave, onClose, className }: NodeConfigPanelP
     }
   }, [selectedNode]);
 
-  const handleSave = useCallback(() => {
+  const handleSave = () => {
     if (!selectedNodeId) return;
 
     const updates: Record<string, unknown> = { name };
@@ -91,39 +91,39 @@ export function NodeConfigPanel({ onSave, onClose, className }: NodeConfigPanelP
 
     updateNode(selectedNodeId, updates);
     onSave?.();
-  }, [selectedNodeId, selectedNode, name, model, routes, branches, maxIterations, updateNode, onSave]);
+  };
 
-  const handleDelete = useCallback(() => {
+  const handleDelete = () => {
     if (!selectedNodeId) return;
     if (confirm('Are you sure you want to remove this node from the flow?')) {
       deleteNode(selectedNodeId);
       onSave?.();
     }
-  }, [selectedNodeId, deleteNode, onSave]);
+  };
 
-  const handleClose = useCallback(() => {
+  const handleClose = () => {
     selectNode(null);
     onClose?.();
-  }, [selectNode, onClose]);
+  };
 
-  const handleAddRoute = useCallback(() => {
+  const handleAddRoute = () => {
     setRoutes([...routes, `route_${routes.length + 1}`]);
-  }, [routes]);
+  };
 
-  const handleRemoveRoute = useCallback((index: number) => {
+  const handleRemoveRoute = (index: number) => {
     setRoutes(routes.filter((_, i) => i !== index));
-  }, [routes]);
+  };
 
-  const handleRouteChange = useCallback((index: number, value: string) => {
+  const handleRouteChange = (index: number, value: string) => {
     const newRoutes = [...routes];
     newRoutes[index] = value;
     setRoutes(newRoutes);
-  }, [routes]);
+  };
 
   // Auto-save on blur
-  const handleBlur = useCallback(() => {
+  const handleBlur = () => {
     handleSave();
-  }, [handleSave]);
+  };
 
   if (!selectedNode) {
     return null;

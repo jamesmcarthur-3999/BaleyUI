@@ -38,7 +38,7 @@ export default function BlocksPage() {
   });
 
   return (
-    <div className="container py-10">
+    <div className="container max-w-6xl mx-auto py-10">
       <div className="flex flex-col gap-8">
         {/* Deprecation Notice */}
         <Alert className="border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/20">

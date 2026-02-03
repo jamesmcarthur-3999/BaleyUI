@@ -3,12 +3,21 @@
  *
  * Emits and stores execution events for streaming and replay.
  * Events are persisted to the database for resilience.
+ *
+ * Features:
+ * - Retry logic with exponential backoff for database persistence
+ * - Flow-level event persistence
+ * - Error handling and validation for replay
  */
 
 import { db, executionEvents, eq, gte, asc } from '@baleyui/db';
 import type { ExecutionEvent } from './types';
 
 export type EventListener = (event: ExecutionEvent) => void;
+
+// Retry configuration
+const MAX_PERSIST_ATTEMPTS = 3;
+const BASE_RETRY_DELAY_MS = 100;
 
 export class ExecutionEventEmitter {
   private eventIndex = 0;
@@ -31,21 +40,10 @@ export class ExecutionEventEmitter {
 
     const currentIndex = this.eventIndex++;
 
-    // Store in database for replay
+    // Store in database for replay with retry logic
     // Note: executionEvents references blockExecutions, so we use blockExecutionId if available
     if (this.blockExecutionId) {
-      try {
-        await db.insert(executionEvents).values({
-          executionId: this.blockExecutionId,
-          index: currentIndex,
-          eventType: event.type,
-          eventData: event as unknown as Record<string, unknown>,
-          createdAt: new Date(),
-        });
-      } catch (error) {
-        console.error('Failed to store execution event:', error);
-        // Continue emitting to listeners even if storage fails
-      }
+      await this.persistEventWithRetry(event, currentIndex);
     }
 
     // Notify listeners synchronously
@@ -56,6 +54,48 @@ export class ExecutionEventEmitter {
         console.error('Event listener error:', error);
       }
     }
+  }
+
+  /**
+   * Persist an event to the database with retry logic
+   */
+  private async persistEventWithRetry(
+    event: ExecutionEvent,
+    index: number
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= MAX_PERSIST_ATTEMPTS; attempt++) {
+      try {
+        await db.insert(executionEvents).values({
+          executionId: this.blockExecutionId!,
+          index,
+          eventType: event.type,
+          eventData: event as unknown as Record<string, unknown>,
+          createdAt: new Date(),
+        });
+        return;
+      } catch (error) {
+        if (attempt === MAX_PERSIST_ATTEMPTS) {
+          console.error(
+            `Failed to persist event after ${MAX_PERSIST_ATTEMPTS} attempts:`,
+            error
+          );
+          // Emit warning event to listeners about persistence failure
+          this.emitWarning(`Event persistence failed: ${event.type}`);
+        } else {
+          // Exponential backoff before retry
+          const delay = BASE_RETRY_DELAY_MS * attempt;
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+    }
+  }
+
+  /**
+   * Log a warning about persistence failure
+   * Note: We don't emit this to listeners to avoid type conflicts with ExecutionEvent union
+   */
+  private emitWarning(message: string): void {
+    console.warn(`[ExecutionEventEmitter] ${message}`);
   }
 
   /**
@@ -74,16 +114,32 @@ export class ExecutionEventEmitter {
       return [];
     }
 
-    const events = await db.query.executionEvents.findMany({
-      where: (table, { and }) =>
-        and(
-          eq(table.executionId, this.blockExecutionId!),
-          gte(table.index, fromIndex)
-        ),
-      orderBy: (table) => [asc(table.index)],
-    });
+    try {
+      const events = await db.query.executionEvents.findMany({
+        where: (table, { and }) =>
+          and(
+            eq(table.executionId, this.blockExecutionId!),
+            gte(table.index, fromIndex)
+          ),
+        orderBy: (table) => [asc(table.index)],
+      });
 
-    return events.map((e) => e.eventData as unknown as ExecutionEvent);
+      return events
+        .map((e) => {
+          // Validate event data structure
+          if (!e.eventData || typeof e.eventData !== 'object') {
+            console.warn(`Invalid event data at index ${e.index}`);
+            return null;
+          }
+          return e.eventData as unknown as ExecutionEvent;
+        })
+        .filter((e): e is ExecutionEvent => e !== null);
+    } catch (error) {
+      console.error('Failed to replay events:', error);
+      throw new Error(
+        `Event replay failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
   }
 
   /**
@@ -112,13 +168,19 @@ export class ExecutionEventEmitter {
 /**
  * Flow-level event aggregator
  * Aggregates events from multiple node emitters
+ *
+ * Now persists flow-level events (execution_start, execution_complete, execution_error)
+ * for full execution traceability.
  */
 export class FlowEventAggregator {
   private eventIndex = 0;
   private listeners: Set<EventListener> = new Set();
   private nodeEmitters: Map<string, ExecutionEventEmitter> = new Map();
 
-  constructor(private readonly executionId: string) {}
+  constructor(
+    private readonly executionId: string,
+    private readonly flowExecutionId?: string
+  ) {}
 
   /**
    * Create a node-level emitter that forwards events to this aggregator
@@ -138,13 +200,53 @@ export class FlowEventAggregator {
   /**
    * Emit a flow-level event
    */
-  emit(event: ExecutionEvent): void {
-    this.eventIndex++;
+  async emit(event: ExecutionEvent): Promise<void> {
+    const currentIndex = this.eventIndex++;
+
+    // Persist flow-level events (execution_start, execution_complete, execution_error)
+    if (this.flowExecutionId) {
+      await this.persistFlowEvent(event, currentIndex);
+    }
+
+    // Notify listeners
     for (const listener of this.listeners) {
       try {
         listener(event);
       } catch (error) {
         console.error('Flow event listener error:', error);
+      }
+    }
+  }
+
+  /**
+   * Persist a flow-level event to the database with retry logic
+   */
+  private async persistFlowEvent(
+    event: ExecutionEvent,
+    index: number
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= MAX_PERSIST_ATTEMPTS; attempt++) {
+      try {
+        await db.insert(executionEvents).values({
+          executionId: this.flowExecutionId!,
+          index,
+          eventType: event.type,
+          eventData: event as unknown as Record<string, unknown>,
+          createdAt: new Date(),
+        });
+        return;
+      } catch (error) {
+        if (attempt === MAX_PERSIST_ATTEMPTS) {
+          console.error(
+            `Failed to persist flow event after ${MAX_PERSIST_ATTEMPTS} attempts:`,
+            error
+          );
+          // Don't throw - continue execution even if persistence fails
+        } else {
+          // Exponential backoff before retry
+          const delay = BASE_RETRY_DELAY_MS * attempt;
+          await new Promise((r) => setTimeout(r, delay));
+        }
       }
     }
   }

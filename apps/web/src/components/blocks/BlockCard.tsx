@@ -109,20 +109,22 @@ export function BlockCard({ block, onDelete }: BlockCardProps) {
   const Icon = block.type === 'ai' ? Bot : Code;
 
   return (
-    <Card className="group relative">
-      <CardHeader className="pb-2">
+    <Card variant="interactive" className="group relative">
+      <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <div
               className={cn(
-                'h-10 w-10 rounded-lg flex items-center justify-center shrink-0',
-                block.type === 'ai' ? 'bg-primary/10' : 'bg-blue-500/10'
+                'h-11 w-11 rounded-xl flex items-center justify-center shrink-0 transition-colors',
+                block.type === 'ai'
+                  ? 'bg-block-ai/10 group-hover:bg-block-ai/15'
+                  : 'bg-block-function/10 group-hover:bg-block-function/15'
               )}
             >
               <Icon
                 className={cn(
                   'h-5 w-5',
-                  block.type === 'ai' ? 'text-primary' : 'text-blue-500'
+                  block.type === 'ai' ? 'text-block-ai' : 'text-block-function'
                 )}
               />
             </div>
@@ -132,25 +134,24 @@ export function BlockCard({ block, onDelete }: BlockCardProps) {
                 onSave={handleRename}
                 textClassName="font-semibold"
               />
-              <Badge variant="secondary" className="mt-1">
+              <Badge variant="secondary" className="mt-1.5 text-xs">
                 {block.type}
               </Badge>
             </div>
           </div>
 
           {/* Actions - show on hover */}
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
             <Button
               variant="ghost"
-              size="icon"
-              className="h-8 w-8"
+              size="icon-sm"
               onClick={() => router.push(ROUTES.blocks.test(block.id))}
             >
               <Play className="h-4 w-4" />
             </Button>
             <ActionPopover
               trigger={
-                <Button variant="ghost" size="icon" className="h-8 w-8">
+                <Button variant="ghost" size="icon-sm">
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               }
@@ -162,7 +163,7 @@ export function BlockCard({ block, onDelete }: BlockCardProps) {
 
       {block.description && (
         <CardContent className="pt-0">
-          <p className="text-sm text-muted-foreground line-clamp-2">
+          <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
             {block.description}
           </p>
         </CardContent>

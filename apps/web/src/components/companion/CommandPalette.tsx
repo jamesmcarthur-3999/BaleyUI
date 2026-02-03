@@ -82,17 +82,17 @@ function CommandItem({
     <button
       className={cn(
         'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
-        'text-left transition-colors',
+        'text-left transition-all duration-150',
         isSelected
           ? 'bg-primary/10 text-primary'
-          : 'hover:bg-muted'
+          : 'hover:bg-muted/80'
       )}
       onClick={onSelect}
     >
       <div
         className={cn(
-          'h-8 w-8 rounded-md flex items-center justify-center shrink-0',
-          isSelected ? 'bg-primary/20' : 'bg-muted'
+          'h-8 w-8 rounded-lg flex items-center justify-center shrink-0 transition-colors',
+          isSelected ? 'bg-primary/20 text-primary' : 'bg-muted'
         )}
       >
         <Icon className="h-4 w-4" />
@@ -317,6 +317,7 @@ export function CommandPalette({
       <DialogContent
         className={cn(
           'max-w-lg p-0 gap-0 overflow-hidden',
+          'glass elevation-3 border-border/50',
           className
         )}
         onKeyDown={handleKeyDown}
@@ -391,7 +392,7 @@ export function CommandPalette({
         </ScrollArea>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-2 border-t bg-muted/50 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/50 bg-muted/30 text-xs text-muted-foreground">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1">
               <kbd className="px-1.5 py-0.5 rounded bg-background border">↑↓</kbd>

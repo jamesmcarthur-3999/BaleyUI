@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -78,34 +78,31 @@ export const TestHistory = forwardRef<TestHistoryRef, TestHistoryProps>(
     }, [executions, blockId]);
 
     // Public method to add execution (called from parent)
-    const addExecution = useCallback(
-      (input: unknown, state: StreamState) => {
-        const newRecord: ExecutionRecord = {
-          id: `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          blockId,
-          input,
-          state,
-          timestamp: Date.now(),
-          duration:
-            state.metrics.startTime && state.metrics.endTime
-              ? state.metrics.endTime - state.metrics.startTime
-              : undefined,
-        };
+    const addExecution = (input: unknown, state: StreamState) => {
+      const newRecord: ExecutionRecord = {
+        id: `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        blockId,
+        input,
+        state,
+        timestamp: Date.now(),
+        duration:
+          state.metrics.startTime && state.metrics.endTime
+            ? state.metrics.endTime - state.metrics.startTime
+            : undefined,
+      };
 
-        setExecutions((prev) => {
-          // Add new record at the beginning
-          const updated = [newRecord, ...prev];
-          // Limit to maxRecords
-          return updated.slice(0, maxRecords);
-        });
-      },
-      [blockId, maxRecords]
-    );
+      setExecutions((prev) => {
+        // Add new record at the beginning
+        const updated = [newRecord, ...prev];
+        // Limit to maxRecords
+        return updated.slice(0, maxRecords);
+      });
+    };
 
     // Expose addExecution via ref
     useImperativeHandle(ref, () => ({
       addExecution,
-    }), [addExecution]);
+    }));
 
   const handleClearHistory = () => {
     if (confirm('Are you sure you want to clear all test history?')) {
