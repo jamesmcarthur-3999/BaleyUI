@@ -12,3 +12,5 @@ export { ExecutionHistory } from './ExecutionHistory';
 export { BalCodeHighlighter } from './BalCodeHighlighter';
 export { KeyboardShortcutsDialog, useKeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
 export { InlineLoading, SkeletonBlock, NetworkStatus, useNetworkStatus, LoadingDots, RetryingIndicator } from './LoadingStates';
+export { SaveConflictDialog, isSaveConflictError } from './SaveConflictDialog';
+export type { ConflictAction } from './SaveConflictDialog';

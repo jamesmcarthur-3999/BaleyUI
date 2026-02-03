@@ -4,7 +4,8 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
-import { Canvas, ChatInput, ActionBar, ConversationThread, ExecutionHistory, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus } from '@/components/creator';
+import { Canvas, ChatInput, ActionBar, ConversationThread, ExecutionHistory, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError } from '@/components/creator';
+import type { ConflictAction } from '@/components/creator';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -116,6 +117,10 @@ export default function BaleybotPage() {
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle');
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [showFullDescription, setShowFullDescription] = useState(false);
+
+  // Save conflict state (Phase 5.4)
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
+  const [isResolvingConflict, setIsResolvingConflict] = useState(false);
 
   // Ref to track if initial prompt was sent (avoids effect dependency issues)
   const initialPromptSentRef = useRef(false);
@@ -367,6 +372,12 @@ export default function BaleybotPage() {
     } catch (error) {
       console.error('Save failed:', error);
 
+      // Check for save conflict (Phase 5.4)
+      if (isSaveConflictError(error)) {
+        setShowConflictDialog(true);
+        return false;
+      }
+
       // Add user-friendly error message to conversation
       const errorContent = formatErrorWithAction(error);
       const errorMessage: CreatorMessage = {
@@ -381,6 +392,43 @@ export default function BaleybotPage() {
       return false;
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  /**
+   * Handle save conflict resolution (Phase 5.4)
+   */
+  const handleConflictAction = async (action: ConflictAction) => {
+    setIsResolvingConflict(true);
+
+    try {
+      switch (action) {
+        case 'reload':
+          // Reload the latest version from server
+          if (savedBaleybotId) {
+            await utils.baleybots.get.invalidate({ id: savedBaleybotId });
+            // Force refetch will trigger the effect to update local state
+            window.location.reload();
+          }
+          break;
+
+        case 'force-save':
+          // TODO: In a full implementation, this would pass a flag to skip version check
+          // For now, we just retry the save which may work if the conflict was resolved
+          setShowConflictDialog(false);
+          await handleSave();
+          break;
+
+        case 'cancel':
+        default:
+          setShowConflictDialog(false);
+          break;
+      }
+    } finally {
+      setIsResolvingConflict(false);
+      if (action !== 'force-save') {
+        setShowConflictDialog(false);
+      }
     }
   };
 
@@ -634,6 +682,15 @@ export default function BaleybotPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Save Conflict Dialog (Phase 5.4) */}
+      <SaveConflictDialog
+        open={showConflictDialog}
+        onOpenChange={setShowConflictDialog}
+        onAction={handleConflictAction}
+        isLoading={isResolvingConflict}
+        baleybotName={name || undefined}
+      />
 
       {/* Header */}
       <motion.header
