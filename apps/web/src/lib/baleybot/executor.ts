@@ -45,6 +45,30 @@ export interface RuntimeToolDefinition {
 }
 
 /**
+ * Status of an individual entity within a chain
+ */
+export interface EntityExecutionStatus {
+  name: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  input?: unknown;
+  output?: unknown;
+  error?: string;
+  startedAt?: Date;
+  completedAt?: Date;
+  durationMs?: number;
+}
+
+/**
+ * Extended execution result with entity-level tracking
+ */
+export interface ChainExecutionResult extends ExecutionResult {
+  /** Status of each entity in the chain */
+  entityStatuses: EntityExecutionStatus[];
+  /** Index of the entity that failed (if any) */
+  failedAtIndex?: number;
+}
+
+/**
  * Context for BAL execution
  */
 export interface ExecutorContext {
@@ -248,6 +272,23 @@ function createOutputSchema(
 // ============================================================================
 
 /**
+ * Get entity order from chain structure or default order
+ */
+function getEntityOrder(
+  entityDefinitions: GeneratedEntity[],
+  controlStructures: ControlStructure[]
+): string[] {
+  // Check for explicit chain
+  const chainStructure = controlStructures.find((s) => s.type === 'chain');
+  if (chainStructure && chainStructure.entityNames) {
+    return chainStructure.entityNames;
+  }
+
+  // Default to definition order
+  return entityDefinitions.map((e) => e.name);
+}
+
+/**
  * Compose a pipeline from entities and control structures
  */
 function composePipeline(
@@ -320,6 +361,96 @@ function composePipeline(
   return pipeline(...allBots);
 }
 
+/**
+ * Execute entities sequentially with status tracking
+ * This gives us more control over the chain execution for tracking purposes
+ */
+async function executeChainWithTracking(
+  entities: Map<string, Processable<string, unknown>>,
+  entityOrder: string[],
+  initialInput: string,
+  options?: ExecuteOptions
+): Promise<{
+  output: unknown;
+  entityStatuses: EntityExecutionStatus[];
+  failedAtIndex?: number;
+}> {
+  const entityStatuses: EntityExecutionStatus[] = entityOrder.map((name) => ({
+    name,
+    status: 'pending' as const,
+  }));
+
+  let currentInput: unknown = initialInput;
+
+  for (let i = 0; i < entityOrder.length; i++) {
+    const entityName = entityOrder[i];
+    if (!entityName) continue;
+
+    const entity = entities.get(entityName);
+    if (!entity) {
+      entityStatuses[i] = {
+        ...entityStatuses[i]!,
+        status: 'skipped',
+        error: `Entity "${entityName}" not found`,
+      };
+      continue;
+    }
+
+    const status = entityStatuses[i]!;
+    status.status = 'running';
+    status.startedAt = new Date();
+    status.input = currentInput;
+
+    try {
+      // Execute this entity
+      const inputStr =
+        typeof currentInput === 'string'
+          ? currentInput
+          : JSON.stringify(currentInput);
+
+      const result = await entity.process(inputStr, {
+        signal: options?.signal,
+      });
+
+      status.output = result;
+      status.status = 'completed';
+      status.completedAt = new Date();
+      status.durationMs =
+        status.completedAt.getTime() - status.startedAt.getTime();
+
+      // Use this output as input for next entity
+      currentInput = result;
+    } catch (error) {
+      status.status = 'failed';
+      status.error =
+        error instanceof Error ? error.message : 'Unknown error';
+      status.completedAt = new Date();
+      status.durationMs =
+        status.completedAt.getTime() - status.startedAt.getTime();
+
+      // Mark remaining entities as skipped
+      for (let j = i + 1; j < entityOrder.length; j++) {
+        const remaining = entityStatuses[j];
+        if (remaining) {
+          remaining.status = 'skipped';
+          remaining.error = `Skipped due to failure in "${entityName}"`;
+        }
+      }
+
+      return {
+        output: null,
+        entityStatuses,
+        failedAtIndex: i,
+      };
+    }
+  }
+
+  return {
+    output: currentInput,
+    entityStatuses,
+  };
+}
+
 // ============================================================================
 // MAIN EXECUTOR
 // ============================================================================
@@ -332,7 +463,7 @@ export async function executeBaleybot(
   input: string,
   ctx: ExecutorContext,
   options?: ExecuteOptions
-): Promise<ExecutionResult> {
+): Promise<ChainExecutionResult> {
   const executionId = crypto.randomUUID();
   const startTime = Date.now();
   const segments: BaleybotStreamEvent[] = [];
@@ -340,6 +471,8 @@ export async function executeBaleybot(
   let status: ExecutionStatus = 'running';
   let output: unknown = null;
   let error: string | undefined;
+  let entityStatuses: EntityExecutionStatus[] = [];
+  let failedAtIndex: number | undefined;
 
   try {
     // 1. Parse BAL code
@@ -382,78 +515,45 @@ export async function executeBaleybot(
       entities.set(entityDef.name, bot);
     }
 
-    // 4. Compose pipeline
-    const composedPipeline = composePipeline(
+    // 4. Get entity execution order
+    const entityOrder = getEntityOrder(entityDefinitions, controlStructures);
+
+    // 5. Set up streaming for all entities
+    for (const [, entity] of entities) {
+      entity.subscribeToAll?.({
+        onStreamEvent: (_botId, _botName, event) => {
+          segments.push(event);
+          options?.onSegment?.(event);
+        },
+        onProgressUpdate: (_botId, _botName, event) => {
+          segments.push(event);
+          options?.onSegment?.(event);
+        },
+        onError: (_botId, _botName, event) => {
+          segments.push(event);
+          options?.onSegment?.(event);
+        },
+      });
+    }
+
+    // 6. Execute chain with tracking
+    const chainResult = await executeChainWithTracking(
       entities,
-      controlStructures,
-      entityDefinitions
+      entityOrder,
+      input,
+      options
     );
 
-    // 5. Set up streaming subscription
-    const subscription = composedPipeline.subscribeToAll?.({
-      onStreamEvent: (_botId, _botName, event) => {
-        segments.push(event);
-        options?.onSegment?.(event);
-      },
-      onProgressUpdate: (_botId, _botName, event) => {
-        segments.push(event);
-        options?.onSegment?.(event);
-      },
-      onError: (_botId, _botName, event) => {
-        segments.push(event);
-        options?.onSegment?.(event);
-      },
-    });
+    output = chainResult.output;
+    entityStatuses = chainResult.entityStatuses;
+    failedAtIndex = chainResult.failedAtIndex;
 
-    try {
-      // 6. Execute
-      output = await composedPipeline.process(input, {
-        signal: options?.signal,
-        onToolCallApproval: options?.onApprovalNeeded
-          ? async (botName, toolCalls) => {
-              // Convert to ApprovalRequest and call handler
-              for (const toolCall of toolCalls) {
-                const entityDef = entityDefinitions.find(
-                  (e) => e.name === botName
-                );
-                const request: ApprovalRequest = {
-                  tool: toolCall.name,
-                  arguments: toolCall.arguments as Record<string, unknown>,
-                  entityName: botName,
-                  entityGoal: entityDef?.goal || '',
-                  reason: `Entity "${botName}" is requesting to use tool "${toolCall.name}"`,
-                };
-
-                const response = await options.onApprovalNeeded!(request);
-
-                if (!response.approved) {
-                  return {
-                    approved: false,
-                    reason: response.reason,
-                  };
-                }
-
-                if (response.modifiedArguments) {
-                  return {
-                    approved: true,
-                    modified: [
-                      {
-                        ...toolCall,
-                        arguments: response.modifiedArguments,
-                      },
-                    ],
-                  };
-                }
-              }
-
-              return { approved: true };
-            }
-          : undefined,
-      });
-
+    if (failedAtIndex !== undefined) {
+      status = 'failed';
+      const failedEntity = entityStatuses[failedAtIndex];
+      error = `Execution failed at entity "${failedEntity?.name}": ${failedEntity?.error}`;
+    } else {
       status = 'completed';
-    } finally {
-      subscription?.unsubscribe();
     }
   } catch (err) {
     status = 'failed';
@@ -470,6 +570,8 @@ export async function executeBaleybot(
     error,
     segments,
     durationMs: endTime - startTime,
+    entityStatuses,
+    failedAtIndex,
   };
 }
 

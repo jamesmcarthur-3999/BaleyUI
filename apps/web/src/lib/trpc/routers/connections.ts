@@ -44,14 +44,26 @@ function decryptObject<T extends Record<string, any>>(
 }
 
 /**
- * tRPC router for managing AI provider connections.
+ * tRPC router for managing AI provider and database connections.
  */
 
 const connectionConfigSchema = z.object({
+  // AI provider fields
   apiKey: z.string().optional(),
   baseUrl: z.string().optional(),
   organization: z.string().optional(),
+  // Database fields
+  host: z.string().optional(),
+  port: z.number().optional(),
+  database: z.string().optional(),
+  username: z.string().optional(),
+  password: z.string().optional(),
+  connectionUrl: z.string().optional(),
+  ssl: z.boolean().optional(),
+  schema: z.string().optional(),
 });
+
+const connectionTypeSchema = z.enum(['openai', 'anthropic', 'ollama', 'postgres', 'mysql']);
 
 export const connectionsRouter = router({
   /**
@@ -66,26 +78,39 @@ export const connectionsRouter = router({
       orderBy: (connections, { desc }) => [desc(connections.createdAt)],
     });
 
-    // Decrypt API keys for display (masked)
+    // Decrypt and mask sensitive fields for display
     return allConnections.map((conn) => {
       const config = conn.config as Record<string, any>;
+      const maskedConfig = { ...config };
 
-      // Return masked API key for security
+      // Mask API key for AI providers
       if (config.apiKey) {
-        const decryptedKey = decrypt(config.apiKey);
-        const maskedKey = decryptedKey.slice(0, 8) + '...' + decryptedKey.slice(-4);
-
-        return {
-          ...conn,
-          config: {
-            ...config,
-            apiKey: maskedKey,
-            _hasApiKey: true,
-          },
-        };
+        try {
+          const decryptedKey = decrypt(config.apiKey);
+          maskedConfig.apiKey = decryptedKey.slice(0, 8) + '...' + decryptedKey.slice(-4);
+          maskedConfig._hasApiKey = true;
+        } catch {
+          maskedConfig.apiKey = '********';
+          maskedConfig._hasApiKey = true;
+        }
       }
 
-      return conn;
+      // Mask password for database connections
+      if (config.password) {
+        maskedConfig.password = '********';
+        maskedConfig._hasPassword = true;
+      }
+
+      // Mask connection URL for database connections
+      if (config.connectionUrl) {
+        maskedConfig.connectionUrl = '********';
+        maskedConfig._hasConnectionUrl = true;
+      }
+
+      return {
+        ...conn,
+        config: maskedConfig,
+      };
     });
   }),
 
@@ -112,7 +137,7 @@ export const connectionsRouter = router({
 
       // Decrypt sensitive fields for editing
       const config = connection.config as Record<string, any>;
-      const decryptedConfig = decryptObject(config, ['apiKey']);
+      const decryptedConfig = decryptObject(config, ['apiKey', 'password', 'connectionUrl']);
 
       return {
         ...connection,
@@ -126,14 +151,15 @@ export const connectionsRouter = router({
   create: protectedProcedure
     .input(
       z.object({
-        type: z.enum(['openai', 'anthropic', 'ollama']),
+        type: connectionTypeSchema,
         name: z.string().min(1).max(255),
         config: connectionConfigSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Encrypt API key if present
-      const encryptedConfig = encryptObject(input.config, ['apiKey']);
+      // Encrypt sensitive fields based on connection type
+      const sensitiveFields: (keyof typeof input.config)[] = ['apiKey', 'password', 'connectionUrl'];
+      const encryptedConfig = encryptObject(input.config, sensitiveFields);
 
       // If this is the first connection of its type, make it default
       const existingConnections = await ctx.db.query.connections.findMany({
@@ -202,8 +228,8 @@ export const connectionsRouter = router({
       }
 
       if (input.config) {
-        // Encrypt sensitive fields
-        const encryptedConfig = encryptObject(input.config, ['apiKey']);
+        // Encrypt sensitive fields (both AI and database credentials)
+        const encryptedConfig = encryptObject(input.config, ['apiKey', 'password', 'connectionUrl']);
         updateData.config = encryptedConfig;
       }
 
@@ -259,7 +285,7 @@ export const connectionsRouter = router({
     .input(
       z.object({
         id: z.string().uuid().optional(),
-        type: z.enum(['openai', 'anthropic', 'ollama']).optional(),
+        type: connectionTypeSchema.optional(),
         config: connectionConfigSchema.optional(),
       })
     )
@@ -285,7 +311,7 @@ export const connectionsRouter = router({
         }
 
         type = connection.type;
-        config = decryptObject(connection.config as Record<string, any>, ['apiKey']);
+        config = decryptObject(connection.config as Record<string, any>, ['apiKey', 'password', 'connectionUrl']);
       } else if (input.type && input.config) {
         // Test new connection config
         type = input.type;

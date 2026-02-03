@@ -31,3 +31,16 @@ export {
   type DatabaseQueryInput,
   type DatabaseQueryResult,
 } from './database';
+
+// Database Executor
+export {
+  createDatabaseExecutor,
+  createPostgresExecutor,
+  createMySQLExecutor,
+  closeAllConnections,
+  getActiveConnectionCount,
+  type DatabaseExecutor,
+  type PostgresConfig,
+  type MySQLConfig,
+  type ExecutorOptions,
+} from './database-executor';

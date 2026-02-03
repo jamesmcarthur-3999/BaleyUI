@@ -8,8 +8,7 @@
  * The service is designed to be injected into the web_search built-in tool.
  */
 
-import { generateText } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { Baleybot } from '@baleybots/core';
 
 // ============================================================================
 // TYPES
@@ -92,35 +91,63 @@ async function searchWithTavily(
 // ============================================================================
 
 /**
- * Uses an AI model with web search capability to perform searches.
+ * Uses a specialized Baleybot to perform searches as a fallback.
  * This is a fallback when no Tavily API key is configured.
- *
- * Note: This uses OpenAI's model with web search, which requires
- * an OpenAI API key to be set via OPENAI_API_KEY environment variable.
  */
 async function searchWithAI(
   query: string,
   numResults: number
 ): Promise<SearchResult[]> {
   try {
-    // Use GPT-4o-mini with a search-focused prompt
-    const result = await generateText({
-      model: openai('gpt-4o-mini'),
-      system: `You are a web search assistant. When asked to search for something, provide ${numResults} relevant results in a structured format.
+    // Create a specialized Baleybot for web search
+    const searchBot = Baleybot.create({
+      name: 'web-search-fallback',
+      goal: `You are a web search assistant. When asked to search for something, provide ${numResults} relevant results in a structured format.
 Each result should have:
 - title: The page title
 - url: A relevant URL (use real, commonly known websites when possible)
 - snippet: A brief description of the content
 
 Respond ONLY with a valid JSON array of search results. Do not include any other text.`,
-      prompt: `Search the web for: ${query}
-
-Return ${numResults} relevant search results as a JSON array.`,
-      maxOutputTokens: 1000,
+      model: 'openai:gpt-4o-mini',
+      outputSchema: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            url: { type: 'string' },
+            snippet: { type: 'string' },
+          },
+          required: ['title', 'url', 'snippet'],
+        },
+      },
     });
 
-    // Parse the AI response
-    const text = result.text.trim();
+    const prompt = `Search the web for: ${query}
+
+Return ${numResults} relevant search results as a JSON array.`;
+
+    const rawResult = await searchBot.process(prompt);
+
+    // Cast result to unknown for flexible handling
+    const result: unknown = rawResult;
+
+    // Parse the result
+    if (Array.isArray(result)) {
+      // Already parsed as array
+      return result.slice(0, numResults).map((item: unknown) => {
+        const obj = item as Record<string, unknown>;
+        return {
+          title: String(obj.title || ''),
+          url: String(obj.url || ''),
+          snippet: String(obj.snippet || ''),
+        };
+      });
+    }
+
+    // Handle string or other result types
+    const text = typeof result === 'string' ? result.trim() : String(result);
 
     // Handle code blocks if present
     const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);

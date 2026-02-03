@@ -23,6 +23,15 @@ import { buildToolCatalog, formatToolCatalogForAI, categorizeToolName } from './
 /**
  * Schema for the generator's structured output
  */
+const triggerSchema = z.object({
+  type: z.enum(['manual', 'schedule', 'webhook', 'other_bb']).describe('Type of trigger'),
+  schedule: z.string().optional().describe('Cron expression for schedule triggers (e.g., "0 9 * * *")'),
+  sourceBaleybotId: z.string().optional().describe('Source BB ID for bb_completion triggers'),
+  completionType: z.enum(['success', 'failure', 'completion']).optional().describe('When to trigger for bb_completion'),
+  webhookPath: z.string().optional().describe('Webhook path for webhook triggers'),
+  enabled: z.boolean().optional().describe('Whether the trigger is enabled'),
+});
+
 const generateResultSchema = z.object({
   balCode: z.string().describe('The generated BAL code'),
   explanation: z.string().describe('Human-readable explanation of what the BaleyBot does'),
@@ -35,6 +44,7 @@ const generateResultSchema = z.object({
       canRequest: z.array(z.string()).describe('Tools that require approval'),
       output: z.record(z.string(), z.string()).optional().describe('Output schema'),
       history: z.enum(['none', 'inherit']).optional().describe('Conversation history mode'),
+      trigger: triggerSchema.optional().describe('Trigger configuration for automated execution'),
     })
   ),
   toolRationale: z.record(z.string(), z.string()).describe('Explanation for each tool assignment'),
@@ -62,7 +72,33 @@ entity_name {
     "field1": "type",
     "field2": "type"
   },
-  "history": "none" | "inherit"     // Optional, default is "inherit"
+  "history": "none" | "inherit",    // Optional, default is "inherit"
+  "trigger": "schedule:0 9 * * *"   // Optional trigger configuration
+}
+\`\`\`
+
+## Trigger Types
+- **manual**: Triggered by user action (default)
+- **schedule**: Triggered by cron schedule (e.g., "schedule:0 9 * * *" for 9am daily)
+- **webhook**: Triggered via HTTP webhook (e.g., "webhook:/api/trigger/my-bot")
+- **bb_completion**: Triggered when another BB completes (e.g., "bb_completion:analyzer:success")
+\`\`\`bal
+# Schedule trigger - runs every hour
+hourly_task {
+  "goal": "Check for updates",
+  "trigger": "schedule:0 * * * *"
+}
+
+# BB completion trigger - runs when analyzer succeeds
+reporter {
+  "goal": "Generate report from analysis",
+  "trigger": "bb_completion:analyzer:success"
+}
+
+# Webhook trigger
+webhook_handler {
+  "goal": "Handle incoming webhook",
+  "trigger": "webhook"
 }
 \`\`\`
 
@@ -283,6 +319,66 @@ function validateToolAssignments(
 }
 
 /**
+ * Parse a trigger string into a TriggerConfig object
+ * Formats:
+ * - "manual" -> { type: 'manual' }
+ * - "schedule:0 9 * * *" -> { type: 'schedule', schedule: '0 9 * * *' }
+ * - "webhook" or "webhook:/path" -> { type: 'webhook', webhookPath?: '/path' }
+ * - "bb_completion:bb_id" or "bb_completion:bb_id:success" -> { type: 'other_bb', sourceBaleybotId, completionType }
+ */
+export function parseTriggerString(triggerStr: string): {
+  type: 'manual' | 'schedule' | 'webhook' | 'other_bb';
+  schedule?: string;
+  sourceBaleybotId?: string;
+  completionType?: 'success' | 'failure' | 'completion';
+  webhookPath?: string;
+} | null {
+  if (!triggerStr || triggerStr.trim().length === 0) {
+    return null;
+  }
+
+  const trimmed = triggerStr.trim();
+
+  // Manual trigger
+  if (trimmed === 'manual') {
+    return { type: 'manual' };
+  }
+
+  // Schedule trigger: "schedule:0 9 * * *"
+  if (trimmed.startsWith('schedule:')) {
+    const schedule = trimmed.slice('schedule:'.length).trim();
+    return { type: 'schedule', schedule };
+  }
+
+  // Webhook trigger: "webhook" or "webhook:/path"
+  if (trimmed === 'webhook' || trimmed.startsWith('webhook:')) {
+    const webhookPath = trimmed === 'webhook' ? undefined : trimmed.slice('webhook:'.length).trim();
+    return { type: 'webhook', webhookPath: webhookPath || undefined };
+  }
+
+  // BB completion trigger: "bb_completion:bb_id" or "bb_completion:bb_id:success"
+  if (trimmed.startsWith('bb_completion:')) {
+    const parts = trimmed.slice('bb_completion:'.length).split(':');
+    const sourceBaleybotId = parts[0]?.trim();
+    const completionType = (parts[1]?.trim() as 'success' | 'failure' | 'completion') || 'completion';
+
+    if (!sourceBaleybotId) {
+      return null;
+    }
+
+    return {
+      type: 'other_bb',
+      sourceBaleybotId,
+      completionType: ['success', 'failure', 'completion'].includes(completionType)
+        ? completionType
+        : 'completion',
+    };
+  }
+
+  return null;
+}
+
+/**
  * Parse BAL code and extract entity definitions
  */
 export function parseBalCode(balCode: string): {
@@ -327,6 +423,15 @@ export function parseBalCode(balCode: string): {
           .replace(/'/g, '"'); // Convert single quotes to double
 
         const config = JSON.parse(`{${jsonStr}}`) as Record<string, unknown>;
+
+        // Parse trigger string if present
+        if (typeof config.trigger === 'string') {
+          const triggerConfig = parseTriggerString(config.trigger);
+          if (triggerConfig) {
+            config.trigger = triggerConfig;
+          }
+        }
+
         entities.push({ name, config });
       } catch {
         errors.push(`Failed to parse entity "${name}": Invalid configuration syntax`);

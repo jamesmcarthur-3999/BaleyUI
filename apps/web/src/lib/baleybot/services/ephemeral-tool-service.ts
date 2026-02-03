@@ -12,8 +12,7 @@
  * for one-off tasks without needing to pre-define them.
  */
 
-import { generateText } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { Baleybot } from '@baleybots/core';
 import type { BuiltInToolContext, CreateToolResult } from '../tools/built-in';
 import type { RuntimeToolDefinition } from '../executor';
 
@@ -63,7 +62,7 @@ export interface EphemeralToolService {
 // ============================================================================
 
 /**
- * Execute a natural language tool implementation using AI
+ * Execute a natural language tool implementation using a specialized Baleybot
  */
 async function executeNLImplementation(
   toolName: string,
@@ -73,9 +72,10 @@ async function executeNLImplementation(
   console.log(`[ephemeral_tool] Executing "${toolName}" with NL implementation`);
 
   try {
-    const result = await generateText({
-      model: openai('gpt-4o-mini'),
-      system: `You are executing a custom tool. The tool is defined by the following natural language implementation:
+    // Create a specialized Baleybot for executing this tool
+    const toolExecutorBot = Baleybot.create({
+      name: `ephemeral-tool-${toolName}`,
+      goal: `You are executing a custom tool. The tool is defined by the following natural language implementation:
 
 "${implementation}"
 
@@ -86,15 +86,18 @@ You must execute this tool based on its description and return the result.
 - Always return your response in a structured format if possible.
 
 Respond ONLY with the tool's output. Do not explain what you're doing.`,
-      prompt: `Execute this tool with the following arguments:
-${JSON.stringify(args, null, 2)}
-
-Return the tool's output:`,
-      maxOutputTokens: 2000,
+      model: 'openai:gpt-4o-mini',
     });
 
+    const prompt = `Execute this tool with the following arguments:
+${JSON.stringify(args, null, 2)}
+
+Return the tool's output:`;
+
+    const result = await toolExecutorBot.process(prompt);
+
     // Try to parse as JSON if it looks like JSON
-    const text = result.text.trim();
+    const text = typeof result === 'string' ? result.trim() : String(result);
     try {
       // Handle code blocks if present
       const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);

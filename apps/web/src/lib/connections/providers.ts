@@ -1,9 +1,20 @@
 /**
- * Provider definitions for AI connections.
- * Supports OpenAI, Anthropic, and Ollama.
+ * Provider definitions for AI and database connections.
+ * Supports OpenAI, Anthropic, Ollama, PostgreSQL, and MySQL.
  */
 
-export type ProviderType = 'openai' | 'anthropic' | 'ollama';
+export type ProviderType = 'openai' | 'anthropic' | 'ollama' | 'postgres' | 'mysql';
+
+export type AIProviderType = 'openai' | 'anthropic' | 'ollama';
+export type DatabaseProviderType = 'postgres' | 'mysql';
+
+export function isAIProvider(type: ProviderType): type is AIProviderType {
+  return type === 'openai' || type === 'anthropic' || type === 'ollama';
+}
+
+export function isDatabaseProvider(type: ProviderType): type is DatabaseProviderType {
+  return type === 'postgres' || type === 'mysql';
+}
 
 export interface ProviderDefinition {
   type: ProviderType;
@@ -94,13 +105,116 @@ export const PROVIDERS: Record<ProviderType, ProviderDefinition> = {
       },
     ],
   },
+  postgres: {
+    type: 'postgres',
+    name: 'PostgreSQL',
+    description: 'Connect to PostgreSQL database for query execution',
+    requiresApiKey: false,
+    configFields: [
+      {
+        name: 'host',
+        label: 'Host',
+        type: 'text',
+        required: true,
+        placeholder: 'localhost',
+        defaultValue: 'localhost',
+      },
+      {
+        name: 'port',
+        label: 'Port',
+        type: 'text',
+        required: true,
+        placeholder: '5432',
+        defaultValue: '5432',
+      },
+      {
+        name: 'database',
+        label: 'Database',
+        type: 'text',
+        required: true,
+        placeholder: 'mydb',
+      },
+      {
+        name: 'username',
+        label: 'Username',
+        type: 'text',
+        required: true,
+        placeholder: 'postgres',
+      },
+      {
+        name: 'password',
+        label: 'Password',
+        type: 'password',
+        required: true,
+        placeholder: '••••••••',
+      },
+    ],
+  },
+  mysql: {
+    type: 'mysql',
+    name: 'MySQL',
+    description: 'Connect to MySQL database for query execution',
+    requiresApiKey: false,
+    configFields: [
+      {
+        name: 'host',
+        label: 'Host',
+        type: 'text',
+        required: true,
+        placeholder: 'localhost',
+        defaultValue: 'localhost',
+      },
+      {
+        name: 'port',
+        label: 'Port',
+        type: 'text',
+        required: true,
+        placeholder: '3306',
+        defaultValue: '3306',
+      },
+      {
+        name: 'database',
+        label: 'Database',
+        type: 'text',
+        required: true,
+        placeholder: 'mydb',
+      },
+      {
+        name: 'username',
+        label: 'Username',
+        type: 'text',
+        required: true,
+        placeholder: 'root',
+      },
+      {
+        name: 'password',
+        label: 'Password',
+        type: 'password',
+        required: true,
+        placeholder: '••••••••',
+      },
+    ],
+  },
 };
 
-export interface ConnectionConfig {
+export interface AIConnectionConfig {
   apiKey?: string;
   baseUrl?: string;
   organization?: string;
 }
+
+export interface DatabaseConnectionConfig {
+  host?: string;
+  port?: number;
+  database?: string;
+  username?: string;
+  password?: string;
+  connectionUrl?: string;
+  ssl?: boolean;
+  schema?: string;
+}
+
+export type ConnectionConfig = AIConnectionConfig | DatabaseConnectionConfig;
 
 export interface OllamaModel {
   name: string;

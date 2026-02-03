@@ -111,6 +111,24 @@ export interface Connection {
 }
 
 /**
+ * Trigger configuration for a BaleyBot
+ */
+export interface TriggerConfig {
+  /** Type of trigger */
+  type: TriggerType;
+  /** Cron expression for schedule triggers (e.g., "0 9 * * *") */
+  schedule?: string;
+  /** Source BB ID for bb_completion triggers */
+  sourceBaleybotId?: string;
+  /** Trigger on success, failure, or any completion */
+  completionType?: 'success' | 'failure' | 'completion';
+  /** Webhook path for webhook triggers */
+  webhookPath?: string;
+  /** Whether the trigger is enabled */
+  enabled?: boolean;
+}
+
+/**
  * Entity within a generated BAL
  */
 export interface GeneratedEntity {
@@ -121,6 +139,8 @@ export interface GeneratedEntity {
   canRequest: string[];
   output?: Record<string, string>;
   history?: 'none' | 'inherit';
+  /** Trigger configuration for this entity */
+  trigger?: TriggerConfig;
 }
 
 /**

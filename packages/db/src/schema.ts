@@ -8,6 +8,7 @@ import {
   integer,
   timestamp,
   decimal,
+  doublePrecision,
   uniqueIndex,
   index,
 } from 'drizzle-orm/pg-core';
@@ -70,6 +71,7 @@ export const connections = pgTable('connections', {
   name: varchar('name', { length: 255 }).notNull(),
   config: jsonb('config').notNull(), // Encrypted credentials, base URLs, etc.
   isDefault: boolean('is_default').default(false),
+  isOperational: boolean('is_operational').default(false), // If true, use this DB for BB execution results/analytics
   status: varchar('status', { length: 50 }).default('unconfigured'), // 'connected' | 'error' | 'unconfigured'
 
   // For Ollama
@@ -636,6 +638,50 @@ export const baleybotExecutions = pgTable(
 );
 
 // ============================================================================
+// BALEYBOT TRIGGERS (BB completion chains)
+// ============================================================================
+
+export const baleybotTriggers = pgTable(
+  'baleybot_triggers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Source BB (the one that triggers)
+    sourceBaleybotId: uuid('source_baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Target BB (the one that gets triggered)
+    targetBaleybotId: uuid('target_baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Trigger configuration
+    triggerType: varchar('trigger_type', { length: 50 }).notNull(), // 'completion', 'success', 'failure'
+    enabled: boolean('enabled').default(true),
+
+    // Input mapping (how to pass data from source to target)
+    inputMapping: jsonb('input_mapping'), // e.g., { "targetField": "sourceOutput.field" }
+    staticInput: jsonb('static_input'), // Additional static input to pass
+
+    // Conditions (optional)
+    condition: text('condition'), // Optional condition expression
+
+    // Metadata
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('baleybot_triggers_workspace_idx').on(table.workspaceId),
+    index('baleybot_triggers_source_idx').on(table.sourceBaleybotId),
+    index('baleybot_triggers_target_idx').on(table.targetBaleybotId),
+  ]
+);
+
+// ============================================================================
 // APPROVAL PATTERNS (learned from "Approve & Remember")
 // ============================================================================
 
@@ -737,6 +783,50 @@ export const baleybotMemory = pgTable(
 );
 
 // ============================================================================
+// BALEYBOT SHARED STORAGE (for cross-BB communication)
+// ============================================================================
+
+/**
+ * Workspace-scoped shared storage for async BB communication.
+ * Unlike baleybotMemory which is per-BB, this is accessible by all BBs in the workspace.
+ */
+export const baleybotSharedStorage = pgTable(
+  'baleybot_shared_storage',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Key-value storage
+    key: varchar('key', { length: 255 }).notNull(),
+    value: jsonb('value').notNull(),
+
+    // Producer tracking
+    producerId: uuid('producer_id').references(() => baleybots.id, {
+      onDelete: 'set null',
+    }),
+    executionId: uuid('execution_id').references(() => baleybotExecutions.id, {
+      onDelete: 'set null',
+    }),
+
+    // Optional TTL for automatic cleanup
+    expiresAt: timestamp('expires_at'),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('baleybot_shared_storage_unique_key').on(
+      table.workspaceId,
+      table.key
+    ),
+    index('baleybot_shared_storage_workspace_idx').on(table.workspaceId),
+    index('baleybot_shared_storage_expires_idx').on(table.expiresAt),
+  ]
+);
+
+// ============================================================================
 // NOTIFICATIONS (for send_notification tool)
 // ============================================================================
 
@@ -825,6 +915,189 @@ export const scheduledTasks = pgTable(
 );
 
 // ============================================================================
+// BALEYBOT METRICS (for analytics tracking)
+// ============================================================================
+
+/**
+ * Raw metrics recorded on each BB execution
+ */
+export const baleybotMetrics = pgTable(
+  'baleybot_metrics',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    baleybotId: uuid('baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'cascade' })
+      .notNull(),
+    executionId: uuid('execution_id').references(() => baleybotExecutions.id, {
+      onDelete: 'set null',
+    }),
+
+    // Metric definition
+    metricName: varchar('metric_name', { length: 255 }).notNull(),
+    metricType: varchar('metric_type', { length: 50 }).notNull(), // count, average, percentage, top_n, trend, distribution
+
+    // Metric value
+    value: doublePrecision('value'),
+    dimensions: jsonb('dimensions'), // For top_n, distribution (stores breakdown data)
+
+    // Timestamp for time-series
+    timestamp: timestamp('timestamp').defaultNow().notNull(),
+  },
+  (table) => [
+    index('baleybot_metrics_workspace_idx').on(table.workspaceId),
+    index('baleybot_metrics_baleybot_idx').on(table.baleybotId),
+    index('baleybot_metrics_name_idx').on(table.metricName),
+    index('baleybot_metrics_timestamp_idx').on(table.timestamp),
+    index('baleybot_metrics_baleybot_time_idx').on(
+      table.baleybotId,
+      table.timestamp
+    ),
+  ]
+);
+
+/**
+ * Aggregated metrics (hourly, daily, weekly)
+ */
+export const baleybotMetricAggregates = pgTable(
+  'baleybot_metric_aggregates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    baleybotId: uuid('baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Metric definition
+    metricName: varchar('metric_name', { length: 255 }).notNull(),
+
+    // Aggregation period
+    period: varchar('period', { length: 20 }).notNull(), // 'hour', 'day', 'week', 'month'
+    periodStart: timestamp('period_start').notNull(),
+    periodEnd: timestamp('period_end').notNull(),
+
+    // Aggregated values
+    value: doublePrecision('value'),
+    minValue: doublePrecision('min_value'),
+    maxValue: doublePrecision('max_value'),
+    sumValue: doublePrecision('sum_value'),
+    sampleCount: integer('sample_count').notNull(),
+
+    // For comparison
+    previousPeriodValue: doublePrecision('previous_period_value'),
+    changePercent: doublePrecision('change_percent'),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('baleybot_aggregates_workspace_idx').on(table.workspaceId),
+    index('baleybot_aggregates_baleybot_idx').on(table.baleybotId),
+    index('baleybot_aggregates_period_idx').on(table.period, table.periodStart),
+    uniqueIndex('baleybot_aggregates_unique').on(
+      table.baleybotId,
+      table.metricName,
+      table.period,
+      table.periodStart
+    ),
+  ]
+);
+
+/**
+ * Usage tracking for cost analysis and optimization
+ */
+export const baleybotUsage = pgTable(
+  'baleybot_usage',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    baleybotId: uuid('baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'cascade' })
+      .notNull(),
+    executionId: uuid('execution_id').references(() => baleybotExecutions.id, {
+      onDelete: 'set null',
+    }),
+
+    // Token usage
+    tokenInput: integer('token_input').default(0),
+    tokenOutput: integer('token_output').default(0),
+    tokenTotal: integer('token_total').default(0),
+
+    // Call counts
+    apiCalls: integer('api_calls').default(0),
+    toolCalls: integer('tool_calls').default(0),
+
+    // Duration
+    durationMs: integer('duration_ms'),
+
+    // Cost estimation
+    estimatedCost: doublePrecision('estimated_cost'),
+    model: varchar('model', { length: 255 }),
+
+    // Timestamp for time-series
+    timestamp: timestamp('timestamp').defaultNow().notNull(),
+  },
+  (table) => [
+    index('baleybot_usage_workspace_idx').on(table.workspaceId),
+    index('baleybot_usage_baleybot_idx').on(table.baleybotId),
+    index('baleybot_usage_execution_idx').on(table.executionId),
+    index('baleybot_usage_timestamp_idx').on(table.timestamp),
+    index('baleybot_usage_baleybot_time_idx').on(table.baleybotId, table.timestamp),
+  ]
+);
+
+/**
+ * Alerts triggered by analytics conditions
+ */
+export const baleybotAlerts = pgTable(
+  'baleybot_alerts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    baleybotId: uuid('baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Alert condition that was triggered
+    alertCondition: varchar('alert_condition', { length: 500 }).notNull(),
+
+    // Values at time of trigger
+    triggeredValue: doublePrecision('triggered_value'),
+    thresholdValue: doublePrecision('threshold_value'),
+    metricName: varchar('metric_name', { length: 255 }),
+
+    // Status
+    status: varchar('status', { length: 20 }).notNull().default('active'), // active, acknowledged, resolved
+    severity: varchar('severity', { length: 20 }).notNull().default('warning'), // info, warning, critical
+
+    // Timestamps
+    triggeredAt: timestamp('triggered_at').defaultNow().notNull(),
+    acknowledgedAt: timestamp('acknowledged_at'),
+    acknowledgedBy: varchar('acknowledged_by', { length: 255 }),
+    resolvedAt: timestamp('resolved_at'),
+    resolvedBy: varchar('resolved_by', { length: 255 }),
+
+    // Additional context
+    message: text('message'),
+    context: jsonb('context'),
+  },
+  (table) => [
+    index('baleybot_alerts_workspace_idx').on(table.workspaceId),
+    index('baleybot_alerts_baleybot_idx').on(table.baleybotId),
+    index('baleybot_alerts_status_idx').on(table.status),
+    index('baleybot_alerts_triggered_idx').on(table.triggeredAt),
+  ]
+);
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 
@@ -836,6 +1109,66 @@ export const baleybotsRelations = relations(baleybots, ({ one, many }) => ({
   executions: many(baleybotExecutions),
   memory: many(baleybotMemory),
   scheduledTasks: many(scheduledTasks),
+  sharedStorageProduced: many(baleybotSharedStorage),
+  metrics: many(baleybotMetrics),
+  metricAggregates: many(baleybotMetricAggregates),
+  alerts: many(baleybotAlerts),
+  usage: many(baleybotUsage),
+}));
+
+export const baleybotUsageRelations = relations(baleybotUsage, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [baleybotUsage.workspaceId],
+    references: [workspaces.id],
+  }),
+  baleybot: one(baleybots, {
+    fields: [baleybotUsage.baleybotId],
+    references: [baleybots.id],
+  }),
+  execution: one(baleybotExecutions, {
+    fields: [baleybotUsage.executionId],
+    references: [baleybotExecutions.id],
+  }),
+}));
+
+export const baleybotMetricsRelations = relations(baleybotMetrics, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [baleybotMetrics.workspaceId],
+    references: [workspaces.id],
+  }),
+  baleybot: one(baleybots, {
+    fields: [baleybotMetrics.baleybotId],
+    references: [baleybots.id],
+  }),
+  execution: one(baleybotExecutions, {
+    fields: [baleybotMetrics.executionId],
+    references: [baleybotExecutions.id],
+  }),
+}));
+
+export const baleybotMetricAggregatesRelations = relations(
+  baleybotMetricAggregates,
+  ({ one }) => ({
+    workspace: one(workspaces, {
+      fields: [baleybotMetricAggregates.workspaceId],
+      references: [workspaces.id],
+    }),
+    baleybot: one(baleybots, {
+      fields: [baleybotMetricAggregates.baleybotId],
+      references: [baleybots.id],
+    }),
+  })
+);
+
+export const baleybotAlertsRelations = relations(baleybotAlerts, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [baleybotAlerts.workspaceId],
+    references: [workspaces.id],
+  }),
+  baleybot: one(baleybots, {
+    fields: [baleybotAlerts.baleybotId],
+    references: [baleybots.id],
+  }),
 }));
 
 export const baleybotMemoryRelations = relations(baleybotMemory, ({ one }) => ({
@@ -848,6 +1181,24 @@ export const baleybotMemoryRelations = relations(baleybotMemory, ({ one }) => ({
     references: [baleybots.id],
   }),
 }));
+
+export const baleybotSharedStorageRelations = relations(
+  baleybotSharedStorage,
+  ({ one }) => ({
+    workspace: one(workspaces, {
+      fields: [baleybotSharedStorage.workspaceId],
+      references: [workspaces.id],
+    }),
+    producer: one(baleybots, {
+      fields: [baleybotSharedStorage.producerId],
+      references: [baleybots.id],
+    }),
+    execution: one(baleybotExecutions, {
+      fields: [baleybotSharedStorage.executionId],
+      references: [baleybotExecutions.id],
+    }),
+  })
+);
 
 export const notificationsRelations = relations(notifications, ({ one }) => ({
   workspace: one(workspaces, {

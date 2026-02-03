@@ -33,6 +33,16 @@ import {
   type BuiltInToolContext,
 } from './built-in/implementations';
 import type { RuntimeToolDefinition } from '../executor';
+import {
+  generateDatabaseToolDefinition,
+  generateDatabaseRuntimeTool,
+  createDatabaseExecutor,
+  introspectPostgres,
+  introspectMySQL,
+  type DatabaseConnectionInfo,
+  type DatabaseSchema,
+} from './connection-derived';
+import type { DatabaseConnectionConfig } from '@/lib/connections/providers';
 
 // Re-export injection functions for external use
 export {
@@ -49,6 +59,18 @@ export {
 // ============================================================================
 
 /**
+ * Database connection info for tool generation
+ */
+export interface DatabaseConnectionInput {
+  connectionId: string;
+  connectionName: string;
+  type: 'postgres' | 'mysql';
+  config: DatabaseConnectionConfig;
+  /** Pre-introspected schema (optional, will be introspected if not provided) */
+  schema?: DatabaseSchema;
+}
+
+/**
  * Context for building the tool catalog
  */
 export interface CatalogContext {
@@ -59,6 +81,8 @@ export interface CatalogContext {
   workspaceTools?: ToolDefinition[];
   /** Whether to include connection-derived tools */
   includeConnectionTools?: boolean;
+  /** Database connections for generating database tools */
+  databaseConnections?: DatabaseConnectionInput[];
 }
 
 /**
@@ -71,6 +95,63 @@ export interface FullToolCatalog extends ToolCatalog {
   connectionDerived: ToolDefinition[];
   /** Workspace custom tools only */
   workspace: ToolDefinition[];
+}
+
+// ============================================================================
+// DATABASE TOOL GENERATION
+// ============================================================================
+
+/**
+ * Generate tool definitions from database connections.
+ * This creates smart database tools that understand the schema.
+ */
+export function generateDatabaseTools(
+  connections: DatabaseConnectionInput[]
+): ToolDefinition[] {
+  const tools: ToolDefinition[] = [];
+
+  for (const conn of connections) {
+    if (conn.schema) {
+      // Schema is available, generate tool definition
+      const toolConfig: DatabaseConnectionInfo = {
+        connectionId: conn.connectionId,
+        connectionName: conn.connectionName,
+        type: conn.type,
+        schema: conn.schema,
+      };
+
+      tools.push(generateDatabaseToolDefinition({ connection: toolConfig }));
+    }
+  }
+
+  return tools;
+}
+
+/**
+ * Introspect a database connection and return the schema.
+ * This is an async operation that connects to the database.
+ */
+export async function introspectDatabaseConnection(
+  conn: DatabaseConnectionInput
+): Promise<DatabaseSchema | null> {
+  try {
+    const executor = createDatabaseExecutor(conn.type, conn.config);
+
+    let schema: DatabaseSchema;
+    if (conn.type === 'postgres') {
+      schema = await introspectPostgres(executor.query.bind(executor));
+    } else if (conn.type === 'mysql') {
+      schema = await introspectMySQL(executor.query.bind(executor));
+    } else {
+      console.warn(`Unknown database type: ${conn.type}`);
+      return null;
+    }
+
+    return schema;
+  } catch (error) {
+    console.error(`Failed to introspect database ${conn.connectionName}:`, error);
+    return null;
+  }
 }
 
 // ============================================================================
@@ -88,11 +169,10 @@ export function getToolCatalog(ctx: CatalogContext): FullToolCatalog {
   // 2. Get workspace custom tools (if provided)
   const workspaceTools = ctx.workspaceTools ?? [];
 
-  // 3. Get connection-derived tools (placeholder for Phase 2)
-  const connectionTools: ToolDefinition[] = [];
-  if (ctx.includeConnectionTools) {
-    // TODO: Phase 2 - Generate tools from database connections
-    // connectionTools = generateConnectionTools(ctx.workspaceId);
+  // 3. Get connection-derived tools from database connections
+  let connectionTools: ToolDefinition[] = [];
+  if (ctx.includeConnectionTools && ctx.databaseConnections) {
+    connectionTools = generateDatabaseTools(ctx.databaseConnections);
   }
 
   // 4. Combine all tools
@@ -118,23 +198,71 @@ export function getToolCatalog(ctx: CatalogContext): FullToolCatalog {
 }
 
 /**
+ * SQL generation function type for database tools
+ */
+export type SQLGeneratorFn = (query: string, schema: string) => Promise<string>;
+
+/**
+ * Extended context for runtime tools including database connections
+ */
+export interface RuntimeToolsContext {
+  /** Context for built-in tools */
+  toolCtx: BuiltInToolContext;
+  /** SQL generator function for database tools */
+  sqlGenerator?: SQLGeneratorFn;
+}
+
+/**
  * Get runtime tools for execution, bound to the provided context.
  * Returns a Map of tool name -> RuntimeToolDefinition.
  */
 export function getRuntimeTools(
   ctx: CatalogContext,
-  toolCtx: BuiltInToolContext
+  runtimeCtx: RuntimeToolsContext
 ): Map<string, RuntimeToolDefinition> {
   // 1. Get built-in runtime tools
-  const builtInRuntimeTools = getBuiltInRuntimeTools(toolCtx);
+  const builtInRuntimeTools = getBuiltInRuntimeTools(runtimeCtx.toolCtx);
 
-  // 2. Get workspace tools as runtime tools
-  // (these would come from the database with actual implementations)
-  // For now, workspace tools aren't executable - they're just definitions
-  // TODO: Support executable workspace tools in Phase 2
+  // 2. Generate database runtime tools if connections are provided
+  if (ctx.includeConnectionTools && ctx.databaseConnections && runtimeCtx.sqlGenerator) {
+    for (const conn of ctx.databaseConnections) {
+      if (conn.schema) {
+        try {
+          const executor = createDatabaseExecutor(conn.type, conn.config);
+          const toolConfig: DatabaseConnectionInfo = {
+            connectionId: conn.connectionId,
+            connectionName: conn.connectionName,
+            type: conn.type,
+            schema: conn.schema,
+          };
+
+          const runtimeTool = generateDatabaseRuntimeTool(
+            { connection: toolConfig },
+            executor.query.bind(executor),
+            runtimeCtx.sqlGenerator
+          );
+
+          builtInRuntimeTools.set(runtimeTool.name, runtimeTool);
+        } catch (error) {
+          console.error(`Failed to create runtime tool for ${conn.connectionName}:`, error);
+        }
+      }
+    }
+  }
 
   // 3. Return combined tools
   return builtInRuntimeTools;
+}
+
+/**
+ * Backward-compatible version of getRuntimeTools
+ * @deprecated Use the version with RuntimeToolsContext instead
+ */
+export function getRuntimeToolsLegacy(
+  ctx: CatalogContext,
+  toolCtx: BuiltInToolContext
+): Map<string, RuntimeToolDefinition> {
+  return getRuntimeTools(ctx, { toolCtx });
 }
 
 // ============================================================================

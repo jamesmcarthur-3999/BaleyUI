@@ -3,13 +3,13 @@
  * Tests connectivity to AI providers.
  */
 
-import { ConnectionConfig, TestConnectionResult, OllamaModelsResponse } from './providers';
+import { AIConnectionConfig, TestConnectionResult, OllamaModelsResponse } from './providers';
 
 /**
  * Test OpenAI connection by fetching available models.
  */
 export async function testOpenAIConnection(
-  config: ConnectionConfig
+  config: AIConnectionConfig
 ): Promise<TestConnectionResult> {
   try {
     const baseUrl = config.baseUrl || 'https://api.openai.com/v1';
@@ -61,7 +61,7 @@ export async function testOpenAIConnection(
  * Test Anthropic connection by making a minimal API request.
  */
 export async function testAnthropicConnection(
-  config: ConnectionConfig
+  config: AIConnectionConfig
 ): Promise<TestConnectionResult> {
   try {
     const baseUrl = config.baseUrl || 'https://api.anthropic.com/v1';
@@ -117,7 +117,7 @@ export async function testAnthropicConnection(
  * Test Ollama connection by fetching local models.
  */
 export async function testOllamaConnection(
-  config: ConnectionConfig
+  config: AIConnectionConfig
 ): Promise<TestConnectionResult> {
   try {
     const baseUrl = config.baseUrl || 'http://localhost:11434';
@@ -162,7 +162,7 @@ export async function testOllamaConnection(
  */
 export async function testConnection(
   type: string,
-  config: ConnectionConfig
+  config: AIConnectionConfig
 ): Promise<TestConnectionResult> {
   switch (type) {
     case 'openai':

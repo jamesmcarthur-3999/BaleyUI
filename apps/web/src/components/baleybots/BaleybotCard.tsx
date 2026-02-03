@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { ROUTES } from '@/lib/routes';
 import { Play, Clock, Zap, AlertCircle, Pause, FileQuestion } from 'lucide-react';
+import { TriggerBadge } from './TriggerConfig';
+import type { TriggerConfig } from '@/lib/baleybot/types';
 
 interface BaleybotCardProps {
   id: string;
@@ -13,6 +15,7 @@ interface BaleybotCardProps {
   status: 'draft' | 'active' | 'paused' | 'error';
   executionCount: number;
   lastExecutedAt: Date | null;
+  trigger?: TriggerConfig;
   className?: string;
 }
 
@@ -47,6 +50,7 @@ export function BaleybotCard({
   status,
   executionCount,
   lastExecutedAt,
+  trigger,
   className,
 }: BaleybotCardProps) {
   const config = statusConfig[status];
@@ -92,7 +96,7 @@ export function BaleybotCard({
 
             <div className="flex-1 min-w-0">
               {/* Header */}
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                 <h3 className="font-semibold text-base truncate transition-colors group-hover:text-primary">
                   {name}
                 </h3>
@@ -100,6 +104,9 @@ export function BaleybotCard({
                   <StatusIcon className="h-3 w-3" />
                   {config.label}
                 </span>
+                {trigger && trigger.type !== 'manual' && (
+                  <TriggerBadge trigger={trigger} />
+                )}
               </div>
 
               {/* Description */}
