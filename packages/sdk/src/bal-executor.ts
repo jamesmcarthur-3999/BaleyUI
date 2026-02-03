@@ -137,31 +137,43 @@ export async function executeBALCode(
   const startTime = Date.now();
   const { onEvent, signal, timeout = 60000 } = options;
 
-  // Set up timeout
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeoutController = new AbortController();
+  // Set up unified abort handling
+  const abortController = new AbortController();
+  let abortReason: 'timeout' | 'cancelled' | null = null;
 
+  // Handle timeout
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   if (timeout > 0) {
     timeoutId = setTimeout(() => {
-      timeoutController.abort();
-      onEvent?.({ type: 'error', error: `Execution timed out after ${timeout}ms` });
+      if (!abortReason) {
+        abortReason = 'timeout';
+        abortController.abort();
+        onEvent?.({ type: 'error', error: `Execution timed out after ${timeout}ms` });
+      }
     }, timeout);
   }
 
-  // Combine abort signals
-  const combinedAbort = signal
-    ? new AbortController()
-    : timeoutController;
-
+  // Handle user cancellation
   if (signal) {
-    signal.addEventListener('abort', () => {
-      combinedAbort.abort();
-      onEvent?.({ type: 'cancelled' });
-    });
-    timeoutController.signal.addEventListener('abort', () => {
-      combinedAbort.abort();
-    });
+    const handleAbort = () => {
+      if (!abortReason) {
+        abortReason = 'cancelled';
+        abortController.abort();
+        onEvent?.({ type: 'cancelled' });
+      }
+    };
+
+    if (signal.aborted) {
+      handleAbort();
+    } else {
+      signal.addEventListener('abort', handleAbort, { once: true });
+    }
   }
+
+  // Cleanup function
+  const cleanup = () => {
+    if (timeoutId) clearTimeout(timeoutId);
+  };
 
   try {
     // Emit parsing event
@@ -199,9 +211,11 @@ export async function executeBALCode(
     }
 
     // Check for cancellation
-    if (combinedAbort.signal.aborted) {
+    if (abortController.signal.aborted) {
+      cleanup();
       return {
-        status: 'cancelled',
+        status: abortReason === 'timeout' ? 'timeout' : 'cancelled',
+        error: abortReason === 'timeout' ? `Execution timed out after ${timeout}ms` : undefined,
         entities: compiled.entities,
         structure: compiled.structure,
         duration: Date.now() - startTime,
@@ -221,8 +235,8 @@ export async function executeBALCode(
     // Execute
     const result = await executeBAL(code, config);
 
-    // Clear timeout
-    if (timeoutId) clearTimeout(timeoutId);
+    // Cleanup
+    cleanup();
 
     // Emit completed event
     onEvent?.({ type: 'completed', result: result.result });
@@ -235,12 +249,12 @@ export async function executeBALCode(
       duration: Date.now() - startTime,
     };
   } catch (error) {
-    // Clear timeout
-    if (timeoutId) clearTimeout(timeoutId);
+    // Cleanup
+    cleanup();
 
-    // Check if this was a cancellation
-    if (combinedAbort.signal.aborted) {
-      if (timeoutController.signal.aborted) {
+    // Check if this was an abort (use abortReason to determine the correct status)
+    if (abortController.signal.aborted && abortReason) {
+      if (abortReason === 'timeout') {
         return {
           status: 'timeout',
           error: `Execution timed out after ${timeout}ms`,
