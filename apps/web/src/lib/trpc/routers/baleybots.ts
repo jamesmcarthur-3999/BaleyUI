@@ -783,8 +783,16 @@ export const baleybotsRouter = router({
       // 2. Resume the execution with the approval decision
       // For now, we just record the decision
 
-      // Update execution segments to record the approval decision
-      const currentSegments = (execution.segments as unknown[]) || [];
+      // Safely parse existing segments
+      let currentSegments: unknown[] = [];
+      if (execution.segments !== null && execution.segments !== undefined) {
+        if (Array.isArray(execution.segments)) {
+          currentSegments = execution.segments;
+        } else {
+          console.warn(`Invalid segments format for execution ${input.executionId}`);
+        }
+      }
+
       const updatedSegments = [
         ...currentSegments,
         {
