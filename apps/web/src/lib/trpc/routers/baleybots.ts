@@ -876,7 +876,7 @@ export const baleybotsRouter = router({
         },
       });
 
-      // 3. Format connections for the generator context
+      // 3. Format connections for the generator context (null-safe)
       const formattedConnections = workspaceConnections.map((conn) => ({
         id: conn.id,
         type: conn.type,
@@ -885,12 +885,12 @@ export const baleybotsRouter = router({
         isDefault: conn.isDefault ?? false,
       }));
 
-      // 4. Format existing BaleyBots for the generator context
+      // 4. Format existing BaleyBots for the generator context (null-safe)
       const formattedBaleybots = existingBaleybots.map((bb) => ({
         id: bb.id,
         name: bb.name,
-        description: bb.description,
-        icon: bb.icon,
+        description: bb.description ?? null,
+        icon: bb.icon ?? null,
         status: 'active' as const,
         executionCount: 0,
         lastExecutedAt: null,
