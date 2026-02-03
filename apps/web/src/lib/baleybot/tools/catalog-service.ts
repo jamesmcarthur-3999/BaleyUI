@@ -28,6 +28,8 @@ import {
   setNotificationSender,
   setTaskScheduler,
   setMemoryStorage,
+  setWebSearchService,
+  configureWebSearch,
   type BuiltInToolContext,
 } from './built-in/implementations';
 import type { RuntimeToolDefinition } from '../executor';
@@ -38,6 +40,8 @@ export {
   setNotificationSender,
   setTaskScheduler,
   setMemoryStorage,
+  setWebSearchService,
+  configureWebSearch,
 };
 
 // ============================================================================

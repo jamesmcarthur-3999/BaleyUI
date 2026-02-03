@@ -8,28 +8,22 @@
 
 BaleyUI is a visual development platform built on top of the [BaleyBots](https://github.com/cbethin/baleybots) framework. It enables users to:
 
-- **Create AI Blocks** - Define AI-powered decision makers with natural language goals
-- **Create Function Blocks** - Write coded logic that shares the same interface as AI
-- **Compose Flows** - Visually connect blocks into complex workflows
-- **Observe Decisions** - View every AI decision with full context
-- **Evolve to Code** - Extract patterns from AI decisions and generate code
+- **Create BaleyBots** - Define AI-powered workflows with natural language goals
+- **Connect Data Sources** - Link databases, APIs, and services to power your BBs
+- **Compose Workflows** - Chain BBs together into complex, automated pipelines
+- **Schedule & Trigger** - Run BBs on schedules, webhooks, or BB completion events
+- **Observe & Analyze** - View every execution with full context and analytics
 
-## The Core Insight
+## Current Development Status
 
-The power of BaleyUI comes from BaleyBots' `Processable` interface. Every block - whether AI-powered or coded - implements the same contract:
+**Active Branch:** `feature/tool-ecosystem`
 
-```typescript
-interface Processable<TInput, TOutput> {
-  process(input: TInput): Promise<TOutput>;
-}
-```
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Phase 1-3 | Complete | Core BaleyBot execution, streaming, connections |
+| Phase 4 | In Progress | Tool ecosystem (built-in tools, triggers, analytics) |
 
-This means you can:
-1. **Prototype with AI** - Use natural language to define logic
-2. **Observe behavior** - See exactly what the AI decides and why
-3. **Extract patterns** - Identify rules from repeated decisions
-4. **Codify logic** - Generate code that handles known cases
-5. **Hybrid operation** - Code handles 90%, AI handles edge cases
+See [docs/plans/](./docs/plans/) for detailed implementation plans.
 
 ## Quick Start
 
@@ -78,42 +72,38 @@ BaleyUI/
 ├── apps/
 │   └── web/                      # Next.js 15 dashboard
 │       ├── src/
-│       │   ├── app/              # App Router pages
-│       │   │   ├── (dashboard)/  # Protected routes (blocks, flows)
-│       │   │   ├── (auth)/       # Auth routes (sign-in, sign-up)
-│       │   │   └── api/          # API routes (tRPC, streaming)
+│       │   ├── app/              # App Router pages & API routes
 │       │   ├── components/       # React components
-│       │   │   ├── ui/           # shadcn/ui primitives
-│       │   │   ├── blocks/       # Block editor components
-│       │   │   ├── streaming/    # Streaming UI components
-│       │   │   └── connections/  # LLM connection components
 │       │   ├── lib/              # Utilities and services
+│       │   │   ├── baleybot/     # BaleyBot execution engine
+│       │   │   ├── trpc/         # tRPC routers
+│       │   │   └── connections/  # Connection management
 │       │   └── hooks/            # Custom React hooks
-│       ├── next.config.ts
 │       └── package.json
 ├── packages/
-│   ├── db/                       # @baleyui/db - Database schema
-│   │   ├── src/
-│   │   │   ├── schema.ts         # Drizzle schema
-│   │   │   └── types.ts          # Inferred types
-│   │   └── package.json
-│   ├── ui/                       # @baleyui/ui - Shared components
-│   └── core/                     # @baleyui/core - Core utilities
-├── pnpm-workspace.yaml           # Workspace configuration
-├── turbo.json                    # Turborepo config (optional)
-├── PLAN.md                       # Detailed project plan
+│   ├── db/                       # @baleyui/db - Database schema & types
+│   ├── sdk/                      # @baleyui/sdk - JavaScript/TypeScript SDK
+│   ├── react/                    # @baleyui/react - React components
+│   └── python-sdk/               # Python SDK
+├── docs/
+│   ├── plans/                    # Implementation plans (dated)
+│   ├── architecture/             # Architecture documentation
+│   └── archive/                  # Completed phase documentation
+├── PLAN.md                       # Project vision & architecture
 ├── CODING_GUIDELINES.md          # Development standards
-├── AGENTS.md                     # AI agent task assignments
-└── README.md                     # This file
+├── AGENTS.md                     # Task assignments
+└── CLAUDE.md                     # AI development context
 ```
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [Project Plan](./PLAN.md) | Vision, architecture, phases, database schema |
-| [Coding Guidelines](./CODING_GUIDELINES.md) | React 19, Next.js 15 patterns, best practices |
-| [Agent Tasks](./AGENTS.md) | Phase 1 task breakdown for AI agents |
+| [Project Plan](./PLAN.md) | Vision, architecture, database schema |
+| [Coding Guidelines](./CODING_GUIDELINES.md) | React 19, Next.js 15 patterns |
+| [CLAUDE.md](./CLAUDE.md) | AI development context and skills |
+| [docs/plans/](./docs/plans/) | Implementation plans by date |
+| [docs/architecture/](./docs/architecture/) | Technical architecture docs |
 
 ## Development
 
@@ -146,15 +136,34 @@ Copy `.env.example` to `.env.local` and configure:
 DATABASE_URL=           # PostgreSQL connection string
 CLERK_SECRET_KEY=       # Clerk secret key
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=  # Clerk publishable key
+ENCRYPTION_KEY=         # 64 hex chars for encrypting API keys
 
 # Optional
-UPSTASH_REDIS_REST_URL= # Redis for caching (optional)
-ENCRYPTION_KEY=         # For encrypting stored API keys
+UPSTASH_REDIS_REST_URL= # Redis for caching
+TAVILY_API_KEY=         # For web search tool
 ```
 
-## Contributing
+## Key Concepts
 
-See [AGENTS.md](./AGENTS.md) for the current task breakdown and how to contribute.
+### BaleyBots (BBs)
+
+BaleyBots are AI-powered workflow units defined in BAL (Baleybots Assembly Language):
+
+```bal
+assistant {
+  "goal": "Help users answer questions about our product",
+  "tools": ["web_search", "fetch_url"],
+  "model": "anthropic:claude-sonnet-4-20250514"
+}
+```
+
+### Tools
+
+BBs can use built-in tools (`web_search`, `spawn_baleybot`, `store_memory`) and connection-derived tools (database queries, API calls).
+
+### Triggers
+
+BBs can be triggered manually, on a schedule, via webhook, or when another BB completes.
 
 ## License
 

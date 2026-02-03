@@ -19,6 +19,7 @@
     "@baleybots/react": "link:../../../baleybots/typescript/packages/react",
     "@baleybots/tools": "link:../../../baleybots/typescript/packages/tools",
     "@baleyui/db": "workspace:*",
+    "@baleyui/sdk": "workspace:*",
     "@clerk/nextjs": "^6.9.6",
     "@hookform/resolvers": "^3.9.1",
     "@monaco-editor/react": "^4.6.0",

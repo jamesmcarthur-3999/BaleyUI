@@ -31,6 +31,18 @@ import {
   CREATE_TOOL_SCHEMA,
   BUILT_IN_TOOLS_METADATA,
 } from './index';
+import {
+  createWebSearchService,
+  type WebSearchService,
+} from '../../services/web-search-service';
+import {
+  ephemeralAgentService,
+  type EphemeralAgentConfig,
+} from '../../services/ephemeral-agent-service';
+import {
+  ephemeralToolService,
+  type EphemeralToolConfig,
+} from '../../services/ephemeral-tool-service';
 
 // ============================================================================
 // WEB SEARCH
@@ -41,37 +53,39 @@ interface WebSearchArgs {
   num_results?: number;
 }
 
+// Web search service is injected at runtime with workspace config
+let webSearchService: WebSearchService | null = null;
+
+/**
+ * Set the web search service instance.
+ * This should be called during initialization with the workspace's config.
+ */
+export function setWebSearchService(service: WebSearchService): void {
+  webSearchService = service;
+}
+
+/**
+ * Create and set a web search service with the given Tavily API key.
+ * Convenience function for configuring web search.
+ */
+export function configureWebSearch(tavilyApiKey?: string): void {
+  webSearchService = createWebSearchService({ tavilyApiKey });
+}
+
 async function webSearchImpl(
   args: WebSearchArgs,
   ctx: BuiltInToolContext
 ): Promise<WebSearchResult[]> {
   const numResults = Math.min(args.num_results ?? 5, 20);
 
-  // TODO: Integrate with Tavily API or similar search service
-  // For now, return a placeholder indicating the tool needs configuration
   console.log(`[web_search] Searching for: "${args.query}" (limit: ${numResults})`);
 
-  // In production, this would call Tavily API:
-  // const response = await fetch('https://api.tavily.com/search', {
-  //   method: 'POST',
-  //   headers: {
-  //     'Content-Type': 'application/json',
-  //     'Authorization': `Bearer ${apiKey}`,
-  //   },
-  //   body: JSON.stringify({
-  //     query: args.query,
-  //     max_results: numResults,
-  //   }),
-  // });
+  // Use injected service if available, otherwise create one without API key
+  const service = webSearchService ?? createWebSearchService({});
 
-  // Placeholder response
-  return [
-    {
-      title: `Search results for: ${args.query}`,
-      url: 'https://example.com/search',
-      snippet: 'Web search requires Tavily API configuration. Please add a Tavily API key to your workspace settings.',
-    },
-  ];
+  const results = await service.search(args.query, numResults);
+
+  return results;
 }
 
 // ============================================================================
@@ -328,7 +342,7 @@ async function storeMemoryImpl(
 }
 
 // ============================================================================
-// CREATE AGENT (Phase 8 - placeholder for now)
+// CREATE AGENT
 // ============================================================================
 
 interface CreateAgentArgs {
@@ -336,22 +350,32 @@ interface CreateAgentArgs {
   goal: string;
   model?: string;
   tools?: string[];
+  input?: unknown;
 }
+
+// Store for parent tools, set when getBuiltInRuntimeTools is called
+let parentToolsStore: Map<string, RuntimeToolDefinition> | null = null;
 
 async function createAgentImpl(
   args: CreateAgentArgs,
   ctx: BuiltInToolContext
 ): Promise<CreateAgentResult> {
-  // Phase 8 implementation - for now, return a placeholder
-  console.log(`[create_agent] Would create agent: ${args.name} with goal: ${args.goal}`);
+  console.log(`[create_agent] Creating ephemeral agent: ${args.name} with goal: ${args.goal}`);
 
-  return {
-    output: {
-      message: 'create_agent is planned for Phase 8. The agent would be created with the specified configuration.',
-      agentConfig: args,
-    },
-    agentName: args.name,
-  };
+  // Extract input from args if provided
+  const { name, goal, model, tools, input } = args;
+  const agentConfig: EphemeralAgentConfig = { name, goal, model, tools };
+
+  // Get parent tools - we need to pass the tools available in this execution context
+  // so the ephemeral agent can use them
+  const parentTools = parentToolsStore ?? new Map<string, RuntimeToolDefinition>();
+
+  // Execute the ephemeral agent
+  return ephemeralAgentService.createAndExecute(
+    agentConfig,
+    input ?? '',
+    parentTools
+  );
 }
 
 // ============================================================================
@@ -479,6 +503,10 @@ export function getBuiltInRuntimeTools(ctx: BuiltInToolContext): Map<string, Run
     wrapImpl<CreateToolArgs>(createToolImpl),
     ctx
   ));
+
+  // Store tools so create_agent can pass them to ephemeral agents
+  // This allows ephemeral agents to use the same tools as the parent BB
+  parentToolsStore = tools;
 
   return tools;
 }
