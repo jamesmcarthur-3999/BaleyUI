@@ -29,6 +29,7 @@ import { ROUTES } from '@/lib/routes';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } from '@/hooks';
 import { formatErrorWithAction, parseCreatorError } from '@/lib/errors/creator-errors';
 import { generateChangeSummary, formatChangeSummaryForChat } from '@/lib/baleybot/change-summary';
+import { safeParseDate } from '@/lib/utils/date';
 import type {
   VisualEntity,
   Connection,
@@ -591,14 +592,16 @@ export default function BaleybotPage() {
 
       // Load conversation history (Phase 2.6)
       if (existingBaleybot.conversationHistory && Array.isArray(existingBaleybot.conversationHistory)) {
-        const loadedMessages: CreatorMessage[] = existingBaleybot.conversationHistory.map(
-          (msg: { id: string; role: 'user' | 'assistant'; content: string; timestamp: string }) => ({
+        const loadedMessages: CreatorMessage[] = existingBaleybot.conversationHistory
+          .filter((msg): msg is { id: string; role: 'user' | 'assistant'; content: string; timestamp: string } =>
+            msg && typeof msg.id === 'string' && typeof msg.content === 'string'
+          )
+          .map((msg) => ({
             id: msg.id,
             role: msg.role,
             content: msg.content,
-            timestamp: new Date(msg.timestamp),
-          })
-        );
+            timestamp: safeParseDate(msg.timestamp),
+          }));
         setMessages(loadedMessages);
       }
 
