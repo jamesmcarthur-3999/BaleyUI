@@ -59,6 +59,11 @@ export interface BALExecutionResult {
   status: 'success' | 'error' | 'cancelled' | 'timeout';
   result?: unknown;
   error?: string;
+  errorContext?: {
+    phase: 'parsing' | 'compilation' | 'execution';
+    entityName?: string;
+    stepIndex?: number;
+  };
   entities?: string[];
   structure?: PipelineStructure | null;
   duration?: number;
@@ -188,6 +193,7 @@ export async function executeBALCode(
       return {
         status: 'error',
         error,
+        errorContext: { phase: 'compilation' },
         duration: Date.now() - startTime,
       };
     }
@@ -258,6 +264,7 @@ export async function executeBALCode(
         return {
           status: 'timeout',
           error: `Execution timed out after ${timeout}ms`,
+          errorContext: { phase: 'execution' },
           duration: Date.now() - startTime,
         };
       }
@@ -273,6 +280,7 @@ export async function executeBALCode(
     return {
       status: 'error',
       error: errorMessage,
+      errorContext: { phase: 'execution' },
       duration: Date.now() - startTime,
     };
   }
@@ -315,6 +323,7 @@ export async function* streamBALExecution(
       return {
         status: 'error',
         error,
+        errorContext: { phase: 'compilation' },
         duration: Date.now() - startTime,
       };
     }
@@ -375,6 +384,7 @@ export async function* streamBALExecution(
       return {
         status: 'timeout',
         error: 'Execution timed out',
+        errorContext: { phase: 'execution' },
         duration: Date.now() - startTime,
       };
     }
@@ -393,6 +403,7 @@ export async function* streamBALExecution(
     return {
       status: 'error',
       error: errorMessage,
+      errorContext: { phase: 'execution' },
       duration: Date.now() - startTime,
     };
   }
