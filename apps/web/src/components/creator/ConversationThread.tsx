@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { motion, AnimatePresence, PanInfo } from 'framer-motion';
 import { ChevronUp, ChevronDown, User, Bot } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { CreatorMessage } from '@/lib/baleybot/creator-types';
+
+// Swipe threshold for gesture detection (Phase 4.7)
+const SWIPE_THRESHOLD = 50;
 
 interface ConversationThreadProps {
   messages: CreatorMessage[];
@@ -53,20 +55,46 @@ export function ConversationThread({
     }
   }, [messages.length, isCollapsed]);
 
+  // Swipe gesture handling (Phase 4.7)
+  const handleSwipe = useCallback((direction: 'up' | 'down') => {
+    if (direction === 'down' && !isCollapsed) {
+      setIsCollapsed(true);
+    } else if (direction === 'up' && isCollapsed) {
+      setIsCollapsed(false);
+    }
+  }, [isCollapsed]);
+
+  const handleDragEnd = useCallback((_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    const { velocity, offset } = info;
+    // Detect swipe based on velocity and offset
+    if (Math.abs(offset.y) > SWIPE_THRESHOLD || Math.abs(velocity.y) > 300) {
+      if (offset.y > 0 || velocity.y > 0) {
+        handleSwipe('down');
+      } else {
+        handleSwipe('up');
+      }
+    }
+  }, [handleSwipe]);
+
   if (messages.length === 0) {
     return null;
   }
 
   return (
-    <div className={cn('rounded-xl border bg-background/50', className)}>
-      {/* Header with collapse toggle */}
-      <button
+    <div className={cn('rounded-xl border bg-background/50 touch-pan-x', className)}>
+      {/* Header with collapse toggle and swipe gesture (Phase 4.7) */}
+      <motion.button
         onClick={() => setIsCollapsed(!isCollapsed)}
+        drag="y"
+        dragConstraints={{ top: 0, bottom: 0 }}
+        dragElastic={0.1}
+        onDragEnd={handleDragEnd}
         className={cn(
           'w-full flex items-center justify-between px-4 py-2.5',
           'text-sm font-medium text-muted-foreground',
           'hover:bg-muted/50 transition-colors',
           'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:ring-inset',
+          'cursor-grab active:cursor-grabbing',
           !isCollapsed && 'border-b'
         )}
         aria-expanded={!isCollapsed}
@@ -79,12 +107,18 @@ export function ConversationThread({
             {messages.length} {messages.length === 1 ? 'message' : 'messages'}
           </span>
         </span>
-        {isCollapsed ? (
-          <ChevronDown className="h-4 w-4" aria-hidden="true" />
-        ) : (
-          <ChevronUp className="h-4 w-4" aria-hidden="true" />
-        )}
-      </button>
+        <span className="flex items-center gap-1">
+          {/* Swipe hint on mobile (Phase 4.7) */}
+          <span className="text-[10px] text-muted-foreground/50 sm:hidden">
+            {isCollapsed ? 'swipe up' : 'swipe down'}
+          </span>
+          {isCollapsed ? (
+            <ChevronDown className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <ChevronUp className="h-4 w-4" aria-hidden="true" />
+          )}
+        </span>
+      </motion.button>
 
       {/* Messages container */}
       <AnimatePresence initial={false}>
