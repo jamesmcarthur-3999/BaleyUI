@@ -207,10 +207,11 @@ export function RetryButtonCompact({
       onClick={handleClick}
       disabled={isDisabled}
       title={getTooltip()}
+      aria-label={getTooltip()}
       className={cn('h-8 w-8', className)}
       {...props}
     >
-      <RefreshCw className={cn('h-4 w-4', (isRetrying || isLoading) && 'animate-spin')} />
+      <RefreshCw className={cn('h-4 w-4', (isRetrying || isLoading) && 'animate-spin')} aria-hidden="true" />
     </Button>
   );
 }

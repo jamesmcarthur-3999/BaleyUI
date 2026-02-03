@@ -101,8 +101,8 @@ export default function ExecutionDetailPage() {
     <div className="container py-10">
       {/* Header */}
       <div className="flex items-start gap-4 mb-8">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
-          <ArrowLeft className="h-4 w-4" />
+        <Button variant="ghost" size="icon" onClick={() => router.back()} aria-label="Go back">
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         </Button>
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">

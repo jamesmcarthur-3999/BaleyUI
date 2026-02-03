@@ -300,11 +300,11 @@ export function NodeExecutionCard({
           <div className="flex items-center gap-3">
             {/* Expand/collapse button */}
             {hasContent ? (
-              <Button variant="ghost" size="icon" className="h-6 w-6">
+              <Button variant="ghost" size="icon" className="h-6 w-6" aria-label={isExpanded ? 'Collapse details' : 'Expand details'}>
                 {isExpanded ? (
-                  <ChevronDown className="h-4 w-4" />
+                  <ChevronDown className="h-4 w-4" aria-hidden="true" />
                 ) : (
-                  <ChevronRight className="h-4 w-4" />
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
                 )}
               </Button>
             ) : (

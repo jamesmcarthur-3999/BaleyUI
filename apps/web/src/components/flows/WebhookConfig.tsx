@@ -188,11 +188,12 @@ export function WebhookConfig({ flowId }: WebhookConfigProps) {
                     size="icon"
                     onClick={handleCopyUrl}
                     disabled={copiedUrl}
+                    aria-label={copiedUrl ? 'Copied' : 'Copy webhook URL'}
                   >
                     {copiedUrl ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <CheckCircle2 className="h-4 w-4 text-green-500" aria-hidden="true" />
                     ) : (
-                      <Copy className="h-4 w-4" />
+                      <Copy className="h-4 w-4" aria-hidden="true" />
                     )}
                   </Button>
                 </div>
@@ -256,11 +257,12 @@ export function WebhookConfig({ flowId }: WebhookConfigProps) {
                         size="icon"
                         className="absolute top-2 right-2 h-6 w-6"
                         onClick={handleCopyCurl}
+                        aria-label={copiedCurl ? 'Copied' : 'Copy curl command'}
                       >
                         {copiedCurl ? (
-                          <CheckCircle2 className="h-3 w-3 text-green-500" />
+                          <CheckCircle2 className="h-3 w-3 text-green-500" aria-hidden="true" />
                         ) : (
-                          <Copy className="h-3 w-3" />
+                          <Copy className="h-3 w-3" aria-hidden="true" />
                         )}
                       </Button>
                     </div>

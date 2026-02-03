@@ -168,8 +168,8 @@ export function NodeConfigPanel({ onSave, onClose, className }: NodeConfigPanelP
           <span className={nodeColor}>{nodeIcon}</span>
           <span className="font-medium">{nodeLabel}</span>
         </div>
-        <Button variant="ghost" size="icon" onClick={handleClose}>
-          <X className="h-4 w-4" />
+        <Button variant="ghost" size="icon" onClick={handleClose} aria-label="Close panel">
+          <X className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
 
@@ -284,8 +284,9 @@ export function NodeConfigPanel({ onSave, onClose, className }: NodeConfigPanelP
                         size="icon"
                         onClick={() => handleRemoveRoute(index)}
                         disabled={routes.length <= 1}
+                        aria-label={`Remove route ${index + 1}`}
                       >
-                        <X className="h-4 w-4" />
+                        <X className="h-4 w-4" aria-hidden="true" />
                       </Button>
                     </div>
                   ))}

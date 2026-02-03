@@ -226,8 +226,9 @@ function ArrayField({ name, schema, value, onChange, disabled }: FieldProps) {
             size="icon"
             onClick={() => removeItem(index)}
             disabled={disabled}
+            aria-label={`Remove item ${index + 1}`}
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
       ))}

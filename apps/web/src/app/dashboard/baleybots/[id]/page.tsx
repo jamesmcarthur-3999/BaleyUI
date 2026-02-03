@@ -726,8 +726,8 @@ export default function BaleybotPage() {
         {/* Main header row - responsive padding (Phase 4.6) */}
         <div className="flex items-center gap-2 sm:gap-3 max-w-6xl mx-auto w-full px-2 sm:px-4 py-2 sm:py-3">
           {/* Back button */}
-          <Button variant="ghost" size="icon" onClick={handleBack} className="shrink-0 min-h-10 min-w-10 sm:min-h-11 sm:min-w-11">
-            <ArrowLeft className="h-4 w-4" />
+          <Button variant="ghost" size="icon" onClick={handleBack} className="shrink-0 min-h-10 min-w-10 sm:min-h-11 sm:min-w-11" aria-label="Go back to BaleyBots list">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           </Button>
 
           {/* Icon and name (Phase 5.1: Handle long names) */}
@@ -770,8 +770,9 @@ export default function BaleybotPage() {
                     onClick={handleUndo}
                     disabled={!canUndo}
                     className="min-h-11 min-w-11 h-11 w-11"
+                    aria-label="Undo"
                   >
-                    <Undo2 className="h-4 w-4" />
+                    <Undo2 className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -788,8 +789,9 @@ export default function BaleybotPage() {
                     onClick={handleRedo}
                     disabled={!canRedo}
                     className="min-h-11 min-w-11 h-11 w-11"
+                    aria-label="Redo"
                   >
-                    <Redo2 className="h-4 w-4" />
+                    <Redo2 className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -806,8 +808,9 @@ export default function BaleybotPage() {
                     size="icon"
                     onClick={() => setShortcutsOpen(true)}
                     className="min-h-11 min-w-11 h-11 w-11"
+                    aria-label="Keyboard shortcuts"
                   >
-                    <Keyboard className="h-4 w-4" />
+                    <Keyboard className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>

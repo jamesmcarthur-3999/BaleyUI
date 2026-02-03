@@ -162,8 +162,9 @@ export default function ApprovalsSettingsPage() {
                       size="icon"
                       onClick={() => setPatternToRevoke(pattern.id)}
                       disabled={revokeMutation.isPending}
+                      aria-label={`Revoke approval pattern for ${pattern.tool}`}
                     >
-                      <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                      <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" aria-hidden="true" />
                     </Button>
                   </div>
                 );
