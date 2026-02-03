@@ -29,14 +29,29 @@ export {
   type SpawnBaleybotExecutor,
 } from './spawn-executor';
 
+// Schedule Service
+export {
+  createTaskScheduler,
+  taskScheduler,
+  type TaskScheduler,
+  type ScheduleTaskInput,
+  type ScheduleTaskResult,
+} from './schedule-service';
+
 // ============================================================================
 // SERVICE INITIALIZATION
 // ============================================================================
 
-import { setMemoryStorage, setNotificationSender, setSpawnBaleybotExecutor } from '../tools/catalog-service';
+import {
+  setMemoryStorage,
+  setNotificationSender,
+  setSpawnBaleybotExecutor,
+  setTaskScheduler,
+} from '../tools/catalog-service';
 import { memoryStorageService } from './memory-storage';
 import { notificationSender } from './notification-service';
 import { spawnBaleybotExecutor } from './spawn-executor';
+import { taskScheduler } from './schedule-service';
 
 /**
  * Initialize all built-in tool services.
@@ -46,4 +61,5 @@ export function initializeBuiltInToolServices(): void {
   setMemoryStorage(memoryStorageService);
   setNotificationSender(notificationSender);
   setSpawnBaleybotExecutor(spawnBaleybotExecutor);
+  setTaskScheduler(taskScheduler);
 }
