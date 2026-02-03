@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -322,6 +322,8 @@ function ConnectionLine({
   );
 }
 
+const MemoizedConnectionLine = memo(ConnectionLine);
+
 /**
  * Entity card component
  * Responsive to mobile/desktop (Phase 4.1)
@@ -438,6 +440,8 @@ function EntityCard({
   );
 }
 
+const MemoizedEntityCard = memo(EntityCard);
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -471,8 +475,11 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
   const isRebuilding = status === 'building' && entities.length > 0;
   const showEntities = entities.length > 0;
 
-  // Sort entities for consistent rendering (React 19 handles this efficiently)
-  const sortedEntities = [...entities].sort((a, b) => a.id.localeCompare(b.id));
+  // Sort entities for consistent rendering (memoized to prevent unnecessary re-renders)
+  const sortedEntities = useMemo(
+    () => [...entities].sort((a, b) => a.id.localeCompare(b.id)),
+    [entities]
+  );
 
   // Auto-zoom when many entities (Phase 5.3)
   const calculateAutoZoom = useCallback((entityCount: number) => {
@@ -541,7 +548,7 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
             >
               <AnimatePresence>
                 {connections.map((connection) => (
-                  <ConnectionLine
+                  <MemoizedConnectionLine
                     key={connection.id}
                     connection={connection}
                     entities={sortedEntities}
@@ -557,7 +564,7 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
           <div className="absolute inset-0">
             <AnimatePresence mode="popLayout">
               {sortedEntities.map((entity, index) => (
-                <EntityCard
+                <MemoizedEntityCard
                   key={entity.id}
                   entity={entity}
                   index={index}
