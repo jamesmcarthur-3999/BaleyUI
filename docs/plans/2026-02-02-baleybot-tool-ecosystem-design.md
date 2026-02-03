@@ -6,6 +6,29 @@
 
 ---
 
+## For Implementing Agents
+
+**REQUIRED SUB-SKILL:** Use `superpowers:executing-plans` or `superpowers:subagent-driven-development` to implement this design.
+
+**Context:**
+- This is a comprehensive design for BaleyUI's tool ecosystem
+- BaleyUI is an AI workflow builder using BAL (Baleybots Assembly Language)
+- The `@baleybots/core` package provides the agent runtime
+- Current state: `availableTools: []` is empty - this design fills that gap
+
+**Key Files to Understand First:**
+- `apps/web/src/lib/baleybot/creator-bot.ts` - The AI that helps users create BBs
+- `apps/web/src/lib/baleybot/tool-catalog.ts` - Tool categorization system
+- `apps/web/src/lib/baleybot/executor.ts` - BAL execution engine
+- `apps/web/src/lib/baleybot/types.ts` - Type definitions
+- `packages/db/src/schema.ts` - Database schema
+
+**Implementation Order:** Follow the 8 phases in Section 10. Each phase builds on the previous.
+
+**Start with Phase 1:** Built-in tools + tool catalog service. This unblocks everything else.
+
+---
+
 ## Executive Summary
 
 This document defines the complete tool ecosystem for BaleyBots, including built-in tools, auto-generated connection tools, dynamic tool creation, and the supporting infrastructure for triggers, data flow, analytics, cost control, and error handling.
