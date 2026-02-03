@@ -11,6 +11,7 @@ import {
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { randomBytes } from 'crypto';
+import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
 
 /**
  * Generate a random webhook secret
@@ -303,9 +304,12 @@ export const webhooksRouter = router({
           response: result,
         };
       } catch (error) {
+        const message = isUserFacingError(error)
+          ? sanitizeErrorMessage(error)
+          : 'An internal error occurred while testing webhook';
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to test webhook',
+          message,
         });
       }
     }),

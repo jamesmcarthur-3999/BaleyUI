@@ -250,7 +250,14 @@ export const baleybotsRouter = router({
             message: 'BaleyBot was modified by another user. Please refresh and try again.',
           });
         }
-        throw error;
+        // Sanitize unexpected errors before sending to client
+        const message = isUserFacingError(error)
+          ? sanitizeErrorMessage(error)
+          : 'An internal error occurred';
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message,
+        });
       }
     }),
 
@@ -997,7 +1004,14 @@ export const baleybotsRouter = router({
               message: 'BaleyBot was modified by another user. Please refresh and try again.',
             });
           }
-          throw error;
+          // Sanitize unexpected errors before sending to client
+          const message = isUserFacingError(error)
+            ? sanitizeErrorMessage(error)
+            : 'An internal error occurred';
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message,
+          });
         }
       } else {
         // Truncate conversation history to last 50 messages
