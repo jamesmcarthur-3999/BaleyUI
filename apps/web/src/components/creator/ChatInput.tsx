@@ -123,7 +123,11 @@ export function ChatInput({
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
         className={cn(
-          'relative flex items-end gap-2 rounded-2xl border-2 bg-background/80 backdrop-blur-sm px-4 py-3 transition-all duration-300',
+          'relative flex items-end gap-2 rounded-2xl border-2 bg-background/80 backdrop-blur-sm transition-all duration-300',
+          // Responsive padding (Phase 4.5)
+          'px-3 py-2.5 sm:px-4 sm:py-3',
+          // Safe area for notched devices (Phase 4.5)
+          'pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3',
           showGlow
             ? 'border-primary/50 shadow-[0_0_15px_rgba(var(--primary-rgb),0.15)]'
             : 'border-border',
@@ -143,13 +147,15 @@ export function ChatInput({
           aria-label="Message to BaleyBot creator"
           aria-describedby="chat-input-hint"
           className={cn(
-            'flex-1 resize-none bg-transparent text-base leading-6 placeholder:text-muted-foreground/60 focus:outline-none disabled:cursor-not-allowed',
-            'min-h-[24px] max-h-[120px]'
+            'flex-1 resize-none bg-transparent placeholder:text-muted-foreground/60 focus:outline-none disabled:cursor-not-allowed',
+            'min-h-[24px] max-h-[120px]',
+            // Larger text on mobile for better touch (Phase 4.5)
+            'text-base leading-6 sm:text-base sm:leading-6'
           )}
           style={{ height: 'auto' }}
         />
 
-        {/* Send button - min 44px touch target (Phase 4.2) */}
+        {/* Send button - min 44px touch target (Phase 4.2), larger on mobile (Phase 4.5) */}
         <Button
           type="button"
           size="icon"
@@ -158,7 +164,9 @@ export function ChatInput({
           onClick={handleSend}
           aria-label={isProcessing ? 'Sending message' : 'Send message'}
           className={cn(
-            'min-h-11 min-w-11 h-11 w-11 shrink-0 rounded-xl transition-all',
+            'shrink-0 rounded-xl transition-all',
+            // Slightly larger on mobile for easier tapping (Phase 4.5)
+            'min-h-11 min-w-11 h-11 w-11 sm:h-11 sm:w-11',
             hasContent && !isDisabled && 'bg-primary hover:bg-primary/90'
           )}
         >
@@ -170,8 +178,8 @@ export function ChatInput({
         </Button>
       </motion.div>
 
-      {/* Hint text */}
-      <p id="chat-input-hint" className="mt-2 text-center text-xs text-muted-foreground/60">
+      {/* Hint text - hidden on mobile for cleaner UI (Phase 4.5) */}
+      <p id="chat-input-hint" className="mt-2 text-center text-xs text-muted-foreground/60 hidden sm:block">
         Press Enter to send, Shift+Enter for new line
       </p>
     </div>
