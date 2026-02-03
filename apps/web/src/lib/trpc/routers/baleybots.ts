@@ -520,6 +520,14 @@ export const baleybotsRouter = router({
         });
       }
 
+      // Check if baleybot relation exists (could be null for orphaned executions)
+      if (!execution.baleybot) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Execution not found',
+        });
+      }
+
       // Verify the BaleyBot belongs to the workspace
       if (execution.baleybot.workspaceId !== ctx.workspace.id) {
         throw new TRPCError({
