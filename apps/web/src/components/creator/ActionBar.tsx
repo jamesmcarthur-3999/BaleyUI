@@ -201,9 +201,9 @@ export function ActionBar({
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className={cn('space-y-4', className)}
     >
-      {/* Test Input Section */}
+      {/* Test Input Section - responsive layout (Phase 4.4) */}
       <div className="space-y-2">
-        <div className="flex items-start gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-start gap-2">
           {/* Mode Toggle - min 44px touch target (Phase 4.2) */}
           <TooltipProvider>
             <Tooltip>
@@ -259,14 +259,15 @@ export function ActionBar({
         )}
       </div>
 
-      {/* Controls Row */}
-      <div className="flex items-center gap-3">
+      {/* Controls Row - Stacks on mobile (Phase 4.4) */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
 
-        {/* Auto-Save Status Indicator */}
+        {/* Auto-Save Status Indicator - order changes on mobile (Phase 4.4) */}
         {autoSaveStatus !== 'idle' && (
           <div
             className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm',
+              'flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm',
+              'order-first sm:order-none', // Show at top on mobile (Phase 4.4)
               autoSaveStatus === 'saving' && 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400',
               autoSaveStatus === 'saved' && 'bg-green-50 dark:bg-green-950/30 text-green-600 dark:text-green-400',
               autoSaveStatus === 'error' && 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400'
@@ -300,7 +301,7 @@ export function ActionBar({
           <Tooltip>
             <TooltipTrigger asChild>
               <span>
-                {/* Run button - min 44px touch target (Phase 4.2) */}
+                {/* Run button - min 44px touch target (Phase 4.2), full width on mobile (Phase 4.4) */}
                 <Button
                   onClick={handleRun}
                   disabled={isRunDisabled}
@@ -314,7 +315,8 @@ export function ActionBar({
                   className={cn(
                     'btn-playful text-white rounded-xl',
                     'px-6 min-h-11 h-auto',
-                    'flex items-center gap-2'
+                    'flex items-center justify-center gap-2',
+                    'w-full sm:w-auto' // Full width on mobile (Phase 4.4)
                   )}
                 >
                   {isRunning ? (
@@ -344,7 +346,7 @@ export function ActionBar({
           </Tooltip>
         </TooltipProvider>
 
-        {/* Code Toggle Button - min 44px touch target (Phase 4.2) */}
+        {/* Code Toggle Button - min 44px touch target (Phase 4.2), full width on mobile (Phase 4.4) */}
         <Button
           variant="outline"
           onClick={() => setShowCode(!showCode)}
@@ -352,7 +354,8 @@ export function ActionBar({
           aria-controls="bal-code-viewer"
           className={cn(
             'rounded-xl px-4 min-h-11 h-auto',
-            'flex items-center gap-2',
+            'flex items-center justify-center gap-2',
+            'w-full sm:w-auto', // Full width on mobile (Phase 4.4)
             showCode && 'bg-muted'
           )}
         >
