@@ -765,7 +765,7 @@ export const baleybotsRouter = router({
         with: { baleybot: true },
       });
 
-      if (!execution || execution.baleybot.workspaceId !== ctx.workspace.id) {
+      if (!execution || !execution.baleybot || execution.baleybot.workspaceId !== ctx.workspace.id) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Execution not found',
