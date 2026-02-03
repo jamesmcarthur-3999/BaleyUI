@@ -335,50 +335,41 @@ export const connectionsRouter = router({
    * Set a connection as the default for its provider type.
    */
   setDefault: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Verify connection exists and belongs to workspace
-      const connection = await ctx.db.query.connections.findFirst({
-        where: and(
-          eq(connections.id, input.id),
-          eq(connections.workspaceId, ctx.workspace.id),
-          isNull(connections.deletedAt)
-        ),
-      });
+      return await ctx.db.transaction(async (tx) => {
+        // First, unset all defaults in workspace
+        await tx
+          .update(connections)
+          .set({ isDefault: false, updatedAt: new Date() })
+          .where(
+            and(
+              eq(connections.workspaceId, ctx.workspace.id),
+              eq(connections.isDefault, true)
+            )
+          );
 
-      if (!connection) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Connection not found',
-        });
-      }
-
-      // Unset all other defaults for this provider type
-      await ctx.db
-        .update(connections)
-        .set({
-          isDefault: false,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(connections.workspaceId, ctx.workspace.id),
-            eq(connections.type, connection.type),
-            isNull(connections.deletedAt)
+        // Then set the new default
+        const [updated] = await tx
+          .update(connections)
+          .set({ isDefault: true, updatedAt: new Date() })
+          .where(
+            and(
+              eq(connections.id, input.id),
+              eq(connections.workspaceId, ctx.workspace.id)
+            )
           )
-        );
+          .returning();
 
-      // Set this connection as default
-      const [updated] = await ctx.db
-        .update(connections)
-        .set({
-          isDefault: true,
-          updatedAt: new Date(),
-        })
-        .where(eq(connections.id, input.id))
-        .returning();
+        if (!updated) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Connection not found',
+          });
+        }
 
-      return updated;
+        return updated;
+      });
     }),
 
   /**
