@@ -8,9 +8,11 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { ROUTES } from '@/lib/routes';
 import { BaleybotCard, CreateBaleybotPrompt } from '@/components/baleybots';
 import { Bot, Plus } from 'lucide-react';
+import { useGridNavigation } from '@/hooks/useGridNavigation';
 
 export default function BaleybotsListPage() {
   const { data: baleybots, isLoading } = trpc.baleybots.list.useQuery();
+  const { containerRef, handleKeyDown } = useGridNavigation(baleybots?.length ?? 0, 3);
 
   return (
     <div className="container py-10">
@@ -42,20 +44,32 @@ export default function BaleybotsListPage() {
             ))}
           </div>
         ) : baleybots && baleybots.length > 0 ? (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {baleybots.map((bb) => (
-              <BaleybotCard
+          <div
+            ref={containerRef}
+            role="grid"
+            aria-label="BaleyBots list"
+            className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+          >
+            {baleybots.map((bb, index) => (
+              <div
                 key={bb.id}
-                id={bb.id}
-                name={bb.name}
-                description={bb.description}
-                icon={bb.icon}
-                status={bb.status as 'draft' | 'active' | 'paused' | 'error'}
-                executionCount={bb.executionCount ?? 0}
-                lastExecutedAt={
-                  bb.lastExecutedAt ? new Date(bb.lastExecutedAt) : null
-                }
-              />
+                role="gridcell"
+                tabIndex={index === 0 ? 0 : -1}
+                onKeyDown={(e) => handleKeyDown(e, index)}
+                className="focus:outline-none focus:ring-2 focus:ring-primary rounded-xl"
+              >
+                <BaleybotCard
+                  id={bb.id}
+                  name={bb.name}
+                  description={bb.description}
+                  icon={bb.icon}
+                  status={bb.status as 'draft' | 'active' | 'paused' | 'error'}
+                  executionCount={bb.executionCount ?? 0}
+                  lastExecutedAt={
+                    bb.lastExecutedAt ? new Date(bb.lastExecutedAt) : null
+                  }
+                />
+              </div>
             ))}
           </div>
         ) : (

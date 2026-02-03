@@ -17,3 +17,6 @@ export * from './useDirtyState';
 export * from './useDebounce';
 export * from './useNavigationGuard';
 export * from './useHistory';
+
+// Accessibility hooks
+export * from './useGridNavigation';
