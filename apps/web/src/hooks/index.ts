@@ -20,3 +20,4 @@ export * from './useHistory';
 
 // Accessibility hooks
 export * from './useGridNavigation';
+export * from './useFocusTrap';
