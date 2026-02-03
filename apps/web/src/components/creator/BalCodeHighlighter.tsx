@@ -36,24 +36,19 @@ interface Token {
  * BAL keywords
  */
 const BAL_KEYWORDS = new Set([
-  'flow',
-  'tool',
-  'agent',
-  'pipeline',
-  'input',
-  'output',
-  'returns',
-  'use',
-  'with',
-  'as',
-  'from',
-  'import',
-  'export',
-  'config',
+  'chain',
+  'parallel',
   'if',
   'else',
-  'then',
-  'spawn',
+  'loop',
+  'run',
+  'true',
+  'false',
+  'null',
+  'model',
+  'tools',
+  'output',
+  'history',
 ]);
 
 /**

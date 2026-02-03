@@ -6,6 +6,7 @@
  */
 
 import { Baleybot, type Processable } from '@baleybots/core';
+import { parse, tokenize } from '@baleybots/tools';
 import { z } from 'zod';
 import type {
   GeneratorContext,
@@ -47,7 +48,7 @@ const generateResultSchema = z.object({
 // ============================================================================
 
 const BAL_SYNTAX_REFERENCE = `
-# BAL (Baleybots Assembly Language) Syntax Reference
+# BAL (Baleybots Assembly Language) Syntax Reference (v2)
 
 BAL is used to define BaleyBot configurations. Each entity is an AI agent with a specific purpose.
 
@@ -56,17 +57,16 @@ BAL is used to define BaleyBot configurations. Each entity is an AI agent with a
 entity_name {
   "goal": "What this entity should accomplish",
   "model": "provider:model-name",  // Optional, e.g., "openai:gpt-4o-mini"
-  "tools": ["tool1", "tool2"],     // Immediate access tools
-  "can_request": ["tool3"],         // Tools requiring approval
-  "output": {                       // Optional output schema
+  "tools": ["tool1", "tool2"],     // Tools available to the entity
+  "output": {                      // Optional output schema
     "field1": "type",
     "field2": "type"
   },
-  "history": "none" | "inherit"     // Optional, default is "inherit"
+  "history": "none" | "inherit"    // Optional, default is "inherit"
 }
 \`\`\`
 
-## Chaining Entities
+## Sequential Execution
 \`\`\`bal
 chain {
   entity1
@@ -77,18 +77,31 @@ chain {
 
 ## Conditional Execution
 \`\`\`bal
-when condition_entity {
-  "pass": pass_entity,
-  "fail": fail_entity
+if ("result.is_good") {
+  pass_entity
+} else {
+  fail_entity
 }
 \`\`\`
 
 ## Parallel Execution
 \`\`\`bal
 parallel {
-  "branch1": entity1,
-  "branch2": entity2
+  entity1
+  entity2
 }
+\`\`\`
+
+## Loop Execution
+\`\`\`bal
+loop ("until": "result.quality > 0.9", "max": 5) {
+  improver
+}
+\`\`\`
+
+## Run Input
+\`\`\`bal
+run("Your input text here")
 \`\`\`
 
 ## Example: Activity Monitor
@@ -103,8 +116,7 @@ activity_poller {
 trend_analyzer {
   "goal": "Analyze event patterns and identify trends",
   "model": "anthropic:claude-sonnet-4-20250514",
-  "tools": ["query_database"],
-  "can_request": ["send_notification"],
+  "tools": ["query_database", "send_notification"],
   "output": {
     "trends": "array",
     "anomalies": "array"
@@ -125,7 +137,7 @@ chain {
 
 ## Tool Assignment Rules
 1. **tools**: Use for read-only or safe operations the entity needs directly
-2. **can_request**: Use for write operations, external effects, or dangerous tools
+2. For risky tools, include them in tools but expect approval at runtime
 3. Never assign forbidden tools
 4. Match tools to the entity's specific goal
 `;
@@ -161,7 +173,7 @@ ${existingBBsSection}
 1. **Understand Intent**: Carefully analyze what the user wants to accomplish
 2. **Keep It Simple**: Use the minimum number of entities needed
 3. **Appropriate Tools**: Only assign tools relevant to each entity's goal
-4. **Safety First**: Put dangerous/write tools in can_request, not tools
+4. **Safety First**: Only include risky tools when essential; approvals are handled at runtime
 5. **Clear Names**: Use descriptive snake_case names for entities
 6. **Good Defaults**: Use appropriate models (gpt-4o-mini for simple tasks, claude-sonnet for complex reasoning)
 7. **Helpful Icons**: Suggest relevant emoji icons
@@ -282,6 +294,35 @@ function validateToolAssignments(
   });
 }
 
+function typeSpecToString(spec: { kind: string; [key: string]: unknown }): string {
+  switch (spec.kind) {
+    case 'string':
+      return 'string';
+    case 'number':
+      return 'number';
+    case 'boolean':
+      return 'boolean';
+    case 'array':
+      return 'array';
+    case 'object':
+      return 'object';
+    case 'optional': {
+      const inner = spec.inner as { kind: string; [key: string]: unknown } | undefined;
+      return inner ? `${typeSpecToString(inner)}?` : 'optional';
+    }
+    default:
+      return 'string';
+  }
+}
+
+function outputSchemaToRecord(output: { fields: Array<{ name: string; fieldType: { kind: string } }> }): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const field of output.fields) {
+    result[field.name] = typeSpecToString(field.fieldType as { kind: string; [key: string]: unknown });
+  }
+  return result;
+}
+
 /**
  * Parse BAL code and extract entity definitions
  */
@@ -291,50 +332,32 @@ export function parseBalCode(balCode: string): {
   errors: string[];
 } {
   const entities: Array<{ name: string; config: Record<string, unknown> }> = [];
-  const errors: string[] = [];
-  let chain: string[] | undefined;
 
-  // Simple regex-based parser for BAL syntax
-  // In production, this would be a proper parser
+  try {
+    const tokens = tokenize(balCode);
+    const ast = parse(tokens, balCode);
 
-  // Match entity definitions
-  const entityRegex = /(\w+)\s*\{([^}]+)\}/g;
-  let match;
-
-  while ((match = entityRegex.exec(balCode)) !== null) {
-    const name = match[1];
-    const configStr = match[2];
-
-    if (!name || !configStr) {
-      continue;
+    for (const entity of ast.entities.values()) {
+      entities.push({
+        name: entity.name,
+        config: {
+          goal: entity.goal,
+          model: entity.model,
+          tools: entity.tools ?? [],
+          output: entity.output ? outputSchemaToRecord(entity.output as { fields: Array<{ name: string; fieldType: { kind: string } }> }) : undefined,
+          history: entity.history,
+        },
+      });
     }
 
-    if (name === 'chain') {
-      // Parse chain directive
-      chain = configStr
-        .split(/\s+/)
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-    } else if (name === 'parallel' || name === 'when') {
-      // These are control structures, handle separately
-      // For now, skip
-    } else {
-      // Parse entity config as JSON-like
-      try {
-        // Convert BAL config to JSON
-        const jsonStr = configStr
-          .replace(/(\w+):/g, '"$1":') // Add quotes to keys
-          .replace(/'/g, '"'); // Convert single quotes to double
-
-        const config = JSON.parse(`{${jsonStr}}`) as Record<string, unknown>;
-        entities.push({ name, config });
-      } catch {
-        errors.push(`Failed to parse entity "${name}": Invalid configuration syntax`);
-      }
-    }
+    return { entities, chain: undefined, errors: [] };
+  } catch (error) {
+    return {
+      entities: [],
+      chain: undefined,
+      errors: [error instanceof Error ? error.message : String(error)],
+    };
   }
-
-  return { entities, chain, errors };
 }
 
 /**
@@ -348,22 +371,12 @@ export function validateBalCode(balCode: string): {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  const { entities, chain, errors: parseErrors } = parseBalCode(balCode);
+  const { entities, errors: parseErrors } = parseBalCode(balCode);
   errors.push(...parseErrors);
 
   // Check for at least one entity
   if (entities.length === 0) {
     errors.push('BAL code must define at least one entity');
-  }
-
-  // Check chain references valid entities
-  if (chain) {
-    const entityNames = new Set(entities.map((e) => e.name));
-    for (const name of chain) {
-      if (!entityNames.has(name)) {
-        errors.push(`Chain references undefined entity: ${name}`);
-      }
-    }
   }
 
   // Validate each entity
