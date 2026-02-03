@@ -11,13 +11,39 @@ import {
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import type { FlowNode, FlowEdge, Trigger, PartialUpdateData } from '@/lib/types';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('flows-router');
 
 /**
- * Zod schema for flow validation
+ * Zod schema for flow node validation
  */
-const flowNodeSchema = z.array(z.any()).optional();
-const flowEdgeSchema = z.array(z.any()).optional();
-const flowTriggersSchema = z.array(z.any()).optional();
+const flowNodeSchema = z.array(z.object({
+  id: z.string(),
+  type: z.string(),
+  position: z.object({ x: z.number(), y: z.number() }),
+  data: z.record(z.string(), z.unknown()),
+}).passthrough()).optional();
+
+/**
+ * Zod schema for flow edge validation
+ */
+const flowEdgeSchema = z.array(z.object({
+  id: z.string(),
+  source: z.string(),
+  target: z.string(),
+  sourceHandle: z.string().optional(),
+  targetHandle: z.string().optional(),
+}).passthrough()).optional();
+
+/**
+ * Zod schema for flow trigger validation
+ */
+const flowTriggersSchema = z.array(z.object({
+  type: z.enum(['manual', 'webhook', 'schedule', 'api']),
+  enabled: z.boolean().optional(),
+}).passthrough()).optional();
 
 /**
  * tRPC router for managing flows (visual compositions).
@@ -130,7 +156,7 @@ export const flowsRouter = router({
       }
 
       // Prepare update data (only include fields that are provided)
-      const updateData: any = {};
+      const updateData: PartialUpdateData = {};
 
       if (input.name !== undefined) updateData.name = input.name;
       if (input.description !== undefined) updateData.description = input.description;
@@ -224,7 +250,7 @@ export const flowsRouter = router({
     .input(
       z.object({
         flowId: z.string().uuid(),
-        input: z.any().optional(),
+        input: z.unknown().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -233,6 +259,8 @@ export const flowsRouter = router({
         `execute:${ctx.workspace.id}:${ctx.userId}`,
         RATE_LIMITS.execute
       );
+
+      log.info('Executing flow', { flowId: input.flowId });
 
       // Verify flow exists and belongs to workspace
       const flow = await ctx.db.query.flows.findFirst({
@@ -429,6 +457,8 @@ export const flowsRouter = router({
           message: `Cannot cancel execution with status: ${execution.status}`,
         });
       }
+
+      log.info('Cancelling flow execution', { executionId: input.id, flowId: execution.flowId });
 
       // Update execution status to cancelled
       const [cancelled] = await ctx.db

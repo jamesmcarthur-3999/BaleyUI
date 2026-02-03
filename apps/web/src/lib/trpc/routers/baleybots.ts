@@ -21,6 +21,9 @@ import { executeBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { verifyNestedOwnership } from '../helpers';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('baleybots-router');
 
 /**
  * Status values for BaleyBots
@@ -365,6 +368,8 @@ export const baleybotsRouter = router({
         RATE_LIMITS.execute
       );
 
+      log.info('Executing baleybot', { baleybotId: input.id, triggeredBy: input.triggeredBy });
+
       // Verify BaleyBot exists and belongs to workspace (outside transaction for early validation)
       const baleybot = await ctx.db.query.baleybots.findFirst({
         where: and(
@@ -442,6 +447,13 @@ export const baleybotsRouter = router({
 
           const duration = Date.now() - startTime;
 
+          log.info('Baleybot execution completed', {
+            baleybotId: input.id,
+            executionId: execution.id,
+            status: result.status,
+            durationMs: duration,
+          });
+
           // Update execution with result
           await tx
             .update(baleybotExecutions)
@@ -463,6 +475,12 @@ export const baleybotsRouter = router({
         } catch (error) {
           const duration = Date.now() - startTime;
           const internalErrorMessage = error instanceof Error ? error.message : String(error);
+
+          log.error('Baleybot execution failed', error instanceof Error ? error : undefined, {
+            baleybotId: input.id,
+            executionId: execution.id,
+            durationMs: duration,
+          });
 
           // Update execution with error (store full error internally)
           // This will be committed even though we throw, because we want to record the failure
@@ -807,7 +825,7 @@ export const baleybotsRouter = router({
         if (Array.isArray(execution.segments)) {
           currentSegments = execution.segments;
         } else {
-          console.warn(`Invalid segments format for execution ${input.executionId}`);
+          log.warn('Invalid segments format for execution', { executionId: input.executionId });
         }
       }
 
