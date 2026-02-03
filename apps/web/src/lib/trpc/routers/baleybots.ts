@@ -17,6 +17,7 @@ import { TRPCError } from '@trpc/server';
 import { processCreatorMessage } from '@/lib/baleybot/creator-bot';
 import type { CreatorMessage } from '@/lib/baleybot/creator-types';
 import { executeBALCode } from '@baleyui/sdk';
+import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
 
 /**
  * Status values for BaleyBots
@@ -436,22 +437,27 @@ export const baleybotsRouter = router({
         return updatedExecution || execution;
       } catch (error) {
         const duration = Date.now() - startTime;
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const internalErrorMessage = error instanceof Error ? error.message : String(error);
 
-        // Update execution with error
+        // Update execution with error (store full error internally)
         await ctx.db
           .update(baleybotExecutions)
           .set({
             status: 'failed',
-            error: errorMessage,
+            error: internalErrorMessage,
             completedAt: new Date(),
             durationMs: duration,
           })
           .where(eq(baleybotExecutions.id, execution.id));
 
+        // Sanitize error message before sending to client
+        const errorMessage = isUserFacingError(error)
+          ? sanitizeErrorMessage(error)
+          : 'Execution failed due to an internal error';
+
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: `Execution failed: ${errorMessage}`,
+          message: errorMessage,
         });
       }
     }),
