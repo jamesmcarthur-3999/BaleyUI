@@ -12,57 +12,86 @@ import type { NodeExecutor, CompiledNode, NodeExecutorContext } from './index';
 import type { FunctionBlockNodeData } from '@/lib/baleybots/types';
 import { withRetry } from '../retry';
 import { ExecutionError, ErrorCode, TimeoutError } from '../errors';
+import { evaluateSafeExpression, isSafeExpression } from '@/lib/utils/safe-eval';
 
 /**
- * Create a sandboxed function from code string
+ * Create a sandboxed function from code string using safe expression evaluation.
  *
- * The function receives the input as its first argument and should return the output.
- * Available globals: console, JSON, Math, Date, Array, Object, String, Number, Boolean
+ * SECURITY: Uses a whitelist-based safe expression evaluator instead of new Function().
+ * This prevents arbitrary code execution but limits function blocks to safe expressions.
+ *
+ * Supported patterns:
+ * - Simple return statements: `return input.field;`
+ * - Expressions with comparisons: `return input.value > 10 ? "high" : "low";`
+ * - Property access: `return input.data[0].name;`
+ * - Math operations: `return input.a + input.b;`
+ *
+ * For complex transformations, use a proper BaleyBot block type instead.
  */
 function createSandboxedFunction(code: string): (input: unknown) => unknown {
-  // Create a restricted scope
-  const allowedGlobals = {
-    console: {
-      log: (...args: unknown[]) => console.log('[Function Block]', ...args),
-      warn: (...args: unknown[]) => console.warn('[Function Block]', ...args),
-      error: (...args: unknown[]) => console.error('[Function Block]', ...args),
-    },
-    JSON,
-    Math,
-    Date,
-    Array,
-    Object,
-    String,
-    Number,
-    Boolean,
-    parseInt,
-    parseFloat,
-    isNaN,
-    isFinite,
-    encodeURIComponent,
-    decodeURIComponent,
-    encodeURI,
-    decodeURI,
-  };
+  // Normalize the code - remove extra whitespace and handle simple cases
+  const normalizedCode = code.trim();
 
-  // Wrap the code in a function
-  const wrappedCode = `
-    return (function(input) {
-      "use strict";
-      ${code}
-    });
-  `;
+  // Handle simple return statements
+  const returnMatch = normalizedCode.match(/^\s*return\s+(.+?);?\s*$/);
+  if (returnMatch && returnMatch[1]) {
+    const expression = returnMatch[1].trim();
 
-  try {
-    // Create the function with restricted scope
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    const createFn = new Function(...Object.keys(allowedGlobals), wrappedCode);
-    return createFn(...Object.values(allowedGlobals));
-  } catch (error) {
-    throw new Error(
-      `Failed to compile function: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
+    // Validate the expression is safe
+    if (!isSafeExpression(expression)) {
+      throw new Error(
+        `Unsafe expression detected in function block. ` +
+        `Only safe expressions (property access, comparisons, math, ternary) are allowed. ` +
+        `Expression: ${expression}`
+      );
+    }
+
+    return (input: unknown) => {
+      return evaluateSafeExpression(expression, { input });
+    };
   }
+
+  // Handle multi-line code by extracting the return expression
+  const lines = normalizedCode.split('\n').map(l => l.trim()).filter(l => l);
+  const lastLine = lines[lines.length - 1];
+
+  if (lastLine && lastLine.startsWith('return ')) {
+    const expression = lastLine.replace(/^return\s+/, '').replace(/;$/, '').trim();
+
+    // Validate the expression is safe
+    if (!isSafeExpression(expression)) {
+      throw new Error(
+        `Unsafe expression detected in function block. ` +
+        `Only safe expressions (property access, comparisons, math, ternary) are allowed. ` +
+        `Expression: ${expression}`
+      );
+    }
+
+    // If there are preceding lines, they might be variable declarations
+    // For safety, we only support single return statements
+    if (lines.length > 1) {
+      throw new Error(
+        `Function blocks only support single return statements for security. ` +
+        `Use a BaleyBot block for complex transformations.`
+      );
+    }
+
+    return (input: unknown) => {
+      return evaluateSafeExpression(expression, { input });
+    };
+  }
+
+  // If no return statement found, treat the entire code as an expression
+  if (!normalizedCode.includes('\n') && isSafeExpression(normalizedCode)) {
+    return (input: unknown) => {
+      return evaluateSafeExpression(normalizedCode, { input });
+    };
+  }
+
+  throw new Error(
+    `Invalid function block code. Must be a simple return statement or safe expression. ` +
+    `For complex logic, use a BaleyBot block instead.`
+  );
 }
 
 /**

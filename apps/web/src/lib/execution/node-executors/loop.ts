@@ -11,6 +11,7 @@
 
 import type { NodeExecutor, CompiledNode, NodeExecutorContext } from './index';
 import type { LoopNodeData, LoopCondition } from '@/lib/baleybots/types';
+import { createConditionEvaluator, isSafeExpression } from '@/lib/utils/safe-eval';
 
 /**
  * Get a nested value from an object using dot notation
@@ -64,19 +65,21 @@ function evaluateCondition(
   }
 
   if (condition.type === 'expression' && condition.expression) {
-    // Simple expression evaluation
-    // In production, use a proper expression evaluator
+    // Safe expression evaluation using whitelist-based evaluator
     try {
-      // Support simple expressions like "iteration < 5" or "data.done === true"
-      const expr = condition.expression
-        .replace(/\bdata\b/g, JSON.stringify(data))
-        .replace(/\biteration\b/g, String(iteration));
+      const expression = condition.expression;
 
-      // Very limited eval - only for simple boolean expressions
-      // In production, use a proper safe expression evaluator
-      const safeEval = new Function(`return ${expr}`);
-      return Boolean(safeEval());
-    } catch {
+      // Validate the expression is safe before evaluation
+      if (!isSafeExpression(expression)) {
+        console.warn(`Unsafe loop condition expression rejected: ${expression}`);
+        return false;
+      }
+
+      // Create a condition evaluator and evaluate with context
+      const evaluator = createConditionEvaluator(expression);
+      return evaluator({ data, iteration });
+    } catch (error) {
+      console.warn(`Failed to evaluate loop condition: ${(error as Error).message}`);
       return false;
     }
   }
