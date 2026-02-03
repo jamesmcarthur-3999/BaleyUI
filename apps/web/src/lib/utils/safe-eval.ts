@@ -590,6 +590,10 @@ function evaluate(node: ASTNode, context: Record<string, unknown>): unknown {
 
       switch (node.operator) {
         case '+':
+          // String concatenation or numeric addition
+          if (typeof left === 'string' || typeof right === 'string') {
+            return String(left) + String(right);
+          }
           return (left as number) + (right as number);
         case '-':
           return (left as number) - (right as number);

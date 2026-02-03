@@ -223,6 +223,12 @@ describe('evaluateSafeExpression', () => {
       expect(evaluateSafeExpression('a + b', { a: 2, b: 3 })).toBe(5);
     });
 
+    it('handles string concatenation with + operator', () => {
+      expect(evaluateSafeExpression('a + b', { a: 'hello', b: 'world' })).toBe('helloworld');
+      expect(evaluateSafeExpression('a + b', { a: '5', b: 3 })).toBe('53');
+      expect(evaluateSafeExpression('a + b', { a: 5, b: '3' })).toBe('53');
+    });
+
     it('evaluates subtraction', () => {
       expect(evaluateSafeExpression('a - b', { a: 5, b: 3 })).toBe(2);
     });
@@ -263,6 +269,11 @@ describe('evaluateSafeExpression', () => {
     it('evaluates number literals', () => {
       expect(evaluateSafeExpression('42', {})).toBe(42);
       expect(evaluateSafeExpression('3.14', {})).toBe(3.14);
+    });
+
+    it('evaluates negative number literals', () => {
+      expect(evaluateSafeExpression('-42', {})).toBe(-42);
+      expect(evaluateSafeExpression('-3.14', {})).toBe(-3.14);
     });
 
     it('evaluates string literals', () => {
