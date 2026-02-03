@@ -546,6 +546,10 @@ export const baleybots = pgTable(
     icon: varchar('icon', { length: 100 }), // emoji or icon name
     status: varchar('status', { length: 50 }).notNull().default('draft'), // draft, active, paused, error
 
+    // Webhook trigger (optional secret for HTTP triggers)
+    webhookSecret: varchar('webhook_secret', { length: 100 }),
+    webhookEnabled: boolean('webhook_enabled').default(false),
+
     // BAL source of truth
     balCode: text('bal_code').notNull(),
 
