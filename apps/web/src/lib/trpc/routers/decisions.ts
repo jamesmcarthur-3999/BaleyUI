@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { decisions, blocks, eq, and, desc, gte, lte, isNotNull, isNull, sql } from '@baleyui/db';
+import { decisions, blocks, eq, and, desc, gte, lte, isNotNull, isNull, sql, notDeleted } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 
 /**
@@ -24,7 +24,10 @@ export const decisionsRouter = router({
     )
     .query(async ({ ctx, input }) => {
       // Build where conditions for filtering
-      const conditions = [eq(blocks.workspaceId, ctx.workspace.id)];
+      const conditions = [
+        eq(blocks.workspaceId, ctx.workspace.id),
+        notDeleted(blocks),
+      ];
 
       if (input.blockId) {
         conditions.push(eq(decisions.blockId, input.blockId));
@@ -145,7 +148,7 @@ export const decisionsRouter = router({
         })
         .from(decisions)
         .innerJoin(blocks, eq(decisions.blockId, blocks.id))
-        .where(and(eq(decisions.id, input.id), eq(blocks.workspaceId, ctx.workspace.id)))
+        .where(and(eq(decisions.id, input.id), eq(blocks.workspaceId, ctx.workspace.id), notDeleted(blocks)))
         .limit(1);
 
       if (!decision || decision.length === 0) {
@@ -177,7 +180,7 @@ export const decisionsRouter = router({
         .select({ id: decisions.id })
         .from(decisions)
         .innerJoin(blocks, eq(decisions.blockId, blocks.id))
-        .where(and(eq(decisions.id, input.id), eq(blocks.workspaceId, ctx.workspace.id)))
+        .where(and(eq(decisions.id, input.id), eq(blocks.workspaceId, ctx.workspace.id), notDeleted(blocks)))
         .limit(1);
 
       if (!existing || existing.length === 0) {
@@ -216,7 +219,10 @@ export const decisionsRouter = router({
     )
     .query(async ({ ctx, input }) => {
       // Build where conditions
-      const conditions = [eq(blocks.workspaceId, ctx.workspace.id)];
+      const conditions = [
+        eq(blocks.workspaceId, ctx.workspace.id),
+        notDeleted(blocks),
+      ];
 
       if (input.blockId) {
         conditions.push(eq(decisions.blockId, input.blockId));
@@ -291,7 +297,7 @@ export const decisionsRouter = router({
       .selectDistinct({ model: decisions.model })
       .from(decisions)
       .innerJoin(blocks, eq(decisions.blockId, blocks.id))
-      .where(and(eq(blocks.workspaceId, ctx.workspace.id), isNotNull(decisions.model)))
+      .where(and(eq(blocks.workspaceId, ctx.workspace.id), notDeleted(blocks), isNotNull(decisions.model)))
       .orderBy(decisions.model);
 
     return models.map((m) => m.model).filter((m): m is string => m !== null);

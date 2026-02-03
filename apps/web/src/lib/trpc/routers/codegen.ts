@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { patterns, blocks, decisions, eq, and, isNull } from '@baleyui/db';
+import { patterns, blocks, decisions, eq, and, notDeleted } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { generateCode, validateGeneratedCode, getPatternStats } from '@/lib/codegen/code-generator';
 import { testGeneratedCode } from '@/lib/codegen/historical-tester';
@@ -30,7 +30,7 @@ export const codegenRouter = router({
         where: and(
           eq(blocks.id, input.blockId),
           eq(blocks.workspaceId, ctx.workspace.id),
-          isNull(blocks.deletedAt)
+          notDeleted(blocks)
         ),
       });
 
@@ -115,7 +115,7 @@ export const codegenRouter = router({
         where: and(
           eq(blocks.id, input.blockId),
           eq(blocks.workspaceId, ctx.workspace.id),
-          isNull(blocks.deletedAt)
+          notDeleted(blocks)
         ),
       });
 
@@ -161,7 +161,7 @@ export const codegenRouter = router({
         where: and(
           eq(blocks.id, input.blockId),
           eq(blocks.workspaceId, ctx.workspace.id),
-          isNull(blocks.deletedAt)
+          notDeleted(blocks)
         ),
       });
 
@@ -222,7 +222,7 @@ export const codegenRouter = router({
         where: and(
           eq(blocks.id, input.blockId),
           eq(blocks.workspaceId, ctx.workspace.id),
-          isNull(blocks.deletedAt)
+          notDeleted(blocks)
         ),
       });
 

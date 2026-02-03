@@ -11,6 +11,7 @@ import {
   desc,
   sql,
   isNotNull,
+  notDeleted,
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { calculateCost } from '@/lib/analytics/cost-calculator';
@@ -33,7 +34,10 @@ export const analyticsRouter = router({
     )
     .query(async ({ ctx, input }) => {
       // Build where conditions
-      const conditions = [eq(blocks.workspaceId, ctx.workspace.id)];
+      const conditions = [
+        eq(blocks.workspaceId, ctx.workspace.id),
+        notDeleted(blocks),
+      ];
 
       if (input.blockId) {
         conditions.push(eq(blockExecutions.blockId, input.blockId));
@@ -159,6 +163,7 @@ export const analyticsRouter = router({
       // Build where conditions
       const conditions = [
         eq(blocks.workspaceId, ctx.workspace.id),
+        notDeleted(blocks),
         isNotNull(blockExecutions.durationMs),
       ];
 
@@ -239,6 +244,7 @@ export const analyticsRouter = router({
     .query(async ({ ctx, input }) => {
       const conditions = [
         eq(blocks.workspaceId, ctx.workspace.id),
+        notDeleted(blocks),
         gte(blockExecutions.createdAt, input.startDate),
         lte(blockExecutions.createdAt, input.endDate),
         isNotNull(blockExecutions.model),
@@ -312,7 +318,8 @@ export const analyticsRouter = router({
       const block = await ctx.db.query.blocks.findFirst({
         where: and(
           eq(blocks.id, input.blockId),
-          eq(blocks.workspaceId, ctx.workspace.id)
+          eq(blocks.workspaceId, ctx.workspace.id),
+          notDeleted(blocks)
         ),
       });
 
@@ -396,7 +403,10 @@ export const analyticsRouter = router({
     )
     .query(async ({ ctx, input }) => {
       // Build where conditions
-      const conditions = [eq(blocks.workspaceId, ctx.workspace.id)];
+      const conditions = [
+        eq(blocks.workspaceId, ctx.workspace.id),
+        notDeleted(blocks),
+      ];
 
       if (input.blockId) {
         conditions.push(eq(decisions.blockId, input.blockId));

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { patterns, blocks, decisions, eq, and, desc, isNull } from '@baleyui/db';
+import { patterns, blocks, decisions, eq, and, desc, notDeleted } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { analyzeDecisions } from '@/lib/patterns/pattern-analyzer';
 import type { PatternCondition, PatternOutputTemplate, PartialUpdateData } from '@/lib/types';
@@ -21,7 +21,10 @@ export const patternsRouter = router({
     )
     .query(async ({ ctx, input }) => {
       // Build where conditions
-      const conditions = [eq(blocks.workspaceId, ctx.workspace.id)];
+      const conditions = [
+        eq(blocks.workspaceId, ctx.workspace.id),
+        notDeleted(blocks),
+      ];
 
       if (input.blockId) {
         conditions.push(eq(patterns.blockId, input.blockId));
@@ -73,7 +76,7 @@ export const patternsRouter = router({
         })
         .from(patterns)
         .innerJoin(blocks, eq(patterns.blockId, blocks.id))
-        .where(and(eq(patterns.id, input.id), eq(blocks.workspaceId, ctx.workspace.id)))
+        .where(and(eq(patterns.id, input.id), eq(blocks.workspaceId, ctx.workspace.id), notDeleted(blocks)))
         .limit(1);
 
       if (!pattern || pattern.length === 0) {
@@ -106,7 +109,7 @@ export const patternsRouter = router({
       const block = await ctx.db
         .select({ id: blocks.id })
         .from(blocks)
-        .where(and(eq(blocks.id, input.blockId), eq(blocks.workspaceId, ctx.workspace.id), isNull(blocks.deletedAt)))
+        .where(and(eq(blocks.id, input.blockId), eq(blocks.workspaceId, ctx.workspace.id), notDeleted(blocks)))
         .limit(1);
 
       if (!block || block.length === 0) {
@@ -154,7 +157,7 @@ export const patternsRouter = router({
         .select({ id: patterns.id })
         .from(patterns)
         .innerJoin(blocks, eq(patterns.blockId, blocks.id))
-        .where(and(eq(patterns.id, input.id), eq(blocks.workspaceId, ctx.workspace.id)))
+        .where(and(eq(patterns.id, input.id), eq(blocks.workspaceId, ctx.workspace.id), notDeleted(blocks)))
         .limit(1);
 
       if (!existing || existing.length === 0) {
@@ -197,7 +200,7 @@ export const patternsRouter = router({
         .select({ id: patterns.id })
         .from(patterns)
         .innerJoin(blocks, eq(patterns.blockId, blocks.id))
-        .where(and(eq(patterns.id, input.id), eq(blocks.workspaceId, ctx.workspace.id)))
+        .where(and(eq(patterns.id, input.id), eq(blocks.workspaceId, ctx.workspace.id), notDeleted(blocks)))
         .limit(1);
 
       if (!existing || existing.length === 0) {
@@ -231,7 +234,7 @@ export const patternsRouter = router({
         .select({ id: patterns.id })
         .from(patterns)
         .innerJoin(blocks, eq(patterns.blockId, blocks.id))
-        .where(and(eq(patterns.id, input.patternId), eq(blocks.workspaceId, ctx.workspace.id)))
+        .where(and(eq(patterns.id, input.patternId), eq(blocks.workspaceId, ctx.workspace.id), notDeleted(blocks)))
         .limit(1);
 
       if (!pattern || pattern.length === 0) {
@@ -245,7 +248,7 @@ export const patternsRouter = router({
       const targetBlock = await ctx.db
         .select({ id: blocks.id })
         .from(blocks)
-        .where(and(eq(blocks.id, input.blockId), eq(blocks.workspaceId, ctx.workspace.id), isNull(blocks.deletedAt)))
+        .where(and(eq(blocks.id, input.blockId), eq(blocks.workspaceId, ctx.workspace.id), notDeleted(blocks)))
         .limit(1);
 
       if (!targetBlock || targetBlock.length === 0) {
@@ -282,7 +285,7 @@ export const patternsRouter = router({
           and(
             eq(blocks.id, input.blockId),
             eq(blocks.workspaceId, ctx.workspace.id),
-            isNull(blocks.deletedAt)
+            notDeleted(blocks)
           )
         )
         .limit(1);
@@ -359,7 +362,7 @@ export const patternsRouter = router({
           and(
             eq(blocks.id, input.blockId),
             eq(blocks.workspaceId, ctx.workspace.id),
-            isNull(blocks.deletedAt)
+            notDeleted(blocks)
           )
         )
         .limit(1);

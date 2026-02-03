@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { connections, eq, and, isNull } from '@baleyui/db';
+import { connections, eq, and, notDeleted, softDelete } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { encrypt, decrypt } from '@/lib/encryption';
 import { testConnection } from '@/lib/connections/test';
@@ -65,7 +65,7 @@ export const connectionsRouter = router({
     const allConnections = await ctx.db.query.connections.findMany({
       where: and(
         eq(connections.workspaceId, ctx.workspace.id),
-        isNull(connections.deletedAt)
+        notDeleted(connections)
       ),
       orderBy: (connections, { desc }) => [desc(connections.createdAt)],
     });
@@ -103,7 +103,7 @@ export const connectionsRouter = router({
         where: and(
           eq(connections.id, input.id),
           eq(connections.workspaceId, ctx.workspace.id),
-          isNull(connections.deletedAt)
+          notDeleted(connections)
         ),
       });
 
@@ -144,7 +144,7 @@ export const connectionsRouter = router({
         where: and(
           eq(connections.workspaceId, ctx.workspace.id),
           eq(connections.type, input.type),
-          isNull(connections.deletedAt)
+          notDeleted(connections)
         ),
       });
 
@@ -184,7 +184,7 @@ export const connectionsRouter = router({
         where: and(
           eq(connections.id, input.id),
           eq(connections.workspaceId, ctx.workspace.id),
-          isNull(connections.deletedAt)
+          notDeleted(connections)
         ),
       });
 
@@ -231,7 +231,7 @@ export const connectionsRouter = router({
         where: and(
           eq(connections.id, input.id),
           eq(connections.workspaceId, ctx.workspace.id),
-          isNull(connections.deletedAt)
+          notDeleted(connections)
         ),
       });
 
@@ -277,7 +277,7 @@ export const connectionsRouter = router({
           where: and(
             eq(connections.id, input.id),
             eq(connections.workspaceId, ctx.workspace.id),
-            isNull(connections.deletedAt)
+            notDeleted(connections)
           ),
         });
 
@@ -386,7 +386,7 @@ export const connectionsRouter = router({
         where: and(
           eq(connections.id, input.id),
           eq(connections.workspaceId, ctx.workspace.id),
-          isNull(connections.deletedAt)
+          notDeleted(connections)
         ),
       });
 
