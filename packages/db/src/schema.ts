@@ -700,6 +700,127 @@ export const workspacePolicies = pgTable('workspace_policies', {
 });
 
 // ============================================================================
+// BALEYBOT MEMORY (for store_memory tool)
+// ============================================================================
+
+export const baleybotMemory = pgTable(
+  'baleybot_memory',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    baleybotId: uuid('baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Key-value storage
+    key: varchar('key', { length: 255 }).notNull(),
+    value: jsonb('value').notNull(),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('baleybot_memory_unique_key').on(
+      table.workspaceId,
+      table.baleybotId,
+      table.key
+    ),
+    index('baleybot_memory_workspace_idx').on(table.workspaceId),
+    index('baleybot_memory_baleybot_idx').on(table.baleybotId),
+  ]
+);
+
+// ============================================================================
+// NOTIFICATIONS (for send_notification tool)
+// ============================================================================
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Who to notify
+    userId: varchar('user_id', { length: 255 }).notNull(), // Clerk user ID
+
+    // Notification content
+    title: varchar('title', { length: 255 }).notNull(),
+    message: text('message').notNull(),
+    priority: varchar('priority', { length: 20 }).notNull().default('normal'), // low, normal, high
+
+    // Source tracking
+    sourceType: varchar('source_type', { length: 50 }), // 'baleybot', 'system', etc.
+    sourceId: uuid('source_id'), // e.g., baleybot ID that sent it
+    executionId: uuid('execution_id'), // e.g., execution that triggered it
+
+    // Status
+    readAt: timestamp('read_at'),
+    dismissedAt: timestamp('dismissed_at'),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('notifications_workspace_idx').on(table.workspaceId),
+    index('notifications_user_idx').on(table.userId),
+    index('notifications_unread_idx').on(table.userId, table.readAt),
+    index('notifications_created_idx').on(table.createdAt),
+  ]
+);
+
+// ============================================================================
+// SCHEDULED TASKS (for schedule_task tool)
+// ============================================================================
+
+export const scheduledTasks = pgTable(
+  'scheduled_tasks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    baleybotId: uuid('baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    // Scheduling
+    runAt: timestamp('run_at').notNull(), // When to run
+    cronExpression: varchar('cron_expression', { length: 100 }), // For recurring tasks
+
+    // Input to pass when running
+    input: jsonb('input'),
+
+    // Status
+    status: varchar('status', { length: 50 }).notNull().default('pending'), // pending, running, completed, failed, cancelled
+
+    // Execution tracking
+    lastRunAt: timestamp('last_run_at'),
+    lastRunStatus: varchar('last_run_status', { length: 50 }),
+    lastRunError: text('last_run_error'),
+    executionId: uuid('execution_id'), // Links to baleybotExecutions when run
+
+    // For recurring tasks
+    runCount: integer('run_count').default(0),
+    maxRuns: integer('max_runs'), // null = unlimited
+
+    // Approval tracking
+    approvedBy: varchar('approved_by', { length: 255 }),
+    approvedAt: timestamp('approved_at'),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('scheduled_tasks_workspace_idx').on(table.workspaceId),
+    index('scheduled_tasks_baleybot_idx').on(table.baleybotId),
+    index('scheduled_tasks_pending_idx').on(table.status, table.runAt),
+  ]
+);
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 
@@ -709,6 +830,37 @@ export const baleybotsRelations = relations(baleybots, ({ one, many }) => ({
     references: [workspaces.id],
   }),
   executions: many(baleybotExecutions),
+  memory: many(baleybotMemory),
+  scheduledTasks: many(scheduledTasks),
+}));
+
+export const baleybotMemoryRelations = relations(baleybotMemory, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [baleybotMemory.workspaceId],
+    references: [workspaces.id],
+  }),
+  baleybot: one(baleybots, {
+    fields: [baleybotMemory.baleybotId],
+    references: [baleybots.id],
+  }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [notifications.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
+
+export const scheduledTasksRelations = relations(scheduledTasks, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [scheduledTasks.workspaceId],
+    references: [workspaces.id],
+  }),
+  baleybot: one(baleybots, {
+    fields: [scheduledTasks.baleybotId],
+    references: [baleybots.id],
+  }),
 }));
 
 export const baleybotExecutionsRelations = relations(baleybotExecutions, ({ one }) => ({
@@ -776,6 +928,9 @@ export const workspacesRelations = relations(workspaces, ({ many, one }) => ({
   baleybots: many(baleybots),
   approvalPatterns: many(approvalPatterns),
   workspacePolicies: one(workspacePolicies),
+  baleybotMemory: many(baleybotMemory),
+  notifications: many(notifications),
+  scheduledTasks: many(scheduledTasks),
 }));
 
 export const apiKeysRelations = relations(apiKeys, ({ one }) => ({

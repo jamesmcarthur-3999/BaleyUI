@@ -51,6 +51,31 @@ export {
   getBuiltInRuntimeTools,
 } from './tools/built-in/implementations';
 
+// Connection-Derived Tools (Phase 2)
+export {
+  introspectPostgres,
+  introspectMySQL,
+  formatSchemaForAI,
+  getCompactSchemaSummary,
+  generateDatabaseToolDefinition,
+  generateDatabaseRuntimeTool,
+  generateGenericDatabaseToolDefinition,
+  detectQueryIntent,
+  type ColumnInfo,
+  type TableInfo,
+  type DatabaseSchema,
+  type DatabaseConnectionInfo,
+  type DatabaseToolConfig,
+} from './tools/connection-derived';
+
+// Services
+export {
+  initializeBuiltInToolServices,
+  memoryStorageService,
+  notificationSender,
+  spawnBaleybotExecutor,
+} from './services';
+
 // Generator
 export {
   createBalGenerator,
