@@ -695,6 +695,9 @@ export const workspacePolicies = pgTable('workspace_policies', {
   // Pattern learning manual (natural language guidelines for AI)
   learningManual: text('learning_manual'),
 
+  // Optimistic locking
+  version: integer('version').default(1).notNull(),
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
