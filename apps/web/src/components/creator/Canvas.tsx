@@ -618,6 +618,8 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
       {/* Zoom controls (Phase 5.3, responsive Phase 4.1) */}
       {showEntities && (
         <div
+          role="group"
+          aria-label="Canvas zoom controls"
           className={cn(
             'absolute flex items-center bg-background/80 backdrop-blur-sm rounded-lg border border-border/50 shadow-sm',
             // Responsive positioning and sizing (Phase 4.1)
@@ -631,14 +633,18 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
             className={isMobile ? 'h-7 w-7' : 'h-8 w-8'}
             onClick={handleZoomOut}
             disabled={zoom <= MIN_ZOOM}
-            aria-label="Zoom out"
+            aria-label={`Zoom out (current zoom: ${Math.round(zoom * 100)}%)`}
           >
-            <ZoomOut className={isMobile ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+            <ZoomOut className={isMobile ? 'h-3.5 w-3.5' : 'h-4 w-4'} aria-hidden="true" />
           </Button>
-          <span className={cn(
-            'font-medium text-muted-foreground text-center',
-            isMobile ? 'text-[10px] min-w-[2.5rem]' : 'text-xs min-w-[3rem]'
-          )}>
+          <span
+            className={cn(
+              'font-medium text-muted-foreground text-center',
+              isMobile ? 'text-[10px] min-w-[2.5rem]' : 'text-xs min-w-[3rem]'
+            )}
+            aria-live="polite"
+            role="status"
+          >
             {Math.round(zoom * 100)}%
           </span>
           <Button
@@ -647,19 +653,19 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
             className={isMobile ? 'h-7 w-7' : 'h-8 w-8'}
             onClick={handleZoomIn}
             disabled={zoom >= MAX_ZOOM}
-            aria-label="Zoom in"
+            aria-label={`Zoom in (current zoom: ${Math.round(zoom * 100)}%)`}
           >
-            <ZoomIn className={isMobile ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+            <ZoomIn className={isMobile ? 'h-3.5 w-3.5' : 'h-4 w-4'} aria-hidden="true" />
           </Button>
-          <div className={cn('w-px bg-border', isMobile ? 'h-3 mx-0.5' : 'h-4 mx-1')} />
+          <div className={cn('w-px bg-border', isMobile ? 'h-3 mx-0.5' : 'h-4 mx-1')} aria-hidden="true" />
           <Button
             variant="ghost"
             size="icon"
             className={isMobile ? 'h-7 w-7' : 'h-8 w-8'}
             onClick={handleZoomReset}
-            aria-label="Fit to view"
+            aria-label="Fit to view (reset zoom)"
           >
-            <Maximize2 className={isMobile ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+            <Maximize2 className={isMobile ? 'h-3.5 w-3.5' : 'h-4 w-4'} aria-hidden="true" />
           </Button>
         </div>
       )}
