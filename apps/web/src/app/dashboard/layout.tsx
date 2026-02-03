@@ -1,18 +1,15 @@
-'use client';
+import { DashboardLayoutClient } from './DashboardLayoutClient';
 
-import { WorkspaceGuard } from '@/components/WorkspaceGuard';
-import { AppShell, BreadcrumbProvider } from '@/components/layout';
+/**
+ * Force dynamic rendering for all dashboard routes.
+ * This prevents static generation errors when env vars (like Clerk keys) are missing.
+ */
+export const dynamic = 'force-dynamic';
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <WorkspaceGuard>
-      <BreadcrumbProvider>
-        <AppShell>{children}</AppShell>
-      </BreadcrumbProvider>
-    </WorkspaceGuard>
-  );
+  return <DashboardLayoutClient>{children}</DashboardLayoutClient>;
 }

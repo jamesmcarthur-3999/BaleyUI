@@ -21,7 +21,7 @@ interface FlowState {
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
   addNode: (node: Node) => void;
-  updateNode: (nodeId: string, data: any) => void;
+  updateNode: (nodeId: string, data: Record<string, unknown>) => void;
   deleteNode: (nodeId: string) => void;
   addEdge: (edge: Edge) => void;
   deleteEdge: (edgeId: string) => void;

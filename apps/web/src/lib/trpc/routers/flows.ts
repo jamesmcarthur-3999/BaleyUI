@@ -142,7 +142,14 @@ export const flowsRouter = router({
       }
 
       // Prepare update data (only include fields that are provided)
-      const updateData: any = {};
+      const updateData: Partial<{
+        name: string;
+        description: string | null;
+        nodes: unknown;
+        edges: unknown;
+        triggers: unknown;
+        enabled: boolean;
+      }> = {};
 
       if (input.name !== undefined) updateData.name = input.name;
       if (input.description !== undefined) updateData.description = input.description;

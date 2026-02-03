@@ -9,6 +9,7 @@ import { listOllamaModels } from '@/lib/connections/ollama';
 /**
  * Encrypt an object's sensitive fields.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function encryptObject<T extends Record<string, any>>(
   obj: T,
   sensitiveFields: (keyof T)[]
@@ -16,6 +17,7 @@ function encryptObject<T extends Record<string, any>>(
   const result = { ...obj };
   for (const field of sensitiveFields) {
     if (result[field] && typeof result[field] === 'string') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       result[field] = encrypt(result[field] as string) as any;
     }
   }
@@ -25,6 +27,7 @@ function encryptObject<T extends Record<string, any>>(
 /**
  * Decrypt an object's sensitive fields.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function decryptObject<T extends Record<string, any>>(
   obj: T,
   sensitiveFields: (keyof T)[]
@@ -33,6 +36,7 @@ function decryptObject<T extends Record<string, any>>(
   for (const field of sensitiveFields) {
     if (result[field] && typeof result[field] === 'string') {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         result[field] = decrypt(result[field] as string) as any;
       } catch (error) {
         // If decryption fails, leave as is (might not be encrypted)
@@ -80,6 +84,7 @@ export const connectionsRouter = router({
 
     // Decrypt and mask sensitive fields for display
     return allConnections.map((conn) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const config = conn.config as Record<string, any>;
       const maskedConfig = { ...config };
 
@@ -136,6 +141,7 @@ export const connectionsRouter = router({
       }
 
       // Decrypt sensitive fields for editing
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const config = connection.config as Record<string, any>;
       const decryptedConfig = decryptObject(config, ['apiKey', 'password', 'connectionUrl']);
 
@@ -218,6 +224,7 @@ export const connectionsRouter = router({
       }
 
       // Prepare update data
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const updateData: any = {
         updatedAt: new Date(),
         version: existing.version + 1,
@@ -290,6 +297,7 @@ export const connectionsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let config: Record<string, any>;
       let type: string;
 
@@ -311,6 +319,7 @@ export const connectionsRouter = router({
         }
 
         type = connection.type;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         config = decryptObject(connection.config as Record<string, any>, ['apiKey', 'password', 'connectionUrl']);
       } else if (input.type && input.config) {
         // Test new connection config
@@ -435,6 +444,7 @@ export const connectionsRouter = router({
         });
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const config = decryptObject(connection.config as Record<string, any>, ['apiKey']);
       const models = await listOllamaModels(config.baseUrl || 'http://localhost:11434');
 

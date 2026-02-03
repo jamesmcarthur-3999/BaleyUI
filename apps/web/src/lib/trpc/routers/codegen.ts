@@ -257,6 +257,7 @@ export const codegenRouter = router({
 /**
  * Infer pattern type from condition object.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function inferPatternType(condition: any): 'threshold' | 'set_membership' | 'compound' | 'exact_match' {
   if (!condition || typeof condition !== 'object') {
     return 'exact_match';

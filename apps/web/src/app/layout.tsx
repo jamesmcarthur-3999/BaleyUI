@@ -4,6 +4,12 @@ import { Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
 
+/**
+ * Force dynamic rendering for all routes.
+ * This prevents static generation errors when env vars (like Clerk keys) are missing at build time.
+ */
+export const dynamic = 'force-dynamic';
+
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],
   variable: '--font-body',

@@ -164,7 +164,15 @@ export const patternsRouter = router({
       }
 
       // Build update object
-      const updateData: any = {
+      const updateData: Partial<{
+        rule: string;
+        condition: unknown;
+        outputTemplate: unknown;
+        confidence: string;
+        supportCount: number;
+        generatedCode: string | null;
+        updatedAt: Date;
+      }> = {
         updatedAt: new Date(),
       };
 

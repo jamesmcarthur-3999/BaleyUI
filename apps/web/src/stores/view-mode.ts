@@ -42,7 +42,7 @@ interface ViewModeState {
 export const useViewModeStore = create<ViewModeState>()(
   devtools(
     persist(
-      (set, get) => ({
+      (set, _get) => ({
         viewMode: 'profile',
         isAutoSelected: true,
 

@@ -434,6 +434,7 @@ export const analyticsRouter = router({
 
       // Transform to JSONL format
       const jsonlLines = exportData.map((item) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const trainingItem: any = {
           messages: [
             {

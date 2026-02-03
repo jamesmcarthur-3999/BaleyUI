@@ -149,7 +149,9 @@ describe('convertBaleybotEvent', () => {
 
     const result = convertBaleybotEvent(event);
     expect(result?.type).toBe('data');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((result as any).data[0].nestedStream).toBeDefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((result as any).data[0].nestedStream.botName).toBe('ChildBot');
   });
 });
