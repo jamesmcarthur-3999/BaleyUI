@@ -19,6 +19,7 @@ import { processCreatorMessage } from '@/lib/baleybot/creator-bot';
 import type { CreatorMessage } from '@/lib/baleybot/creator-types';
 import { executeBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 
 /**
  * Status values for BaleyBots
@@ -350,6 +351,12 @@ export const baleybotsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Rate limit: 10 executions per minute per user per workspace
+      checkRateLimit(
+        `execute:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.execute
+      );
+
       // Verify BaleyBot exists and belongs to workspace (outside transaction for early validation)
       const baleybot = await ctx.db.query.baleybots.findFirst({
         where: and(

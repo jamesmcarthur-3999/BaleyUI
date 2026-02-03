@@ -10,6 +10,7 @@ import {
   updateWithLock,
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 
 /**
  * Zod schema for flow validation
@@ -227,6 +228,12 @@ export const flowsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Rate limit: 10 executions per minute per user per workspace
+      checkRateLimit(
+        `execute:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.execute
+      );
+
       // Verify flow exists and belongs to workspace
       const flow = await ctx.db.query.flows.findFirst({
         where: and(
