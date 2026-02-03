@@ -56,12 +56,19 @@ function parseRunAt(runAt: string): { runAt: Date; cronExpression?: string } {
     );
   }
 
-  // Don't allow scheduling in the past
-  if (date < new Date()) {
+  // Don't allow scheduling more than 5 seconds in the past
+  // This allows for near-immediate scheduling while preventing obviously past dates
+  const fiveSecondsAgo = new Date(Date.now() - 5000);
+  if (date < fiveSecondsAgo) {
     throw new Error('Cannot schedule tasks in the past');
   }
 
-  return { runAt: date };
+  // If the date is in the "now" window (within 5 seconds of current time),
+  // adjust to run immediately
+  const now = new Date();
+  const effectiveDate = date < now ? now : date;
+
+  return { runAt: effectiveDate };
 }
 
 /**

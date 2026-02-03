@@ -40,38 +40,61 @@ async function getMemory(key: string, ctx: BuiltInToolContext): Promise<unknown>
 
 /**
  * Set a value in memory storage (upsert)
+ * Uses ON CONFLICT to handle race conditions safely
  */
 async function setMemory(
   key: string,
   value: unknown,
   ctx: BuiltInToolContext
 ): Promise<void> {
-  // Check if key exists
-  const existing = await db.query.baleybotMemory.findFirst({
-    where: and(
-      eq(baleybotMemory.workspaceId, ctx.workspaceId),
-      eq(baleybotMemory.baleybotId, ctx.baleybotId),
-      eq(baleybotMemory.key, key)
-    ),
-  });
-
-  if (existing) {
-    // Update existing
-    await db
-      .update(baleybotMemory)
-      .set({
-        value,
-        updatedAt: new Date(),
-      })
-      .where(eq(baleybotMemory.id, existing.id));
-  } else {
-    // Insert new
-    await db.insert(baleybotMemory).values({
-      workspaceId: ctx.workspaceId,
-      baleybotId: ctx.baleybotId,
-      key,
+  // Use upsert pattern to avoid race conditions
+  // First try to update existing record
+  const updateResult = await db
+    .update(baleybotMemory)
+    .set({
       value,
-    });
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(baleybotMemory.workspaceId, ctx.workspaceId),
+        eq(baleybotMemory.baleybotId, ctx.baleybotId),
+        eq(baleybotMemory.key, key)
+      )
+    )
+    .returning({ id: baleybotMemory.id });
+
+  // If no rows updated, insert new record
+  if (updateResult.length === 0) {
+    try {
+      await db.insert(baleybotMemory).values({
+        workspaceId: ctx.workspaceId,
+        baleybotId: ctx.baleybotId,
+        key,
+        value,
+      });
+    } catch (error) {
+      // Handle unique constraint violation (race condition)
+      // Another request might have inserted between our update and insert
+      if (error instanceof Error && error.message.includes('unique')) {
+        // Retry update
+        await db
+          .update(baleybotMemory)
+          .set({
+            value,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(baleybotMemory.workspaceId, ctx.workspaceId),
+              eq(baleybotMemory.baleybotId, ctx.baleybotId),
+              eq(baleybotMemory.key, key)
+            )
+          );
+      } else {
+        throw error;
+      }
+    }
   }
 }
 

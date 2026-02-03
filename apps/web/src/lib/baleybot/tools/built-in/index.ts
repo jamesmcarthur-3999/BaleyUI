@@ -315,11 +315,18 @@ export interface CreateToolResult {
 /**
  * Context provided to built-in tool implementations.
  * This allows tools to access workspace data, database, etc.
+ *
+ * NOTE: All ID fields must be valid UUIDs as they are used as foreign keys
+ * in the database. Passing non-UUID strings will cause database errors.
  */
 export interface BuiltInToolContext {
+  /** Workspace UUID - must be a valid UUID from the workspaces table */
   workspaceId: string;
+  /** BaleyBot UUID - must be a valid UUID from the baleybots table */
   baleybotId: string;
+  /** Execution UUID - must be a valid UUID from the baleybot_executions table */
   executionId: string;
+  /** User ID from authentication provider (e.g., Clerk) */
   userId?: string;
 }
 

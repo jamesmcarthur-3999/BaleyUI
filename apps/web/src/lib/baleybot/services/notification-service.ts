@@ -51,7 +51,7 @@ async function sendNotification(
   const userId = ctx.userId ?? 'system';
 
   // Create notification record
-  const [result] = await db
+  const results = await db
     .insert(notifications)
     .values({
       workspaceId: ctx.workspaceId,
@@ -65,7 +65,8 @@ async function sendNotification(
     })
     .returning({ id: notifications.id });
 
-  if (!result) {
+  const result = results[0];
+  if (!result?.id) {
     throw new Error('Failed to create notification');
   }
 

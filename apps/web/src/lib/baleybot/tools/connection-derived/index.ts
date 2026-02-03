@@ -24,6 +24,7 @@ export {
   generateDatabaseRuntimeTool,
   generateGenericDatabaseToolDefinition,
   detectQueryIntent,
+  validateSQL,
   DATABASE_TOOL_SCHEMA,
   type DatabaseConnectionInfo,
   type DatabaseToolConfig,

@@ -77,6 +77,71 @@ export const DATABASE_TOOL_SCHEMA = {
 } as const;
 
 // ============================================================================
+// SQL SAFETY VALIDATION
+// ============================================================================
+
+/**
+ * Dangerous SQL patterns that should be blocked
+ */
+const DANGEROUS_SQL_PATTERNS = [
+  /;\s*drop\s+/i,           // DROP statements after semicolon
+  /;\s*truncate\s+/i,       // TRUNCATE statements after semicolon
+  /;\s*delete\s+from\s+/i,  // DELETE statements after semicolon (multi-statement)
+  /--/,                     // SQL comments (can hide malicious code)
+  /\/\*/,                   // Block comments
+  /\bxp_/i,                 // SQL Server extended procedures
+  /\bexec\s*\(/i,           // EXEC calls
+  /\bexecute\s*\(/i,        // EXECUTE calls
+  /\bunion\s+select/i,      // UNION injection
+  /\binto\s+outfile/i,      // File write
+  /\binto\s+dumpfile/i,     // File dump
+  /\bload_file/i,           // File read
+  /\bsleep\s*\(/i,          // Time-based attacks
+  /\bbenchmark\s*\(/i,      // Time-based attacks
+  /\bwaitfor\s+delay/i,     // SQL Server time delays
+];
+
+/**
+ * Allowed SQL statement types for read operations
+ */
+const SAFE_READ_PATTERNS = [
+  /^\s*select\s+/i,
+  /^\s*with\s+.*?\s+as\s+\(/i, // CTEs
+];
+
+/**
+ * Validate generated SQL for safety
+ * Returns an error message if unsafe, or null if safe
+ */
+export function validateSQL(
+  sql: string,
+  operationType: 'read' | 'write'
+): string | null {
+  // Check for dangerous patterns
+  for (const pattern of DANGEROUS_SQL_PATTERNS) {
+    if (pattern.test(sql)) {
+      return `SQL contains potentially dangerous pattern: ${pattern.toString()}`;
+    }
+  }
+
+  // For read operations, ensure it's actually a SELECT
+  if (operationType === 'read') {
+    const isSelect = SAFE_READ_PATTERNS.some((pattern) => pattern.test(sql));
+    if (!isSelect) {
+      return 'Read operation must be a SELECT statement';
+    }
+  }
+
+  // Check for multiple statements (dangerous)
+  const statements = sql.split(';').filter((s) => s.trim().length > 0);
+  if (statements.length > 1) {
+    return 'Multiple SQL statements are not allowed';
+  }
+
+  return null; // SQL is safe
+}
+
+// ============================================================================
 // INTENT DETECTION
 // ============================================================================
 
@@ -196,10 +261,17 @@ export function generateDatabaseRuntimeTool(
 
     const sql = await generateSQL(sqlPrompt, schemaContext);
 
+    // Validate generated SQL for safety
+    const validationError = validateSQL(sql, operationType);
+    if (validationError) {
+      throw new Error(`SQL validation failed: ${validationError}`);
+    }
+
     // For read operations, add LIMIT if not present
     let finalSql = sql;
     if (operationType === 'read' && !sql.toLowerCase().includes('limit')) {
-      finalSql = `${sql.trimEnd()} LIMIT ${limit}`;
+      // Use parameterized limit value (convert to string for concatenation)
+      finalSql = `${sql.trimEnd()} LIMIT ${String(limit)}`;
     }
 
     // Execute the query
