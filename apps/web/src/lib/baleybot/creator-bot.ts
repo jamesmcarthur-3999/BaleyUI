@@ -15,6 +15,11 @@ import {
 } from './creator-types';
 import type { GeneratorContext } from './types';
 import { buildToolCatalog, formatToolCatalogForAI } from './tool-catalog';
+import {
+  getToolCatalog,
+  formatToolCatalogForCreatorBot,
+  getBuiltInToolDefinitions,
+} from './tools/catalog-service';
 
 // ============================================================================
 // SYSTEM PROMPT
@@ -58,13 +63,69 @@ Entities are chained:
 chain { entity1 entity2 entity3 }
 \`\`\`
 
-## Guidelines
+## Built-in Tools Reference
+
+### Immediate Access Tools (use in "tools" array)
+
+**web_search** - Search the web for information
+- Input: { query: string, num_results?: number (default 5, max 20) }
+- Use for: researching topics, finding current information, competitor analysis
+- Example: A BB that monitors industry news
+
+**fetch_url** - Fetch content from any URL
+- Input: { url: string, format?: "html" | "text" | "json" (default "text") }
+- Use for: reading web pages, fetching API data, scraping content
+- Example: A BB that extracts data from a specific webpage
+
+**spawn_baleybot** - Execute another BaleyBot and return its result
+- Input: { baleybot: string (name or ID), input?: any }
+- Use for: delegating work, building complex pipelines, reusing existing BBs
+- Example: A coordinator BB that calls specialist BBs
+
+**send_notification** - Send an in-app notification to the user
+- Input: { title: string, message: string, priority?: "low" | "normal" | "high" }
+- Use for: alerts, status updates, important results
+- Example: A BB that notifies when a task completes
+
+**store_memory** - Persist key-value data across BB executions
+- Input: { action: "get" | "set" | "delete" | "list", key?: string, value?: any }
+- Use for: caching, state management, remembering user preferences
+- Example: A BB that tracks which items have been processed
+
+### Approval Required Tools (use in "can_request" array)
+
+**schedule_task** - Schedule a BB to run at a future time
+- Input: { baleybot?: string, run_at: string (ISO datetime or cron), input?: any }
+- Use for: delayed tasks, recurring jobs, scheduled reports
+- Example: A BB that runs daily at 9am to generate reports
+
+**create_agent** - Create a temporary specialized AI agent
+- Input: { name: string, goal: string, model?: string, tools?: string[] }
+- Use for: dynamic subtasks, specialized processing, on-demand expertise
+- Example: A BB that spawns a researcher agent for specific questions
+
+**create_tool** - Define a custom tool for the current execution
+- Input: { name: string, description: string, input_schema?: object, implementation: string }
+- Use for: dynamic capabilities, one-off operations
+- Note: Implementation is natural language, interpreted by AI
+
+## Tool Selection Guidelines
+
+1. **Information gathering**: Use web_search for general queries, fetch_url for specific pages
+2. **Complex workflows**: Use spawn_baleybot to call other BBs, or create a multi-entity chain
+3. **User communication**: Use send_notification for important updates
+4. **State persistence**: Use store_memory to remember things between executions
+5. **Scheduled operations**: Use schedule_task (requires approval) for timed tasks
+6. **Dynamic behavior**: Use create_agent or create_tool (require approval) for flexibility
+
+## Design Principles
 
 1. Keep it simple - use minimum entities needed
 2. Use descriptive snake_case names
 3. Put read-only tools in "tools", write/dangerous in "can_request"
 4. Choose relevant emoji icons
 5. Generate helpful, concise names
+6. Prefer built-in tools when they fit the use case
 
 ## Output Format
 
@@ -144,14 +205,19 @@ function formatConversationHistory(messages: CreatorMessage[]): string {
 function buildSystemPrompt(options: CreatorBotOptions): string {
   const { context, conversationHistory = [] } = options;
 
-  // Build tool catalog
-  const toolCatalog = buildToolCatalog({
-    availableTools: context.availableTools,
-    policies: context.workspacePolicies,
+  // Combine built-in tools with workspace tools
+  const builtInTools = getBuiltInToolDefinitions();
+  const allTools = [...builtInTools, ...context.availableTools];
+
+  // Build full tool catalog using the new catalog service
+  const fullCatalog = getToolCatalog({
+    workspaceId: context.workspaceId,
+    workspacePolicies: context.workspacePolicies,
+    workspaceTools: context.availableTools,
   });
 
-  // Format tool catalog for AI
-  const toolCatalogText = formatToolCatalogForAI(toolCatalog);
+  // Format tool catalog for Creator Bot (comprehensive format)
+  const toolCatalogText = formatToolCatalogForCreatorBot(fullCatalog);
 
   // Format existing BaleyBots
   const existingBBText = formatExistingBaleybots(context.existingBaleybots);

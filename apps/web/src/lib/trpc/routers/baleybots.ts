@@ -17,6 +17,7 @@ import {
 import { TRPCError } from '@trpc/server';
 import { processCreatorMessage } from '@/lib/baleybot/creator-bot';
 import type { CreatorMessage } from '@/lib/baleybot/creator-types';
+import { getBuiltInToolDefinitions } from '@/lib/baleybot';
 import { executeBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
 
@@ -906,12 +907,15 @@ export const baleybotsRouter = router({
         })
       );
 
-      // 6. Call processCreatorMessage
+      // 6. Get built-in tools for the context
+      const builtInTools = getBuiltInToolDefinitions();
+
+      // 7. Call processCreatorMessage
       const result = await processCreatorMessage(
         {
           context: {
             workspaceId: ctx.workspace.id,
-            availableTools: [], // Will be populated from tool catalog in the future
+            availableTools: builtInTools, // Built-in tools are now available
             workspacePolicies: null, // Will be populated from workspace settings in the future
             connections: formattedConnections,
             existingBaleybots: formattedBaleybots,

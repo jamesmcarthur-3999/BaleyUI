@@ -22,6 +22,35 @@ export {
   type ToolCatalogContext,
 } from './tool-catalog';
 
+// Tool Catalog Service (new)
+export {
+  getToolCatalog,
+  getRuntimeTools,
+  formatToolCatalogForCreatorBot,
+  getToolSummary,
+  isToolAvailable,
+  getToolByName,
+  toolRequiresApproval,
+  isToolForbidden,
+  setSpawnBaleybotExecutor,
+  setNotificationSender,
+  setTaskScheduler,
+  setMemoryStorage,
+  isBuiltInTool,
+  getApprovalRequiredTools,
+  getBuiltInToolDefinitions,
+  BUILT_IN_TOOLS_METADATA,
+  type CatalogContext,
+  type FullToolCatalog,
+  type BuiltInToolMetadata,
+  type BuiltInToolContext,
+} from './tools/catalog-service';
+
+// Built-in Tool Runtime
+export {
+  getBuiltInRuntimeTools,
+} from './tools/built-in/implementations';
+
 // Generator
 export {
   createBalGenerator,
