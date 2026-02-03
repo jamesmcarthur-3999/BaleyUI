@@ -259,8 +259,8 @@ export function ActionBar({
         )}
       </div>
 
-      {/* Controls Row - Stacks on mobile (Phase 4.4) */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+      {/* Controls Row - Stacks on mobile, row on tablet+ (Phase 4.4, 4.8) */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 md:gap-4">
 
         {/* Auto-Save Status Indicator - order changes on mobile (Phase 4.4) */}
         {autoSaveStatus !== 'idle' && (

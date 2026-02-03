@@ -889,8 +889,8 @@ export default function BaleybotPage() {
         )}
       </motion.header>
 
-      {/* Canvas area - responsive padding (Phase 4.6) */}
-      <div className="flex-1 relative overflow-hidden p-2 sm:p-4">
+      {/* Canvas area - responsive padding (Phase 4.6, 4.8) */}
+      <div className="flex-1 relative overflow-hidden p-2 sm:p-4 md:p-6">
         <div className="max-w-4xl mx-auto h-full">
           <Canvas
             entities={entities}
@@ -901,14 +901,14 @@ export default function BaleybotPage() {
         </div>
       </div>
 
-      {/* Bottom controls - responsive padding (Phase 4.6) */}
+      {/* Bottom controls - responsive padding (Phase 4.6, 4.8) */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay: 0.1 }}
-        className="border-t border-border/50 bg-background/80 backdrop-blur-sm px-2 sm:px-4 py-3 sm:py-4"
+        className="border-t border-border/50 bg-background/80 backdrop-blur-sm px-2 sm:px-4 md:px-6 py-3 sm:py-4"
       >
-        <div className="max-w-2xl mx-auto space-y-4">
+        <div className="max-w-2xl md:max-w-3xl mx-auto space-y-4">
           {/* Conversation thread (Phase 2.7) */}
           <ConversationThread
             messages={messages}
