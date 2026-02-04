@@ -5,11 +5,19 @@
  * Uses randomized IVs to ensure identical plaintexts produce different ciphertexts.
  */
 
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+  pbkdf2Sync,
+} from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
+const KEY_LENGTH = 32; // 256 bits for AES-256
+const PBKDF2_ITERATIONS = 100000;
+const PBKDF2_SALT = Buffer.from('baleyui-credential-vault-v1');
 
 /**
  * Secure credential encryption vault using AES-256-GCM.
@@ -34,12 +42,18 @@ export class CredentialVault {
   /**
    * Create a new CredentialVault instance.
    *
-   * @param encryptionKey - A 32-character string for AES-256 encryption.
-   *                        If shorter, it will be padded; if longer, truncated.
+   * @param encryptionKey - A passphrase for encryption. Can be any length.
+   *                        Derived using PBKDF2 to create a secure 256-bit key.
    */
   constructor(encryptionKey: string) {
-    // Ensure key is exactly 32 bytes for AES-256
-    this.key = Buffer.from(encryptionKey.padEnd(32, '0').slice(0, 32));
+    // Derive a secure key using PBKDF2 (resistant to weak passphrases)
+    this.key = pbkdf2Sync(
+      encryptionKey,
+      PBKDF2_SALT,
+      PBKDF2_ITERATIONS,
+      KEY_LENGTH,
+      'sha256'
+    );
   }
 
   /**
