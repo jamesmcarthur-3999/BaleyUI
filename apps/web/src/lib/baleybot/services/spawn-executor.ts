@@ -11,10 +11,98 @@
  * - Passes parent execution ID for tracing
  */
 
-import { db, baleybots, baleybotExecutions, eq, and, notDeleted } from '@baleyui/db';
+import { db, baleybots, baleybotExecutions, workspacePolicies, eq, and, notDeleted } from '@baleyui/db';
 import type { BuiltInToolContext, SpawnBaleybotResult } from '../tools/built-in';
 import { executeBaleybot, type ExecutorContext, type RuntimeToolDefinition } from '../executor';
 import { getBuiltInRuntimeTools } from '../tools/built-in/implementations';
+
+// ============================================================================
+// WORKSPACE POLICIES
+// ============================================================================
+
+/**
+ * Workspace policies for tool and execution control
+ */
+export interface WorkspacePolicies {
+  allowedTools?: string[] | null;
+  forbiddenTools?: string[] | null;
+  requiresApprovalTools?: string[] | null;
+  maxSpawnDepth?: number | null;
+  maxAutoApproveAmount?: number | null;
+}
+
+/**
+ * Policy provider function type
+ */
+type PolicyProvider = (workspaceId: string) => Promise<WorkspacePolicies | null>;
+
+/**
+ * Extract tool names from BAL code
+ */
+export function extractToolsFromBAL(balCode: string): string[] {
+  const toolsMatch = balCode.match(/"tools"\s*:\s*\[(.*?)\]/s);
+  if (!toolsMatch) return [];
+
+  const toolsStr = toolsMatch[1];
+  const tools = toolsStr.match(/"([^"]+)"/g) || [];
+  return tools.map(t => t.replace(/"/g, ''));
+}
+
+/**
+ * Fetch workspace policies from database
+ */
+async function fetchWorkspacePolicies(workspaceId: string): Promise<WorkspacePolicies | null> {
+  const policies = await db.query.workspacePolicies.findFirst({
+    where: eq(workspacePolicies.workspaceId, workspaceId),
+  });
+
+  if (!policies) return null;
+
+  return {
+    allowedTools: policies.allowedTools,
+    forbiddenTools: policies.forbiddenTools,
+    requiresApprovalTools: policies.requiresApprovalTools,
+    maxSpawnDepth: null, // Would need to add this column to schema
+    maxAutoApproveAmount: policies.maxAutoApproveAmount,
+  };
+}
+
+/**
+ * Validate that tools used by a BaleyBot are allowed by workspace policies
+ */
+function validateToolsAgainstPolicies(
+  usedTools: string[],
+  policies: WorkspacePolicies
+): { valid: boolean; reason?: string } {
+  // If no tools used, always valid
+  if (usedTools.length === 0) {
+    return { valid: true };
+  }
+
+  // Check forbidden tools (blocklist)
+  if (policies.forbiddenTools && policies.forbiddenTools.length > 0) {
+    const forbidden = usedTools.filter(t => policies.forbiddenTools!.includes(t));
+    if (forbidden.length > 0) {
+      return {
+        valid: false,
+        reason: `Uses forbidden tools: ${forbidden.join(', ')}`,
+      };
+    }
+  }
+
+  // Check allowed tools (allowlist) - if specified, only these tools are allowed
+  if (policies.allowedTools && policies.allowedTools.length > 0) {
+    const notAllowed = usedTools.filter(t => !policies.allowedTools!.includes(t));
+    if (notAllowed.length > 0) {
+      return {
+        valid: false,
+        reason: `Uses tools not in allowed list: ${notAllowed.join(', ')}`,
+      };
+    }
+  }
+
+  return { valid: true };
+}
 
 // ============================================================================
 // TYPES
@@ -142,9 +230,12 @@ export function createSpawnBaleybotExecutor(options?: {
   maxSpawnDepth?: number;
   /** Optional: inject tools provider for testing */
   getTools?: (ctx: BuiltInToolContext) => Map<string, RuntimeToolDefinition>;
+  /** Optional: inject policy provider for testing */
+  getPolicies?: PolicyProvider;
 }): SpawnBaleybotExecutor {
   const maxDepth = options?.maxSpawnDepth ?? DEFAULT_MAX_SPAWN_DEPTH;
   const getTools = options?.getTools ?? getBuiltInRuntimeTools;
+  const getPolicies = options?.getPolicies ?? fetchWorkspacePolicies;
 
   /**
    * Execute a BaleyBot by ID or name
@@ -177,6 +268,33 @@ export function createSpawnBaleybotExecutor(options?: {
       );
     }
 
+    // Fetch and enforce workspace policies
+    const policies = await getPolicies(ctx.workspaceId);
+
+    if (policies) {
+      // Check spawn depth against policy (if specified)
+      if (policies.maxSpawnDepth !== null && policies.maxSpawnDepth !== undefined) {
+        if (currentDepth >= policies.maxSpawnDepth) {
+          throw new Error(
+            `Workspace policy limits spawn depth to ${policies.maxSpawnDepth}. ` +
+            `Current depth: ${currentDepth}`
+          );
+        }
+      }
+
+      // Check if target BB uses forbidden tools
+      if (targetBB.balCode) {
+        const usedTools = extractToolsFromBAL(targetBB.balCode);
+        const validation = validateToolsAgainstPolicies(usedTools, policies);
+
+        if (!validation.valid) {
+          throw new Error(
+            `Cannot spawn "${targetBB.name}": ${validation.reason}`
+          );
+        }
+      }
+    }
+
     console.log(
       `[spawn_baleybot] Executing BB "${targetBB.name}" (${targetBB.id}) ` +
         `at depth ${currentDepth} with input:`,
@@ -205,11 +323,11 @@ export function createSpawnBaleybotExecutor(options?: {
       // Get runtime tools for the spawned BB
       const availableTools = getTools(nestedCtx);
 
-      // Create executor context
+      // Create executor context with fetched policies
       const executorContext: ExecutorContext = {
         workspaceId: ctx.workspaceId,
         availableTools,
-        workspacePolicies: null, // TODO: Fetch workspace policies
+        workspacePolicies: policies,
         triggeredBy: 'other_bb',
         triggerSource: ctx.baleybotId,
       };
