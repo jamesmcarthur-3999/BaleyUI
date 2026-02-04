@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { DecisionTable } from '@/components/decisions/DecisionTable';
 import { DecisionDetail } from '@/components/decisions/DecisionDetail';
 import { DecisionFilters } from '@/components/decisions/DecisionFilters';
@@ -56,9 +56,7 @@ export default function DecisionsPage() {
   });
 
   // Flatten all pages into a single array of decisions
-  const decisions = useMemo(() => {
-    return data?.pages.flatMap((page) => page.items) || [];
-  }, [data]);
+  const decisions = data?.pages.flatMap((page) => page.items) || [];
 
   // Get total count from the first page
   const totalCount = data?.pages[0]?.totalCount || 0;

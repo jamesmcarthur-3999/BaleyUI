@@ -139,6 +139,9 @@ function createFlowExecutionStream(
         // Sort by timestamp
         allEvents.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
+        // Track last event index per block execution to avoid re-sending
+        const lastEventIndexByBlock = new Map<string, number>();
+
         // Send events starting from fromIndex
         let globalIndex = 0;
         for (const event of allEvents) {
@@ -159,6 +162,17 @@ function createFlowExecutionStream(
 
         let lastIndex = globalIndex;
 
+        // Seed last indexes for each block execution
+        for (const blockExec of blockExecs) {
+          const eventsForBlock = allEvents.filter((event) => event.nodeId === blockExec.id);
+          if (eventsForBlock.length > 0) {
+            const lastEvent = eventsForBlock[eventsForBlock.length - 1];
+            if (lastEvent) {
+              lastEventIndexByBlock.set(blockExec.id, lastEvent.index);
+            }
+          }
+        }
+
         // If already complete, close stream
         if (['completed', 'failed', 'cancelled'].includes(initialStatus)) {
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
@@ -167,7 +181,12 @@ function createFlowExecutionStream(
         }
 
         // Poll for new events
+        const pollIntervalMs = 500;
+        let polling = false;
+
         const pollInterval = setInterval(async () => {
+          if (polling) return;
+          polling = true;
           try {
             // Check execution status
             const currentExecution = await db.query.flowExecutions.findFirst({
@@ -186,15 +205,16 @@ function createFlowExecutionStream(
             });
 
             for (const blockExec of updatedBlockExecs) {
+              const lastEventIndex = lastEventIndexByBlock.get(blockExec.id) ?? -1;
               const newEvents = await db.query.executionEvents.findMany({
                 where: and(
                   eq(executionEvents.executionId, blockExec.id),
-                  gt(executionEvents.index, -1)
+                  gt(executionEvents.index, lastEventIndex)
                 ),
-                orderBy: [asc(executionEvents.createdAt)],
+                orderBy: [asc(executionEvents.index)],
               });
 
-              // Send only events we haven't sent yet (based on timestamp)
+              // Send only events we haven't sent yet (based on index)
               for (const event of newEvents) {
                 const eventData = {
                   index: lastIndex++,
@@ -206,6 +226,7 @@ function createFlowExecutionStream(
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify(eventData)}\n\n`)
                 );
+                lastEventIndexByBlock.set(blockExec.id, event.index);
               }
             }
 
@@ -219,8 +240,10 @@ function createFlowExecutionStream(
             console.error('Error polling for events:', error);
             clearInterval(pollInterval);
             controller.error(error);
+          } finally {
+            polling = false;
           }
-        }, 100); // Poll every 100ms for better responsiveness
+        }, pollIntervalMs); // Reduced polling frequency to reduce DB load
 
         // Clean up on connection close
         req.signal.addEventListener('abort', () => {

@@ -6,7 +6,7 @@
  * Shows real-time execution timeline with SSE streaming.
  */
 
-import { use, useCallback } from 'react';
+import { use } from 'react';
 import Link from 'next/link';
 import { trpc } from '@/lib/trpc/client';
 import { ExecutionTimeline } from '@/components/executions';
@@ -58,11 +58,11 @@ export default function ExecutionPage({ params }: ExecutionPageProps) {
     },
   });
 
-  const handleCancel = useCallback(async () => {
+  const handleCancel = async () => {
     cancelMutation.mutate({ id });
-  }, [cancelMutation, id]);
+  };
 
-  const handleRetry = useCallback(async () => {
+  const handleRetry = async () => {
     // Re-run the flow with the same input
     if (!execution?.flowId || !execution?.input) return;
 
@@ -90,7 +90,7 @@ export default function ExecutionPage({ params }: ExecutionPageProps) {
         variant: 'destructive',
       });
     }
-  }, [execution, toast]);
+  };
 
   // Loading state
   if (executionLoading || flowLoading) {

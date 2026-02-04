@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
@@ -134,13 +134,13 @@ export default function BaleybotPage() {
   /**
    * Callback when undo/redo restores a state
    */
-  const handleHistoryStateChange = useCallback((snapshot: HistoryState) => {
+  const handleHistoryStateChange = (snapshot: HistoryState) => {
     setEntities(snapshot.entities);
     setConnections(snapshot.connections);
     setBalCode(snapshot.balCode);
     setName(snapshot.name);
     setIcon(snapshot.icon);
-  }, []);
+  };
 
   const {
     push: pushHistory,
@@ -170,17 +170,14 @@ export default function BaleybotPage() {
   // DIRTY STATE TRACKING (Phase 1.1)
   // =====================================================================
 
-  const dirtyState = useMemo(
-    () => ({
-      entities,
-      connections,
-      balCode,
-      name,
-      description,
-      icon,
-    }),
-    [entities, connections, balCode, name, description, icon]
-  );
+  const dirtyState = {
+    entities,
+    connections,
+    balCode,
+    name,
+    description,
+    icon,
+  };
 
   const { isDirty, markClean } = useDirtyState(dirtyState);
 
