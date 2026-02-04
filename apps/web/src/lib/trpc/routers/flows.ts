@@ -12,12 +12,87 @@ import {
 import { TRPCError } from '@trpc/server';
 import { emitBuilderEvent, actorFromContext } from '@/lib/events/with-events';
 
+// ============================================================================
+// FLOW VALIDATION SCHEMAS
+// ============================================================================
+
 /**
- * Zod schema for flow validation
+ * Node position schema (React Flow compatible)
  */
-const flowNodeSchema = z.array(z.any()).optional();
-const flowEdgeSchema = z.array(z.any()).optional();
-const flowTriggersSchema = z.array(z.any()).optional();
+const positionSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+});
+
+/**
+ * Valid node types in a flow
+ */
+const nodeTypeSchema = z.enum([
+  'baleybot',
+  'trigger',
+  'condition',
+  'output',
+  'input',
+]);
+
+/**
+ * Flow node schema with strict validation (React Flow compatible)
+ */
+export const flowNodeSchema = z.object({
+  id: z.string().min(1),
+  type: nodeTypeSchema,
+  position: positionSchema,
+  data: z.object({
+    baleybotId: z.string().uuid().optional(),
+    label: z.string().optional(),
+    config: z.record(z.unknown()).optional(),
+  }).optional(),
+  // React Flow specific fields
+  width: z.number().optional(),
+  height: z.number().optional(),
+  selected: z.boolean().optional(),
+  dragging: z.boolean().optional(),
+});
+
+/**
+ * Flow edge schema (React Flow compatible)
+ */
+export const flowEdgeSchema = z.object({
+  id: z.string().min(1),
+  source: z.string().min(1),
+  target: z.string().min(1),
+  sourceHandle: z.string().optional(),
+  targetHandle: z.string().optional(),
+  type: z.string().optional(),
+  animated: z.boolean().optional(),
+  label: z.string().optional(),
+});
+
+/**
+ * Trigger types supported by the system
+ */
+const triggerTypeSchema = z.enum(['manual', 'schedule', 'webhook', 'event']);
+
+/**
+ * Flow trigger schema
+ */
+export const flowTriggerSchema = z.object({
+  id: z.string().min(1),
+  type: triggerTypeSchema,
+  nodeId: z.string().min(1),
+  config: z.object({
+    schedule: z.string().optional(), // cron expression
+    webhookPath: z.string().optional(),
+    eventName: z.string().optional(),
+  }).optional(),
+});
+
+/**
+ * Array schemas for flow update input
+ */
+const flowNodesInput = z.array(flowNodeSchema).optional();
+const flowEdgesInput = z.array(flowEdgeSchema).optional();
+const flowTriggersInput = z.array(flowTriggerSchema).optional();
 
 /**
  * tRPC router for managing flows (visual compositions).
@@ -118,9 +193,9 @@ export const flowsRouter = router({
         version: z.number().int(),
         name: z.string().min(1).max(255).optional(),
         description: z.string().optional(),
-        nodes: flowNodeSchema,
-        edges: flowEdgeSchema,
-        triggers: flowTriggersSchema,
+        nodes: flowNodesInput,
+        edges: flowEdgesInput,
+        triggers: flowTriggersInput,
         enabled: z.boolean().optional(),
       })
     )
