@@ -293,46 +293,43 @@ export function createPostgresExecutor(
 }
 
 // ============================================================================
-// MYSQL EXECUTOR (Placeholder - requires mysql2 package)
+// MYSQL EXECUTOR (Not Yet Supported)
 // ============================================================================
+
+const MYSQL_NOT_SUPPORTED_ERROR =
+  'MySQL connections are not yet supported. ' +
+  'Please use PostgreSQL for database connections. ' +
+  'If MySQL support is required for your use case, please contact support.';
 
 /**
  * Create a MySQL database executor
- * Note: Requires mysql2 package to be installed
+ *
+ * Note: MySQL is not currently supported. This function exists to provide
+ * a clear error message when MySQL connections are attempted.
  */
 export function createMySQLExecutor(
-  config: MySQLConfig | { connectionUrl: string },
-  options: ExecutorOptions = {}
+  _config: MySQLConfig | { connectionUrl: string },
+  _options: ExecutorOptions = {}
 ): DatabaseExecutor {
-  const { timeout = 30000, maxRows = 10000 } = options;
-
-  // MySQL implementation would go here
-  // For now, return a stub that throws an error
+  // Return an executor that throws clear error on any operation
   const executor: DatabaseExecutor = {
     async query<T extends Record<string, unknown>>(_sqlQuery: string): Promise<T[]> {
-      // TODO: Implement MySQL support
-      // This requires adding mysql2 to package.json:
-      // import mysql from 'mysql2/promise';
-
-      throw new Error(
-        'MySQL support requires mysql2 package. Install with: pnpm add mysql2'
-      );
+      throw new Error(MYSQL_NOT_SUPPORTED_ERROR);
     },
 
     async queryWithParams<T extends Record<string, unknown>>(
       _sqlQuery: string,
       _params: unknown[]
     ): Promise<T[]> {
-      throw new Error(
-        'MySQL support requires mysql2 package. Install with: pnpm add mysql2'
-      );
+      throw new Error(MYSQL_NOT_SUPPORTED_ERROR);
     },
 
     async close(): Promise<void> {
-      // Nothing to close yet
+      // No connection to close
     },
 
     async ping(): Promise<boolean> {
+      // MySQL not supported, so connection is never valid
       return false;
     },
   };
