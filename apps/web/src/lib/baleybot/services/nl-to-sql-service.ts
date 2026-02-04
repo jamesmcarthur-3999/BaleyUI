@@ -1,19 +1,18 @@
 /**
  * Natural Language to SQL Translation Service
  *
- * Translates natural language database queries to SQL using a specialized
- * BaleyBot. Provides schema-aware query generation with safety validation.
+ * Translates natural language database queries to SQL using the internal
+ * nl_to_sql_postgres or nl_to_sql_mysql BaleyBots. Provides schema-aware
+ * query generation with safety validation.
  */
 
-import { Baleybot } from '@baleybots/core';
+import { executeInternalBaleybot } from '../internal-baleybots';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 export interface NLToSQLConfig {
-  /** AI model to use (default: openai:gpt-4o-mini) */
-  model?: string;
   /** Database type for dialect-specific SQL */
   databaseType?: 'postgres' | 'mysql';
 }
@@ -29,94 +28,21 @@ export interface NLToSQLService {
 }
 
 // ============================================================================
-// SQL GOAL TEMPLATES
-// ============================================================================
-
-const POSTGRES_GOAL = `You are a SQL expert that translates natural language queries into valid PostgreSQL.
-
-RULES:
-1. Generate ONLY the SQL query - no explanations, no markdown, just raw SQL
-2. Use the exact table and column names from the provided schema
-3. Use fully qualified table names when possible (schema.table)
-4. For SELECT queries, prefer explicit column lists over SELECT *
-5. Include appropriate WHERE clauses to filter data
-6. Use proper JOIN syntax when querying related tables
-7. Add LIMIT if not specified (default to 100)
-8. Never generate destructive queries (DROP, TRUNCATE, DELETE without WHERE)
-
-PostgreSQL SPECIFICS:
-- Use double quotes for identifiers with special characters
-- Use single quotes for string literals
-- Use :: for type casting
-- Use ILIKE for case-insensitive matching
-- Use NOW() for current timestamp
-
-SAFETY:
-- Never include multiple statements (no semicolons except at the end)
-- Never include comments (-- or /* */)
-- Never use UNION, EXEC, or other injection patterns
-
-Output ONLY the SQL query, nothing else.`;
-
-const MYSQL_GOAL = `You are a SQL expert that translates natural language queries into valid MySQL.
-
-RULES:
-1. Generate ONLY the SQL query - no explanations, no markdown, just raw SQL
-2. Use the exact table and column names from the provided schema
-3. Use fully qualified table names when possible (schema.table)
-4. For SELECT queries, prefer explicit column lists over SELECT *
-5. Include appropriate WHERE clauses to filter data
-6. Use proper JOIN syntax when querying related tables
-7. Add LIMIT if not specified (default to 100)
-8. Never generate destructive queries (DROP, TRUNCATE, DELETE without WHERE)
-
-MySQL SPECIFICS:
-- Use backticks for identifiers with special characters
-- Use single quotes for string literals
-- Use CONVERT() for type casting
-- Use LOWER() with LIKE for case-insensitive matching
-- Use NOW() for current timestamp
-
-SAFETY:
-- Never include multiple statements (no semicolons except at the end)
-- Never include comments (-- or /* */)
-- Never use UNION, EXEC, or other injection patterns
-
-Output ONLY the SQL query, nothing else.`;
-
-// ============================================================================
 // SERVICE IMPLEMENTATION
 // ============================================================================
 
 /**
- * Create a Natural Language to SQL translation service using Baleybots
+ * Create a Natural Language to SQL translation service using internal BaleyBots
  */
 export function createNLToSQLService(config: NLToSQLConfig = {}): NLToSQLService {
-  const { model = 'openai:gpt-4o-mini', databaseType = 'postgres' } = config;
+  const { databaseType = 'postgres' } = config;
 
-  // Select the appropriate goal based on database type
-  const goal = databaseType === 'mysql' ? MYSQL_GOAL : POSTGRES_GOAL;
-
-  // Create a specialized BaleyBot for SQL generation
-  const sqlBot = Baleybot.create({
-    name: 'sql-translator',
-    goal,
-    model,
-    outputSchema: {
-      type: 'object',
-      properties: {
-        sql: {
-          type: 'string',
-          description: 'The generated SQL query',
-        },
-      },
-      required: ['sql'],
-    },
-  });
+  // Select the appropriate internal BaleyBot based on database type
+  const internalBotName = databaseType === 'mysql' ? 'nl_to_sql_mysql' : 'nl_to_sql_postgres';
 
   const service: NLToSQLService = {
     async translate(query: string, schemaContext: string): Promise<string> {
-      const prompt = `DATABASE SCHEMA:
+      const input = `DATABASE SCHEMA:
 ${schemaContext}
 
 USER QUERY:
@@ -125,18 +51,20 @@ ${query}
 Generate the SQL query:`;
 
       try {
-        // Execute the SQL bot
-        const result = await sqlBot.process(prompt);
+        // Execute the internal SQL translation BaleyBot
+        const { output } = await executeInternalBaleybot(internalBotName, input, {
+          triggeredBy: 'internal',
+        });
 
         // Extract SQL from result
         let sql: string;
 
-        if (typeof result === 'string') {
-          sql = result;
-        } else if (result && typeof result === 'object' && 'sql' in result) {
-          sql = String((result as { sql: unknown }).sql);
+        if (typeof output === 'string') {
+          sql = output;
+        } else if (output && typeof output === 'object' && 'sql' in output) {
+          sql = String((output as { sql: unknown }).sql);
         } else {
-          sql = String(result);
+          sql = String(output);
         }
 
         // Clean up the result
