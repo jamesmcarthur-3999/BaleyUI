@@ -2,12 +2,12 @@
  * BAL Generator Service
  *
  * Converts natural language descriptions into BAL (Baleybots Assembly Language) code.
- * Uses AI to understand user intent and generate appropriate configurations.
+ * Uses the internal bal_generator BaleyBot for AI-powered generation.
  */
 
-import { Baleybot, type Processable } from '@baleybots/core';
 import { parse, tokenize } from '@baleybots/tools';
 import { z } from 'zod';
+import { executeInternalBaleybot } from './internal-baleybots';
 import type {
   GeneratorContext,
   GenerateResult,
@@ -44,7 +44,7 @@ const generateResultSchema = z.object({
 });
 
 // ============================================================================
-// SYSTEM PROMPT
+// CONTEXT BUILDING
 // ============================================================================
 
 const BAL_SYNTAX_REFERENCE = `
@@ -142,7 +142,7 @@ chain {
 4. Match tools to the entity's specific goal
 `;
 
-function buildSystemPrompt(ctx: GeneratorContext): string {
+function buildGeneratorContext(ctx: GeneratorContext): string {
   const toolCatalog = buildToolCatalog({
     availableTools: ctx.availableTools,
     policies: ctx.workspacePolicies,
@@ -158,11 +158,7 @@ You can have entities call existing BaleyBots using the spawn_baleybot tool.
 `
       : '';
 
-  return `You are a BAL (Baleybots Assembly Language) code generator.
-
-Your task is to convert user descriptions into valid BAL code that defines BaleyBot configurations.
-
-${BAL_SYNTAX_REFERENCE}
+  return `${BAL_SYNTAX_REFERENCE}
 
 ${formatToolCatalogForAI(toolCatalog)}
 
@@ -177,18 +173,6 @@ ${existingBBsSection}
 5. **Clear Names**: Use descriptive snake_case names for entities
 6. **Good Defaults**: Use appropriate models (gpt-4o-mini for simple tasks, claude-sonnet for complex reasoning)
 7. **Helpful Icons**: Suggest relevant emoji icons
-
-## Output Format
-
-Return a structured response with:
-- balCode: The complete BAL code
-- explanation: A brief explanation of what this BaleyBot does
-- entities: Array of entity definitions
-- toolRationale: Explanation for why each tool was assigned
-- suggestedName: A good name for this BaleyBot
-- suggestedIcon: A relevant emoji
-
-Always generate valid BAL code that follows the syntax reference.
 `;
 }
 
@@ -197,30 +181,15 @@ Always generate valid BAL code that follows the syntax reference.
 // ============================================================================
 
 /**
- * Create a BAL generator Baleybot
- */
-export function createBalGenerator(ctx: GeneratorContext): Processable<string, unknown> {
-  const systemPrompt = buildSystemPrompt(ctx);
-
-  return Baleybot.create({
-    name: 'bal_generator',
-    goal: `${systemPrompt}
-
-Generate BAL code based on the user's description. Always return valid BAL code that can be executed.`,
-    model: 'anthropic:claude-sonnet-4-20250514',
-    outputSchema: generateResultSchema,
-  });
-}
-
-/**
- * Generate BAL code from a user description
+ * Generate BAL code from a user description.
+ * Executes via the internal bal_generator BaleyBot.
  */
 export async function generateBal(
   ctx: GeneratorContext,
   userDescription: string,
   conversationHistory?: GenerationMessage[]
 ): Promise<GenerateResult> {
-  const generator = createBalGenerator(ctx);
+  const context = buildGeneratorContext(ctx);
 
   // Build the input message
   let input = userDescription;
@@ -240,10 +209,14 @@ ${userDescription}
 Please refine the BAL code based on this feedback.`;
   }
 
-  const result = await generator.process(input);
+  const { output } = await executeInternalBaleybot('bal_generator', input, {
+    userWorkspaceId: ctx.workspaceId,
+    context,
+    triggeredBy: 'internal',
+  });
 
   // Validate the result
-  const parsed = generateResultSchema.parse(result);
+  const parsed = generateResultSchema.parse(output);
 
   // Validate tool assignments against policies
   const validatedEntities = validateToolAssignments(ctx, parsed.entities);
