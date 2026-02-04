@@ -2,12 +2,11 @@
  * Review Agent Service
  *
  * Analyzes BaleyBot execution results and proposes improvements.
- * This service takes an execution result and the original intent,
- * then returns structured suggestions for refinement.
+ * Uses the internal execution_reviewer BaleyBot.
  */
 
-import { Baleybot } from '@baleybots/core';
 import { z } from 'zod';
+import { executeInternalBaleybot } from './internal-baleybots';
 
 export interface ExecutionContext {
   baleybotId: string;
@@ -66,8 +65,6 @@ export interface ReviewResult {
 }
 
 export interface ReviewerConfig {
-  apiKey?: string;
-  model?: string;
   maxSuggestions?: number;
 }
 
@@ -123,101 +120,6 @@ const reviewResultSchema = z.object({
     })
     .optional(),
 });
-
-const REVIEW_SYSTEM_PROMPT = `You are a BaleyBot Review Agent. Your role is to analyze BaleyBot execution results and provide constructive feedback for improvement.
-
-You will receive:
-1. The original user intent
-2. The BAL (Baleybots Assembly Language) code
-3. The input provided to the BaleyBot
-4. The output generated
-5. Any errors that occurred
-
-Your task is to:
-1. Assess whether the output matches the original intent
-2. Identify any issues (errors, warnings, suggestions)
-3. Propose specific improvements to the BAL code
-4. Consider performance, safety, and accuracy
-
-BAL (Baleybots Assembly Language) Structure:
-- BALEYBOT: Main definition with goal, model, tools, output
-- ENTITY: Named components that can be sequenced
-- PIPELINE: Composition of entities
-
-Be constructive and specific. Focus on actionable improvements.`;
-
-/**
- * Create and return a reviewer function configured with the provided settings.
- */
-export function createReviewer(config: ReviewerConfig) {
-  const model = config.model || 'anthropic:claude-sonnet-4-20250514';
-  const maxSuggestions = config.maxSuggestions || 5;
-
-  /**
-   * Review an execution and generate improvement suggestions.
-   */
-  async function reviewExecution(ctx: ExecutionContext): Promise<ReviewResult> {
-    const userPrompt = `Review this BaleyBot execution:
-
-## Original Intent
-${ctx.originalIntent}
-
-## BaleyBot Name
-${ctx.baleybotName}
-
-## BAL Code
-\`\`\`bal
-${ctx.balCode}
-\`\`\`
-
-## Input
-${typeof ctx.input === 'string' ? ctx.input : JSON.stringify(ctx.input, null, 2)}
-
-## Output
-${formatOutput(ctx.output)}
-
-${ctx.error ? `## Error\n${ctx.error}` : ''}
-
-${ctx.durationMs ? `## Execution Time\n${ctx.durationMs}ms` : ''}
-
-Please analyze this execution and provide improvement suggestions. Limit to ${maxSuggestions} suggestions maximum, prioritized by impact.`;
-
-    try {
-      const reviewer = Baleybot.create({
-        name: 'execution-reviewer',
-        goal: `${REVIEW_SYSTEM_PROMPT}
-
-Analyze BaleyBot execution results and provide constructive feedback.`,
-        model,
-        outputSchema: reviewResultSchema,
-      });
-
-      const result = await reviewer.process(userPrompt);
-
-      // The result should be the structured output
-      if (result && typeof result === 'object') {
-        return validateReviewResult(result as Partial<ReviewResult>);
-      }
-
-      throw new Error('Invalid review result');
-    } catch (error) {
-      console.error('Review failed:', error);
-
-      // Return a basic review result on failure
-      return {
-        overallAssessment: 'needs_improvement' as const,
-        summary:
-          'Unable to complete automated review. Please check the execution manually.',
-        issues: [],
-        suggestions: [],
-      };
-    }
-  }
-
-  return {
-    reviewExecution,
-  };
-}
 
 /**
  * Format output for display in the review prompt.
@@ -332,12 +234,67 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * Quick review function for simple cases.
+ * Create and return a reviewer function configured with the provided settings.
  */
-export async function quickReview(
-  ctx: ExecutionContext,
-  apiKey?: string
-): Promise<ReviewResult> {
-  const reviewer = createReviewer({ apiKey });
+export function createReviewer(config: ReviewerConfig = {}) {
+  const maxSuggestions = config.maxSuggestions || 5;
+
+  /**
+   * Review an execution and generate improvement suggestions.
+   * Executes via the internal execution_reviewer BaleyBot.
+   */
+  async function reviewExecution(ctx: ExecutionContext): Promise<ReviewResult> {
+    const input = `## Original Intent
+${ctx.originalIntent}
+
+## BaleyBot: ${ctx.baleybotName}
+
+## BAL Code
+\`\`\`bal
+${ctx.balCode}
+\`\`\`
+
+## Input
+${typeof ctx.input === 'string' ? ctx.input : JSON.stringify(ctx.input, null, 2)}
+
+## Output
+${formatOutput(ctx.output)}
+
+${ctx.error ? `## Error\n${ctx.error}` : ''}
+${ctx.durationMs ? `## Execution Time: ${ctx.durationMs}ms` : ''}
+
+Analyze this execution and provide improvement suggestions. Limit to ${maxSuggestions} suggestions maximum, prioritized by impact.`;
+
+    try {
+      const { output } = await executeInternalBaleybot('execution_reviewer', input, {
+        triggeredBy: 'internal',
+      });
+
+      return validateReviewResult(output as Partial<ReviewResult>);
+    } catch (error) {
+      console.error('Review failed:', error);
+
+      // Return a basic review result on failure
+      return {
+        overallAssessment: 'needs_improvement' as const,
+        summary:
+          'Unable to complete automated review. Please check the execution manually.',
+        issues: [],
+        suggestions: [],
+      };
+    }
+  }
+
+  return {
+    reviewExecution,
+  };
+}
+
+/**
+ * Quick review function for simple cases.
+ * Executes via the internal execution_reviewer BaleyBot.
+ */
+export async function quickReview(ctx: ExecutionContext): Promise<ReviewResult> {
+  const reviewer = createReviewer();
   return reviewer.reviewExecution(ctx);
 }
