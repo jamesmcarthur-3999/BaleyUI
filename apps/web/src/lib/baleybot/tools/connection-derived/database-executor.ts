@@ -9,6 +9,95 @@ import postgres from 'postgres';
 import type { DatabaseConnectionConfig } from '@/lib/connections/providers';
 
 // ============================================================================
+// SQL INJECTION PROTECTION
+// ============================================================================
+
+/**
+ * Patterns that indicate potential SQL injection attacks.
+ * These are checked before any query execution.
+ */
+export const SQL_INJECTION_PATTERNS: RegExp[] = [
+  /;\s*drop\s+/i,           // DROP statements after semicolon
+  /;\s*truncate\s+/i,       // TRUNCATE statements after semicolon
+  /;\s*delete\s+from\s+/i,  // DELETE statements after semicolon
+  /;\s*update\s+/i,         // UPDATE statements after semicolon
+  /;\s*insert\s+/i,         // INSERT statements after semicolon
+  /--/,                     // SQL comments (can hide malicious code)
+  /\/\*/,                   // Block comments
+  /\bxp_/i,                 // SQL Server extended procedures
+  /\bexec\s*\(/i,           // EXEC calls
+  /\bexecute\s*\(/i,        // EXECUTE calls
+  /\bunion\s+(all\s+)?select/i, // UNION injection
+  /\binto\s+outfile/i,      // File write
+  /\binto\s+dumpfile/i,     // File dump
+  /\bload_file/i,           // File read
+  /\bsleep\s*\(/i,          // Time-based attacks
+  /\bbenchmark\s*\(/i,      // Time-based attacks
+  /\bwaitfor\s+delay/i,     // SQL Server time delays
+  /'\s*or\s+'.*'\s*=\s*'/i, // Classic OR injection: ' OR '1'='1
+  /'\s*or\s+\d+\s*=\s*\d+/i, // Numeric OR injection: ' OR 1=1
+];
+
+/**
+ * Result of SQL query validation
+ */
+export interface SQLValidationResult {
+  safe: boolean;
+  reason?: string;
+}
+
+/**
+ * Options for SQL validation
+ */
+export interface SQLValidationOptions {
+  /** Only allow SELECT statements (default: false) */
+  allowOnlySelect?: boolean;
+}
+
+/**
+ * Validate a SQL query for potential injection attacks.
+ * Returns { safe: true } if the query appears safe, or { safe: false, reason: string } if not.
+ */
+export function validateSQLQuery(
+  sql: string,
+  options: SQLValidationOptions = {}
+): SQLValidationResult {
+  const { allowOnlySelect = false } = options;
+  const normalized = sql.trim();
+
+  // Check for multiple statements (dangerous)
+  const statements = normalized.split(';').filter(s => s.trim().length > 0);
+  if (statements.length > 1) {
+    return { safe: false, reason: 'Multiple SQL statements are not allowed' };
+  }
+
+  // Check for injection patterns
+  for (const pattern of SQL_INJECTION_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return {
+        safe: false,
+        reason: `Query contains forbidden pattern: ${pattern.toString()}`,
+      };
+    }
+  }
+
+  // If only SELECT allowed, verify statement type
+  if (allowOnlySelect) {
+    const lowerSql = normalized.toLowerCase();
+    const isSelect = lowerSql.startsWith('select') ||
+                     lowerSql.startsWith('with'); // CTEs
+    if (!isSelect) {
+      return {
+        safe: false,
+        reason: 'Only SELECT statements are allowed for raw queries',
+      };
+    }
+  }
+
+  return { safe: true };
+}
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
@@ -120,6 +209,15 @@ export function createPostgresExecutor(
     async query<T extends Record<string, unknown>>(sqlQuery: string): Promise<T[]> {
       if (!sql) {
         throw new Error('Database connection not initialized');
+      }
+
+      // Validate query for SQL injection patterns
+      const validation = validateSQLQuery(sqlQuery, { allowOnlySelect: true });
+      if (!validation.safe) {
+        throw new Error(
+          `Potentially unsafe SQL detected: ${validation.reason}. ` +
+          `Use queryWithParams() for parameterized queries.`
+        );
       }
 
       // Add timeout using postgres.js timeout option
