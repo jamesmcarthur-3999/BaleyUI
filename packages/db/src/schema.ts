@@ -594,6 +594,9 @@ export const baleybots = pgTable(
     icon: varchar('icon', { length: 100 }), // emoji or icon name
     status: varchar('status', { length: 50 }).notNull().default('draft'), // draft, active, paused, error
 
+    // Internal BaleyBots (system-managed, not user-created)
+    isInternal: boolean('is_internal').default(false).notNull(),
+
     // Webhook trigger (optional secret for HTTP triggers)
     webhookSecret: varchar('webhook_secret', { length: 100 }),
     webhookEnabled: boolean('webhook_enabled').default(false),
