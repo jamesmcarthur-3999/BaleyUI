@@ -187,6 +187,7 @@ export function createEphemeralToolService(): EphemeralToolService {
         },
         category: 'ephemeral',
         dangerLevel: 'moderate', // Ephemeral tools are moderate danger since they execute AI
+        needsApproval: true,
       };
 
       // Store the tool

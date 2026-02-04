@@ -291,6 +291,13 @@ export function generateDatabaseRuntimeTool(
     description: `Query the "${connection.connectionName}" database`,
     inputSchema: DATABASE_TOOL_SCHEMA as Record<string, unknown>,
     function: toolFunction,
+    needsApproval: (args: Record<string, unknown>) => {
+      const input = args as unknown as DatabaseQueryInput;
+      if (!input || typeof input.query !== 'string') {
+        return true;
+      }
+      return detectQueryIntent(input.query) !== 'read';
+    },
     category: 'database',
     dangerLevel: 'moderate',
   };

@@ -53,7 +53,6 @@ entity_name {
   "goal": "What this entity accomplishes",
   "model": "provider:model-name",
   "tools": ["tool1", "tool2"],
-  "can_request": ["dangerous_tool"],
   "output": { "field": "type" }
 }
 \`\`\`
@@ -65,7 +64,7 @@ chain { entity1 entity2 entity3 }
 
 ## Built-in Tools Reference
 
-### Immediate Access Tools (use in "tools" array)
+### Built-in Tools (use in "tools" array)
 
 **web_search** - Search the web for information
 - Input: { query: string, num_results?: number (default 5, max 20) }
@@ -92,7 +91,7 @@ chain { entity1 entity2 entity3 }
 - Use for: caching, state management, remembering user preferences
 - Example: A BB that tracks which items have been processed
 
-### Approval Required Tools (use in "can_request" array)
+### Approval Required Tools (approval handled at runtime)
 
 **schedule_task** - Schedule a BB to run at a future time
 - Input: { baleybot?: string, run_at: string (ISO datetime or cron), input?: any }
@@ -122,7 +121,7 @@ chain { entity1 entity2 entity3 }
 
 1. Keep it simple - use minimum entities needed
 2. Use descriptive snake_case names
-3. Put read-only tools in "tools", write/dangerous in "can_request"
+3. Put required tools in "tools" and rely on runtime approvals for sensitive actions
 4. Choose relevant emoji icons
 5. Generate helpful, concise names
 6. Prefer built-in tools when they fit the use case

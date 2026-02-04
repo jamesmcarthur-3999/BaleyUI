@@ -15,6 +15,9 @@
 import { Baleybot, type ToolDefinition as CoreToolDefinition } from '@baleybots/core';
 import type { BuiltInToolContext, CreateAgentResult } from '../tools/built-in';
 import type { RuntimeToolDefinition } from '../executor';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('ephemeral-agent');
 
 // ============================================================================
 // TYPES
@@ -55,12 +58,20 @@ export interface EphemeralAgentService {
  * Convert a runtime tool definition to the format expected by @baleybots/core
  */
 function toCoreTool(tool: RuntimeToolDefinition): CoreToolDefinition {
-  return {
+  // Build base tool definition
+  const coreTool: CoreToolDefinition = {
     name: tool.name,
     description: tool.description,
     inputSchema: tool.inputSchema,
     function: tool.function as (...args: unknown[]) => unknown,
   };
+
+  // Add needsApproval if present (may not exist on all core versions)
+  if (tool.needsApproval !== undefined) {
+    (coreTool as unknown as Record<string, unknown>).needsApproval = tool.needsApproval;
+  }
+
+  return coreTool;
 }
 
 /**
@@ -106,9 +117,7 @@ export function createEphemeralAgentService(): EphemeralAgentService {
         throw new Error('Ephemeral agent goal is required');
       }
 
-      console.log(
-        `[create_agent] Creating ephemeral agent "${config.name}" with goal: ${config.goal}`
-      );
+      logger.info('Creating ephemeral agent', { name: config.name, goal: config.goal });
 
       // Filter tools to only those requested
       const agentTools: Record<string, CoreToolDefinition> = {};
@@ -118,9 +127,7 @@ export function createEphemeralAgentService(): EphemeralAgentService {
           if (tool) {
             agentTools[toolName] = toCoreTool(tool);
           } else {
-            console.warn(
-              `[create_agent] Tool "${toolName}" not found in parent context, skipping`
-            );
+            logger.warn('Tool not found in parent context, skipping', { toolName });
           }
         }
       }
@@ -153,22 +160,17 @@ export function createEphemeralAgentService(): EphemeralAgentService {
         // Execute the agent
         const result = await agent.process(inputStr);
 
-        console.log(
-          `[create_agent] Ephemeral agent "${config.name}" completed successfully`
-        );
+        logger.info('Ephemeral agent completed successfully', { name: config.name });
 
         return {
           output: result,
           agentName: config.name,
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        console.error(
-          `[create_agent] Ephemeral agent "${config.name}" failed: ${message}`
-        );
+        logger.error('Ephemeral agent failed', { name: config.name, error });
 
         throw new Error(
-          `Ephemeral agent "${config.name}" execution failed: ${message}`
+          `Ephemeral agent "${config.name}" execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
       }
     },

@@ -31,6 +31,9 @@ import {
   CREATE_TOOL_SCHEMA,
   BUILT_IN_TOOLS_METADATA,
 } from './index';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('built-in-tools');
 import {
   createWebSearchService,
   type WebSearchService,
@@ -78,7 +81,7 @@ async function webSearchImpl(
 ): Promise<WebSearchResult[]> {
   const numResults = Math.min(args.num_results ?? 5, 20);
 
-  console.log(`[web_search] Searching for: "${args.query}" (limit: ${numResults})`);
+  logger.debug('Searching web', { query: args.query, limit: numResults });
 
   // Use injected service if available, otherwise create one without API key
   const service = webSearchService ?? createWebSearchService({});
@@ -222,7 +225,7 @@ async function sendNotificationImpl(
 
   if (!notificationSender) {
     // Fallback: log the notification
-    console.log(`[send_notification] ${priority.toUpperCase()}: ${args.title} - ${args.message}`);
+    logger.info('Notification sent (fallback)', { priority, title: args.title, message: args.message });
     return {
       sent: true,
       notification_id: `notif_${Date.now()}_${Math.random().toString(36).substring(7)}`,
@@ -360,7 +363,7 @@ async function createAgentImpl(
   args: CreateAgentArgs,
   ctx: BuiltInToolContext
 ): Promise<CreateAgentResult> {
-  console.log(`[create_agent] Creating ephemeral agent: ${args.name} with goal: ${args.goal}`);
+  logger.info('Creating ephemeral agent', { name: args.name, goal: args.goal });
 
   // Extract input from args if provided
   const { name, goal, model, tools, input } = args;
@@ -393,7 +396,7 @@ async function createToolImpl(
   args: CreateToolArgs,
   ctx: BuiltInToolContext
 ): Promise<CreateToolResult> {
-  console.log(`[create_tool] Creating ephemeral tool: ${args.name}`);
+  logger.info('Creating ephemeral tool', { name: args.name });
 
   // Convert args to ephemeral tool config
   const config: EphemeralToolConfig = {
@@ -442,6 +445,7 @@ function createRuntimeTool(
     function: async (args: Record<string, unknown>) => impl(args, ctx),
     category: metadata?.category,
     dangerLevel: metadata?.dangerLevel,
+    needsApproval: metadata?.approvalRequired ?? false,
   };
 }
 

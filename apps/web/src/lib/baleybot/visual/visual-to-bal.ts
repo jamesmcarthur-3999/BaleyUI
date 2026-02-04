@@ -53,9 +53,6 @@ export function applyNodeChange(
   if (change.changes.tools !== undefined) {
     updatedConfig.tools = change.changes.tools;
   }
-  if (change.changes.canRequest !== undefined) {
-    updatedConfig.can_request = change.changes.canRequest;
-  }
   if (change.changes.output !== undefined) {
     updatedConfig.output = change.changes.output;
   }
@@ -79,7 +76,6 @@ export function visualToBAL(graph: VisualGraph): string {
       goal: node.data.goal,
       model: node.data.model,
       tools: node.data.tools,
-      can_request: node.data.canRequest,
       output: node.data.output,
       trigger: node.data.trigger
         ? serializeTrigger(node.data.trigger)
@@ -124,17 +120,6 @@ function rebuildBAL(
       entity.config.tools.length > 0
     ) {
       lines.push(`  "tools": [${(entity.config.tools as string[]).map((t) => `"${t}"`).join(', ')}],`);
-    }
-
-    // Can request
-    if (
-      entity.config.can_request &&
-      Array.isArray(entity.config.can_request) &&
-      entity.config.can_request.length > 0
-    ) {
-      lines.push(
-        `  "can_request": [${(entity.config.can_request as string[]).map((t) => `"${t}"`).join(', ')}],`
-      );
     }
 
     // Output

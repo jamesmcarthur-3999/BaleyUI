@@ -43,6 +43,9 @@ import {
   type DatabaseSchema,
 } from './connection-derived';
 import type { DatabaseConnectionConfig } from '@/lib/connections/providers';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('tool-catalog');
 
 // Re-export injection functions for external use
 export {
@@ -143,13 +146,13 @@ export async function introspectDatabaseConnection(
     } else if (conn.type === 'mysql') {
       schema = await introspectMySQL(executor.query.bind(executor));
     } else {
-      console.warn(`Unknown database type: ${conn.type}`);
+      logger.warn('Unknown database type', { type: conn.type });
       return null;
     }
 
     return schema;
   } catch (error) {
-    console.error(`Failed to introspect database ${conn.connectionName}:`, error);
+    logger.error('Failed to introspect database', { connectionName: conn.connectionName, error });
     return null;
   }
 }
@@ -244,7 +247,7 @@ export function getRuntimeTools(
 
           builtInRuntimeTools.set(runtimeTool.name, runtimeTool);
         } catch (error) {
-          console.error(`Failed to create runtime tool for ${conn.connectionName}:`, error);
+          logger.error('Failed to create runtime tool', { connectionName: conn.connectionName, error });
         }
       }
     }
@@ -278,8 +281,8 @@ export function formatToolCatalogForCreatorBot(catalog: FullToolCatalog): string
 
   lines.push('# Available Tools for BaleyBots');
   lines.push('');
-  lines.push('When designing BaleyBots, you can use these tools. Place read-only/safe tools');
-  lines.push('in the "tools" array, and tools requiring approval in "can_request".');
+  lines.push('When designing BaleyBots, you can use these tools. Assign tools in the "tools"');
+  lines.push('array as needed. Approval is handled at runtime for sensitive tools.');
   lines.push('');
 
   // Built-in tools section
@@ -290,7 +293,7 @@ export function formatToolCatalogForCreatorBot(catalog: FullToolCatalog): string
     for (const tool of catalog.builtIn) {
       const metadata = BUILT_IN_TOOLS_METADATA.find((t) => t.name === tool.name);
       const approvalNote = metadata?.approvalRequired
-        ? ' **(Requires Approval - use can_request)**'
+        ? ' **(Requires Approval at Runtime)**'
         : '';
 
       lines.push(`### ${tool.name}${approvalNote}`);
@@ -340,7 +343,7 @@ export function formatToolCatalogForCreatorBot(catalog: FullToolCatalog): string
   lines.push('- Notifications (send_notification)');
   lines.push('- Memory storage (store_memory)');
   lines.push('');
-  lines.push('**Use in "can_request" array (requires approval):**');
+  lines.push('**Approvals happen at runtime for sensitive tools:**');
   lines.push('- Scheduling tasks (schedule_task)');
   lines.push('- Creating agents (create_agent)');
   lines.push('- Creating tools (create_tool)');

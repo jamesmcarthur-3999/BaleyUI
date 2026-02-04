@@ -228,8 +228,8 @@ export function formatToolCatalogForAI(catalog: ToolCatalog): string {
   }
 
   if (catalog.requiresApproval.length > 0) {
-    lines.push('## Requires Approval (use can_request)');
-    lines.push('These tools need user approval before execution.');
+    lines.push('## Requires Approval');
+    lines.push('These tools need user approval before execution (handled at runtime).');
     for (const tool of catalog.requiresApproval) {
       lines.push(`- **${tool.name}**: ${tool.description}`);
     }

@@ -32,8 +32,8 @@ const generateResultSchema = z.object({
       name: z.string().describe('Entity name (e.g., activity_poller)'),
       goal: z.string().describe('The goal/purpose of this entity'),
       model: z.string().optional().describe('AI model to use (e.g., openai:gpt-4o-mini)'),
-      tools: z.array(z.string()).describe('Tools with immediate access'),
-      canRequest: z.array(z.string()).describe('Tools that require approval'),
+      tools: z.array(z.string()).describe('Tools assigned to the entity (approvals handled at runtime)'),
+      canRequest: z.array(z.string()).default([]).describe('Tools that require approval'),
       output: z.record(z.string(), z.string()).optional().describe('Output schema'),
       history: z.enum(['none', 'inherit']).optional().describe('Conversation history mode'),
     })
@@ -263,33 +263,20 @@ function validateToolAssignments(
 ): GeneratedEntity[] {
   return entities.map((entity) => {
     const validatedTools: string[] = [];
-    const validatedCanRequest: string[] = [];
+    const toolNames = [...entity.tools, ...(entity.canRequest ?? [])];
 
-    // Check each tool in the tools array
-    for (const toolName of entity.tools) {
-      const category = categorizeToolName(toolName, ctx.workspacePolicies);
-      if (category === 'immediate') {
-        validatedTools.push(toolName);
-      } else if (category === 'requires_approval') {
-        // Move to can_request
-        validatedCanRequest.push(toolName);
-      }
-      // Forbidden tools are dropped
-    }
-
-    // Check each tool in the can_request array
-    for (const toolName of entity.canRequest) {
+    for (const toolName of toolNames) {
       const category = categorizeToolName(toolName, ctx.workspacePolicies);
       if (category !== 'forbidden') {
-        validatedCanRequest.push(toolName);
+        validatedTools.push(toolName);
       }
       // Forbidden tools are dropped
     }
 
     return {
       ...entity,
-      tools: validatedTools,
-      canRequest: [...new Set(validatedCanRequest)], // Remove duplicates
+      tools: [...new Set(validatedTools)], // Remove duplicates
+      canRequest: [],
     };
   });
 }
