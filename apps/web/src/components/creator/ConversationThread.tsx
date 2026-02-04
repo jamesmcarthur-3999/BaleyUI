@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence, PanInfo } from 'framer-motion';
 import { ChevronUp, ChevronDown, User, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -56,15 +56,15 @@ export function ConversationThread({
   }, [messages.length, isCollapsed]);
 
   // Swipe gesture handling (Phase 4.7)
-  const handleSwipe = useCallback((direction: 'up' | 'down') => {
+  const handleSwipe = (direction: 'up' | 'down') => {
     if (direction === 'down' && !isCollapsed) {
       setIsCollapsed(true);
     } else if (direction === 'up' && isCollapsed) {
       setIsCollapsed(false);
     }
-  }, [isCollapsed]);
+  };
 
-  const handleDragEnd = useCallback((_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     const { velocity, offset } = info;
     // Detect swipe based on velocity and offset
     if (Math.abs(offset.y) > SWIPE_THRESHOLD || Math.abs(velocity.y) > 300) {
@@ -74,7 +74,7 @@ export function ConversationThread({
         handleSwipe('up');
       }
     }
-  }, [handleSwipe]);
+  };
 
   if (messages.length === 0) {
     return null;

@@ -1,6 +1,5 @@
 'use client';
 
-import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 
 interface StreamingJSONProps {
@@ -125,26 +124,20 @@ function highlightJSON(obj: unknown, indent = 0): React.ReactNode {
 }
 
 export function StreamingJSON({ json, isStreaming, className }: StreamingJSONProps) {
-  const highlighted = useMemo(() => {
-    const { parsed, isValid } = parsePartialJSON(json);
+  const { parsed, isValid } = parsePartialJSON(json);
 
-    if (!parsed) {
-      return (
-        <div className="text-muted-foreground italic">
-          {json ? 'Parsing JSON...' : 'Waiting for data...'}
-        </div>
-      );
-    }
-
-    return (
-      <div className={cn('relative', !isValid && 'opacity-70')}>
-        {highlightJSON(parsed)}
-        {isStreaming && (
-          <span className="inline-block ml-1 w-0.5 h-4 bg-primary animate-pulse" />
-        )}
-      </div>
-    );
-  }, [json, isStreaming]);
+  const highlighted = !parsed ? (
+    <div className="text-muted-foreground italic">
+      {json ? 'Parsing JSON...' : 'Waiting for data...'}
+    </div>
+  ) : (
+    <div className={cn('relative', !isValid && 'opacity-70')}>
+      {highlightJSON(parsed)}
+      {isStreaming && (
+        <span className="inline-block ml-1 w-0.5 h-4 bg-primary animate-pulse" />
+      )}
+    </div>
+  );
 
   return (
     <div

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -49,18 +49,15 @@ export function ApproveAndRememberDialog({
   const [entityGoalPattern, setEntityGoalPattern] = useState('');
 
   // Parse parameters into configurable patterns
-  const parameterPatterns = useMemo(() => {
-    const patterns: ParameterPattern[] = [];
-    for (const [key, value] of Object.entries(toolCall.parameters)) {
-      patterns.push({
-        key,
-        value,
-        useExact: true,
-        useWildcard: false,
-      });
-    }
-    return patterns;
-  }, [toolCall.parameters]);
+  const parameterPatterns: ParameterPattern[] = [];
+  for (const [key, value] of Object.entries(toolCall.parameters)) {
+    parameterPatterns.push({
+      key,
+      value,
+      useExact: true,
+      useWildcard: false,
+    });
+  }
 
   const [selectedParams, setSelectedParams] = useState<Record<string, ParameterPattern>>(() => {
     const initial: Record<string, ParameterPattern> = {};

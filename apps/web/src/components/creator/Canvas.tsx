@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo, memo } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -475,33 +475,30 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
   const isRebuilding = status === 'building' && entities.length > 0;
   const showEntities = entities.length > 0;
 
-  // Sort entities for consistent rendering (memoized to prevent unnecessary re-renders)
-  const sortedEntities = useMemo(
-    () => [...entities].sort((a, b) => a.id.localeCompare(b.id)),
-    [entities]
-  );
+  // Sort entities for consistent rendering
+  const sortedEntities = [...entities].sort((a, b) => a.id.localeCompare(b.id));
 
   // Auto-zoom when many entities (Phase 5.3)
-  const calculateAutoZoom = useCallback((entityCount: number) => {
+  const calculateAutoZoom = (entityCount: number) => {
     if (entityCount <= ENTITIES_BEFORE_AUTO_ZOOM) return 1;
     // Gradually reduce zoom as entities increase
     const excess = entityCount - ENTITIES_BEFORE_AUTO_ZOOM;
     const reduction = Math.min(excess * 0.08, 1 - MIN_ZOOM);
     return Math.max(MIN_ZOOM, 1 - reduction);
-  }, []);
+  };
 
   // Apply auto-zoom when entity count changes significantly
-  const handleZoomIn = useCallback(() => {
+  const handleZoomIn = () => {
     setZoom((prev) => Math.min(MAX_ZOOM, prev + ZOOM_STEP));
-  }, []);
+  };
 
-  const handleZoomOut = useCallback(() => {
+  const handleZoomOut = () => {
     setZoom((prev) => Math.max(MIN_ZOOM, prev - ZOOM_STEP));
-  }, []);
+  };
 
-  const handleZoomReset = useCallback(() => {
+  const handleZoomReset = () => {
     setZoom(calculateAutoZoom(entities.length));
-  }, [calculateAutoZoom, entities.length]);
+  };
 
   return (
     <div

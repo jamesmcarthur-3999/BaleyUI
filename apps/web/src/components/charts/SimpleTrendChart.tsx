@@ -1,7 +1,6 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { useMemo } from 'react';
 
 export interface TrendChartData {
   date: Date | string;
@@ -30,7 +29,8 @@ export function SimpleTrendChart({
   },
   className,
 }: SimpleTrendChartProps) {
-  const chartData = useMemo(() => {
+  // Compute chart data
+  const chartData = (() => {
     if (data.length === 0) return null;
 
     const values = data.map((d) => d.value);
@@ -40,7 +40,6 @@ export function SimpleTrendChart({
 
     const padding = 20;
     const chartHeight = height - padding * 2;
-    const chartWidth = 100; // We'll use percentage
 
     const points = data.map((item, index) => {
       const x = (index / Math.max(data.length - 1, 1)) * 100;
@@ -67,7 +66,7 @@ export function SimpleTrendChart({
       maxValue,
       minValue,
     };
-  }, [data, height]);
+  })();
 
   if (data.length === 0) {
     return (

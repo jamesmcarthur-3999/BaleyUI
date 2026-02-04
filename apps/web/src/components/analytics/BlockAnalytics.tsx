@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,7 @@ export function BlockAnalytics({ blockId }: BlockAnalyticsProps) {
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d' | 'all'>('30d');
 
   // Calculate date range
-  const dateRange = useMemo(() => {
+  const dateRange = (() => {
     const now = new Date();
     const startDate = new Date();
 
@@ -57,7 +57,7 @@ export function BlockAnalytics({ blockId }: BlockAnalyticsProps) {
     }
 
     return { startDate, endDate: now };
-  }, [timeRange]);
+  })();
 
   // Fetch stats
   const { data: stats, isLoading: isLoadingStats } = trpc.decisions.getStats.useQuery({
@@ -77,7 +77,7 @@ export function BlockAnalytics({ blockId }: BlockAnalyticsProps) {
   const decisions = decisionsData?.items || [];
 
   // Calculate category breakdown
-  const categoryBreakdown = useMemo(() => {
+  const categoryBreakdown = (() => {
     const categories: Record<string, number> = {};
     let totalWithCategory = 0;
 
@@ -89,10 +89,10 @@ export function BlockAnalytics({ blockId }: BlockAnalyticsProps) {
     });
 
     return { categories, total: totalWithCategory };
-  }, [decisions]);
+  })();
 
   // Calculate time series data (simplified - group by day)
-  const timeSeriesData = useMemo(() => {
+  const timeSeriesData = (() => {
     const series: Record<string, { total: number; correct: number; incorrect: number }> = {};
 
     decisions.forEach((decision) => {
@@ -111,7 +111,7 @@ export function BlockAnalytics({ blockId }: BlockAnalyticsProps) {
     return Object.entries(series)
       .sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime())
       .slice(-14); // Last 14 days
-  }, [decisions]);
+  })();
 
   const getCategoryColor = (category: string) => {
     switch (category) {
