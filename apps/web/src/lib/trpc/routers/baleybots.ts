@@ -20,6 +20,11 @@ import type { CreatorMessage } from '@/lib/baleybot/creator-types';
 import { getBuiltInToolDefinitions } from '@/lib/baleybot';
 import { executeBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { verifyNestedOwnership } from '../helpers';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('baleybots-router');
 
 /**
  * Status values for BaleyBots
@@ -249,7 +254,14 @@ export const baleybotsRouter = router({
             message: 'BaleyBot was modified by another user. Please refresh and try again.',
           });
         }
-        throw error;
+        // Sanitize unexpected errors before sending to client
+        const message = isUserFacingError(error)
+          ? sanitizeErrorMessage(error)
+          : 'An internal error occurred';
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message,
+        });
       }
     }),
 
@@ -351,6 +363,14 @@ export const baleybotsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Rate limit: 10 executions per minute per user per workspace
+      checkRateLimit(
+        `execute:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.execute
+      );
+
+      log.info('Executing baleybot', { baleybotId: input.id, triggeredBy: input.triggeredBy });
+
       // Verify BaleyBot exists and belongs to workspace (outside transaction for early validation)
       const baleybot = await ctx.db.query.baleybots.findFirst({
         where: and(
@@ -437,6 +457,13 @@ export const baleybotsRouter = router({
 
           const duration = Date.now() - startTime;
 
+          log.info('Baleybot execution completed', {
+            baleybotId: input.id,
+            executionId: execution.id,
+            status: result.status,
+            durationMs: duration,
+          });
+
           // Update execution with result
           await tx
             .update(baleybotExecutions)
@@ -458,6 +485,12 @@ export const baleybotsRouter = router({
         } catch (error) {
           const duration = Date.now() - startTime;
           const internalErrorMessage = error instanceof Error ? error.message : String(error);
+
+          log.error('Baleybot execution failed', error instanceof Error ? error : undefined, {
+            baleybotId: input.id,
+            executionId: execution.id,
+            durationMs: duration,
+          });
 
           // Update execution with error (store full error internally)
           // This will be committed even though we throw, because we want to record the failure
@@ -548,21 +581,8 @@ export const baleybotsRouter = router({
         });
       }
 
-      // Check if baleybot relation exists (could be null for orphaned executions)
-      if (!execution.baleybot) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Execution not found',
-        });
-      }
-
-      // Verify the BaleyBot belongs to the workspace
-      if (execution.baleybot.workspaceId !== ctx.workspace.id) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Execution not found',
-        });
-      }
+      // Verify the BaleyBot exists and belongs to the workspace
+      verifyNestedOwnership(execution.baleybot, ctx.workspace.id, 'Execution');
 
       return execution;
     }),
@@ -765,7 +785,8 @@ export const baleybotsRouter = router({
       const [updated] = await ctx.db
         .update(approvalPatterns)
         .set({
-          timesUsed: (existing.timesUsed ?? 0) + 1,
+          timesUsed: sql`COALESCE(${approvalPatterns.timesUsed}, 0) + 1`,
+          updatedAt: new Date(),
         })
         .where(eq(approvalPatterns.id, input.id))
         .returning();
@@ -793,12 +814,15 @@ export const baleybotsRouter = router({
         with: { baleybot: true },
       });
 
-      if (!execution || !execution.baleybot || execution.baleybot.workspaceId !== ctx.workspace.id) {
+      if (!execution) {
         throw new TRPCError({
           code: 'NOT_FOUND',
           message: 'Execution not found',
         });
       }
+
+      // Verify the BaleyBot exists and belongs to the workspace
+      verifyNestedOwnership(execution.baleybot, ctx.workspace.id, 'Execution');
 
       // In a real implementation, this would:
       // 1. Find the pending approval request in the execution state
@@ -811,7 +835,7 @@ export const baleybotsRouter = router({
         if (Array.isArray(execution.segments)) {
           currentSegments = execution.segments;
         } else {
-          console.warn(`Invalid segments format for execution ${input.executionId}`);
+          log.warn('Invalid segments format for execution', { executionId: input.executionId });
         }
       }
 
@@ -1012,7 +1036,14 @@ export const baleybotsRouter = router({
               message: 'BaleyBot was modified by another user. Please refresh and try again.',
             });
           }
-          throw error;
+          // Sanitize unexpected errors before sending to client
+          const message = isUserFacingError(error)
+            ? sanitizeErrorMessage(error)
+            : 'An internal error occurred';
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message,
+          });
         }
       } else {
         // Truncate conversation history to last 50 messages

@@ -11,70 +11,8 @@ import {
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { randomBytes } from 'crypto';
-
-// ============================================================================
-// TRIGGER TYPES
-// ============================================================================
-
-/**
- * Webhook trigger configuration
- */
-interface WebhookTrigger {
-  type: 'webhook';
-  secret: string;
-  signingSecret: string;
-  enabled: boolean;
-  createdAt: string;
-}
-
-/**
- * Schedule trigger configuration
- */
-interface ScheduleTrigger {
-  type: 'schedule';
-  cron: string;
-  enabled: boolean;
-  timezone?: string;
-}
-
-/**
- * Manual trigger configuration
- */
-interface ManualTrigger {
-  type: 'manual';
-  enabled: boolean;
-}
-
-/**
- * Union of all trigger types
- */
-type FlowTrigger = WebhookTrigger | ScheduleTrigger | ManualTrigger;
-
-/**
- * Type guard to check if a trigger is a webhook trigger
- */
-function isWebhookTrigger(trigger: unknown): trigger is WebhookTrigger {
-  return (
-    typeof trigger === 'object' &&
-    trigger !== null &&
-    'type' in trigger &&
-    trigger.type === 'webhook'
-  );
-}
-
-/**
- * Parse triggers from database JSON
- */
-function parseTriggers(triggers: unknown): FlowTrigger[] {
-  if (!Array.isArray(triggers)) return [];
-  return triggers.filter(
-    (t): t is FlowTrigger =>
-      typeof t === 'object' &&
-      t !== null &&
-      'type' in t &&
-      typeof t.type === 'string'
-  );
-}
+import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
+import { isWebhookTrigger, isEnabledWebhookTrigger, type Trigger, type WebhookTrigger } from '@/lib/types';
 
 /**
  * Generate a random webhook secret
@@ -128,10 +66,10 @@ export const webhooksRouter = router({
       const signingSecret = generateWebhookSecret();
 
       // Update flow triggers
-      const triggers = parseTriggers(flow.triggers);
-      const existingWebhook = triggers.find(isWebhookTrigger);
+      const triggers = (Array.isArray(flow.triggers) ? flow.triggers : []) as Trigger[];
+      const existingWebhook = triggers.find((t): t is WebhookTrigger => isWebhookTrigger(t));
 
-      let updatedTriggers: FlowTrigger[];
+      let updatedTriggers: Trigger[];
       if (existingWebhook) {
         // Update existing webhook
         updatedTriggers = triggers.map((t) =>
@@ -193,7 +131,7 @@ export const webhooksRouter = router({
       }
 
       // Remove webhook trigger from triggers array
-      const triggers = parseTriggers(flow.triggers);
+      const triggers = (Array.isArray(flow.triggers) ? flow.triggers : []) as Trigger[];
       const updatedTriggers = triggers.map((t) =>
         isWebhookTrigger(t) ? { ...t, enabled: false } : t
       );
@@ -229,10 +167,8 @@ export const webhooksRouter = router({
       }
 
       // Find webhook trigger
-      const triggers = parseTriggers(flow.triggers);
-      const webhookTrigger = triggers.find(
-        (t): t is WebhookTrigger => isWebhookTrigger(t) && t.enabled === true
-      );
+      const triggers = (Array.isArray(flow.triggers) ? flow.triggers : []) as Trigger[];
+      const webhookTrigger = triggers.find((t): t is WebhookTrigger => isEnabledWebhookTrigger(t));
 
       if (!webhookTrigger) {
         return null;
@@ -305,7 +241,7 @@ export const webhooksRouter = router({
     .input(
       z.object({
         flowId: z.string().uuid(),
-        samplePayload: z.any().optional(),
+        samplePayload: z.unknown().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -326,10 +262,8 @@ export const webhooksRouter = router({
       }
 
       // Find webhook trigger
-      const triggers = parseTriggers(flow.triggers);
-      const webhookTrigger = triggers.find(
-        (t): t is WebhookTrigger => isWebhookTrigger(t) && t.enabled === true
-      );
+      const triggers = (Array.isArray(flow.triggers) ? flow.triggers : []) as Trigger[];
+      const webhookTrigger = triggers.find((t): t is WebhookTrigger => isEnabledWebhookTrigger(t));
 
       if (!webhookTrigger) {
         throw new TRPCError({
@@ -367,9 +301,12 @@ export const webhooksRouter = router({
           response: result,
         };
       } catch (error) {
+        const message = isUserFacingError(error)
+          ? sanitizeErrorMessage(error)
+          : 'An internal error occurred while testing webhook';
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to test webhook',
+          message,
         });
       }
     }),

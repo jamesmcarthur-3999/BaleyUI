@@ -46,8 +46,8 @@ export function ThemeToggle() {
   // Don't render on server to avoid hydration mismatch
   if (!mounted) {
     return (
-      <Button variant="ghost" size="icon" className="w-9 h-9">
-        <Sun className="h-4 w-4" />
+      <Button variant="ghost" size="icon" className="w-9 h-9" aria-label="Toggle theme">
+        <Sun className="h-4 w-4" aria-hidden="true" />
       </Button>
     );
   }
@@ -55,13 +55,13 @@ export function ThemeToggle() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="w-9 h-9">
+        <Button variant="ghost" size="icon" className="w-9 h-9" aria-label="Toggle theme">
           {theme === 'dark' ? (
-            <Moon className="h-4 w-4" />
+            <Moon className="h-4 w-4" aria-hidden="true" />
           ) : theme === 'light' ? (
-            <Sun className="h-4 w-4" />
+            <Sun className="h-4 w-4" aria-hidden="true" />
           ) : (
-            <Monitor className="h-4 w-4" />
+            <Monitor className="h-4 w-4" aria-hidden="true" />
           )}
           <span className="sr-only">Toggle theme</span>
         </Button>

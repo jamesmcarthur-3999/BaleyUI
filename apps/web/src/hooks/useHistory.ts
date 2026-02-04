@@ -51,7 +51,7 @@ export interface UseHistoryReturn<T> {
   lastActionDescription?: string;
 }
 
-const DEFAULT_MAX_STATES = 20;
+const MAX_HISTORY_SIZE = 50;
 
 /**
  * Hook for managing undo/redo history for any state.
@@ -78,7 +78,7 @@ const DEFAULT_MAX_STATES = 20;
  * ```
  */
 export function useHistory<T>(options: UseHistoryOptions<T> = {}): UseHistoryReturn<T> {
-  const { maxStates = DEFAULT_MAX_STATES, enableKeyboardShortcuts = false, onStateChange } = options;
+  const { maxStates = MAX_HISTORY_SIZE, enableKeyboardShortcuts = false, onStateChange } = options;
 
   // Past states (for undo)
   const [past, setPast] = useState<HistorySnapshot<T>[]>([]);

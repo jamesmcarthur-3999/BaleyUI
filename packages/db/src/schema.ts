@@ -104,7 +104,7 @@ export const tools = pgTable('tools', {
   code: text('code').notNull(), // TypeScript function body
 
   // For database tools
-  connectionId: uuid('connection_id').references(() => connections.id),
+  connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'cascade' }),
   isGenerated: boolean('is_generated').default(false),
 
   // Soft delete fields
@@ -136,7 +136,7 @@ export const blocks = pgTable('blocks', {
   outputSchema: jsonb('output_schema').default({}),
 
   // AI Block fields
-  connectionId: uuid('connection_id').references(() => connections.id),
+  connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'cascade' }),
   model: varchar('model', { length: 255 }),
   goal: text('goal'),
   systemPrompt: text('system_prompt'),
@@ -253,7 +253,7 @@ export const webhookLogs = pgTable(
     // Response data
     status: varchar('status', { length: 50 }).notNull(), // 'success' | 'failed' | 'invalid_secret'
     statusCode: integer('status_code').notNull(),
-    executionId: uuid('execution_id').references(() => flowExecutions.id),
+    executionId: uuid('execution_id').references(() => flowExecutions.id, { onDelete: 'cascade' }),
     error: text('error'),
 
     // Client info
@@ -337,7 +337,7 @@ export const toolExecutions = pgTable('tool_executions', {
   blockExecutionId: uuid('block_execution_id')
     .references(() => blockExecutions.id, { onDelete: 'cascade' })
     .notNull(),
-  toolId: uuid('tool_id').references(() => tools.id),
+  toolId: uuid('tool_id').references(() => tools.id, { onDelete: 'cascade' }),
   toolCallId: varchar('tool_call_id', { length: 100 }),
   toolName: varchar('tool_name', { length: 255 }).notNull(),
   arguments: jsonb('arguments'),
@@ -790,6 +790,9 @@ export const workspacePolicies = pgTable('workspace_policies', {
 
   // Pattern learning manual (natural language guidelines for AI)
   learningManual: text('learning_manual'),
+
+  // Optimistic locking
+  version: integer('version').default(1).notNull(),
 
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

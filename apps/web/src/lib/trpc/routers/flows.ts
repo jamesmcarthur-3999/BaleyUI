@@ -3,96 +3,80 @@ import { router, protectedProcedure } from '../trpc';
 import {
   flows,
   flowExecutions,
+  baleybots,
   eq,
   and,
+  inArray,
   notDeleted,
   softDelete,
   updateWithLock,
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
-import { emitBuilderEvent, actorFromContext } from '@/lib/events/with-events';
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import type { FlowNode, FlowEdge, Trigger, PartialUpdateData } from '@/lib/types';
+import { createLogger } from '@/lib/logger';
+import { executeFlow } from '@/lib/flow-executor';
 
-// ============================================================================
-// FLOW VALIDATION SCHEMAS
-// ============================================================================
-
-/**
- * Node position schema (React Flow compatible)
- */
-const positionSchema = z.object({
-  x: z.number(),
-  y: z.number(),
-});
+const log = createLogger('flows-router');
 
 /**
- * Valid node types in a flow
- */
-const nodeTypeSchema = z.enum([
-  'baleybot',
-  'trigger',
-  'condition',
-  'output',
-  'input',
-]);
-
-/**
- * Flow node schema with strict validation (React Flow compatible)
+ * Zod schema for a single flow node
+ * Note: Uses permissive types to accommodate React Flow node structure
+ * @internal exported for testing
  */
 export const flowNodeSchema = z.object({
   id: z.string().min(1),
-  type: nodeTypeSchema,
-  position: positionSchema,
-  data: z.object({
-    baleybotId: z.string().uuid().optional(),
-    label: z.string().optional(),
-    config: z.record(z.string(), z.unknown()).optional(),
-  }).optional(),
-  // React Flow specific fields
+  type: z.enum(['baleybot', 'trigger', 'condition', 'action', 'output', 'source', 'sink', 'ai-block', 'function-block', 'router', 'parallel', 'loop']).optional(),
+  position: z.object({ x: z.number(), y: z.number() }),
+  data: z.record(z.string(), z.unknown()).optional(),
   width: z.number().optional(),
   height: z.number().optional(),
   selected: z.boolean().optional(),
   dragging: z.boolean().optional(),
-});
+}).passthrough();
 
 /**
- * Flow edge schema (React Flow compatible)
+ * Zod schema for flow nodes array
+ */
+const flowNodesSchema = z.array(flowNodeSchema).optional();
+
+/**
+ * Zod schema for a single flow edge
+ * Note: Uses permissive types to accommodate React Flow edge structure
+ * @internal exported for testing
  */
 export const flowEdgeSchema = z.object({
   id: z.string().min(1),
   source: z.string().min(1),
   target: z.string().min(1),
-  sourceHandle: z.string().optional(),
-  targetHandle: z.string().optional(),
+  sourceHandle: z.string().nullish(),
+  targetHandle: z.string().nullish(),
   type: z.string().optional(),
   animated: z.boolean().optional(),
-  label: z.string().optional(),
-});
+  selected: z.boolean().optional(),
+}).passthrough();
 
 /**
- * Trigger types supported by the system
+ * Zod schema for flow edges array
  */
-const triggerTypeSchema = z.enum(['manual', 'schedule', 'webhook', 'event']);
+const flowEdgesSchema = z.array(flowEdgeSchema).optional();
 
 /**
- * Flow trigger schema
+ * Zod schema for a single flow trigger
+ * @internal exported for testing
  */
 export const flowTriggerSchema = z.object({
   id: z.string().min(1),
-  type: triggerTypeSchema,
+  type: z.enum(['manual', 'webhook', 'schedule', 'api', 'event']),
   nodeId: z.string().min(1),
-  config: z.object({
-    schedule: z.string().optional(), // cron expression
-    webhookPath: z.string().optional(),
-    eventName: z.string().optional(),
-  }).optional(),
-});
+  enabled: z.boolean().optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
+}).passthrough();
 
 /**
- * Array schemas for flow update input
+ * Zod schema for flow triggers array
  */
-const flowNodesInput = z.array(flowNodeSchema).optional();
-const flowEdgesInput = z.array(flowEdgeSchema).optional();
-const flowTriggersInput = z.array(flowTriggerSchema).optional();
+const flowTriggersSchema = z.array(flowTriggerSchema).optional();
 
 /**
  * tRPC router for managing flows (visual compositions).
@@ -168,18 +152,6 @@ export const flowsRouter = router({
         })
         .returning();
 
-      // Emit FlowCreated event
-      if (flow) {
-        await emitBuilderEvent(
-          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
-          'FlowCreated',
-          {
-            flowId: flow.id,
-            name: flow.name,
-          }
-        );
-      }
-
       return flow;
     }),
 
@@ -193,9 +165,9 @@ export const flowsRouter = router({
         version: z.number().int(),
         name: z.string().min(1).max(255).optional(),
         description: z.string().optional(),
-        nodes: flowNodesInput,
-        edges: flowEdgesInput,
-        triggers: flowTriggersInput,
+        nodes: flowNodesSchema,
+        edges: flowEdgesSchema,
+        triggers: flowTriggersSchema,
         enabled: z.boolean().optional(),
       })
     )
@@ -217,14 +189,7 @@ export const flowsRouter = router({
       }
 
       // Prepare update data (only include fields that are provided)
-      const updateData: Partial<{
-        name: string;
-        description: string | null;
-        nodes: unknown;
-        edges: unknown;
-        triggers: unknown;
-        enabled: boolean;
-      }> = {};
+      const updateData: PartialUpdateData = {};
 
       if (input.name !== undefined) updateData.name = input.name;
       if (input.description !== undefined) updateData.description = input.description;
@@ -239,22 +204,6 @@ export const flowsRouter = router({
         input.version,
         updateData
       );
-
-      // Emit FlowUpdated event
-      if (updated) {
-        await emitBuilderEvent(
-          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
-          'FlowUpdated',
-          {
-            flowId: input.id,
-            changes: updateData as Record<string, unknown>,
-            previousValues: Object.keys(updateData).reduce((acc, key) => {
-              acc[key] = existing[key as keyof typeof existing];
-              return acc;
-            }, {} as Record<string, unknown>),
-          }
-        );
-      }
 
       return updated;
     }),
@@ -282,17 +231,6 @@ export const flowsRouter = router({
       }
 
       const deleted = await softDelete(flows, input.id, ctx.userId);
-
-      // Emit FlowDeleted event
-      if (deleted) {
-        await emitBuilderEvent(
-          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
-          'FlowDeleted',
-          {
-            flowId: input.id,
-          }
-        );
-      }
 
       return deleted;
     }),
@@ -335,18 +273,6 @@ export const flowsRouter = router({
         })
         .returning();
 
-      // Emit FlowCreated event for the duplicate
-      if (duplicated) {
-        await emitBuilderEvent(
-          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
-          'FlowCreated',
-          {
-            flowId: duplicated.id,
-            name: duplicated.name,
-          }
-        );
-      }
-
       return duplicated;
     }),
 
@@ -357,10 +283,18 @@ export const flowsRouter = router({
     .input(
       z.object({
         flowId: z.string().uuid(),
-        input: z.any().optional(),
+        input: z.unknown().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Rate limit: 10 executions per minute per user per workspace
+      checkRateLimit(
+        `execute:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.execute
+      );
+
+      log.info('Executing flow', { flowId: input.flowId });
+
       // Verify flow exists and belongs to workspace
       const flow = await ctx.db.query.flows.findFirst({
         where: and(
@@ -394,16 +328,85 @@ export const flowsRouter = router({
         })
         .returning();
 
-      // Flow execution integration
-      // TODO(Phase 3): Implement flow execution by:
-      // 1. Parse flow.nodes to extract BaleyBot IDs
-      // 2. Build execution graph from flow.edges
-      // 3. Execute each BaleyBot in topological order
-      // 4. Pass outputs between connected nodes
-      // 5. Update flowExecution status as nodes complete
-      // See: packages/sdk/src/bal-executor.ts for BaleyBot execution pattern
+      // Extract BaleyBot IDs from flow nodes
+      const nodes = (flow.nodes || []) as FlowNode[];
+      const edges = (flow.edges || []) as FlowEdge[];
+      const baleybotIds = nodes
+        .filter((n) => n.type === 'baleybot' && n.data?.baleybotId)
+        .map((n) => n.data.baleybotId as string);
 
-      return execution;
+      // Fetch all referenced baleybots
+      const baleybotMap = new Map<string, { balCode: string }>();
+      if (baleybotIds.length > 0) {
+        const fetchedBaleybots = await ctx.db.query.baleybots.findMany({
+          where: and(
+            inArray(baleybots.id, baleybotIds),
+            eq(baleybots.workspaceId, ctx.workspace.id),
+            notDeleted(baleybots)
+          ),
+          columns: {
+            id: true,
+            balCode: true,
+          },
+        });
+        for (const bot of fetchedBaleybots) {
+          if (bot.balCode) {
+            baleybotMap.set(bot.id, { balCode: bot.balCode });
+          }
+        }
+      }
+
+      // Update execution status to running
+      await ctx.db
+        .update(flowExecutions)
+        .set({ status: 'running' })
+        .where(eq(flowExecutions.id, execution.id));
+
+      // Execute the flow
+      try {
+        const result = await executeFlow({
+          flowId: input.flowId,
+          executionId: execution.id,
+          nodes,
+          edges,
+          input: input.input,
+          apiKey: process.env.ANTHROPIC_API_KEY || '',
+          baleybots: baleybotMap,
+        });
+
+        // Update execution with result
+        const [completed] = await ctx.db
+          .update(flowExecutions)
+          .set({
+            status: result.status === 'success' ? 'completed' : 'failed',
+            output: result.outputs,
+            error: result.error || null,
+            completedAt: new Date(),
+          })
+          .where(eq(flowExecutions.id, execution.id))
+          .returning();
+
+        return completed;
+      } catch (error) {
+        // Update execution as failed
+        const [failed] = await ctx.db
+          .update(flowExecutions)
+          .set({
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+            completedAt: new Date(),
+          })
+          .where(eq(flowExecutions.id, execution.id))
+          .returning();
+
+        log.error('Flow execution failed', {
+          executionId: execution.id,
+          flowId: input.flowId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        return failed;
+      }
     }),
 
   /**
@@ -556,6 +559,8 @@ export const flowsRouter = router({
           message: `Cannot cancel execution with status: ${execution.status}`,
         });
       }
+
+      log.info('Cancelling flow execution', { executionId: input.id, flowId: execution.flowId });
 
       // Update execution status to cancelled
       const [cancelled] = await ctx.db

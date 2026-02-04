@@ -8,27 +8,47 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
 /**
- * Deep equality check for objects
+ * Deep equality check for objects with cycle detection
  */
-function deepEqual(a: unknown, b: unknown): boolean {
+function deepEqual(a: unknown, b: unknown, seen = new WeakSet<object>()): boolean {
+  // Same reference or primitives
   if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (typeof a !== 'object' || typeof b !== 'object') return false;
 
-  const aObj = a as Record<string, unknown>;
-  const bObj = b as Record<string, unknown>;
+  // Different types
+  if (typeof a !== typeof b) return false;
 
-  const aKeys = Object.keys(aObj);
-  const bKeys = Object.keys(bObj);
+  // Handle null
+  if (a === null || b === null) return a === b;
 
-  if (aKeys.length !== bKeys.length) return false;
+  // Primitives
+  if (typeof a !== 'object') return a === b;
 
-  for (const key of aKeys) {
-    if (!bKeys.includes(key)) return false;
-    if (!deepEqual(aObj[key], bObj[key])) return false;
+  // Cycle detection
+  if (seen.has(a as object)) return true; // Assume equal for cycles
+  seen.add(a as object);
+
+  // Arrays
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((item, i) => deepEqual(item, b[i], seen));
   }
 
-  return true;
+  // Objects
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+
+  const keysA = Object.keys(a as object);
+  const keysB = Object.keys(b as object);
+
+  if (keysA.length !== keysB.length) return false;
+
+  return keysA.every(key =>
+    key in (b as object) &&
+    deepEqual(
+      (a as Record<string, unknown>)[key],
+      (b as Record<string, unknown>)[key],
+      seen
+    )
+  );
 }
 
 /**

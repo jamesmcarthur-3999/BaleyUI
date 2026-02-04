@@ -42,17 +42,29 @@ export default function WorkspaceSettingsPage() {
       utils.workspaces.get.invalidate();
     },
     onError: (error) => {
-      toast({
-        title: 'Failed to Update Workspace',
-        description: error.message,
-        variant: 'destructive',
-      });
+      // Handle conflict error (optimistic locking)
+      if (error.data?.code === 'CONFLICT') {
+        toast({
+          title: 'Update Conflict',
+          description: 'The workspace was modified by another user. Please refresh and try again.',
+          variant: 'destructive',
+        });
+        utils.workspaces.get.invalidate();
+      } else {
+        toast({
+          title: 'Failed to Update Workspace',
+          description: error.message,
+          variant: 'destructive',
+        });
+      }
     },
   });
 
   const onSubmit = (data: WorkspaceFormData) => {
+    if (!workspace?.version) return;
     updateMutation.mutate({
       name: data.name,
+      version: workspace.version,
     });
   };
 

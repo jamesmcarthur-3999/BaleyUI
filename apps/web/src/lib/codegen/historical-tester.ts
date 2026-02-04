@@ -3,6 +3,7 @@
  */
 
 import { HistoricalTestResult } from './types';
+import { evaluateSafeExpression, isSafeExpression } from '../utils/safe-eval';
 
 /**
  * Test generated code against historical decisions.
@@ -88,6 +89,9 @@ export async function testGeneratedCode(
 
 /**
  * Create a test function from generated code.
+ *
+ * This function parses simple generated code patterns and creates a safe evaluator.
+ * For complex generated code, consider using a proper sandboxed runtime.
  */
 function createTestFunction(generatedCode: string): (input: any) => any {
   // Extract the processFn from the generated code
@@ -97,17 +101,31 @@ function createTestFunction(generatedCode: string): (input: any) => any {
     throw new Error('Could not extract processFn from generated code');
   }
 
-  const functionBody = processFnMatch[2];
+  const functionBody = processFnMatch[2].trim();
 
-  // Create a sandboxed function
-  // Note: In production, this should use a proper sandbox like vm2 or isolated-vm
-  // For now, we'll use a simple Function constructor
-  try {
-    const testFn = new Function('input', functionBody);
-    return testFn as (input: any) => any;
-  } catch (error) {
-    throw new Error(`Failed to create test function: ${(error as Error).message}`);
+  // Parse simple return statements that we can safely evaluate
+  // Supports patterns like: return input.field; return input.field === value;
+  const returnMatch = functionBody.match(/^\s*return\s+(.+?);?\s*$/);
+
+  if (!returnMatch || !returnMatch[1]) {
+    throw new Error('Generated code must be a simple return statement for safe evaluation');
   }
+
+  const expression = returnMatch[1].trim();
+
+  // Validate the expression is safe
+  if (!isSafeExpression(expression)) {
+    throw new Error(`Generated code contains unsafe expression: ${expression}`);
+  }
+
+  // Return a function that safely evaluates the expression
+  return (input: any): any => {
+    try {
+      return evaluateSafeExpression(expression, { input });
+    } catch (error) {
+      throw new Error(`Failed to evaluate expression: ${(error as Error).message}`);
+    }
+  };
 }
 
 /**

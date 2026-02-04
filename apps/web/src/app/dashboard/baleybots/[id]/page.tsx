@@ -188,10 +188,17 @@ export default function BaleybotPage() {
   const utils = trpc.useUtils();
 
   // Fetch existing BaleyBot (only if not new)
-  const { data: existingBaleybot, isLoading: isLoadingBaleybot } = trpc.baleybots.get.useQuery(
+  const { data: existingBaleybot, isLoading: isLoadingBaleybot, isFetching: isFetchingBaleybot } = trpc.baleybots.get.useQuery(
     { id },
     { enabled: !isNew }
   );
+
+  // Track whether initial data has been loaded and state has been initialized
+  // This prevents rendering with stale state before the effect populates data
+  const [isStateInitialized, setIsStateInitialized] = useState(isNew);
+
+  // Combined loading check: loading, fetching, or state not yet initialized from fetched data
+  const isFullyLoaded = isNew || (!isLoadingBaleybot && !isFetchingBaleybot && isStateInitialized && existingBaleybot);
 
   // Mutations
   const creatorMutation = trpc.baleybots.sendCreatorMessage.useMutation();
@@ -605,6 +612,9 @@ export default function BaleybotPage() {
 
       // Mark as clean since we just loaded from database
       markClean();
+
+      // Mark state as initialized after all state updates
+      setIsStateInitialized(true);
     }
   }, [isNew, existingBaleybot, markClean]);
 
@@ -622,7 +632,10 @@ export default function BaleybotPage() {
   // LOADING STATE
   // =====================================================================
 
-  if (!isNew && isLoadingBaleybot) {
+  // Show loading skeleton when:
+  // - Not a new BaleyBot AND (loading OR fetching OR state not initialized)
+  // This prevents race conditions where component renders before state is populated
+  if (!isFullyLoaded) {
     return (
       <div className="flex flex-col h-screen bg-gradient-hero">
         {/* Header skeleton */}
@@ -651,7 +664,8 @@ export default function BaleybotPage() {
   // NOT FOUND STATE
   // =====================================================================
 
-  if (!isNew && !existingBaleybot && !isLoadingBaleybot) {
+  // At this point, isFullyLoaded is true, so if existingBaleybot is missing, it's not found
+  if (!isNew && !existingBaleybot) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gradient-hero">
         <h1 className="text-2xl font-bold mb-4">BaleyBot not found</h1>
@@ -723,8 +737,8 @@ export default function BaleybotPage() {
         {/* Main header row - responsive padding (Phase 4.6) */}
         <div className="flex items-center gap-2 sm:gap-3 max-w-6xl mx-auto w-full px-2 sm:px-4 py-2 sm:py-3">
           {/* Back button */}
-          <Button variant="ghost" size="icon" onClick={handleBack} className="shrink-0 min-h-10 min-w-10 sm:min-h-11 sm:min-w-11">
-            <ArrowLeft className="h-4 w-4" />
+          <Button variant="ghost" size="icon" onClick={handleBack} className="shrink-0 min-h-10 min-w-10 sm:min-h-11 sm:min-w-11" aria-label="Go back to BaleyBots list">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           </Button>
 
           {/* Icon and name (Phase 5.1: Handle long names) */}
@@ -767,8 +781,9 @@ export default function BaleybotPage() {
                     onClick={handleUndo}
                     disabled={!canUndo}
                     className="min-h-11 min-w-11 h-11 w-11"
+                    aria-label="Undo"
                   >
-                    <Undo2 className="h-4 w-4" />
+                    <Undo2 className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -785,8 +800,9 @@ export default function BaleybotPage() {
                     onClick={handleRedo}
                     disabled={!canRedo}
                     className="min-h-11 min-w-11 h-11 w-11"
+                    aria-label="Redo"
                   >
-                    <Redo2 className="h-4 w-4" />
+                    <Redo2 className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -803,8 +819,9 @@ export default function BaleybotPage() {
                     size="icon"
                     onClick={() => setShortcutsOpen(true)}
                     className="min-h-11 min-w-11 h-11 w-11"
+                    aria-label="Keyboard shortcuts"
                   >
-                    <Keyboard className="h-4 w-4" />
+                    <Keyboard className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>

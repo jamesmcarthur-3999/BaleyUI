@@ -26,3 +26,7 @@ export * from './useDirtyState';
 export { useDebouncedCallback, useThrottledCallback } from './useDebounce';
 export * from './useNavigationGuard';
 export * from './useHistory';
+
+// Accessibility hooks
+export * from './useGridNavigation';
+export * from './useFocusTrap';

@@ -1,24 +1,26 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { connections, eq, and, isNull } from '@baleyui/db';
+import { connections, eq, and, notDeleted, softDelete } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { encrypt, decrypt } from '@/lib/encryption';
 import { testConnection } from '@/lib/connections/test';
 import { listOllamaModels } from '@/lib/connections/ollama';
+import type { ConnectionConfig, PartialUpdateData } from '@/lib/types';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('connections-router');
 
 /**
  * Encrypt an object's sensitive fields.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function encryptObject<T extends Record<string, any>>(
+function encryptObject<T extends ConnectionConfig>(
   obj: T,
   sensitiveFields: (keyof T)[]
 ): T {
   const result = { ...obj };
   for (const field of sensitiveFields) {
     if (result[field] && typeof result[field] === 'string') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      result[field] = encrypt(result[field] as string) as any;
+      (result as Record<string, unknown>)[field as string] = encrypt(result[field] as string);
     }
   }
   return result;
@@ -27,8 +29,7 @@ function encryptObject<T extends Record<string, any>>(
 /**
  * Decrypt an object's sensitive fields.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function decryptObject<T extends Record<string, any>>(
+function decryptObject<T extends ConnectionConfig>(
   obj: T,
   sensitiveFields: (keyof T)[]
 ): T {
@@ -36,11 +37,10 @@ function decryptObject<T extends Record<string, any>>(
   for (const field of sensitiveFields) {
     if (result[field] && typeof result[field] === 'string') {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        result[field] = decrypt(result[field] as string) as any;
+        (result as Record<string, unknown>)[field as string] = decrypt(result[field] as string);
       } catch (error) {
         // If decryption fails, leave as is (might not be encrypted)
-        console.error(`Failed to decrypt field ${String(field)}:`, error);
+        log.warn(`Failed to decrypt field ${String(field)}`, { error });
       }
     }
   }
@@ -48,26 +48,14 @@ function decryptObject<T extends Record<string, any>>(
 }
 
 /**
- * tRPC router for managing AI provider and database connections.
+ * tRPC router for managing AI provider connections.
  */
 
 const connectionConfigSchema = z.object({
-  // AI provider fields
   apiKey: z.string().optional(),
   baseUrl: z.string().optional(),
   organization: z.string().optional(),
-  // Database fields
-  host: z.string().optional(),
-  port: z.number().optional(),
-  database: z.string().optional(),
-  username: z.string().optional(),
-  password: z.string().optional(),
-  connectionUrl: z.string().optional(),
-  ssl: z.boolean().optional(),
-  schema: z.string().optional(),
 });
-
-const connectionTypeSchema = z.enum(['openai', 'anthropic', 'ollama', 'postgres', 'mysql']);
 
 export const connectionsRouter = router({
   /**
@@ -77,45 +65,31 @@ export const connectionsRouter = router({
     const allConnections = await ctx.db.query.connections.findMany({
       where: and(
         eq(connections.workspaceId, ctx.workspace.id),
-        isNull(connections.deletedAt)
+        notDeleted(connections)
       ),
       orderBy: (connections, { desc }) => [desc(connections.createdAt)],
     });
 
-    // Decrypt and mask sensitive fields for display
+    // Decrypt API keys for display (masked)
     return allConnections.map((conn) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = conn.config as Record<string, any>;
-      const maskedConfig = { ...config };
+      const config = conn.config as ConnectionConfig;
 
-      // Mask API key for AI providers
+      // Return masked API key for security
       if (config.apiKey) {
-        try {
-          const decryptedKey = decrypt(config.apiKey);
-          maskedConfig.apiKey = decryptedKey.slice(0, 8) + '...' + decryptedKey.slice(-4);
-          maskedConfig._hasApiKey = true;
-        } catch {
-          maskedConfig.apiKey = '********';
-          maskedConfig._hasApiKey = true;
-        }
+        const decryptedKey = decrypt(config.apiKey);
+        const maskedKey = decryptedKey.slice(0, 8) + '...' + decryptedKey.slice(-4);
+
+        return {
+          ...conn,
+          config: {
+            ...config,
+            apiKey: maskedKey,
+            _hasApiKey: true,
+          },
+        };
       }
 
-      // Mask password for database connections
-      if (config.password) {
-        maskedConfig.password = '********';
-        maskedConfig._hasPassword = true;
-      }
-
-      // Mask connection URL for database connections
-      if (config.connectionUrl) {
-        maskedConfig.connectionUrl = '********';
-        maskedConfig._hasConnectionUrl = true;
-      }
-
-      return {
-        ...conn,
-        config: maskedConfig,
-      };
+      return conn;
     });
   }),
 
@@ -129,7 +103,7 @@ export const connectionsRouter = router({
         where: and(
           eq(connections.id, input.id),
           eq(connections.workspaceId, ctx.workspace.id),
-          isNull(connections.deletedAt)
+          notDeleted(connections)
         ),
       });
 
@@ -141,9 +115,8 @@ export const connectionsRouter = router({
       }
 
       // Decrypt sensitive fields for editing
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = connection.config as Record<string, any>;
-      const decryptedConfig = decryptObject(config, ['apiKey', 'password', 'connectionUrl']);
+      const config = connection.config as ConnectionConfig;
+      const decryptedConfig = decryptObject(config, ['apiKey']);
 
       return {
         ...connection,
@@ -157,22 +130,21 @@ export const connectionsRouter = router({
   create: protectedProcedure
     .input(
       z.object({
-        type: connectionTypeSchema,
+        type: z.enum(['openai', 'anthropic', 'ollama']),
         name: z.string().min(1).max(255),
         config: connectionConfigSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Encrypt sensitive fields based on connection type
-      const sensitiveFields: (keyof typeof input.config)[] = ['apiKey', 'password', 'connectionUrl'];
-      const encryptedConfig = encryptObject(input.config, sensitiveFields);
+      // Encrypt API key if present
+      const encryptedConfig = encryptObject(input.config, ['apiKey']);
 
       // If this is the first connection of its type, make it default
       const existingConnections = await ctx.db.query.connections.findMany({
         where: and(
           eq(connections.workspaceId, ctx.workspace.id),
           eq(connections.type, input.type),
-          isNull(connections.deletedAt)
+          notDeleted(connections)
         ),
       });
 
@@ -212,7 +184,7 @@ export const connectionsRouter = router({
         where: and(
           eq(connections.id, input.id),
           eq(connections.workspaceId, ctx.workspace.id),
-          isNull(connections.deletedAt)
+          notDeleted(connections)
         ),
       });
 
@@ -224,8 +196,7 @@ export const connectionsRouter = router({
       }
 
       // Prepare update data
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const updateData: any = {
+      const updateData: PartialUpdateData = {
         updatedAt: new Date(),
         version: existing.version + 1,
       };
@@ -235,8 +206,8 @@ export const connectionsRouter = router({
       }
 
       if (input.config) {
-        // Encrypt sensitive fields (both AI and database credentials)
-        const encryptedConfig = encryptObject(input.config, ['apiKey', 'password', 'connectionUrl']);
+        // Encrypt sensitive fields
+        const encryptedConfig = encryptObject(input.config, ['apiKey']);
         updateData.config = encryptedConfig;
       }
 
@@ -260,7 +231,7 @@ export const connectionsRouter = router({
         where: and(
           eq(connections.id, input.id),
           eq(connections.workspaceId, ctx.workspace.id),
-          isNull(connections.deletedAt)
+          notDeleted(connections)
         ),
       });
 
@@ -292,13 +263,12 @@ export const connectionsRouter = router({
     .input(
       z.object({
         id: z.string().uuid().optional(),
-        type: connectionTypeSchema.optional(),
+        type: z.enum(['openai', 'anthropic', 'ollama']).optional(),
         config: connectionConfigSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let config: Record<string, any>;
+      let config: ConnectionConfig;
       let type: string;
 
       if (input.id) {
@@ -307,7 +277,7 @@ export const connectionsRouter = router({
           where: and(
             eq(connections.id, input.id),
             eq(connections.workspaceId, ctx.workspace.id),
-            isNull(connections.deletedAt)
+            notDeleted(connections)
           ),
         });
 
@@ -319,8 +289,7 @@ export const connectionsRouter = router({
         }
 
         type = connection.type;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        config = decryptObject(connection.config as Record<string, any>, ['apiKey', 'password', 'connectionUrl']);
+        config = decryptObject(connection.config as ConnectionConfig, ['apiKey']);
       } else if (input.type && input.config) {
         // Test new connection config
         type = input.type;
@@ -370,50 +339,41 @@ export const connectionsRouter = router({
    * Set a connection as the default for its provider type.
    */
   setDefault: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Verify connection exists and belongs to workspace
-      const connection = await ctx.db.query.connections.findFirst({
-        where: and(
-          eq(connections.id, input.id),
-          eq(connections.workspaceId, ctx.workspace.id),
-          isNull(connections.deletedAt)
-        ),
-      });
+      return await ctx.db.transaction(async (tx) => {
+        // First, unset all defaults in workspace
+        await tx
+          .update(connections)
+          .set({ isDefault: false, updatedAt: new Date() })
+          .where(
+            and(
+              eq(connections.workspaceId, ctx.workspace.id),
+              eq(connections.isDefault, true)
+            )
+          );
 
-      if (!connection) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Connection not found',
-        });
-      }
-
-      // Unset all other defaults for this provider type
-      await ctx.db
-        .update(connections)
-        .set({
-          isDefault: false,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(connections.workspaceId, ctx.workspace.id),
-            eq(connections.type, connection.type),
-            isNull(connections.deletedAt)
+        // Then set the new default
+        const [updated] = await tx
+          .update(connections)
+          .set({ isDefault: true, updatedAt: new Date() })
+          .where(
+            and(
+              eq(connections.id, input.id),
+              eq(connections.workspaceId, ctx.workspace.id)
+            )
           )
-        );
+          .returning();
 
-      // Set this connection as default
-      const [updated] = await ctx.db
-        .update(connections)
-        .set({
-          isDefault: true,
-          updatedAt: new Date(),
-        })
-        .where(eq(connections.id, input.id))
-        .returning();
+        if (!updated) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Connection not found',
+          });
+        }
 
-      return updated;
+        return updated;
+      });
     }),
 
   /**
@@ -426,7 +386,7 @@ export const connectionsRouter = router({
         where: and(
           eq(connections.id, input.id),
           eq(connections.workspaceId, ctx.workspace.id),
-          isNull(connections.deletedAt)
+          notDeleted(connections)
         ),
       });
 
@@ -444,8 +404,7 @@ export const connectionsRouter = router({
         });
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const config = decryptObject(connection.config as Record<string, any>, ['apiKey']);
+      const config = decryptObject(connection.config as ConnectionConfig, ['apiKey']);
       const models = await listOllamaModels(config.baseUrl || 'http://localhost:11434');
 
       const [updated] = await ctx.db

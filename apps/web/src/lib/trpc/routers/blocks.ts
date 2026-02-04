@@ -2,20 +2,16 @@ import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { blocks, connections, tools, eq, and, notDeleted, softDelete, updateWithLock } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
-import { emitBuilderEvent, actorFromContext } from '@/lib/events/with-events';
-
-// Type inference from Drizzle schema
-type Tool = typeof tools.$inferSelect;
-type BlockUpdate = Partial<typeof blocks.$inferInsert>;
+import type { BlockSchema, RouterConfig, LoopConfig, PartialUpdateData, ToolReference } from '@/lib/types';
 
 /**
  * Zod schema for block input validation
  */
-const blockInputSchemaValidator = z.record(z.string(), z.any()).optional();
-const blockOutputSchemaValidator = z.record(z.string(), z.any()).optional();
+const blockInputSchemaValidator = z.record(z.string(), z.unknown()).optional();
+const blockOutputSchemaValidator = z.record(z.string(), z.unknown()).optional();
 const blockToolIdsValidator = z.array(z.string().uuid()).optional();
-const blockRouterConfigValidator = z.record(z.string(), z.any()).optional();
-const blockLoopConfigValidator = z.record(z.string(), z.any()).optional();
+const blockRouterConfigValidator = z.record(z.string(), z.unknown()).optional();
+const blockLoopConfigValidator = z.record(z.string(), z.unknown()).optional();
 
 /**
  * tRPC router for managing blocks (AI and Function blocks).
@@ -58,9 +54,9 @@ export const blocksRouter = router({
       }
 
       // Fetch associated tools if toolIds exist
-      let blockTools: Tool[] = [];
+      let blockTools: ToolReference[] = [];
       if (block.toolIds && Array.isArray(block.toolIds) && block.toolIds.length > 0) {
-        const allTools = await ctx.db.query.tools.findMany({
+        blockTools = await ctx.db.query.tools.findMany({
           where: and(
             eq(tools.workspaceId, ctx.workspace.id),
             notDeleted(tools)
@@ -68,7 +64,7 @@ export const blocksRouter = router({
         });
 
         // Filter tools to only include those in the block's toolIds
-        blockTools = allTools.filter((tool) => (block.toolIds as string[]).includes(tool.id));
+        blockTools = blockTools.filter((tool) => (block.toolIds as string[]).includes(tool.id));
       }
 
       return {
@@ -171,19 +167,6 @@ export const blocksRouter = router({
         })
         .returning();
 
-      // Emit BlockCreated event
-      if (block) {
-        await emitBuilderEvent(
-          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
-          'BlockCreated',
-          {
-            blockId: block.id,
-            name: block.name,
-            blockType: block.type as 'ai' | 'function' | 'router' | 'pipeline' | 'loop' | 'parallel',
-          }
-        );
-      }
-
       return block;
     }),
 
@@ -273,7 +256,7 @@ export const blocksRouter = router({
       }
 
       // Prepare update data (only include fields that are provided)
-      const updateData: BlockUpdate = {};
+      const updateData: PartialUpdateData = {};
 
       if (input.name !== undefined) updateData.name = input.name;
       if (input.description !== undefined) updateData.description = input.description;
@@ -297,22 +280,6 @@ export const blocksRouter = router({
         input.version,
         updateData
       );
-
-      // Emit BlockUpdated event
-      if (updated) {
-        await emitBuilderEvent(
-          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
-          'BlockUpdated',
-          {
-            blockId: input.id,
-            changes: updateData as Record<string, unknown>,
-            previousValues: Object.keys(updateData).reduce((acc, key) => {
-              acc[key] = existing[key as keyof typeof existing];
-              return acc;
-            }, {} as Record<string, unknown>),
-          }
-        );
-      }
 
       return updated;
     }),
@@ -340,17 +307,6 @@ export const blocksRouter = router({
       }
 
       const deleted = await softDelete(blocks, input.id, ctx.userId);
-
-      // Emit BlockDeleted event
-      if (deleted) {
-        await emitBuilderEvent(
-          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
-          'BlockDeleted',
-          {
-            blockId: input.id,
-          }
-        );
-      }
 
       return deleted;
     }),
@@ -406,19 +362,6 @@ export const blocksRouter = router({
         })
         .returning();
 
-      // Emit BlockCreated event for the duplicate
-      if (duplicated) {
-        await emitBuilderEvent(
-          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
-          'BlockCreated',
-          {
-            blockId: duplicated.id,
-            name: duplicated.name,
-            blockType: duplicated.type as 'ai' | 'function' | 'router' | 'pipeline' | 'loop' | 'parallel',
-          }
-        );
-      }
-
       return duplicated;
     }),
 
@@ -459,19 +402,6 @@ export const blocksRouter = router({
         }
       );
 
-      // Emit BlockUpdated event
-      if (updated) {
-        await emitBuilderEvent(
-          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
-          'BlockUpdated',
-          {
-            blockId: input.id,
-            changes: { executionMode: input.executionMode },
-            previousValues: { executionMode: existing.executionMode },
-          }
-        );
-      }
-
       return updated;
     }),
 
@@ -511,19 +441,6 @@ export const blocksRouter = router({
           hybridThreshold: input.hybridThreshold.toString(),
         }
       );
-
-      // Emit BlockUpdated event
-      if (updated) {
-        await emitBuilderEvent(
-          { workspaceId: ctx.workspace.id, actor: actorFromContext(ctx) },
-          'BlockUpdated',
-          {
-            blockId: input.id,
-            changes: { hybridThreshold: input.hybridThreshold.toString() },
-            previousValues: { hybridThreshold: existing.hybridThreshold },
-          }
-        );
-      }
 
       return updated;
     }),

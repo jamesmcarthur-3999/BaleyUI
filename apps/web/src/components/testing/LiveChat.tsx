@@ -233,11 +233,12 @@ export function LiveChat({ blockId, className, onError }: LiveChatProps) {
               disabled={!canSend}
               size="icon"
               className="flex-shrink-0"
+              aria-label={isExecuting ? 'Sending message' : 'Send message'}
             >
               {isExecuting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
-                <Send className="h-4 w-4" />
+                <Send className="h-4 w-4" aria-hidden="true" />
               )}
             </Button>
           </div>

@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { patterns, blocks, decisions, eq, and, isNull } from '@baleyui/db';
+import { patterns, blocks, decisions, eq, and, notDeleted } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { generateCode, validateGeneratedCode, getPatternStats } from '@/lib/codegen/code-generator';
 import { testGeneratedCode } from '@/lib/codegen/historical-tester';
 import { DetectedPattern } from '@/lib/codegen/types';
+import type { PatternCondition } from '@/lib/types';
 
 /**
  * tRPC router for code generation from patterns.
@@ -18,7 +19,7 @@ export const codegenRouter = router({
       z.object({
         blockId: z.string().uuid(),
         blockName: z.string().min(1).max(255),
-        outputSchema: z.record(z.string(), z.any()).optional(),
+        outputSchema: z.record(z.string(), z.unknown()).optional(),
         minConfidence: z.number().min(0).max(1).optional(),
         includeComments: z.boolean().optional(),
       })
@@ -29,7 +30,7 @@ export const codegenRouter = router({
         where: and(
           eq(blocks.id, input.blockId),
           eq(blocks.workspaceId, ctx.workspace.id),
-          isNull(blocks.deletedAt)
+          notDeleted(blocks)
         ),
       });
 
@@ -64,7 +65,7 @@ export const codegenRouter = router({
       // Convert DB patterns to DetectedPattern format
       const detectedPatterns: DetectedPattern[] = blockPatterns.map(p => ({
         id: p.id,
-        type: inferPatternType(p.condition),
+        type: inferPatternType(p.condition as PatternCondition | null | undefined),
         condition: p.rule,
         conditionAst: p.condition || {},
         outputValue: p.outputTemplate,
@@ -114,7 +115,7 @@ export const codegenRouter = router({
         where: and(
           eq(blocks.id, input.blockId),
           eq(blocks.workspaceId, ctx.workspace.id),
-          isNull(blocks.deletedAt)
+          notDeleted(blocks)
         ),
       });
 
@@ -160,7 +161,7 @@ export const codegenRouter = router({
         where: and(
           eq(blocks.id, input.blockId),
           eq(blocks.workspaceId, ctx.workspace.id),
-          isNull(blocks.deletedAt)
+          notDeleted(blocks)
         ),
       });
 
@@ -221,7 +222,7 @@ export const codegenRouter = router({
         where: and(
           eq(blocks.id, input.blockId),
           eq(blocks.workspaceId, ctx.workspace.id),
-          isNull(blocks.deletedAt)
+          notDeleted(blocks)
         ),
       });
 
@@ -257,8 +258,7 @@ export const codegenRouter = router({
 /**
  * Infer pattern type from condition object.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function inferPatternType(condition: any): 'threshold' | 'set_membership' | 'compound' | 'exact_match' {
+function inferPatternType(condition: PatternCondition | null | undefined): 'threshold' | 'set_membership' | 'compound' | 'exact_match' {
   if (!condition || typeof condition !== 'object') {
     return 'exact_match';
   }

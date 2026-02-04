@@ -1,3 +1,18 @@
+/**
+ * Dialog component built on Radix UI Dialog primitive.
+ *
+ * Accessibility features (built-in via Radix):
+ * - Focus trap: Focus is constrained within the dialog when open
+ * - Focus restoration: Focus returns to trigger element on close
+ * - Auto-focus: First focusable element receives focus when dialog opens
+ * - Escape key: Closes the dialog
+ * - Click outside: Closes the dialog (on overlay click)
+ * - ARIA attributes: Proper dialog role and aria-modal
+ *
+ * For custom modal implementations that don't use Radix, see useFocusTrap hook.
+ *
+ * @see https://www.radix-ui.com/primitives/docs/components/dialog
+ */
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';

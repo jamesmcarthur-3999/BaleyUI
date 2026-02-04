@@ -280,11 +280,12 @@ export default function ApiKeysPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => handleCopy(newlyCreatedKey.apiKey)}
+                      aria-label={keyToCopy === newlyCreatedKey.apiKey ? 'Copied' : 'Copy API key'}
                     >
                       {keyToCopy === newlyCreatedKey.apiKey ? (
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        <CheckCircle2 className="h-4 w-4 text-green-500" aria-hidden="true" />
                       ) : (
-                        <Copy className="h-4 w-4" />
+                        <Copy className="h-4 w-4" aria-hidden="true" />
                       )}
                     </Button>
                   </div>
@@ -359,8 +360,9 @@ export default function ApiKeysPage() {
                       size="icon"
                       onClick={() => setRevokeKeyId(key.id)}
                       className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      aria-label={`Revoke API key ${key.name}`}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
                     </Button>
                   </div>
                 </CardHeader>

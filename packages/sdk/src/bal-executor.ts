@@ -6,20 +6,14 @@
  */
 
 import {
+  executeBAL,
   compileBAL,
   webSearchTool,
   sequentialThinkTool,
   type BALConfig,
   type PipelineStructure,
 } from '@baleybots/tools';
-import type {
-  BaleybotStreamEvent,
-  ToolDefinition,
-  ZodToolDefinition,
-  ProviderConfig,
-  ModelConfig,
-  ProcessOptions,
-} from '@baleybots/core';
+import type { BaleybotStreamEvent, ToolDefinition, ZodToolDefinition } from '@baleybots/core';
 
 // ============================================================================
 // TYPES
@@ -27,16 +21,10 @@ import type {
 
 export interface BALExecutionOptions {
   /** Model to use for execution (default: gpt-4o-mini) */
-  model?: string | ModelConfig;
+  model?: string;
 
   /** API key for the model provider */
   apiKey?: string;
-
-  /** Provider configuration (API keys, base URLs, etc.) */
-  providerConfig?: ProviderConfig;
-
-  /** Input to execute (used when BAL code does not specify run(...)) */
-  input?: unknown;
 
   /** Enable web search tool */
   enableWebSearch?: boolean;
@@ -46,12 +34,6 @@ export interface BALExecutionOptions {
 
   /** Enable sequential thinking tool */
   enableSequentialThinking?: boolean;
-
-  /** Additional tools available to BAL entities */
-  availableTools?: Record<string, ZodToolDefinition | ToolDefinition>;
-
-  /** Tool approval callback (passed to baleybots core) */
-  onToolCallApproval?: ProcessOptions['onToolCallApproval'];
 
   /** Maximum execution time in milliseconds (default: 60000) */
   timeout?: number;
@@ -77,6 +59,11 @@ export interface BALExecutionResult {
   status: 'success' | 'error' | 'cancelled' | 'timeout';
   result?: unknown;
   error?: string;
+  errorContext?: {
+    phase: 'parsing' | 'compilation' | 'execution';
+    entityName?: string;
+    stepIndex?: number;
+  };
   entities?: string[];
   structure?: PipelineStructure | null;
   duration?: number;
@@ -94,9 +81,7 @@ export interface BALCompileResult {
 // ============================================================================
 
 function getAvailableTools(options: BALExecutionOptions): Record<string, ZodToolDefinition | ToolDefinition> {
-  const tools: Record<string, ZodToolDefinition | ToolDefinition> = {
-    ...(options.availableTools ?? {}),
-  };
+  const tools: Record<string, ZodToolDefinition | ToolDefinition> = {};
 
   // Web search tool (requires Tavily API key)
   if (options.enableWebSearch && options.tavilyApiKey) {
@@ -111,20 +96,6 @@ function getAvailableTools(options: BALExecutionOptions): Record<string, ZodTool
   return tools;
 }
 
-function resolveProviderConfig(options: BALExecutionOptions): ProviderConfig | undefined {
-  if (options.providerConfig) return options.providerConfig;
-  if (options.apiKey) return { apiKey: options.apiKey };
-  return undefined;
-}
-
-function buildBalConfig(options: BALExecutionOptions): BALConfig {
-  return {
-    model: options.model ?? 'gpt-4o-mini',
-    providerConfig: resolveProviderConfig(options),
-    availableTools: getAvailableTools(options),
-  };
-}
-
 // ============================================================================
 // COMPILE
 // ============================================================================
@@ -135,7 +106,11 @@ function buildBalConfig(options: BALExecutionOptions): BALConfig {
  */
 export function compileBALCode(code: string, options: BALExecutionOptions = {}): BALCompileResult {
   try {
-    const config = buildBalConfig(options);
+    const config: BALConfig = {
+      model: options.model || 'gpt-4o-mini',
+      availableTools: getAvailableTools(options),
+    };
+
     const { entityNames, pipelineStructure, runInput } = compileBAL(code, config);
 
     return {
@@ -167,59 +142,68 @@ export async function executeBALCode(
   const startTime = Date.now();
   const { onEvent, signal, timeout = 60000 } = options;
 
-  // If a streaming callback is provided, use the streaming executor
-  if (onEvent) {
-    const iterator = streamBALExecution(code, options);
-    while (true) {
-      const { value, done } = await iterator.next();
-      if (done) {
-        return value ?? {
-          status: 'error',
-          error: 'BAL execution ended without a result',
-          duration: Date.now() - startTime,
-        };
-      }
-      onEvent(value);
-    }
-  }
+  // Set up unified abort handling
+  const abortController = new AbortController();
+  let abortReason: 'timeout' | 'cancelled' | null = null;
 
-  // Synchronous execution path (no event callback)
-  // Set up timeout
+  // Handle timeout
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeoutController = new AbortController();
-
   if (timeout > 0) {
     timeoutId = setTimeout(() => {
-      timeoutController.abort();
+      if (!abortReason) {
+        abortReason = 'timeout';
+        abortController.abort();
+        onEvent?.({ type: 'error', error: `Execution timed out after ${timeout}ms` });
+      }
     }, timeout);
   }
 
-  // Combine abort signals
-  const combinedAbort = signal
-    ? new AbortController()
-    : timeoutController;
-
+  // Handle user cancellation
   if (signal) {
-    signal.addEventListener('abort', () => {
-      combinedAbort.abort();
-    });
-    timeoutController.signal.addEventListener('abort', () => {
-      combinedAbort.abort();
-    });
+    const handleAbort = () => {
+      if (!abortReason) {
+        abortReason = 'cancelled';
+        abortController.abort();
+        onEvent?.({ type: 'cancelled' });
+      }
+    };
+
+    if (signal.aborted) {
+      handleAbort();
+    } else {
+      signal.addEventListener('abort', handleAbort, { once: true });
+    }
   }
 
+  // Cleanup function
+  const cleanup = () => {
+    if (timeoutId) clearTimeout(timeoutId);
+  };
+
   try {
+    // Emit parsing event
+    onEvent?.({ type: 'parsing', message: 'Parsing BAL code...' });
+
     // Compile first to get structure
     const compiled = compileBALCode(code, options);
 
     if (compiled.errors && compiled.errors.length > 0) {
       const error = compiled.errors.join('; ');
+      onEvent?.({ type: 'error', error });
       return {
         status: 'error',
         error,
+        errorContext: { phase: 'compilation' },
         duration: Date.now() - startTime,
       };
     }
+
+    // Emit compiled event
+    onEvent?.({
+      type: 'compiled',
+      entities: compiled.entities,
+      structure: compiled.structure,
+    });
 
     // Check if there's nothing to execute
     if (!compiled.structure) {
@@ -233,9 +217,11 @@ export async function executeBALCode(
     }
 
     // Check for cancellation
-    if (combinedAbort.signal.aborted) {
+    if (abortController.signal.aborted) {
+      cleanup();
       return {
-        status: 'cancelled',
+        status: abortReason === 'timeout' ? 'timeout' : 'cancelled',
+        error: abortReason === 'timeout' ? `Execution timed out after ${timeout}ms` : undefined,
         entities: compiled.entities,
         structure: compiled.structure,
         duration: Date.now() - startTime,
@@ -243,45 +229,42 @@ export async function executeBALCode(
     }
 
     // Build config with API key
-    const config = buildBalConfig(options);
+    const config: BALConfig = {
+      model: options.model || 'gpt-4o-mini',
+      providerConfig: options.apiKey ? { apiKey: options.apiKey } : undefined,
+      availableTools: getAvailableTools(options),
+    };
 
-    const { executable, runInput } = compileBAL(code, config);
-    if (!executable) {
-      return {
-        status: 'success',
-        result: { message: 'No pipeline to execute', entities: compiled.entities },
-        entities: compiled.entities,
-        structure: compiled.structure,
-        duration: Date.now() - startTime,
-      };
-    }
-    const effectiveInput =
-      options.input ?? runInput ?? 'Execute your task based on your goal.';
-    const output = await executable.process(effectiveInput, {
-      signal: combinedAbort.signal,
-      onToolCallApproval: options.onToolCallApproval,
-    });
+    // Emit started event
+    onEvent?.({ type: 'started', input: compiled.runInput });
 
-    // Clear timeout
-    if (timeoutId) clearTimeout(timeoutId);
+    // Execute
+    const result = await executeBAL(code, config);
+
+    // Cleanup
+    cleanup();
+
+    // Emit completed event
+    onEvent?.({ type: 'completed', result: result.result });
 
     return {
       status: 'success',
-      result: output,
+      result: result.result,
       entities: compiled.entities,
       structure: compiled.structure,
       duration: Date.now() - startTime,
     };
   } catch (error) {
-    // Clear timeout
-    if (timeoutId) clearTimeout(timeoutId);
+    // Cleanup
+    cleanup();
 
-    // Check if this was a cancellation
-    if (combinedAbort.signal.aborted) {
-      if (timeoutController.signal.aborted) {
+    // Check if this was an abort (use abortReason to determine the correct status)
+    if (abortController.signal.aborted && abortReason) {
+      if (abortReason === 'timeout') {
         return {
           status: 'timeout',
           error: `Execution timed out after ${timeout}ms`,
+          errorContext: { phase: 'execution' },
           duration: Date.now() - startTime,
         };
       }
@@ -292,10 +275,12 @@ export async function executeBALCode(
     }
 
     const errorMessage = error instanceof Error ? error.message : String(error);
+    onEvent?.({ type: 'error', error: errorMessage });
 
     return {
       status: 'error',
       error: errorMessage,
+      errorContext: { phase: 'execution' },
       duration: Date.now() - startTime,
     };
   }
@@ -316,178 +301,52 @@ export async function* streamBALExecution(
   const startTime = Date.now();
   const { signal, timeout = 60000 } = options;
 
-  // Set up timeout + combined abort signal
+  // Set up timeout
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
-  const timeoutController = new AbortController();
 
   if (timeout > 0) {
     timeoutId = setTimeout(() => {
       timedOut = true;
-      timeoutController.abort();
     }, timeout);
-  }
-
-  const combinedAbort = signal
-    ? new AbortController()
-    : timeoutController;
-
-  if (signal) {
-    signal.addEventListener(
-      'abort',
-      () => {
-        combinedAbort.abort();
-      },
-      { once: true }
-    );
-    timeoutController.signal.addEventListener('abort', () => {
-      combinedAbort.abort();
-    });
   }
 
   try {
     yield { type: 'parsing', message: 'Parsing BAL code...' };
 
     // Compile first
-    const config = buildBalConfig(options);
-    const { entities, structure, runInput, errors } = compileBALCode(code, options);
+    const compiled = compileBALCode(code, options);
 
-    if (errors && errors.length > 0) {
-      const error = errors.join('; ');
+    if (compiled.errors && compiled.errors.length > 0) {
+      const error = compiled.errors.join('; ');
       yield { type: 'error', error };
       return {
         status: 'error',
         error,
+        errorContext: { phase: 'compilation' },
         duration: Date.now() - startTime,
       };
     }
 
     yield {
       type: 'compiled',
-      entities,
-      structure,
+      entities: compiled.entities,
+      structure: compiled.structure,
     };
 
-    if (!structure) {
+    if (!compiled.structure) {
       yield { type: 'completed', result: { message: 'No pipeline to execute' } };
       return {
         status: 'success',
-        result: { message: 'No pipeline to execute', entities },
-        entities,
-        structure,
+        result: { message: 'No pipeline to execute', entities: compiled.entities },
+        entities: compiled.entities,
+        structure: compiled.structure,
         duration: Date.now() - startTime,
       };
     }
 
     // Check cancellation/timeout
-    if (combinedAbort.signal.aborted || timedOut) {
-      yield {
-        type: timedOut ? 'error' : 'cancelled',
-        ...(timedOut ? { error: 'Timeout' } : {}),
-      } as BALExecutionEvent;
-      return {
-        status: timedOut ? 'timeout' : 'cancelled',
-        duration: Date.now() - startTime,
-      };
-    }
-
-    yield { type: 'started', input: runInput };
-
-    // Compile to executable for streaming
-    const { executable } = compileBAL(code, config);
-    if (!executable) {
-      yield { type: 'completed', result: { message: 'No pipeline to execute' } };
-      return {
-        status: 'success',
-        result: { message: 'No pipeline to execute', entities },
-        entities,
-        structure,
-        duration: Date.now() - startTime,
-      };
-    }
-
-    // Event queue for async streaming
-    const eventQueue: BALExecutionEvent[] = [];
-    let processingComplete = false;
-    let finalResult: unknown = null;
-    let processingError: Error | null = null;
-
-    let eventResolver: (() => void) | null = null;
-    let eventPromise: Promise<void> = new Promise<void>((resolve) => {
-      eventResolver = resolve;
-    });
-
-    const notifyEvent = () => {
-      if (eventResolver) {
-        eventResolver();
-        eventPromise = new Promise<void>((resolve) => {
-          eventResolver = resolve;
-        });
-      }
-    };
-
-    const subscription = executable.subscribeToAll?.({
-      onStreamEvent: (_botId, botName, event) => {
-        eventQueue.push({ type: 'token', botName, event });
-        notifyEvent();
-      },
-      onProgressUpdate: (_botId, botName, event) => {
-        eventQueue.push({ type: 'token', botName, event });
-        notifyEvent();
-      },
-      onError: (_botId, botName, event) => {
-        eventQueue.push({ type: 'token', botName, event });
-        notifyEvent();
-      },
-    });
-
-    const effectiveInput =
-      options.input ?? runInput ?? 'Execute your task based on your goal.';
-
-    const processPromise = executable
-      .process(effectiveInput, {
-        signal: combinedAbort.signal,
-        onToolCallApproval: options.onToolCallApproval,
-      })
-      .then((result) => {
-        finalResult = result;
-        processingComplete = true;
-        notifyEvent();
-      })
-      .catch((error) => {
-        processingError = error instanceof Error ? error : new Error(String(error));
-        processingComplete = true;
-        notifyEvent();
-      });
-
-    while (!processingComplete || eventQueue.length > 0) {
-      if (combinedAbort.signal.aborted) {
-        processingComplete = true;
-        break;
-      }
-
-      while (eventQueue.length > 0) {
-        const next = eventQueue.shift()!;
-        yield next;
-      }
-
-      if (processingComplete || eventQueue.length > 0) {
-        continue;
-      }
-
-      await eventPromise;
-    }
-
-    subscription?.unsubscribe();
-    await processPromise;
-
-    if (timeoutId) clearTimeout(timeoutId);
-
-    if (processingError) {
-      throw processingError;
-    }
-
-    if (combinedAbort.signal.aborted) {
+    if (signal?.aborted || timedOut) {
       yield { type: timedOut ? 'error' : 'cancelled', ...(timedOut ? { error: 'Timeout' } : {}) } as BALExecutionEvent;
       return {
         status: timedOut ? 'timeout' : 'cancelled',
@@ -495,13 +354,26 @@ export async function* streamBALExecution(
       };
     }
 
-    yield { type: 'completed', result: finalResult };
+    yield { type: 'started', input: compiled.runInput };
+
+    // Execute
+    const config: BALConfig = {
+      model: options.model || 'gpt-4o-mini',
+      providerConfig: options.apiKey ? { apiKey: options.apiKey } : undefined,
+      availableTools: getAvailableTools(options),
+    };
+
+    const result = await executeBAL(code, config);
+
+    if (timeoutId) clearTimeout(timeoutId);
+
+    yield { type: 'completed', result: result.result };
 
     return {
       status: 'success',
-      result: finalResult,
-      entities,
-      structure,
+      result: result.result,
+      entities: compiled.entities,
+      structure: compiled.structure,
       duration: Date.now() - startTime,
     };
   } catch (error) {
@@ -512,11 +384,12 @@ export async function* streamBALExecution(
       return {
         status: 'timeout',
         error: 'Execution timed out',
+        errorContext: { phase: 'execution' },
         duration: Date.now() - startTime,
       };
     }
 
-    if (combinedAbort.signal.aborted) {
+    if (signal?.aborted) {
       yield { type: 'cancelled' };
       return {
         status: 'cancelled',
@@ -530,6 +403,7 @@ export async function* streamBALExecution(
     return {
       status: 'error',
       error: errorMessage,
+      errorContext: { phase: 'execution' },
       duration: Date.now() - startTime,
     };
   }
