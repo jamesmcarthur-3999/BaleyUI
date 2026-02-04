@@ -71,6 +71,7 @@ Use exact field names from the @baleybots/core package:
 | Tool Catalog | `apps/web/src/lib/baleybot/tools/catalog-service.ts` |
 | Connection Tools | `apps/web/src/lib/baleybot/tools/connection-derived/` |
 | Services | `apps/web/src/lib/baleybot/services/` |
+| Internal BaleyBots | `apps/web/src/lib/baleybot/internal-baleybots.ts` |
 | Stream Events | `apps/web/src/lib/streaming/types/events.ts` |
 | Connections | `apps/web/src/lib/connections/` |
 
@@ -86,6 +87,33 @@ Use exact field names from the @baleybots/core package:
 | `schedule_task` | Schedule future execution | Yes |
 | `create_agent` | Create ephemeral agent | Yes |
 | `create_tool` | Create ephemeral tool | Yes |
+
+## Internal BaleyBots
+
+BaleyUI uses BaleyBots internally ("eating our own cooking"). These are stored in the database with `isInternal: true` and execute through the standard BaleyBot path with full tracking:
+
+| Name | Purpose |
+|------|---------|
+| `creator_bot` | Creates new BaleyBots from user descriptions |
+| `bal_generator` | Converts descriptions to BAL code |
+| `pattern_learner` | Analyzes approvals, suggests patterns |
+| `execution_reviewer` | Reviews executions, suggests improvements |
+| `nl_to_sql_postgres` | Translates NL to PostgreSQL |
+| `nl_to_sql_mysql` | Translates NL to MySQL |
+| `web_search_fallback` | AI fallback when no Tavily key |
+
+### Using Internal BaleyBots
+
+```typescript
+import { executeInternalBaleybot } from '@/lib/baleybot/internal-baleybots';
+
+const { output, executionId } = await executeInternalBaleybot('creator_bot', userMessage, {
+  userWorkspaceId: workspace.id,
+  context: additionalContext,
+});
+```
+
+All internal BaleyBot executions are tracked in `baleybotExecutions`.
 
 ## BAL Syntax Reference
 
