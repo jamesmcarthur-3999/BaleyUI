@@ -3,12 +3,12 @@
  *
  * Provides web search capability with multiple backends:
  * 1. Tavily API (primary) - if API key is configured
- * 2. AI Model fallback - uses built-in search capability if no API key
+ * 2. AI Model fallback - uses internal web_search_fallback BaleyBot if no API key
  *
  * The service is designed to be injected into the web_search built-in tool.
  */
 
-import { Baleybot } from '@baleybots/core';
+import { executeInternalBaleybot } from '../internal-baleybots';
 
 // ============================================================================
 // TYPES
@@ -91,7 +91,7 @@ async function searchWithTavily(
 // ============================================================================
 
 /**
- * Uses a specialized Baleybot to perform searches as a fallback.
+ * Uses the internal web_search_fallback BaleyBot to perform searches.
  * This is a fallback when no Tavily API key is configured.
  */
 async function searchWithAI(
@@ -99,44 +99,19 @@ async function searchWithAI(
   numResults: number
 ): Promise<SearchResult[]> {
   try {
-    // Create a specialized Baleybot for web search
-    const searchBot = Baleybot.create({
-      name: 'web-search-fallback',
-      goal: `You are a web search assistant. When asked to search for something, provide ${numResults} relevant results in a structured format.
-Each result should have:
-- title: The page title
-- url: A relevant URL (use real, commonly known websites when possible)
-- snippet: A brief description of the content
+    const input = `Search the web for: ${query}
 
-Respond ONLY with a valid JSON array of search results. Do not include any other text.`,
-      model: 'openai:gpt-4o-mini',
-      outputSchema: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            title: { type: 'string' },
-            url: { type: 'string' },
-            snippet: { type: 'string' },
-          },
-          required: ['title', 'url', 'snippet'],
-        },
-      },
+Return ${numResults} relevant search results as a JSON array.
+Each result should have: title, url, snippet.`;
+
+    const { output } = await executeInternalBaleybot('web_search_fallback', input, {
+      triggeredBy: 'internal',
     });
 
-    const prompt = `Search the web for: ${query}
-
-Return ${numResults} relevant search results as a JSON array.`;
-
-    const rawResult = await searchBot.process(prompt);
-
-    // Cast result to unknown for flexible handling
-    const result: unknown = rawResult;
-
     // Parse the result
-    if (Array.isArray(result)) {
+    if (Array.isArray(output)) {
       // Already parsed as array
-      return result.slice(0, numResults).map((item: unknown) => {
+      return output.slice(0, numResults).map((item: unknown) => {
         const obj = item as Record<string, unknown>;
         return {
           title: String(obj.title || ''),
@@ -147,7 +122,7 @@ Return ${numResults} relevant search results as a JSON array.`;
     }
 
     // Handle string or other result types
-    const text = typeof result === 'string' ? result.trim() : String(result);
+    const text = typeof output === 'string' ? output.trim() : String(output);
 
     // Handle code blocks if present
     const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -229,4 +204,3 @@ export function createWebSearchService(config: WebSearchConfig): WebSearchServic
     },
   };
 }
-
