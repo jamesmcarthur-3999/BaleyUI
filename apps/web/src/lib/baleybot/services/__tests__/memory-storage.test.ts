@@ -73,7 +73,7 @@ describe('MemoryStorageService', () => {
 
     it('should return null for non-existent key', async () => {
       const { db } = await import('@baleyui/db');
-      vi.mocked(db.query.baleybotMemory.findFirst).mockResolvedValue(null);
+      vi.mocked(db.query.baleybotMemory.findFirst).mockResolvedValue(undefined);
 
       const result = await service.get('missing-key', ctx);
       expect(result).toBeNull();
@@ -81,7 +81,7 @@ describe('MemoryStorageService', () => {
 
     it('should scope query to workspace and baleybot', async () => {
       const { db, eq, and } = await import('@baleyui/db');
-      vi.mocked(db.query.baleybotMemory.findFirst).mockResolvedValue(null);
+      vi.mocked(db.query.baleybotMemory.findFirst).mockResolvedValue(undefined);
 
       await service.get('my-key', ctx);
 
@@ -104,7 +104,7 @@ describe('MemoryStorageService', () => {
             returning: vi.fn().mockResolvedValue([{ id: '1' }]),
           }),
         }),
-      } as ReturnType<typeof db.update>);
+      } as unknown as ReturnType<typeof db.update>);
 
       await service.set('existing-key', { new: 'value' }, ctx);
 
@@ -121,11 +121,11 @@ describe('MemoryStorageService', () => {
             returning: vi.fn().mockResolvedValue([]),
           }),
         }),
-      } as ReturnType<typeof db.update>);
+      } as unknown as ReturnType<typeof db.update>);
 
       vi.mocked(db.insert).mockReturnValue({
         values: vi.fn().mockResolvedValue(undefined),
-      } as ReturnType<typeof db.insert>);
+      } as unknown as ReturnType<typeof db.insert>);
 
       await service.set('new-key', { value: 123 }, ctx);
 

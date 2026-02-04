@@ -7,6 +7,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createTaskScheduler } from '../schedule-service';
 
+// Helper to create partial BB mock data
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mockBB(data: { id: string; name: string }): any {
+  return data;
+}
+
 // Mock the database module
 vi.mock('@baleyui/db', () => ({
   db: {
@@ -53,10 +59,12 @@ describe('ScheduleService', () => {
   describe('scheduleTask', () => {
     it('should schedule a task for a future datetime', async () => {
       const { db } = await import('@baleyui/db');
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue({
-        id: 'target-bb-123',
-        name: 'report-generator',
-      });
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'target-bb-123',
+          name: 'report-generator',
+        })
+      );
 
       const futureDate = new Date(Date.now() + 3600000).toISOString(); // 1 hour from now
       const result = await scheduler(
@@ -75,10 +83,12 @@ describe('ScheduleService', () => {
 
     it('should look up BaleyBot by name', async () => {
       const { db } = await import('@baleyui/db');
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue({
-        id: 'bb-by-name',
-        name: 'my-bot',
-      });
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-by-name',
+          name: 'my-bot',
+        })
+      );
 
       const futureDate = new Date(Date.now() + 3600000).toISOString();
       await scheduler(
@@ -95,7 +105,7 @@ describe('ScheduleService', () => {
 
     it('should throw if BaleyBot not found', async () => {
       const { db } = await import('@baleyui/db');
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(null);
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(undefined);
 
       const futureDate = new Date(Date.now() + 3600000).toISOString();
       await expect(
@@ -112,10 +122,12 @@ describe('ScheduleService', () => {
 
     it('should throw for invalid datetime format', async () => {
       const { db } = await import('@baleyui/db');
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue({
-        id: 'bb-1',
-        name: 'test',
-      });
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'test',
+        })
+      );
 
       await expect(
         scheduler(
@@ -131,10 +143,12 @@ describe('ScheduleService', () => {
 
     it('should throw for dates significantly in the past', async () => {
       const { db } = await import('@baleyui/db');
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue({
-        id: 'bb-1',
-        name: 'test',
-      });
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'test',
+        })
+      );
 
       const pastDate = new Date(Date.now() - 60000).toISOString(); // 1 minute ago
       await expect(
@@ -151,10 +165,12 @@ describe('ScheduleService', () => {
 
     it('should accept cron expressions', async () => {
       const { db } = await import('@baleyui/db');
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue({
-        id: 'bb-1',
-        name: 'cron-bot',
-      });
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'cron-bot',
+        })
+      );
 
       const result = await scheduler(
         {
@@ -170,15 +186,17 @@ describe('ScheduleService', () => {
 
     it('should throw if database insert fails', async () => {
       const { db } = await import('@baleyui/db');
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue({
-        id: 'bb-1',
-        name: 'test',
-      });
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'test',
+        })
+      );
       vi.mocked(db.insert).mockReturnValue({
         values: vi.fn().mockReturnValue({
           returning: vi.fn().mockResolvedValue([]),
         }),
-      } as ReturnType<typeof db.insert>);
+      } as unknown as ReturnType<typeof db.insert>);
 
       const futureDate = new Date(Date.now() + 3600000).toISOString();
       await expect(

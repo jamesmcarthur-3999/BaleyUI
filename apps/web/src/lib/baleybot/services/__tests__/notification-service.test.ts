@@ -92,7 +92,7 @@ describe('NotificationService', () => {
         values: vi.fn().mockReturnValue({
           returning: vi.fn().mockResolvedValue([]),
         }),
-      } as ReturnType<typeof db.insert>);
+      } as unknown as ReturnType<typeof db.insert>);
 
       await expect(
         sender(
@@ -113,7 +113,7 @@ describe('NotificationService', () => {
         values: vi.fn().mockReturnValue({
           returning: vi.fn().mockResolvedValue([{ id: 'notif-456' }]),
         }),
-      } as ReturnType<typeof db.insert>);
+      } as unknown as ReturnType<typeof db.insert>);
 
       const ctxWithoutUser = {
         workspaceId: 'ws-1',
