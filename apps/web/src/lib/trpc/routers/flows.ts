@@ -45,7 +45,7 @@ export const flowNodeSchema = z.object({
   data: z.object({
     baleybotId: z.string().uuid().optional(),
     label: z.string().optional(),
-    config: z.record(z.unknown()).optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
   }).optional(),
   // React Flow specific fields
   width: z.number().optional(),

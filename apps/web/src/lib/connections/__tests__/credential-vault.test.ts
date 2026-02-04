@@ -74,6 +74,7 @@ describe('CredentialVault', () => {
     it('should throw on tampered auth tag', () => {
       const encrypted = vault.encrypt('secret');
       const [iv, authTag, ciphertext] = encrypted.split(':');
+      if (!authTag) throw new Error('Test setup error: authTag missing');
       // Modify auth tag
       const tamperedTag = authTag.slice(0, -2) + 'ff';
       const tampered = `${iv}:${tamperedTag}:${ciphertext}`;

@@ -76,8 +76,8 @@ export class CredentialVault {
 
     const [ivHex, authTagHex, encrypted] = parts;
 
-    if (!ivHex || !authTagHex) {
-      throw new Error('Invalid encrypted credential format. Missing IV or auth tag');
+    if (!ivHex || !authTagHex || encrypted === undefined) {
+      throw new Error('Invalid encrypted credential format. Missing IV, auth tag, or ciphertext');
     }
 
     const iv = Buffer.from(ivHex, 'hex');
@@ -85,7 +85,7 @@ export class CredentialVault {
     const decipher = createDecipheriv(ALGORITHM, this.key, iv);
     decipher.setAuthTag(authTag);
 
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    let decrypted: string = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
 
     return decrypted;

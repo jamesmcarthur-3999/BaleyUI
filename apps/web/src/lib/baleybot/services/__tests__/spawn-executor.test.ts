@@ -11,6 +11,9 @@ import {
   type WorkspacePolicies,
 } from '../spawn-executor';
 
+// Helper type for partial mock data
+type PartialBB = { id: string; name: string; balCode: string };
+
 // Mock the database module
 vi.mock('@baleyui/db', () => ({
   db: {
@@ -53,6 +56,15 @@ vi.mock('../../executor', () => ({
 vi.mock('../../tools/built-in/implementations', () => ({
   getBuiltInRuntimeTools: vi.fn(() => new Map()),
 }));
+
+/**
+ * Helper to create mock BB data for tests.
+ * Uses `as any` to bypass strict typing on mock data.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mockBB(data: PartialBB): any {
+  return data;
+}
 
 describe('SpawnBaleybotExecutor', () => {
   beforeEach(() => {
@@ -103,18 +115,13 @@ describe('SpawnBaleybotExecutor', () => {
       const { db } = await import('@baleyui/db');
 
       // Mock: BB lookup returns a bot with database_query tool
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue({
-        id: 'bb-1',
-        name: 'data-bot',
-        balCode: 'bot { "tools": ["database_query", "web_search"] }',
-      });
-
-      // Mock: Workspace policies forbid database_query
-      vi.mocked(db.query.workspacePolicies.findFirst).mockResolvedValue({
-        forbiddenTools: ['database_query'],
-        allowedTools: null,
-        requiresApprovalTools: null,
-      });
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'data-bot',
+          balCode: 'bot { "tools": ["database_query", "web_search"] }',
+        })
+      );
 
       const executor = createSpawnBaleybotExecutor({
         getPolicies: async () => ({
@@ -140,11 +147,13 @@ describe('SpawnBaleybotExecutor', () => {
       const { db } = await import('@baleyui/db');
 
       // Mock: BB lookup returns a bot with allowed tools
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue({
-        id: 'bb-1',
-        name: 'safe-bot',
-        balCode: 'bot { "tools": ["web_search", "fetch_url"] }',
-      });
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'safe-bot',
+          balCode: 'bot { "tools": ["web_search", "fetch_url"] }',
+        })
+      );
 
       const executor = createSpawnBaleybotExecutor({
         getPolicies: async () => ({
@@ -168,11 +177,13 @@ describe('SpawnBaleybotExecutor', () => {
     it('should respect maxSpawnDepth from policies', async () => {
       const { db } = await import('@baleyui/db');
 
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue({
-        id: 'bb-1',
-        name: 'nested-bot',
-        balCode: 'bot { "tools": [] }',
-      });
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'nested-bot',
+          balCode: 'bot { "tools": [] }',
+        })
+      );
 
       const executor = createSpawnBaleybotExecutor({
         getPolicies: async () => ({
@@ -199,11 +210,13 @@ describe('SpawnBaleybotExecutor', () => {
     it('should allow spawn when no policies exist', async () => {
       const { db } = await import('@baleyui/db');
 
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue({
-        id: 'bb-1',
-        name: 'any-bot',
-        balCode: 'bot { "tools": ["database_query"] }',
-      });
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'any-bot',
+          balCode: 'bot { "tools": ["database_query"] }',
+        })
+      );
 
       const executor = createSpawnBaleybotExecutor({
         getPolicies: async () => null, // No policies
@@ -223,11 +236,13 @@ describe('SpawnBaleybotExecutor', () => {
     it('should enforce allowedTools whitelist', async () => {
       const { db } = await import('@baleyui/db');
 
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue({
-        id: 'bb-1',
-        name: 'restricted-bot',
-        balCode: 'bot { "tools": ["web_search", "database_query"] }',
-      });
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'restricted-bot',
+          balCode: 'bot { "tools": ["web_search", "database_query"] }',
+        })
+      );
 
       const executor = createSpawnBaleybotExecutor({
         getPolicies: async () => ({
@@ -254,11 +269,13 @@ describe('SpawnBaleybotExecutor', () => {
     it('should prevent excessive spawn depth', async () => {
       const { db } = await import('@baleyui/db');
 
-      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue({
-        id: 'bb-1',
-        name: 'deep-bot',
-        balCode: 'bot { "tools": [] }',
-      });
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'deep-bot',
+          balCode: 'bot { "tools": [] }',
+        })
+      );
 
       const executor = createSpawnBaleybotExecutor({
         maxSpawnDepth: 3,

@@ -15,13 +15,14 @@ import { db, baleybots, baleybotExecutions, workspacePolicies, eq, and, notDelet
 import type { BuiltInToolContext, SpawnBaleybotResult } from '../tools/built-in';
 import { executeBaleybot, type ExecutorContext, type RuntimeToolDefinition } from '../executor';
 import { getBuiltInRuntimeTools } from '../tools/built-in/implementations';
+import type { WorkspacePolicies as FullWorkspacePolicies } from '../types';
 
 // ============================================================================
 // WORKSPACE POLICIES
 // ============================================================================
 
 /**
- * Workspace policies for tool and execution control
+ * Workspace policies for tool and execution control (subset used in spawn executor)
  */
 export interface WorkspacePolicies {
   allowedTools?: string[] | null;
@@ -44,6 +45,8 @@ export function extractToolsFromBAL(balCode: string): string[] {
   if (!toolsMatch) return [];
 
   const toolsStr = toolsMatch[1];
+  if (!toolsStr) return [];
+
   const tools = toolsStr.match(/"([^"]+)"/g) || [];
   return tools.map(t => t.replace(/"/g, ''));
 }
@@ -324,10 +327,11 @@ export function createSpawnBaleybotExecutor(options?: {
       const availableTools = getTools(nestedCtx);
 
       // Create executor context with fetched policies
+      // Cast to FullWorkspacePolicies since the local type is a subset
       const executorContext: ExecutorContext = {
         workspaceId: ctx.workspaceId,
         availableTools,
-        workspacePolicies: policies,
+        workspacePolicies: policies as FullWorkspacePolicies | null,
         triggeredBy: 'other_bb',
         triggerSource: ctx.baleybotId,
       };

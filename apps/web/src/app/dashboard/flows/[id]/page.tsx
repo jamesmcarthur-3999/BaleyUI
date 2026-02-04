@@ -1,12 +1,12 @@
 'use client';
 
-import { use, useEffect, useState, useCallback, useRef } from 'react';
+import { use, useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ReactFlowProvider } from '@xyflow/react';
 import { FlowCanvas } from '@/components/flow/FlowCanvas';
 import { BlockPalette } from '@/components/flow/BlockPalette';
 import { NodeConfigPanel } from '@/components/flow/NodeConfigPanel';
-import { WebhookConfig } from '@/components/flows/WebhookConfig';
+import { WebhookConfig } from '@/components/flow/WebhookConfig';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -157,42 +157,41 @@ export default function FlowEditorPage({
     initialLoadRef.current = true;
   }, [id]);
 
-  // Format last saved time
-  const getLastSavedText = useCallback(() => {
-    if (!lastSaved) return null;
-
-    const now = new Date();
-    const diffMs = now.getTime() - lastSaved.getTime();
-    const diffMinutes = Math.floor(diffMs / 60000);
-
-    if (diffMinutes < 1) {
-      return 'just now';
-    } else if (diffMinutes === 1) {
-      return '1 minute ago';
-    } else if (diffMinutes < 60) {
-      return `${diffMinutes} minutes ago`;
-    } else {
-      const diffHours = Math.floor(diffMinutes / 60);
-      if (diffHours === 1) {
-        return '1 hour ago';
-      }
-      return `${diffHours} hours ago`;
-    }
-  }, [lastSaved]);
-
   // Update last saved text periodically
   useEffect(() => {
+    const formatLastSaved = () => {
+      if (!lastSaved) return null;
+
+      const now = new Date();
+      const diffMs = now.getTime() - lastSaved.getTime();
+      const diffMinutes = Math.floor(diffMs / 60000);
+
+      if (diffMinutes < 1) {
+        return 'just now';
+      } else if (diffMinutes === 1) {
+        return '1 minute ago';
+      } else if (diffMinutes < 60) {
+        return `${diffMinutes} minutes ago`;
+      } else {
+        const diffHours = Math.floor(diffMinutes / 60);
+        if (diffHours === 1) {
+          return '1 hour ago';
+        }
+        return `${diffHours} hours ago`;
+      }
+    };
+
     const updateText = () => {
-      setLastSavedText(getLastSavedText());
+      setLastSavedText(formatLastSaved());
     };
 
     updateText();
     const interval = setInterval(updateText, 30000); // Update every 30 seconds
 
     return () => clearInterval(interval);
-  }, [lastSaved, getLastSavedText]);
+  }, [lastSaved]);
 
-  const handleSave = useCallback(async () => {
+  const handleSave = async () => {
     if (isSaving || !flow) return;
 
     setIsSaving(true);
@@ -203,8 +202,10 @@ export default function FlowEditorPage({
         id,
         version: flowVersion,
         name: flowName,
-        nodes,
-        edges,
+        // Cast React Flow types to the schema-compatible types
+        // React Flow's Node/Edge types have additional properties but are compatible
+        nodes: nodes as Parameters<typeof updateFlow.mutateAsync>[0]['nodes'],
+        edges: edges as Parameters<typeof updateFlow.mutateAsync>[0]['edges'],
         enabled: flowEnabled,
       });
     } catch (error) {
@@ -212,7 +213,7 @@ export default function FlowEditorPage({
     } finally {
       setIsSaving(false);
     }
-  }, [id, flowVersion, flowName, nodes, edges, flowEnabled, isSaving, flow, updateFlow, setAutoSaving]);
+  };
 
   const handleNameChange = (newName: string) => {
     setFlowName(newName);
