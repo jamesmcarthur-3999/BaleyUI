@@ -4,15 +4,17 @@ import { compileBALCode, executeBALCode, streamBALExecution } from '../bal-execu
 // Mock @baleybots/tools
 vi.mock('@baleybots/tools', () => ({
   compileBAL: vi.fn(),
-  executeBAL: vi.fn(),
   webSearchTool: vi.fn(() => ({})),
   sequentialThinkTool: {},
 }));
 
-import { compileBAL, executeBAL } from '@baleybots/tools';
+import { compileBAL } from '@baleybots/tools';
 
 const mockedCompileBAL = vi.mocked(compileBAL);
-const mockedExecuteBAL = vi.mocked(executeBAL);
+const createMockExecutable = () => ({
+  process: vi.fn(),
+  subscribeToAll: vi.fn(() => ({ unsubscribe: vi.fn() })),
+});
 
 describe('compileBALCode', () => {
   beforeEach(() => {
@@ -98,15 +100,13 @@ describe('executeBALCode', () => {
   });
 
   it('returns success result on successful execution', async () => {
+    const executable = createMockExecutable();
+    executable.process.mockResolvedValue('test output');
     mockedCompileBAL.mockReturnValue({
-      executable: {} as any, // Mock executable
+      executable: executable as any, // Mock executable
       entityNames: ['Test'],
       pipelineStructure: { type: 'bot', name: 'Test' },
       runInput: 'input',
-    });
-    mockedExecuteBAL.mockResolvedValue({
-      status: 'success',
-      result: 'test output',
     });
 
     const result = await executeBALCode('@entity Test @run Test("input")');
@@ -128,8 +128,9 @@ describe('executeBALCode', () => {
   });
 
   it('returns success with no-op message when no pipeline exists', async () => {
+    const executable = createMockExecutable();
     mockedCompileBAL.mockReturnValue({
-      executable: null,
+      executable: executable as any,
       entityNames: ['Test'],
       pipelineStructure: null,
       runInput: null,
@@ -142,19 +143,20 @@ describe('executeBALCode', () => {
       message: 'No pipeline to execute',
       entities: ['Test'],
     });
-    expect(mockedExecuteBAL).not.toHaveBeenCalled();
+    expect(executable.process).not.toHaveBeenCalled();
   });
 
   it('handles timeout', async () => {
+    const executable = createMockExecutable();
+    executable.process.mockImplementation(
+      () => new Promise((resolve) => setTimeout(resolve, 5000))
+    );
     mockedCompileBAL.mockReturnValue({
-      executable: {} as any,
+      executable: executable as any,
       entityNames: ['Test'],
       pipelineStructure: { type: 'bot', name: 'Test' },
       runInput: 'input',
     });
-    mockedExecuteBAL.mockImplementation(
-      () => new Promise((resolve) => setTimeout(resolve, 5000))
-    );
 
     const result = await executeBALCode('@entity Test @run Test("input")', {
       timeout: 100,
@@ -164,13 +166,14 @@ describe('executeBALCode', () => {
   }, 10000);
 
   it('calls onEvent callback with events', async () => {
+    const executable = createMockExecutable();
+    executable.process.mockResolvedValue('output');
     mockedCompileBAL.mockReturnValue({
-      executable: {} as any,
+      executable: executable as any,
       entityNames: ['Test'],
       pipelineStructure: { type: 'bot', name: 'Test' },
       runInput: 'input',
     });
-    mockedExecuteBAL.mockResolvedValue({ status: 'success', result: 'output' });
 
     const events: unknown[] = [];
     await executeBALCode('@entity Test @run Test("input")', {
@@ -190,13 +193,14 @@ describe('streamBALExecution', () => {
   });
 
   it('yields events in order', async () => {
+    const executable = createMockExecutable();
+    executable.process.mockResolvedValue('output');
     mockedCompileBAL.mockReturnValue({
-      executable: {} as any,
+      executable: executable as any,
       entityNames: ['Test'],
       pipelineStructure: { type: 'bot', name: 'Test' },
       runInput: 'input',
     });
-    mockedExecuteBAL.mockResolvedValue({ status: 'success', result: 'output' });
 
     const events: unknown[] = [];
     const generator = streamBALExecution('@entity Test @run Test("input")');
@@ -213,13 +217,14 @@ describe('streamBALExecution', () => {
   });
 
   it('completes generator successfully', async () => {
+    const executable = createMockExecutable();
+    executable.process.mockResolvedValue('output');
     mockedCompileBAL.mockReturnValue({
-      executable: {} as any,
+      executable: executable as any,
       entityNames: ['Test'],
       pipelineStructure: { type: 'bot', name: 'Test' },
       runInput: 'input',
     });
-    mockedExecuteBAL.mockResolvedValue({ status: 'success', result: 'output' });
 
     const generator = streamBALExecution('@entity Test @run Test("input")');
 
