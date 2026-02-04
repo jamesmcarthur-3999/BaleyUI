@@ -486,7 +486,8 @@ export const baleybotsRouter = router({
           const duration = Date.now() - startTime;
           const internalErrorMessage = error instanceof Error ? error.message : String(error);
 
-          log.error('Baleybot execution failed', error instanceof Error ? error : undefined, {
+          log.error('Baleybot execution failed', {
+            error: error instanceof Error ? error.message : String(error),
             baleybotId: input.id,
             executionId: execution.id,
             durationMs: duration,

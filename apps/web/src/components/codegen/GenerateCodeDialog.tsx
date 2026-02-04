@@ -24,7 +24,7 @@ import { Separator } from '@/components/ui/separator';
 interface GenerateCodeDialogProps {
   blockId: string;
   blockName: string;
-  outputSchema?: object;
+  outputSchema?: Record<string, unknown>;
   onCodeSaved?: () => void;
   trigger?: React.ReactNode;
 }

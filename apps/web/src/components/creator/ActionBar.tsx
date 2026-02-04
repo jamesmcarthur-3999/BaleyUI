@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Code, Loader2, CheckCircle, XCircle, Save, Copy, Check, Braces, Type, Download } from 'lucide-react';
+import { Play, Code, Loader2, CheckCircle, XCircle, Save, Copy, Check, Braces, Type, Download, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -13,6 +13,8 @@ import {
 import type { CreationStatus } from '@/lib/baleybot/creator-types';
 import { cn } from '@/lib/utils';
 import { BalCodeHighlighter } from './BalCodeHighlighter';
+import type { ParserErrorLocation } from '@/lib/errors/creator-errors';
+import type { SchemaValidationResult } from '@/lib/baleybot/types';
 
 /**
  * Auto-save status type
@@ -23,6 +25,10 @@ interface RunResult {
   success: boolean;
   output: unknown;
   error?: string;
+  /** Parser error location (if this was a parse error) */
+  parserLocation?: ParserErrorLocation;
+  /** Schema validation result (if entity has output schema) */
+  schemaValidation?: SchemaValidationResult;
 }
 
 /**
@@ -434,13 +440,17 @@ export function ActionBar({
                 ? truncateOutput(runResult.output)
                 : { display: runResult.error || 'Unknown error', full: runResult.error || 'Unknown error', isTruncated: false, totalLength: 0, totalLines: 0 };
 
+              const isParserError = !runResult.success && runResult.parserLocation;
+
               return (
                 <div
                   className={cn(
                     'rounded-xl p-4',
                     runResult.success
                       ? 'bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800'
-                      : 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800'
+                      : isParserError
+                        ? 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800'
+                        : 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800'
                   )}
                 >
                   {/* Truncation warning */}
@@ -464,6 +474,8 @@ export function ActionBar({
                   <div className="flex items-start gap-3">
                     {runResult.success ? (
                       <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                    ) : isParserError ? (
+                      <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                     ) : (
                       <XCircle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                     )}
@@ -474,10 +486,16 @@ export function ActionBar({
                             'font-medium text-sm',
                             runResult.success
                               ? 'text-green-800 dark:text-green-200'
-                              : 'text-red-800 dark:text-red-200'
+                              : isParserError
+                                ? 'text-amber-800 dark:text-amber-200'
+                                : 'text-red-800 dark:text-red-200'
                           )}
                         >
-                          {runResult.success ? 'Execution Successful' : 'Execution Failed'}
+                          {runResult.success
+                            ? 'Execution Successful'
+                            : isParserError
+                              ? 'Syntax Error'
+                              : 'Execution Failed'}
                         </p>
                         {runResult.success && !outputData.isTruncated && outputData.totalLength > 1000 && (
                           <Button
@@ -491,20 +509,114 @@ export function ActionBar({
                           </Button>
                         )}
                       </div>
-                      <pre
-                        className={cn(
-                          'text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto',
-                          runResult.success
-                            ? 'text-green-700 dark:text-green-300'
-                            : 'text-red-700 dark:text-red-300'
-                        )}
-                      >
-                        {outputData.display}
-                      </pre>
+
+                      {/* Parser error with source line display */}
+                      {isParserError && runResult.parserLocation ? (
+                        <div className="space-y-2">
+                          <p className={cn(
+                            'text-sm',
+                            'text-amber-700 dark:text-amber-300'
+                          )}>
+                            {outputData.display}
+                          </p>
+
+                          {/* Source line with error indicator */}
+                          {runResult.parserLocation.sourceLine && (
+                            <div className="bg-background/50 rounded-lg p-3 font-mono text-sm overflow-x-auto">
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+                                <Code className="h-3 w-3" />
+                                Line {runResult.parserLocation.line}
+                              </div>
+                              <pre className="text-foreground">{runResult.parserLocation.sourceLine}</pre>
+                              <pre className="text-amber-500 dark:text-amber-400">
+                                {' '.repeat(Math.max(0, runResult.parserLocation.column - 1))}^
+                              </pre>
+                            </div>
+                          )}
+
+                          <p className="text-xs text-muted-foreground">
+                            Line {runResult.parserLocation.line}, column {runResult.parserLocation.column}
+                          </p>
+                        </div>
+                      ) : (
+                        <pre
+                          className={cn(
+                            'text-sm font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto',
+                            runResult.success
+                              ? 'text-green-700 dark:text-green-300'
+                              : 'text-red-700 dark:text-red-300'
+                          )}
+                        >
+                          {outputData.display}
+                        </pre>
+                      )}
+
                       {outputData.isTruncated && (
                         <p className="mt-2 text-xs text-muted-foreground text-center">
                           ... output truncated ...
                         </p>
+                      )}
+
+                      {/* Schema Validation Status (Task 10) */}
+                      {runResult.success && runResult.schemaValidation && (
+                        <div
+                          className={cn(
+                            'mt-3 p-2.5 rounded-lg border text-sm',
+                            runResult.schemaValidation.valid
+                              ? 'bg-green-50/50 dark:bg-green-950/20 border-green-200 dark:border-green-800/50'
+                              : 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/50'
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            {runResult.schemaValidation.valid ? (
+                              <>
+                                <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
+                                <span className="text-green-700 dark:text-green-300 font-medium">
+                                  Output matches schema
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                                <span className="text-amber-700 dark:text-amber-300 font-medium">
+                                  Output schema mismatch
+                                </span>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Show validation issues if any */}
+                          {!runResult.schemaValidation.valid &&
+                            runResult.schemaValidation.issues.length > 0 && (
+                              <ul className="mt-2 space-y-1 text-xs text-amber-600 dark:text-amber-400">
+                                {runResult.schemaValidation.issues.slice(0, 5).map((issue, idx) => (
+                                  <li key={idx} className="flex items-start gap-1.5">
+                                    <span className="text-amber-500 mt-0.5">•</span>
+                                    <span>
+                                      {issue.path.length > 0 && (
+                                        <code className="font-mono bg-amber-100 dark:bg-amber-900/30 px-1 rounded mr-1">
+                                          {issue.path.join('.')}
+                                        </code>
+                                      )}
+                                      {issue.message}
+                                    </span>
+                                  </li>
+                                ))}
+                                {runResult.schemaValidation.issues.length > 5 && (
+                                  <li className="text-amber-500 dark:text-amber-500 italic">
+                                    ... and {runResult.schemaValidation.issues.length - 5} more issues
+                                  </li>
+                                )}
+                              </ul>
+                            )}
+
+                          {/* Hint to check Schema tab */}
+                          {!runResult.schemaValidation.valid && (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Check the Schema tab to adjust your output definition.
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>

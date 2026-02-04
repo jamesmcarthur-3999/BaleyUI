@@ -55,7 +55,7 @@ export const webhookPayloadSchema = z.object({
   timestamp: z.string().datetime().optional(),
 });
 
-export const webhookHeadersSchema = z.record(z.string()).optional();
+export const webhookHeadersSchema = z.record(z.string(), z.string()).optional();
 
 // ============================================================================
 // Flow Schemas
@@ -70,7 +70,7 @@ export const flowNodeSchema = z.object({
   id: z.string(),
   type: z.string(),
   position: flowNodePositionSchema,
-  data: z.record(z.unknown()),
+  data: z.record(z.string(), z.unknown()),
 });
 
 export const flowEdgeSchema = z.object({
@@ -121,7 +121,7 @@ export const connectionTypeSchema = z.enum([
 export const connectionCreateSchema = z.object({
   name: nameSchema,
   type: connectionTypeSchema,
-  config: z.record(z.unknown()),
+  config: z.record(z.string(), z.unknown()),
   isDefault: z.boolean().default(false),
 });
 

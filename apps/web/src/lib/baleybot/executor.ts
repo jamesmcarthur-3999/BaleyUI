@@ -5,7 +5,8 @@
  * This keeps BaleyUI aligned with the canonical BAL implementation.
  */
 
-import { parse, tokenize } from '@baleybots/tools';
+import { parse, tokenize, buildZodSchema } from '@baleybots/tools';
+import type { OutputSchemaNode } from '@baleybots/tools';
 import type {
   BaleybotStreamEvent,
   ToolDefinition as CoreToolDefinition,
@@ -13,7 +14,7 @@ import type {
   ProviderConfig,
 } from '@baleybots/core';
 import { compileBALCode, executeBALCode } from '@baleyui/sdk';
-import type { BALExecutionOptions } from '@baleyui/sdk';
+import type { BALExecutionOptions, BALExecutionEvent } from '@baleyui/sdk';
 import { db, connections, and, eq, inArray, notDeleted } from '@baleyui/db';
 import type { AIConnectionConfig } from '@/lib/connections/providers';
 import { decrypt } from '@/lib/encryption';
@@ -25,6 +26,7 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   WorkspacePolicies,
+  SchemaValidationResult,
 } from './types';
 
 // ============================================================================
@@ -128,6 +130,107 @@ function getEntityGoals(balCode: string): Map<string, string> {
     return goals;
   } catch {
     return new Map();
+  }
+}
+
+/**
+ * Get the combined output schema from all entities in the BAL code.
+ * For chains, we use the last entity's output schema.
+ * For single entities, we use that entity's schema.
+ */
+function getOutputSchema(balCode: string): OutputSchemaNode | null {
+  try {
+    const tokens = tokenize(balCode);
+    const ast = parse(tokens, balCode);
+
+    // If there's a root composition, find the last entity in execution order
+    if (ast.root) {
+      const lastEntityName = findLastEntityInComposition(ast.root);
+      if (lastEntityName) {
+        const entity = ast.entities.get(lastEntityName);
+        return entity?.output ?? null;
+      }
+    }
+
+    // If there's only one entity, use its output schema
+    if (ast.entities.size === 1) {
+      const [entity] = ast.entities.values();
+      return entity?.output ?? null;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Find the last entity name that will produce output in a composition
+ */
+function findLastEntityInComposition(expr: unknown): string | null {
+  if (!expr || typeof expr !== 'object') return null;
+
+  const node = expr as { type: string; body?: unknown[]; name?: string };
+
+  switch (node.type) {
+    case 'ChainExpr':
+      // For chains, the last element produces the final output
+      if (node.body && node.body.length > 0) {
+        return findLastEntityInComposition(node.body[node.body.length - 1]);
+      }
+      return null;
+
+    case 'ParallelExpr':
+      // For parallel, all outputs are merged - return null (complex case)
+      // In practice, parallel usually isn't the final step
+      return null;
+
+    case 'EntityRef':
+    case 'EntityRefWithContext':
+      return node.name ?? null;
+
+    case 'IfExpr':
+    case 'LoopExpr':
+    case 'SelectExpr':
+    case 'MergeExpr':
+    case 'MapExpr':
+      // These transform data but don't necessarily have entity schemas
+      return null;
+
+    default:
+      return null;
+  }
+}
+
+/**
+ * Validate output against the declared schema
+ */
+function validateOutput(
+  output: unknown,
+  schema: OutputSchemaNode
+): SchemaValidationResult {
+  try {
+    const zodSchema = buildZodSchema(schema);
+    const result = zodSchema.safeParse(output);
+
+    if (result.success) {
+      return { valid: true, issues: [] };
+    }
+
+    return {
+      valid: false,
+      issues: result.error.issues.map((issue) => ({
+        path: issue.path,
+        message: issue.message,
+        code: issue.code,
+      })),
+    };
+  } catch (err) {
+    logger.warn('Schema validation error', {
+      error: err instanceof Error ? err.message : 'Unknown error',
+    });
+    // If we can't build the schema, treat it as valid (lenient mode)
+    return { valid: true, issues: [] };
   }
 }
 
@@ -255,7 +358,10 @@ export async function executeBaleybot(
   }
 
   try {
-    const result = await executeBALCode(balCode, {
+    // Note: Using type assertion as the internal SDK interface supports more options
+    // than the public BALExecutionOptions type exposes. This should be fixed by
+    // extending the SDK's public interface to support these options.
+    const executionOptions = {
       input,
       model: 'openai:gpt-4o-mini',
       providerConfig,
@@ -296,14 +402,16 @@ export async function executeBaleybot(
             return { approved: true };
           }
         : undefined,
-      onEvent: (event) => {
+      onEvent: (event: BALExecutionEvent) => {
         if (event.type === 'token') {
           segments.push(event.event);
           options?.onSegment?.(event.event);
         }
       },
       signal: options?.signal,
-    });
+    } as unknown as BALExecutionOptions;
+
+    const result = await executeBALCode(balCode, executionOptions);
 
     output = result.result ?? null;
     status = mapStatus(result.status);
@@ -315,6 +423,22 @@ export async function executeBaleybot(
     error = err instanceof Error ? err.message : 'Unknown error during execution';
   }
 
+  // Validate output against schema if execution completed successfully
+  let schemaValidation: SchemaValidationResult | undefined;
+  if (status === 'completed' && output !== null) {
+    const outputSchema = getOutputSchema(balCode);
+    if (outputSchema) {
+      schemaValidation = validateOutput(output, outputSchema);
+      if (!schemaValidation.valid) {
+        logger.warn('Output schema validation failed', {
+          executionId,
+          issues: schemaValidation.issues,
+          output: typeof output === 'object' ? JSON.stringify(output).slice(0, 200) : String(output),
+        });
+      }
+    }
+  }
+
   return {
     executionId,
     status,
@@ -322,6 +446,7 @@ export async function executeBaleybot(
     error,
     segments,
     durationMs: Date.now() - startTime,
+    schemaValidation,
   };
 }
 
@@ -338,7 +463,7 @@ export function canExecute(
   const { entities, errors } = compileBALCode(
     balCode,
     availableTools
-      ? { availableTools: buildAvailableTools(availableTools) as BALExecutionOptions['availableTools'] }
+      ? { availableTools: buildAvailableTools(availableTools) } as unknown as BALExecutionOptions
       : {}
   );
 
@@ -363,7 +488,7 @@ export function getEntityNames(
   const { entities } = compileBALCode(
     balCode,
     availableTools
-      ? { availableTools: buildAvailableTools(availableTools) as BALExecutionOptions['availableTools'] }
+      ? { availableTools: buildAvailableTools(availableTools) } as unknown as BALExecutionOptions
       : {}
   );
   return entities;

@@ -243,14 +243,11 @@ export async function POST(
           const duration = Date.now() - startTime;
           const errorMessage = err instanceof Error ? err.message : String(err);
 
-          log.error(
-            'Streaming execution failed',
-            err instanceof Error ? err : undefined,
-            {
-              executionId: execution.id,
-              durationMs: duration,
-            }
-          );
+          log.error('Streaming execution failed', {
+            error: err instanceof Error ? err.message : String(err),
+            executionId: execution.id,
+            durationMs: duration,
+          });
 
           // Update execution record with error
           await db

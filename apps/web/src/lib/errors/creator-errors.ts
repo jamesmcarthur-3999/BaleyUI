@@ -19,6 +19,16 @@ export type CreatorErrorCategory =
   | 'unknown';
 
 /**
+ * Parser error location information
+ */
+export interface ParserErrorLocation {
+  line: number;
+  column: number;
+  /** The source line where the error occurred */
+  sourceLine?: string;
+}
+
+/**
  * Structured error for display in the creator
  */
 export interface CreatorError {
@@ -27,6 +37,8 @@ export interface CreatorError {
   message: string;
   action?: string;
   retryable: boolean;
+  /** For parser errors, the location in the source code */
+  parserLocation?: ParserErrorLocation;
 }
 
 /**
@@ -136,6 +148,50 @@ const networkErrorPatterns = [
 ];
 
 /**
+ * Parse BAL error location from error message
+ * BAL errors have format: "message at line X, column Y\n\n  source line\n  ^"
+ */
+function parseBALErrorLocation(message: string): ParserErrorLocation | undefined {
+  // Match "at line X, column Y" pattern
+  const locationMatch = message.match(/at line (\d+), column (\d+)/);
+  if (!locationMatch || !locationMatch[1] || !locationMatch[2]) return undefined;
+
+  const line = parseInt(locationMatch[1], 10);
+  const column = parseInt(locationMatch[2], 10);
+
+  // Try to extract the source line (appears after two newlines)
+  const parts = message.split('\n\n');
+  let sourceLine: string | undefined;
+  const secondPart = parts[1];
+  if (secondPart) {
+    const lines = secondPart.split('\n');
+    const firstLine = lines[0];
+    if (firstLine) {
+      // Source line is indented with 2 spaces
+      sourceLine = firstLine.replace(/^  /, '');
+    }
+  }
+
+  return { line, column, sourceLine };
+}
+
+/**
+ * Check if an error is a BAL parser/lexer error
+ */
+function isBALError(error: unknown): boolean {
+  if (error instanceof Error) {
+    return (
+      error.name === 'LexerError' ||
+      error.name === 'ParserError' ||
+      error.name === 'InterpreterError' ||
+      error.name === 'BALError' ||
+      error.message.includes('at line') && error.message.includes('column')
+    );
+  }
+  return false;
+}
+
+/**
  * Check if an error is a network error
  */
 function isNetworkError(error: unknown): boolean {
@@ -161,10 +217,45 @@ export function parseCreatorError(error: unknown): CreatorError {
     };
   }
 
+  // Handle BAL parser/lexer errors
+  if (isBALError(error) && error instanceof Error) {
+    const parserLocation = parseBALErrorLocation(error.message);
+    // Extract the core message (before "at line...")
+    const coreMessage = error.message.split(' at line ')[0] || error.message;
+
+    return {
+      category: 'validation',
+      title: error.name === 'LexerError' ? 'Syntax Error' : 'Parse Error',
+      message: coreMessage,
+      action: parserLocation
+        ? `Check line ${parserLocation.line}, column ${parserLocation.column}.`
+        : 'Check your BAL code syntax.',
+      retryable: true,
+      parserLocation,
+    };
+  }
+
   // Handle tRPC errors
   if (error instanceof TRPCClientError) {
     const code = error.data?.code as string;
     const mapped = errorMessages[code];
+
+    // Check if the tRPC error wraps a BAL error
+    if (error.message && (error.message.includes('at line') && error.message.includes('column'))) {
+      const parserLocation = parseBALErrorLocation(error.message);
+      const coreMessage = error.message.split(' at line ')[0] || error.message;
+
+      return {
+        category: 'validation',
+        title: 'Parse Error',
+        message: coreMessage,
+        action: parserLocation
+          ? `Check line ${parserLocation.line}, column ${parserLocation.column}.`
+          : 'Check your BAL code syntax.',
+        retryable: true,
+        parserLocation,
+      };
+    }
 
     if (mapped) {
       // Use custom message from server if available
@@ -229,4 +320,31 @@ export function formatErrorWithAction(error: unknown): string {
  */
 export function isRetryableError(error: unknown): boolean {
   return parseCreatorError(error).retryable;
+}
+
+/**
+ * Format a parser error with source location for display
+ */
+export function formatParserError(error: CreatorError): string {
+  const parts = [error.message];
+
+  if (error.parserLocation) {
+    const loc = error.parserLocation;
+    if (loc.sourceLine) {
+      parts.push('');
+      parts.push(`  ${loc.sourceLine}`);
+      parts.push(`  ${' '.repeat(Math.max(0, loc.column - 1))}^`);
+    }
+    parts.push('');
+    parts.push(`Line ${loc.line}, column ${loc.column}`);
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Check if a CreatorError is a parser error with location info
+ */
+export function isParserError(error: CreatorError): boolean {
+  return error.parserLocation !== undefined;
 }

@@ -124,8 +124,9 @@ function getNodeInputs(
     return initialInput;
   }
 
-  if (incomingEdges.length === 1) {
-    return outputs[incomingEdges[0].source];
+  const firstEdge = incomingEdges[0];
+  if (incomingEdges.length === 1 && firstEdge) {
+    return outputs[firstEdge.source];
   }
 
   // Multiple inputs - combine into object

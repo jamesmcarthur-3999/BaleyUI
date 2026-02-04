@@ -35,7 +35,10 @@ export function generateApiKey(): string {
 
   let key = API_KEY_PREFIX;
   for (let i = 0; i < API_KEY_LENGTH; i++) {
-    key += chars[bytes[i] % chars.length];
+    const byte = bytes[i];
+    if (byte !== undefined) {
+      key += chars[byte % chars.length];
+    }
   }
 
   return key;

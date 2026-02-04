@@ -16,11 +16,12 @@ import { useToast } from '@/components/ui/use-toast';
 import { trpc } from '@/lib/trpc/client';
 import { Save, Loader2 } from 'lucide-react';
 import type { ExecutionMode } from './ExecutionModeSelector';
-import type { Block, Tool } from '@baleyui/db';
+import type { Block } from '@baleyui/db';
+import type { ToolReference } from '@/lib/types';
 
 // Extended block type with associated tools (as returned by blocks.getById)
 export interface BlockWithTools extends Block {
-  tools: Tool[];
+  tools: ToolReference[];
 }
 
 // Block data changes type for child editors

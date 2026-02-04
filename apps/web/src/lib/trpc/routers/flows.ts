@@ -328,12 +328,20 @@ export const flowsRouter = router({
         })
         .returning();
 
+      if (!execution) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to create execution record',
+        });
+      }
+
       // Extract BaleyBot IDs from flow nodes
       const nodes = (flow.nodes || []) as FlowNode[];
       const edges = (flow.edges || []) as FlowEdge[];
       const baleybotIds = nodes
         .filter((n) => n.type === 'baleybot' && n.data?.baleybotId)
-        .map((n) => n.data.baleybotId as string);
+        .map((n) => n.data?.baleybotId as string)
+        .filter((id): id is string => id !== undefined);
 
       // Fetch all referenced baleybots
       const baleybotMap = new Map<string, { balCode: string }>();
@@ -364,11 +372,14 @@ export const flowsRouter = router({
 
       // Execute the flow
       try {
+        // Type assertion needed because flowNodeSchema.type is optional for flexibility,
+        // but executeFlow requires type to be defined. Nodes without types are filtered
+        // or defaulted during execution.
         const result = await executeFlow({
           flowId: input.flowId,
           executionId: execution.id,
-          nodes,
-          edges,
+          nodes: nodes as Parameters<typeof executeFlow>[0]['nodes'],
+          edges: edges as Parameters<typeof executeFlow>[0]['edges'],
           input: input.input,
           apiKey: process.env.ANTHROPIC_API_KEY || '',
           baleybots: baleybotMap,

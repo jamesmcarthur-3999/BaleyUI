@@ -141,7 +141,7 @@ export default function BlockEditorPage() {
               <GenerateCodeDialog
                 blockId={block.id}
                 blockName={block.name}
-                outputSchema={block.outputSchema as object | undefined}
+                outputSchema={block.outputSchema as Record<string, unknown> | undefined}
               />
             </div>
           </div>

@@ -29,4 +29,4 @@ export * from './useHistory';
 
 // Accessibility hooks
 export * from './useGridNavigation';
-export * from './useFocusTrap';
+// Note: useFocusTrap is already exported from useKeyboardNavigation

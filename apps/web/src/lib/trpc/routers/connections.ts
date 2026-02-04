@@ -130,7 +130,7 @@ export const connectionsRouter = router({
   create: protectedProcedure
     .input(
       z.object({
-        type: z.enum(['openai', 'anthropic', 'ollama']),
+        type: z.enum(['openai', 'anthropic', 'ollama', 'postgres', 'mysql']),
         name: z.string().min(1).max(255),
         config: connectionConfigSchema,
       })
@@ -263,7 +263,7 @@ export const connectionsRouter = router({
     .input(
       z.object({
         id: z.string().uuid().optional(),
-        type: z.enum(['openai', 'anthropic', 'ollama']).optional(),
+        type: z.enum(['openai', 'anthropic', 'ollama', 'postgres', 'mysql']).optional(),
         config: connectionConfigSchema.optional(),
       })
     )

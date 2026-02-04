@@ -43,14 +43,15 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc/client';
-import type { Block, Tool } from '@baleyui/db';
+import type { Block } from '@baleyui/db';
+import type { ToolReference } from '@/lib/types';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 interface BlockWithTools extends Block {
-  tools: Tool[];
+  tools: ToolReference[];
 }
 
 interface AgentProfileViewProps {

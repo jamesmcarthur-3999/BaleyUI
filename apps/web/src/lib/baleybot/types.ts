@@ -216,6 +216,28 @@ export interface ExecuteOptions {
 }
 
 /**
+ * Schema validation issue
+ */
+export interface SchemaValidationIssue {
+  /** Path to the invalid field */
+  path: PropertyKey[];
+  /** Error message */
+  message: string;
+  /** Error code (from Zod) */
+  code: string;
+}
+
+/**
+ * Result of schema validation
+ */
+export interface SchemaValidationResult {
+  /** Whether the output matches the declared schema */
+  valid: boolean;
+  /** Validation issues (if any) */
+  issues: SchemaValidationIssue[];
+}
+
+/**
  * Result of a BaleyBot execution
  */
 export interface ExecutionResult {
@@ -226,6 +248,8 @@ export interface ExecutionResult {
   segments: BaleybotStreamEvent[];
   durationMs: number;
   tokenCount?: number;
+  /** Schema validation result (if entity has output schema) */
+  schemaValidation?: SchemaValidationResult;
 }
 
 // ============================================================================
