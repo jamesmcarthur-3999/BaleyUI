@@ -34,7 +34,24 @@ export const INTERNAL_BALEYBOTS: Record<string, InternalBaleybotDef> = {
     icon: '🤖',
     balCode: `
 creator_bot {
-  "goal": "You are a BaleyBot Creator. Help users build AI automation bots through natural conversation. Analyze their request, design entities with appropriate tools, and generate valid BAL code. Output structured data with: entities (id, name, icon, purpose, tools), connections (from, to), balCode, name, icon, and status (building/ready).",
+  "goal": "You are a BaleyBot Creator. Help users build AI automation bots through natural conversation. Analyze their request, design entities with appropriate tools, and generate valid BAL code.
+
+CRITICAL: You MUST return a JSON object with this EXACT structure:
+{
+  \"entities\": [{\"id\": \"unique-id\", \"name\": \"Entity Name\", \"icon\": \"emoji\", \"purpose\": \"What it does\", \"tools\": [\"tool1\", \"tool2\"]}],
+  \"connections\": [{\"from\": \"entity-id-1\", \"to\": \"entity-id-2\", \"label\": \"optional label\"}],
+  \"balCode\": \"the_entity_name {\\n  \\\"goal\\\": \\\"...\\\",\\n  \\\"model\\\": \\\"anthropic:claude-sonnet-4-20250514\\\"\\n}\",
+  \"name\": \"BaleyBot Name\",
+  \"icon\": \"emoji\",
+  \"status\": \"ready\"
+}
+
+Rules:
+- entities array must contain objects with id, name, icon, purpose, tools (array of strings)
+- connections array contains objects with from, to (entity IDs), and optional label
+- balCode must be valid BAL syntax
+- status must be exactly \"building\" or \"ready\"
+- Use \"ready\" when the design is complete, \"building\" if still gathering requirements",
   "model": "anthropic:claude-sonnet-4-20250514",
   "output": {
     "entities": "array",
@@ -55,7 +72,22 @@ creator_bot {
     icon: '📝',
     balCode: `
 bal_generator {
-  "goal": "You are a BAL code generator. Convert user descriptions into valid BAL (Baleybots Assembly Language) code. Follow BAL v2 syntax: entity definitions with goal/model/tools/output, chain/parallel/if/loop compositions. Output balCode, explanation, entities array, toolRationale, suggestedName, and suggestedIcon.",
+  "goal": "You are a BAL code generator. Convert user descriptions into valid BAL (Baleybots Assembly Language) code.
+
+CRITICAL: Return a JSON object with this EXACT structure:
+{
+  \"balCode\": \"entity_name {\\n  \\\"goal\\\": \\\"...\\\",\\n  \\\"model\\\": \\\"anthropic:claude-sonnet-4-20250514\\\"\\n}\",
+  \"explanation\": \"Why this design was chosen\",
+  \"entities\": [{\"name\": \"entity_name\", \"goal\": \"What it does\", \"model\": \"provider:model-id\", \"tools\": [\"tool1\"], \"canRequest\": [], \"output\": {\"field\": \"type\"}, \"history\": \"inherit\"}],
+  \"toolRationale\": {\"tool_name\": \"Why this tool was included\"},
+  \"suggestedName\": \"Human-readable name\",
+  \"suggestedIcon\": \"emoji\"
+}
+
+BAL v2 syntax rules:
+- Entity: name { \"goal\": \"...\", \"model\": \"provider:model\", \"tools\": [...], \"output\": {...} }
+- Compositions: chain { a b }, parallel { a b }, if (cond) { a } else { b }, loop (\"until\": cond, \"max\": 5) { a }
+- Models: anthropic:claude-sonnet-4-20250514, openai:gpt-4o-mini, etc.",
   "model": "anthropic:claude-sonnet-4-20250514",
   "output": {
     "balCode": "string",
@@ -75,7 +107,31 @@ bal_generator {
     icon: '🧠',
     balCode: `
 pattern_learner {
-  "goal": "You are an approval pattern learning assistant. Analyze tool call approvals and suggest safe patterns for auto-approval. Consider risk levels, appropriate constraints vs wildcards, and suggest trust levels (provisional/trusted/permanent) with clear explanations.",
+  "goal": "You are an approval pattern learning assistant. Analyze tool call approvals and suggest safe patterns for auto-approval.
+
+CRITICAL: Return a JSON object with this EXACT structure:
+{
+  \"suggestions\": [
+    {
+      \"tool\": \"tool_name\",
+      \"actionPattern\": {\"paramName\": \"pattern or *\"},
+      \"entityGoalPattern\": \"goal pattern or null\",
+      \"trustLevel\": \"provisional|trusted|permanent\",
+      \"explanation\": \"Why this pattern is safe\",
+      \"riskAssessment\": \"low|medium|high\",
+      \"suggestedExpirationDays\": 30
+    }
+  ],
+  \"warnings\": [\"Warning message about risky patterns\"],
+  \"recommendations\": [\"General recommendations for improving approval workflow\"]
+}
+
+Rules:
+- trustLevel must be exactly: provisional, trusted, or permanent
+- riskAssessment must be exactly: low, medium, or high
+- suggestedExpirationDays can be null for permanent patterns
+- entityGoalPattern can be null if pattern applies to all entities
+- Use * as wildcard in actionPattern for any value",
   "model": "anthropic:claude-sonnet-4-20250514",
   "output": {
     "suggestions": "array",
@@ -92,7 +148,45 @@ pattern_learner {
     icon: '🔍',
     balCode: `
 execution_reviewer {
-  "goal": "You are a BaleyBot Review Agent. Analyze execution results against original intent. Identify issues (errors, warnings, suggestions) across accuracy, completeness, performance, safety, clarity, efficiency. Propose specific BAL code improvements with reasoning.",
+  "goal": "You are a BaleyBot Review Agent. Analyze execution results against original intent.
+
+CRITICAL: Return a JSON object with this EXACT structure:
+{
+  \"overallAssessment\": \"excellent|good|needs_improvement|failed\",
+  \"summary\": \"Brief summary of the execution\",
+  \"issues\": [
+    {
+      \"id\": \"issue-1\",
+      \"severity\": \"error|warning|suggestion\",
+      \"category\": \"accuracy|completeness|performance|safety|clarity|efficiency\",
+      \"title\": \"Short issue title\",
+      \"description\": \"Detailed description\",
+      \"affectedEntity\": \"entity_name or null\",
+      \"suggestedFix\": \"How to fix it or null\"
+    }
+  ],
+  \"suggestions\": [
+    {
+      \"id\": \"sug-1\",
+      \"type\": \"bal_change|tool_config|prompt_improvement|workflow_change\",
+      \"title\": \"Short title\",
+      \"description\": \"What to change\",
+      \"impact\": \"high|medium|low\",
+      \"reasoning\": \"Why this would help\"
+    }
+  ],
+  \"metrics\": {
+    \"outputQualityScore\": 85,
+    \"intentAlignmentScore\": 90,
+    \"efficiencyScore\": 75
+  }
+}
+
+Rules:
+- overallAssessment must be exactly: excellent, good, needs_improvement, or failed
+- severity must be exactly: error, warning, or suggestion
+- category must be exactly: accuracy, completeness, performance, safety, clarity, or efficiency
+- metrics scores must be numbers 0-100",
   "model": "anthropic:claude-sonnet-4-20250514",
   "output": {
     "overallAssessment": "string",
@@ -141,7 +235,25 @@ nl_to_sql_mysql {
     icon: '🔎',
     balCode: `
 web_search_fallback {
-  "goal": "You are a web search assistant. When asked to search, provide relevant results with title, url (use real commonly-known websites), and snippet. Return as JSON array.",
+  "goal": "You are a web search assistant. When asked to search, provide relevant results.
+
+CRITICAL: Return a JSON object with this EXACT structure:
+{
+  \"results\": [
+    {
+      \"title\": \"Page Title\",
+      \"url\": \"https://example.com/page\",
+      \"snippet\": \"Brief description of the page content...\"
+    }
+  ]
+}
+
+Rules:
+- results must be an array of objects
+- Each result MUST have title, url, and snippet (all strings)
+- Use real, commonly-known websites and realistic URLs
+- Provide 3-5 relevant results
+- snippets should be 1-2 sentences describing the page content",
   "model": "openai:gpt-4o-mini",
   "output": {
     "results": "array"
@@ -181,10 +293,24 @@ export async function getInternalBaleybot(
   });
 
   if (existing) {
+    // Check if BAL code needs updating (definition changed)
+    const expectedBalCode = def.balCode.trim();
+    if (existing.balCode !== expectedBalCode) {
+      logger.info('Updating internal BaleyBot BAL code', { name, id: existing.id });
+      await db
+        .update(baleybots)
+        .set({
+          balCode: expectedBalCode,
+          description: def.description,
+          icon: def.icon,
+        })
+        .where(eq(baleybots.id, existing.id));
+    }
+
     return {
       id: existing.id,
       name: existing.name,
-      balCode: existing.balCode,
+      balCode: expectedBalCode,
     };
   }
 
