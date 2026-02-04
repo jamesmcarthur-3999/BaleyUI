@@ -1,0 +1,3 @@
+[submodule "packages/baleybots"]
+	path = packages/baleybots
+	url = git@github.com:baleybots/baleybots.git

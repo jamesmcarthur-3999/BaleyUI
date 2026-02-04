@@ -1,3 +1,5 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+  # Baleybots SDK submodule packages
+  - 'packages/baleybots/typescript/packages/*'
