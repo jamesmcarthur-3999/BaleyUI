@@ -48,8 +48,8 @@
     "url": "https://github.com/baleyui/baleyui/issues"
   },
   "dependencies": {
-    "@baleybots/core": "^0.0.1-alpha.95",
-    "@baleybots/tools": "^0.0.1-alpha.95"
+    "@baleybots/core": "workspace:*",
+    "@baleybots/tools": "workspace:*"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.16",
