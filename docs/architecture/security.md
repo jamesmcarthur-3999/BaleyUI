@@ -64,7 +64,8 @@ CREDENTIAL_ENCRYPTION_KEY=your-32-char-key-here
 | Encryption | AES-256-GCM (authenticated encryption) |
 | IV Randomization | Same plaintext produces different ciphertext |
 | Tamper Detection | Auth tag validates ciphertext integrity |
-| Key Requirements | 32 bytes (256 bits) |
+| Key Derivation | PBKDF2 with 100,000 iterations (SHA-256) |
+| Key Strength | Any length passphrase → secure 256-bit key |
 
 ---
 
