@@ -3,10 +3,11 @@
  *
  * AI-powered service that helps users create and refine approval patterns.
  * Analyzes tool usage to suggest patterns and helps generalize specific approvals.
+ * Uses the internal pattern_learner BaleyBot.
  */
 
-import { Baleybot } from '@baleybots/core';
 import { z } from 'zod';
+import { executeInternalBaleybot } from './internal-baleybots';
 import type {
   ApprovalRequest,
   ApprovalPattern,
@@ -79,108 +80,59 @@ export interface LearnerContext {
 }
 
 // ============================================================================
-// SYSTEM PROMPT
+// CONTEXT BUILDING
 // ============================================================================
 
-const PATTERN_LEARNING_PROMPT = `You are an approval pattern learning assistant for BaleyBots.
-
-Your job is to help users create safe and effective approval patterns. When a user approves a tool call with "Approve & Remember", you analyze the request and suggest patterns.
-
-## Pattern Structure
-
-A pattern has:
-- **tool**: The tool name (exact match or "*" for any tool)
-- **actionPattern**: JSON object with field constraints:
-  - Exact values: \`"action": "refund"\`
-  - Wildcards: \`"customer_id": "*"\`
-  - Numeric constraints: \`"amount": "<=100"\`
-  - Regex: \`"email": "/.*@company.com/"\`
-- **entityGoalPattern**: Optional regex to match entity goals
-- **trustLevel**: "provisional" (expires), "trusted" (reviewed), "permanent" (never expires)
-
-## Risk Assessment Guidelines
-
-**Low Risk** (can be trusted/permanent):
-- Read-only operations
-- Internal notifications
-- Operations with tight constraints
-
-**Medium Risk** (should be provisional with expiration):
-- Write operations with good constraints
-- External communications to verified recipients
-- Financial operations under limits
-
-**High Risk** (requires careful review):
-- Unconstrained write operations
-- External communications to arbitrary recipients
-- Financial operations without limits
-
-## Generalization Rules
-
-When suggesting patterns, prefer:
-1. Keeping safety-critical fields as exact values (e.g., action types)
-2. Wildcarding user-specific fields (e.g., customer IDs)
-3. Adding reasonable numeric constraints (e.g., amount <= X)
-4. Using goal patterns to limit which entities can use the pattern
-
-## Output Format
-
-Return suggestions with clear explanations and risk assessments.
-`;
-
-// ============================================================================
-// PATTERN LEARNER
-// ============================================================================
-
-/**
- * Create the pattern learner Baleybot
- */
-function createPatternLearner(ctx: LearnerContext) {
-  let systemPrompt = PATTERN_LEARNING_PROMPT;
+function buildLearnerContext(ctx: LearnerContext): string {
+  const lines: string[] = [];
 
   // Add workspace policies context
   if (ctx.policies) {
-    systemPrompt += `\n\n## Workspace Policies\n`;
+    lines.push('## Workspace Policies');
     if (ctx.policies.maxAutoApproveAmount !== null) {
-      systemPrompt += `- Max auto-approve amount: $${ctx.policies.maxAutoApproveAmount}\n`;
+      lines.push(`- Max auto-approve amount: $${ctx.policies.maxAutoApproveAmount}`);
     }
     if (ctx.policies.reapprovalIntervalDays) {
-      systemPrompt += `- Pattern reapproval interval: ${ctx.policies.reapprovalIntervalDays} days\n`;
+      lines.push(`- Pattern reapproval interval: ${ctx.policies.reapprovalIntervalDays} days`);
     }
     if (ctx.policies.maxAutoFiresBeforeReview) {
-      systemPrompt += `- Max auto-fires before review: ${ctx.policies.maxAutoFiresBeforeReview}\n`;
+      lines.push(`- Max auto-fires before review: ${ctx.policies.maxAutoFiresBeforeReview}`);
     }
     if (ctx.policies.requiresApprovalTools?.length) {
-      systemPrompt += `- Tools requiring approval: ${ctx.policies.requiresApprovalTools.join(', ')}\n`;
+      lines.push(`- Tools requiring approval: ${ctx.policies.requiresApprovalTools.join(', ')}`);
     }
   }
 
   // Add learning manual if provided
   if (ctx.learningManual) {
-    systemPrompt += `\n\n## Workspace-Specific Guidelines\n${ctx.learningManual}`;
+    lines.push('');
+    lines.push('## Workspace-Specific Guidelines');
+    lines.push(ctx.learningManual);
   }
 
   // Add existing patterns context
   if (ctx.existingPatterns.length > 0) {
-    systemPrompt += `\n\n## Existing Patterns\nThere are ${ctx.existingPatterns.length} existing patterns. Avoid suggesting duplicates.`;
+    lines.push('');
+    lines.push(`## Existing Patterns`);
+    lines.push(`There are ${ctx.existingPatterns.length} existing patterns. Avoid suggesting duplicates.`);
   }
 
-  return Baleybot.create({
-    name: 'pattern_learner',
-    goal: systemPrompt,
-    model: 'anthropic:claude-sonnet-4-20250514',
-    outputSchema: learnPatternResultSchema,
-  });
+  return lines.join('\n');
 }
 
+// ============================================================================
+// PATTERN LEARNER FUNCTIONS
+// ============================================================================
+
 /**
- * Analyze a tool request and suggest patterns
+ * Analyze a tool request and suggest patterns.
+ * Executes via the internal pattern_learner BaleyBot.
  */
 export async function proposePattern(
   request: ApprovalRequest,
   ctx: LearnerContext
 ): Promise<LearnPatternResult> {
-  const learner = createPatternLearner(ctx);
+  const context = buildLearnerContext(ctx);
 
   const input = `A user has approved the following tool call and wants to "Approve & Remember" it.
 Please analyze and suggest pattern(s) for auto-approving similar requests in the future.
@@ -207,8 +159,13 @@ ${JSON.stringify(request.arguments, null, 2)}
 
 Remember to be conservative - it's better to require approval than to auto-approve something dangerous.`;
 
-  const result = await learner.process(input);
-  return result as LearnPatternResult;
+  const { output } = await executeInternalBaleybot('pattern_learner', input, {
+    userWorkspaceId: ctx.workspaceId,
+    context,
+    triggeredBy: 'internal',
+  });
+
+  return learnPatternResultSchema.parse(output);
 }
 
 /**
@@ -222,7 +179,7 @@ export async function analyzeRequestHistory(
     return { suggestions: [], warnings: [], recommendations: [] };
   }
 
-  const learner = createPatternLearner(ctx);
+  const context = buildLearnerContext(ctx);
 
   const requestSummaries = requests.map((r, i) => `
 ### Request ${i + 1}
@@ -243,8 +200,13 @@ ${requestSummaries}
 3. Be conservative with generalizations
 4. Consider whether patterns should be combined or kept separate`;
 
-  const result = await learner.process(input);
-  return result as LearnPatternResult;
+  const { output } = await executeInternalBaleybot('pattern_learner', input, {
+    userWorkspaceId: ctx.workspaceId,
+    context,
+    triggeredBy: 'internal',
+  });
+
+  return learnPatternResultSchema.parse(output);
 }
 
 /**
@@ -260,7 +222,7 @@ export async function suggestGeneralization(
   explanation: string;
   riskChange: 'increased' | 'same' | 'decreased';
 }> {
-  const learner = createPatternLearner(ctx);
+  const context = buildLearnerContext(ctx);
 
   const matchSummaries = recentMatches.map((r, i) => `
 ### Match ${i + 1}
@@ -289,10 +251,14 @@ Consider:
 2. Could numeric constraints be relaxed safely?
 3. Would generalization significantly increase risk?`;
 
-  const result = await learner.process(input);
+  const { output } = await executeInternalBaleybot('pattern_learner', input, {
+    userWorkspaceId: ctx.workspaceId,
+    context,
+    triggeredBy: 'internal',
+  });
 
   // Extract the first suggestion as the generalization
-  const typedResult = result as LearnPatternResult;
+  const typedResult = learnPatternResultSchema.parse(output);
   if (typedResult.suggestions.length > 0) {
     const suggestion = typedResult.suggestions[0];
     if (!suggestion) {
@@ -336,7 +302,7 @@ export async function validatePattern(
   risks: string[];
   suggestions: string[];
 }> {
-  const learner = createPatternLearner(ctx);
+  const context = buildLearnerContext(ctx);
 
   const input = `Validate this proposed approval pattern for safety.
 
@@ -355,8 +321,13 @@ export async function validatePattern(
 3. Suggest improvements if needed
 4. Determine if it should be allowed`;
 
-  const result = await learner.process(input);
-  const typedResult = result as LearnPatternResult;
+  const { output } = await executeInternalBaleybot('pattern_learner', input, {
+    userWorkspaceId: ctx.workspaceId,
+    context,
+    triggeredBy: 'internal',
+  });
+
+  const typedResult = learnPatternResultSchema.parse(output);
 
   return {
     isValid: typedResult.warnings.length === 0,
