@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { patterns, blocks, decisions, eq, and, desc, notDeleted } from '@baleyui/db';
+import { patterns, blocks, decisions, eq, and, desc, notDeleted, withTransaction } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { analyzeDecisions } from '@/lib/patterns/pattern-analyzer';
 import type { PatternCondition, PatternOutputTemplate, PartialUpdateData } from '@/lib/types';
+import {
+  throwNotFound,
+  uuidSchema,
+} from '../helpers';
 
 /**
  * tRPC router for managing patterns (extracted rules from decisions).
@@ -11,12 +15,15 @@ import type { PatternCondition, PatternOutputTemplate, PartialUpdateData } from 
 export const patternsRouter = router({
   /**
    * List patterns with filtering.
+   * API-001: Use standardized UUID schema and pagination validation
+   * API-004: Already uses select() to return only necessary fields
    */
   list: protectedProcedure
     .input(
       z.object({
-        blockId: z.string().uuid().optional(),
-        limit: z.number().min(1).max(100).default(50),
+        blockId: uuidSchema.optional(),
+        limit: z.number().int().min(1).max(100).default(50),
+        cursor: uuidSchema.optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -56,9 +63,10 @@ export const patternsRouter = router({
 
   /**
    * Get a single pattern by ID.
+   * API-001: Use standardized UUID schema
    */
   getById: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: uuidSchema }))
     .query(async ({ ctx, input }) => {
       const pattern = await ctx.db
         .select({
@@ -80,10 +88,7 @@ export const patternsRouter = router({
         .limit(1);
 
       if (!pattern || pattern.length === 0) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Pattern not found',
-        });
+        throwNotFound('Pattern');
       }
 
       return pattern[0];
@@ -91,17 +96,18 @@ export const patternsRouter = router({
 
   /**
    * Create a new pattern.
+   * API-001: Stricter input validation
    */
   create: protectedProcedure
     .input(
       z.object({
-        blockId: z.string().uuid(),
-        rule: z.string().min(1),
+        blockId: uuidSchema,
+        rule: z.string().min(1, 'Rule is required').max(10000, 'Rule exceeds maximum length'),
         condition: z.unknown(),
         outputTemplate: z.unknown().optional(),
         confidence: z.number().min(0).max(1).optional(),
-        supportCount: z.number().int().min(0).optional(),
-        generatedCode: z.string().optional(),
+        supportCount: z.number().int().min(0).max(1000000).optional(),
+        generatedCode: z.string().max(500000, 'Generated code exceeds maximum size').optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -113,10 +119,7 @@ export const patternsRouter = router({
         .limit(1);
 
       if (!block || block.length === 0) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Block not found',
-        });
+        throwNotFound('Block');
       }
 
       // Create pattern
@@ -138,17 +141,18 @@ export const patternsRouter = router({
 
   /**
    * Update an existing pattern.
+   * API-001: Stricter input validation
    */
   update: protectedProcedure
     .input(
       z.object({
-        id: z.string().uuid(),
-        rule: z.string().min(1).optional(),
+        id: uuidSchema,
+        rule: z.string().min(1, 'Rule is required').max(10000, 'Rule exceeds maximum length').optional(),
         condition: z.unknown().optional(),
         outputTemplate: z.unknown().optional(),
         confidence: z.number().min(0).max(1).optional(),
-        supportCount: z.number().int().min(0).optional(),
-        generatedCode: z.string().optional(),
+        supportCount: z.number().int().min(0).max(1000000).optional(),
+        generatedCode: z.string().max(500000, 'Generated code exceeds maximum size').optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -161,10 +165,7 @@ export const patternsRouter = router({
         .limit(1);
 
       if (!existing || existing.length === 0) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Pattern not found',
-        });
+        throwNotFound('Pattern');
       }
 
       // Build update object
@@ -190,10 +191,11 @@ export const patternsRouter = router({
     }),
 
   /**
-   * Delete a pattern (soft delete).
+   * Delete a pattern (hard delete - patterns table has no soft delete).
+   * API-001: Use standardized UUID schema
    */
   delete: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: uuidSchema }))
     .mutation(async ({ ctx, input }) => {
       // Verify pattern exists and belongs to workspace
       const existing = await ctx.db
@@ -204,10 +206,7 @@ export const patternsRouter = router({
         .limit(1);
 
       if (!existing || existing.length === 0) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Pattern not found',
-        });
+        throwNotFound('Pattern');
       }
 
       // Hard delete pattern (no soft delete column in patterns table)
@@ -220,12 +219,13 @@ export const patternsRouter = router({
    * Associate a pattern with a block.
    * This is a placeholder for future functionality where patterns can be linked
    * to multiple blocks or have more complex relationships.
+   * API-001: Use standardized UUID schema
    */
   associateWithBlock: protectedProcedure
     .input(
       z.object({
-        patternId: z.string().uuid(),
-        blockId: z.string().uuid(),
+        patternId: uuidSchema,
+        blockId: uuidSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -238,10 +238,7 @@ export const patternsRouter = router({
         .limit(1);
 
       if (!pattern || pattern.length === 0) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Pattern not found',
-        });
+        throwNotFound('Pattern');
       }
 
       // Verify target block exists
@@ -252,10 +249,7 @@ export const patternsRouter = router({
         .limit(1);
 
       if (!targetBlock || targetBlock.length === 0) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Target block not found',
-        });
+        throwNotFound('Target block');
       }
 
       // Update pattern's blockId
@@ -273,9 +267,10 @@ export const patternsRouter = router({
 
   /**
    * Analyze a block's decisions to detect patterns.
+   * API-001: Use standardized UUID schema
    */
   analyzeBlock: protectedProcedure
-    .input(z.object({ blockId: z.string().uuid() }))
+    .input(z.object({ blockId: uuidSchema }))
     .mutation(async ({ ctx, input }) => {
       // Verify block exists and belongs to workspace
       const block = await ctx.db
@@ -291,13 +286,10 @@ export const patternsRouter = router({
         .limit(1);
 
       if (!block || block.length === 0) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Block not found',
-        });
+        throwNotFound('Block');
       }
 
-      // Fetch all decisions for this block
+      // Fetch decisions for this block (limited to prevent memory exhaustion)
       const blockDecisions = await ctx.db
         .select({
           id: decisions.id,
@@ -306,7 +298,8 @@ export const patternsRouter = router({
         })
         .from(decisions)
         .where(eq(decisions.blockId, input.blockId))
-        .orderBy(desc(decisions.createdAt));
+        .orderBy(desc(decisions.createdAt))
+        .limit(1000);
 
       // Analyze decisions to detect patterns
       const analysisResult = await analyzeDecisions(
@@ -317,29 +310,33 @@ export const patternsRouter = router({
         }))
       );
 
-      // Delete old patterns before saving new ones (prevent duplication)
-      await ctx.db.delete(patterns).where(eq(patterns.blockId, input.blockId));
+      // Wrap delete+insert in transaction for atomicity
+      const savedPatterns = await withTransaction(async (tx) => {
+        // Delete old patterns before saving new ones (prevent duplication)
+        await tx.delete(patterns).where(eq(patterns.blockId, input.blockId));
 
-      // Store detected patterns in the database
-      const savedPatterns = [];
-      for (const pattern of analysisResult.patterns) {
-        const [saved] = await ctx.db
-          .insert(patterns)
-          .values({
-            blockId: input.blockId,
-            rule: pattern.condition,
-            condition: pattern.conditionAst,
-            outputTemplate: { value: pattern.outputValue },
-            confidence: (pattern.confidence / 100).toFixed(4), // Store as decimal string 0.0000-1.0000
-            supportCount: pattern.supportCount,
-            samples: pattern.samples || [], // Store sample decisions for validation
-            patternType: pattern.type || 'exact_match',
-            generatedCode: null,
-          })
-          .returning();
+        // Store detected patterns in the database
+        const saved = [];
+        for (const pattern of analysisResult.patterns) {
+          const [result] = await tx
+            .insert(patterns)
+            .values({
+              blockId: input.blockId,
+              rule: pattern.condition,
+              condition: pattern.conditionAst,
+              outputTemplate: { value: pattern.outputValue },
+              confidence: (pattern.confidence / 100).toFixed(4), // Store as decimal string 0.0000-1.0000
+              supportCount: pattern.supportCount,
+              samples: pattern.samples || [], // Store sample decisions for validation
+              patternType: pattern.type || 'exact_match',
+              generatedCode: null,
+            })
+            .returning();
 
-        savedPatterns.push(saved);
-      }
+          saved.push(result);
+        }
+        return saved;
+      });
 
       return {
         ...analysisResult,
@@ -350,9 +347,10 @@ export const patternsRouter = router({
 
   /**
    * Get cached analysis results for a block.
+   * API-001: Use standardized UUID schema
    */
   getAnalysisResult: protectedProcedure
-    .input(z.object({ blockId: z.string().uuid() }))
+    .input(z.object({ blockId: uuidSchema }))
     .query(async ({ ctx, input }) => {
       // Verify block exists and belongs to workspace
       const block = await ctx.db
@@ -368,13 +366,10 @@ export const patternsRouter = router({
         .limit(1);
 
       if (!block || block.length === 0) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Block not found',
-        });
+        throwNotFound('Block');
       }
 
-      // Fetch decisions for this block
+      // Fetch decisions for this block (limited to prevent memory exhaustion)
       const blockDecisions = await ctx.db
         .select({
           id: decisions.id,
@@ -383,7 +378,8 @@ export const patternsRouter = router({
         })
         .from(decisions)
         .where(eq(decisions.blockId, input.blockId))
-        .orderBy(desc(decisions.createdAt));
+        .orderBy(desc(decisions.createdAt))
+        .limit(1000);
 
       // Calculate output distribution
       const outputDistribution: Record<string, number> = {};

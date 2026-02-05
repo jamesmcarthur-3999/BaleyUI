@@ -16,6 +16,9 @@ import {
   sql,
 } from '@baleyui/db';
 import type { MetricDefinition, MetricType } from './schema-parser';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('metrics');
 
 // ============================================================================
 // TYPES
@@ -136,7 +139,7 @@ export function createMetricsService(): MetricsService {
         });
       }
 
-      console.log(
+      log.info(
         `[metrics] Recorded ${metricDefinitions.length} metrics for execution ${ctx.executionId}`
       );
     },
@@ -291,7 +294,7 @@ export function createMetricsService(): MetricsService {
           });
       }
 
-      console.log(
+      log.info(
         `[metrics] Computed ${period} aggregates for baleybot ${baleybotId}`
       );
     },

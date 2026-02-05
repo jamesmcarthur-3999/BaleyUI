@@ -15,6 +15,9 @@ import {
   desc,
 } from '@baleyui/db';
 import { metricsService } from './metrics-service';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('alerts');
 
 // ============================================================================
 // TYPES
@@ -106,7 +109,7 @@ export function parseAlertCondition(condition: string): AlertCondition | null {
   );
 
   if (!match) {
-    console.warn(`[alerts] Failed to parse condition: ${condition}`);
+    log.warn(` Failed to parse condition: ${condition}`);
     return null;
   }
 
@@ -184,7 +187,7 @@ export function createAlertService(): AlertService {
       const parsed = parseAlertCondition(alertCondition);
 
       if (!parsed) {
-        console.warn(`[alerts] Could not parse alert condition: ${alertCondition}`);
+        log.warn(` Could not parse alert condition: ${alertCondition}`);
         return null;
       }
 
@@ -195,8 +198,8 @@ export function createAlertService(): AlertService {
       );
 
       if (currentValue === null) {
-        console.log(
-          `[alerts] No value for metric "${parsed.metricName}", skipping evaluation`
+        log.info(
+          ` No value for metric "${parsed.metricName}", skipping evaluation`
         );
         return null;
       }
@@ -218,8 +221,8 @@ export function createAlertService(): AlertService {
       });
 
       if (existingAlert) {
-        console.log(
-          `[alerts] Alert already active for condition: ${alertCondition}`
+        log.info(
+          ` Alert already active for condition: ${alertCondition}`
         );
         return null;
       }
@@ -255,8 +258,8 @@ export function createAlertService(): AlertService {
         throw new Error('Failed to create alert');
       }
 
-      console.log(
-        `[alerts] Created ${severity} alert for "${ctx.baleybotName}": ${message}`
+      log.info(
+        `Created ${severity} alert for "${ctx.baleybotName}": ${message}`
       );
 
       return {
@@ -310,7 +313,7 @@ export function createAlertService(): AlertService {
         })
         .where(eq(baleybotAlerts.id, alertId));
 
-      console.log(`[alerts] Alert ${alertId} acknowledged by ${userId}`);
+      log.info(` Alert ${alertId} acknowledged by ${userId}`);
     },
 
     async resolveAlert(alertId: string, userId: string): Promise<void> {
@@ -323,7 +326,7 @@ export function createAlertService(): AlertService {
         })
         .where(eq(baleybotAlerts.id, alertId));
 
-      console.log(`[alerts] Alert ${alertId} resolved by ${userId}`);
+      log.info(` Alert ${alertId} resolved by ${userId}`);
     },
 
     async notifyAlert(alert: Alert, userIds: string[]): Promise<void> {
@@ -341,8 +344,8 @@ export function createAlertService(): AlertService {
 
       await Promise.all(notificationPromises);
 
-      console.log(
-        `[alerts] Sent notifications to ${userIds.length} users for alert ${alert.id}`
+      log.info(
+        `Sent notifications to ${userIds.length} users for alert ${alert.id}`
       );
     },
   };

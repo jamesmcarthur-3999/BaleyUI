@@ -6,6 +6,9 @@
  */
 
 import { db, blockExecutions, eq } from '@baleyui/db';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('fallback-tracker');
 
 export interface FallbackData {
   blockId: string;
@@ -34,15 +37,15 @@ export async function trackFallback(data: FallbackData): Promise<void> {
       .where(eq(blockExecutions.id, data.executionId));
 
     // Log for analytics (optional: could send to external service)
-    console.log('[Fallback Tracker]', {
+    logger.info('Tracked fallback', {
       blockId: data.blockId,
       executionId: data.executionId,
       reason: data.reason,
       confidence: data.confidence,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     // Don't fail execution if fallback tracking fails
-    console.error('Failed to track fallback:', error);
+    logger.error('Failed to track fallback', error);
   }
 }
 
@@ -65,8 +68,8 @@ export async function trackCodeExecution(
         matchConfidence: confidence.toFixed(2),
       })
       .where(eq(blockExecutions.id, executionId));
-  } catch (error) {
-    console.error('Failed to track code execution:', error);
+  } catch (error: unknown) {
+    logger.error('Failed to track code execution', error);
   }
 }
 
@@ -86,8 +89,8 @@ export async function trackABTestExecution(
         fallbackReason: reason,
       })
       .where(eq(blockExecutions.id, executionId));
-  } catch (error) {
-    console.error('Failed to track A/B test execution:', error);
+  } catch (error: unknown) {
+    logger.error('Failed to track A/B test execution', error);
   }
 }
 
@@ -137,8 +140,8 @@ export async function getFallbackStats(blockId: string): Promise<{
       fallbackRate,
       commonReasons,
     };
-  } catch (error) {
-    console.error('Failed to get fallback stats:', error);
+  } catch (error: unknown) {
+    logger.error('Failed to get fallback stats', error);
     return {
       totalExecutions: 0,
       codeExecutions: 0,
@@ -185,8 +188,8 @@ export async function getRecentFallbacks(
         confidence: e.matchConfidence ? parseFloat(e.matchConfidence) : undefined,
         createdAt: e.createdAt,
       }));
-  } catch (error) {
-    console.error('Failed to get recent fallbacks:', error);
+  } catch (error: unknown) {
+    logger.error('Failed to get recent fallbacks', error);
     return [];
   }
 }
@@ -231,8 +234,8 @@ export async function analyzeFallbackPatterns(blockId: string): Promise<{
       suggestions,
       confidence,
     };
-  } catch (error) {
-    console.error('Failed to analyze fallback patterns:', error);
+  } catch (error: unknown) {
+    logger.error('Failed to analyze fallback patterns', error);
     return {
       suggestions: [],
       confidence: 0,

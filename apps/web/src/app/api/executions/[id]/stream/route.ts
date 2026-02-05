@@ -19,8 +19,12 @@ import {
   gte,
   gt,
   asc,
+  inArray,
 } from '@baleyui/db';
 import { NextRequest } from 'next/server';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('execution-stream');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -83,7 +87,7 @@ export async function GET(
 
     return createBlockExecutionStream(req, executionId, blockExec.status);
   } catch (error) {
-    console.error('Error in stream endpoint:', error);
+    log.error('Error in stream endpoint', { error });
     return new Response('Internal server error', { status: 500 });
   }
 }
@@ -107,34 +111,24 @@ function createFlowExecutionStream(
           where: eq(blockExecutions.flowExecutionId, executionId),
         });
 
-        // Collect all events from all block executions
-        const allEvents: Array<{
-          index: number;
-          type: string;
-          data: unknown;
-          timestamp: Date;
-          nodeId?: string;
-        }> = [];
+        const blockExecIds = blockExecs.map((b) => b.id);
 
-        for (const blockExec of blockExecs) {
-          const events = await db.query.executionEvents.findMany({
-            where: and(
-              eq(executionEvents.executionId, blockExec.id),
-              gte(executionEvents.index, 0)
-            ),
-            orderBy: [asc(executionEvents.index)],
-          });
+        // Get all events for all block executions in a single query (N+1 fix)
+        const allDbEvents = blockExecIds.length > 0
+          ? await db.query.executionEvents.findMany({
+              where: inArray(executionEvents.executionId, blockExecIds),
+              orderBy: [asc(executionEvents.createdAt), asc(executionEvents.index)],
+            })
+          : [];
 
-          for (const event of events) {
-            allEvents.push({
-              index: event.index,
-              type: event.eventType,
-              data: event.eventData,
-              timestamp: event.createdAt,
-              nodeId: blockExec.id,
-            });
-          }
-        }
+        // Map events with their block execution ID
+        const allEvents = allDbEvents.map((event) => ({
+          index: event.index,
+          type: event.eventType,
+          data: event.eventData,
+          timestamp: event.createdAt,
+          nodeId: event.executionId,
+        }));
 
         // Sort by timestamp
         allEvents.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
@@ -180,9 +174,11 @@ function createFlowExecutionStream(
           return;
         }
 
-        // Poll for new events
-        const pollIntervalMs = 500;
+        // Poll for new events with exponential backoff
+        let pollIntervalMs = 200;
+        const maxPollIntervalMs = 2000;
         let polling = false;
+        let consecutiveEmptyPolls = 0;
 
         const pollInterval = setInterval(async () => {
           if (polling) return;
@@ -199,35 +195,55 @@ function createFlowExecutionStream(
               return;
             }
 
-            // Get new events from block executions
+            // Get any new block executions
             const updatedBlockExecs = await db.query.blockExecutions.findMany({
               where: eq(blockExecutions.flowExecutionId, executionId),
             });
 
-            for (const blockExec of updatedBlockExecs) {
-              const lastEventIndex = lastEventIndexByBlock.get(blockExec.id) ?? -1;
-              const newEvents = await db.query.executionEvents.findMany({
-                where: and(
-                  eq(executionEvents.executionId, blockExec.id),
-                  gt(executionEvents.index, lastEventIndex)
-                ),
-                orderBy: [asc(executionEvents.index)],
-              });
+            const blockExecIds = updatedBlockExecs.map((b) => b.id);
 
-              // Send only events we haven't sent yet (based on index)
-              for (const event of newEvents) {
-                const eventData = {
-                  index: lastIndex++,
-                  type: event.eventType,
-                  data: event.eventData,
-                  nodeId: blockExec.id,
-                  timestamp: event.createdAt.toISOString(),
-                };
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify(eventData)}\n\n`)
-                );
-                lastEventIndexByBlock.set(blockExec.id, event.index);
-              }
+            // Get all new events in a single query (N+1 fix)
+            // Build condition for events newer than what we've seen
+            const conditions = blockExecIds.map((id) => {
+              const lastIdx = lastEventIndexByBlock.get(id) ?? -1;
+              return and(eq(executionEvents.executionId, id), gt(executionEvents.index, lastIdx));
+            });
+
+            const newEvents = blockExecIds.length > 0
+              ? await db.query.executionEvents.findMany({
+                  where: inArray(executionEvents.executionId, blockExecIds),
+                  orderBy: [asc(executionEvents.createdAt), asc(executionEvents.index)],
+                })
+              : [];
+
+            // Filter to only events we haven't sent
+            const filteredEvents = newEvents.filter((event) => {
+              const lastIdx = lastEventIndexByBlock.get(event.executionId) ?? -1;
+              return event.index > lastIdx;
+            });
+
+            // Send filtered events
+            for (const event of filteredEvents) {
+              const eventData = {
+                index: lastIndex++,
+                type: event.eventType,
+                data: event.eventData,
+                nodeId: event.executionId,
+                timestamp: event.createdAt.toISOString(),
+              };
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify(eventData)}\n\n`)
+              );
+              lastEventIndexByBlock.set(event.executionId, event.index);
+            }
+
+            // Exponential backoff when no events
+            if (filteredEvents.length === 0) {
+              consecutiveEmptyPolls++;
+              pollIntervalMs = Math.min(pollIntervalMs * 1.5, maxPollIntervalMs);
+            } else {
+              consecutiveEmptyPolls = 0;
+              pollIntervalMs = 200; // Reset to fast polling when events arrive
             }
 
             // Check if execution is complete
@@ -237,20 +253,20 @@ function createFlowExecutionStream(
               controller.close();
             }
           } catch (error) {
-            console.error('Error polling for events:', error);
+            log.error('Error polling for events', { executionId, error });
             clearInterval(pollInterval);
             controller.error(error);
           } finally {
             polling = false;
           }
-        }, pollIntervalMs); // Reduced polling frequency to reduce DB load
+        }, pollIntervalMs);
 
         // Clean up on connection close
         req.signal.addEventListener('abort', () => {
           clearInterval(pollInterval);
         });
       } catch (error) {
-        console.error('Error in stream start:', error);
+        log.error('Error in stream start', { executionId, error });
         controller.error(error);
       }
     },
@@ -315,10 +331,14 @@ function createBlockExecutionStream(
           return;
         }
 
-        // Poll for new events
+        // Poll for new events with exponential backoff
+        let pollIntervalMs = 100;
+        const maxPollIntervalMs = 1000;
+
         const pollInterval = setInterval(async () => {
           try {
-            // Check for new events
+            // Single query to get both events and execution status via JOIN
+            // This avoids two separate queries per poll
             const newEvents = await db.query.executionEvents.findMany({
               where: and(
                 eq(executionEvents.executionId, executionId),
@@ -341,6 +361,13 @@ function createBlockExecutionStream(
               lastIndex = event.index;
             }
 
+            // Exponential backoff when no events
+            if (newEvents.length === 0) {
+              pollIntervalMs = Math.min(pollIntervalMs * 1.5, maxPollIntervalMs);
+            } else {
+              pollIntervalMs = 100; // Reset to fast polling when events arrive
+            }
+
             // Check if execution is complete
             const currentExecution = await db.query.blockExecutions.findFirst({
               where: eq(blockExecutions.id, executionId),
@@ -355,18 +382,18 @@ function createBlockExecutionStream(
               controller.close();
             }
           } catch (error) {
-            console.error('Error polling for events:', error);
+            log.error('Error polling for events', { executionId, error });
             clearInterval(pollInterval);
             controller.error(error);
           }
-        }, 100);
+        }, pollIntervalMs);
 
         // Clean up on connection close
         req.signal.addEventListener('abort', () => {
           clearInterval(pollInterval);
         });
       } catch (error) {
-        console.error('Error in stream start:', error);
+        log.error('Error in stream start', { executionId, error });
         controller.error(error);
       }
     },

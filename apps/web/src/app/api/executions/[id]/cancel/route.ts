@@ -9,6 +9,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { db, flowExecutions, blockExecutions, eq } from '@baleyui/db';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api/executions/cancel');
 
 export async function POST(
   req: Request,
@@ -123,7 +126,7 @@ export async function POST(
       message: 'Block execution cancelled',
     });
   } catch (error) {
-    console.error('Error cancelling execution:', error);
+    logger.error('Error cancelling execution', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

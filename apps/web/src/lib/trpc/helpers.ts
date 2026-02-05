@@ -1,4 +1,175 @@
 import { TRPCError } from '@trpc/server';
+import { z } from 'zod';
+import { OptimisticLockError } from '@baleyui/db';
+import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
+
+// =============================================================================
+// COMMON VALIDATION SCHEMAS (API-001)
+// =============================================================================
+
+/**
+ * Standard pagination input schema with validated limits
+ */
+export const paginationSchema = z.object({
+  limit: z.number().int().min(1).max(100).optional().default(50),
+  cursor: z.string().uuid().optional(),
+  offset: z.number().int().min(0).optional(),
+});
+
+/**
+ * Common name validation - non-empty, trimmed, max 255 chars
+ */
+export const nameSchema = z.string()
+  .min(1, 'Name is required')
+  .max(255, 'Name must be 255 characters or less')
+  .trim();
+
+/**
+ * Common description validation - trimmed, max 2000 chars
+ */
+export const descriptionSchema = z.string()
+  .max(2000, 'Description must be 2000 characters or less')
+  .trim()
+  .optional();
+
+/**
+ * UUID validation with helpful error message
+ */
+export const uuidSchema = z.string().uuid('Invalid ID format');
+
+/**
+ * Icon validation - emoji or icon name, max 100 chars
+ */
+export const iconSchema = z.string()
+  .max(100, 'Icon must be 100 characters or less')
+  .regex(/^[\p{Emoji}\w-]+$/u, 'Invalid icon format')
+  .optional();
+
+/**
+ * BAL code validation - non-empty, reasonable size limit
+ */
+export const balCodeSchema = z.string()
+  .min(1, 'BAL code is required')
+  .max(100000, 'BAL code exceeds maximum size');
+
+/**
+ * Version number for optimistic locking
+ */
+export const versionSchema = z.number().int().min(0);
+
+/**
+ * Tool name validation
+ */
+export const toolNameSchema = z.string()
+  .min(1, 'Tool name is required')
+  .max(255, 'Tool name must be 255 characters or less')
+  .regex(/^[a-z][a-z0-9_]*$/, 'Tool name must start with a letter and contain only lowercase letters, numbers, and underscores');
+
+/**
+ * API key validation pattern
+ */
+export const apiKeySchema = z.string()
+  .min(10, 'API key is too short')
+  .max(500, 'API key is too long')
+  .optional();
+
+/**
+ * URL validation with protocol check
+ */
+export const urlSchema = z.string()
+  .url('Invalid URL format')
+  .max(2000, 'URL is too long')
+  .optional();
+
+// =============================================================================
+// ERROR HANDLING HELPERS (API-002)
+// =============================================================================
+
+/**
+ * Handle optimistic lock errors with consistent messaging
+ */
+export function handleOptimisticLockError(error: unknown, resourceName: string = 'Resource'): never {
+  if (error instanceof OptimisticLockError ||
+      (error instanceof Error && error.message.includes('version'))) {
+    throw new TRPCError({
+      code: 'CONFLICT',
+      message: `${resourceName} was modified by another user. Please refresh and try again.`,
+    });
+  }
+  throw error;
+}
+
+/**
+ * Wrap a mutation with standard error handling
+ * - Handles optimistic lock errors
+ * - Sanitizes internal errors
+ */
+export async function withErrorHandling<T>(
+  fn: () => Promise<T>,
+  resourceName: string = 'Resource'
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    // Handle optimistic lock errors
+    if (error instanceof OptimisticLockError ||
+        (error instanceof Error && error.message.includes('version'))) {
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: `${resourceName} was modified by another user. Please refresh and try again.`,
+      });
+    }
+
+    // Re-throw tRPC errors as-is
+    if (error instanceof TRPCError) {
+      throw error;
+    }
+
+    // Sanitize and wrap other errors
+    const message = isUserFacingError(error)
+      ? sanitizeErrorMessage(error)
+      : 'An internal error occurred';
+
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message,
+    });
+  }
+}
+
+/**
+ * Throw a NOT_FOUND error for a resource
+ */
+export function throwNotFound(resourceName: string = 'Resource'): never {
+  throw new TRPCError({
+    code: 'NOT_FOUND',
+    message: `${resourceName} not found`,
+  });
+}
+
+/**
+ * Throw a BAD_REQUEST error with a message
+ */
+export function throwBadRequest(message: string): never {
+  throw new TRPCError({
+    code: 'BAD_REQUEST',
+    message,
+  });
+}
+
+/**
+ * Throw a FORBIDDEN error for unauthorized access
+ */
+export function throwForbidden(message: string = 'You do not have access to this resource'): never {
+  throw new TRPCError({
+    code: 'FORBIDDEN',
+    message,
+  });
+}
+
+// =============================================================================
+// OWNERSHIP VERIFICATION HELPERS
+// =============================================================================
 
 /**
  * Verify a resource belongs to the specified workspace.

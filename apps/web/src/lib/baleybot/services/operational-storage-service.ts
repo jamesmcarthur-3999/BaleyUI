@@ -19,6 +19,9 @@ import {
 } from '@baleyui/db';
 import { createDatabaseExecutor } from '../tools/connection-derived/database-executor';
 import type { DatabaseConnectionConfig } from '@/lib/connections/providers';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('operational-storage');
 
 // ============================================================================
 // TYPES
@@ -152,17 +155,16 @@ export async function createOperationalStorageService(
 
   // If no operational DB, use BaleyUI's internal storage
   if (!operationalConnection) {
-    console.log(
-      `[operational_storage] No operational DB configured for workspace ${workspaceId}, using internal storage`
-    );
+    log.debug('No operational DB configured, using internal storage', { workspaceId });
     return createInternalStorageService(workspaceId);
   }
 
   // Validate connection type is a database
   if (!['postgres', 'mysql'].includes(operationalConnection.type)) {
-    console.warn(
-      `[operational_storage] Operational connection ${operationalConnection.id} is not a database type, using internal storage`
-    );
+    log.warn('Operational connection is not a database type, using internal storage', {
+      connectionId: operationalConnection.id,
+      type: operationalConnection.type,
+    });
     return createInternalStorageService(workspaceId);
   }
 
@@ -177,16 +179,14 @@ export async function createOperationalStorageService(
     // Ensure tables exist
     await ensureTablesExist(executor, operationalConnection.type);
 
-    console.log(
-      `[operational_storage] Using operational DB "${operationalConnection.name}" for workspace ${workspaceId}`
-    );
+    log.info(`Using operational DB "${operationalConnection.name}"`, {
+      workspaceId,
+      connectionName: operationalConnection.name,
+    });
 
     return createExternalStorageService(workspaceId, executor);
   } catch (error) {
-    console.error(
-      `[operational_storage] Failed to connect to operational DB, falling back to internal:`,
-      error instanceof Error ? error.message : 'Unknown error'
-    );
+    log.error('Failed to connect to operational DB, falling back to internal', error);
     return createInternalStorageService(workspaceId);
   }
 }
@@ -206,15 +206,11 @@ async function ensureTablesExist(
       await executor.query(ANALYTICS_TABLE_SCHEMA);
     } else if (dbType === 'mysql') {
       // MySQL version would need DATETIME instead of TIMESTAMP, etc.
-      console.warn(
-        '[operational_storage] MySQL operational storage table creation not yet implemented'
-      );
+      log.warn('MySQL operational storage table creation not yet implemented');
     }
-  } catch (error) {
+  } catch {
     // Tables might already exist, which is fine
-    console.log(
-      `[operational_storage] Table setup completed (may have pre-existed)`
-    );
+    log.debug('Table setup completed (may have pre-existed)');
   }
 }
 
@@ -244,10 +240,8 @@ function createInternalStorageService(
     },
 
     async storeAnalytics(_record: AnalyticsRecord): Promise<void> {
-      // TODO: Implement when analytics tables are created
-      console.log(
-        `[operational_storage] Analytics storage not yet implemented for internal DB`
-      );
+      // TODO(ANALYTICS-001): Implement when analytics tables are created
+      log.debug('Analytics storage not yet implemented for internal DB');
     },
 
     async queryExecutions(

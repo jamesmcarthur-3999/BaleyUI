@@ -105,13 +105,15 @@ describe('convertBaleybotEvent', () => {
   it('converts done to step-finish', () => {
     const event: BaleybotStreamEvent = {
       type: 'done',
-      reason: 'end_turn',
+      reason: 'turn_yielded',
       agent_id: 'agent-1',
+      timestamp: Date.now(),
+      duration_ms: 100,
     };
 
     expect(convertBaleybotEvent(event)).toEqual({
       type: 'step-finish',
-      finishReason: 'end_turn',
+      finishReason: 'turn_yielded',
     });
   });
 

@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
     '@baleybots/react',
     '@baleybots/tools',
   ],
+  // Mark native modules as external - required for Vercel deployment
+  // These modules have native bindings that can't be bundled
+  serverExternalPackages: ['isolated-vm'],
   // Temporarily ignore ESLint during builds after merge
   // TODO: Fix remaining `any` types and remove this
   eslint: {

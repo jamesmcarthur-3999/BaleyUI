@@ -40,6 +40,9 @@ export enum ErrorCode {
   EXECUTOR_NOT_FOUND = 'EXECUTOR_NOT_FOUND',
   EXECUTION_CANCELLED = 'EXECUTION_CANCELLED',
   CIRCUIT_OPEN = 'CIRCUIT_OPEN',
+
+  // Runtime errors
+  RUNTIME_UNAVAILABLE = 'RUNTIME_UNAVAILABLE',
 }
 
 export interface ErrorContext {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   Table,
   TableBody,
@@ -15,14 +15,18 @@ import { ChevronDown, ChevronRight, CheckCircle2, XCircle, Clock } from 'lucide-
 import { cn } from '@/lib/utils';
 import { formatCost, formatDuration } from '@/lib/format';
 
+/**
+ * Summary decision type for list views (PERF-007)
+ * Large payload fields (input, output, reasoning, feedbackCorrectedOutput)
+ * are only loaded when viewing full details via getById.
+ */
 interface Decision {
   id: string;
   blockId: string;
   blockName: string;
   blockExecutionId: string;
-  input: any;
-  output: any;
-  reasoning: string | null;
+  // Large payload fields omitted from list view (PERF-007)
+  // Use decisions.getById for full details
   model: string | null;
   tokensInput: number | null;
   tokensOutput: number | null;
@@ -30,7 +34,6 @@ interface Decision {
   cost: string | null;
   feedbackCorrect: boolean | null;
   feedbackNotes: string | null;
-  feedbackCorrectedOutput: any;
   feedbackAt: Date | null;
   createdAt: Date;
 }
@@ -43,6 +46,8 @@ interface DecisionTableProps {
 
 export function DecisionTable({ decisions, isLoading, onDecisionSelect }: DecisionTableProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
 
   const toggleExpanded = (id: string) => {
     const newExpanded = new Set(expandedIds);
@@ -53,6 +58,59 @@ export function DecisionTable({ decisions, isLoading, onDecisionSelect }: Decisi
     }
     setExpandedIds(newExpanded);
   };
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLTableRowElement>, decision: Decision, index: number) => {
+      switch (event.key) {
+        case 'Enter':
+        case ' ':
+          event.preventDefault();
+          toggleExpanded(decision.id);
+          onDecisionSelect?.(decision);
+          break;
+        case 'ArrowDown':
+          event.preventDefault();
+          if (index < decisions.length - 1) {
+            const nextIndex = index + 1;
+            setFocusedIndex(nextIndex);
+            rowRefs.current.get(nextIndex)?.focus();
+          }
+          break;
+        case 'ArrowUp':
+          event.preventDefault();
+          if (index > 0) {
+            const prevIndex = index - 1;
+            setFocusedIndex(prevIndex);
+            rowRefs.current.get(prevIndex)?.focus();
+          }
+          break;
+        case 'Home':
+          event.preventDefault();
+          if (decisions.length > 0) {
+            setFocusedIndex(0);
+            rowRefs.current.get(0)?.focus();
+          }
+          break;
+        case 'End':
+          event.preventDefault();
+          if (decisions.length > 0) {
+            const lastIndex = decisions.length - 1;
+            setFocusedIndex(lastIndex);
+            rowRefs.current.get(lastIndex)?.focus();
+          }
+          break;
+      }
+    },
+    [decisions, onDecisionSelect, expandedIds]
+  );
+
+  const setRowRef = useCallback((index: number, element: HTMLTableRowElement | null) => {
+    if (element) {
+      rowRefs.current.set(index, element);
+    } else {
+      rowRefs.current.delete(index);
+    }
+  }, []);
 
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleString('en-US', {
@@ -141,17 +199,28 @@ export function DecisionTable({ decisions, isLoading, onDecisionSelect }: Decisi
             <TableHead>Feedback</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody>
-          {decisions.map((decision) => {
+        <TableBody role="rowgroup">
+          {decisions.map((decision, index) => {
             const isExpanded = expandedIds.has(decision.id);
             return (
               <TableRow
                 key={decision.id}
-                className={cn('cursor-pointer', isExpanded && 'bg-muted/50')}
+                ref={(el) => setRowRef(index, el)}
+                role="row"
+                tabIndex={0}
+                aria-expanded={isExpanded}
+                aria-selected={focusedIndex === index}
+                aria-label={`Decision ${truncateId(decision.id)} for block ${decision.blockName}, ${isExpanded ? 'expanded' : 'collapsed'}`}
+                className={cn(
+                  'cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                  isExpanded && 'bg-muted/50'
+                )}
                 onClick={() => {
+                  setFocusedIndex(index);
                   toggleExpanded(decision.id);
                   onDecisionSelect?.(decision);
                 }}
+                onKeyDown={(e) => handleKeyDown(e, decision, index)}
               >
                 <TableCell>
                   <Button

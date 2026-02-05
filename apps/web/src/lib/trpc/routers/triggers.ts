@@ -16,6 +16,39 @@ import {
   getTriggersForSource,
 } from '@/lib/baleybot/services/bb-completion-trigger-service';
 
+/**
+ * Detect if adding a new edge (source → target) creates a cycle in the trigger graph.
+ * Uses DFS from the target to see if we can reach the source.
+ */
+function detectCycle(
+  triggers: { sourceBaleybotId: string; targetBaleybotId: string }[],
+  newSource: string,
+  newTarget: string
+): boolean {
+  const graph = new Map<string, string[]>();
+  for (const t of triggers) {
+    if (!graph.has(t.sourceBaleybotId)) graph.set(t.sourceBaleybotId, []);
+    graph.get(t.sourceBaleybotId)!.push(t.targetBaleybotId);
+  }
+  // Add the proposed edge
+  if (!graph.has(newSource)) graph.set(newSource, []);
+  graph.get(newSource)!.push(newTarget);
+
+  // DFS from newTarget to see if we can reach newSource
+  const visited = new Set<string>();
+  const stack = [newTarget];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (node === newSource) return true;
+    if (visited.has(node)) continue;
+    visited.add(node);
+    for (const neighbor of graph.get(node) || []) {
+      stack.push(neighbor);
+    }
+  }
+  return false;
+}
+
 export const triggersRouter = router({
   /**
    * List all triggers for the workspace.
@@ -140,6 +173,19 @@ export const triggersRouter = router({
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: 'A BaleyBot cannot trigger itself',
+        });
+      }
+
+      // Cycle detection: check if adding this trigger creates a cycle
+      const allTriggers = await ctx.db.query.baleybotTriggers.findMany({
+        where: eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+        columns: { sourceBaleybotId: true, targetBaleybotId: true },
+      });
+
+      if (detectCycle(allTriggers, input.sourceBaleybotId, input.targetBaleybotId)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'This trigger would create a circular dependency between BaleyBots',
         });
       }
 

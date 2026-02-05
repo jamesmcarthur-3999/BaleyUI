@@ -17,6 +17,9 @@ import {
   type ErrorContext,
   parseError,
 } from './errors';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('retry');
 
 export interface RetryOptions {
   /**
@@ -115,7 +118,8 @@ function defaultShouldRetry(error: ExecutionError, attempt: number): boolean {
 }
 
 /**
- * Calculate delay for a given attempt using exponential backoff
+ * Calculate delay for a given attempt using exponential backoff with jitter.
+ * Jitter prevents thundering herd when many clients retry simultaneously.
  */
 function calculateDelay(
   attempt: number,
@@ -123,8 +127,11 @@ function calculateDelay(
   maxDelayMs: number,
   backoffMultiplier: number
 ): number {
-  const delay = initialDelayMs * Math.pow(backoffMultiplier, attempt - 1);
-  return Math.min(delay, maxDelayMs);
+  const baseDelay = initialDelayMs * Math.pow(backoffMultiplier, attempt - 1);
+  const capped = Math.min(baseDelay, maxDelayMs);
+  // Add ±25% jitter to prevent thundering herd
+  const jitter = capped * 0.25 * (Math.random() * 2 - 1);
+  return Math.max(0, Math.round(capped + jitter));
 }
 
 /**
@@ -142,7 +149,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     signal?.addEventListener('abort', () => {
       clearTimeout(timeout);
       reject(new Error('Aborted'));
-    });
+    }, { once: true });
   });
 }
 
@@ -188,7 +195,7 @@ export async function withRetry<T>(
 
       // Execute the function
       return await fn();
-    } catch (error) {
+    } catch (error: unknown) {
       // Parse the error into a typed ExecutionError
       const executionError = parseError(error, {
         ...context,
@@ -219,26 +226,23 @@ export async function withRetry<T>(
       if (onRetry) {
         try {
           onRetry(executionError, attempt, delayMs);
-        } catch (callbackError) {
+        } catch (callbackError: unknown) {
           // Don't let callback errors break retry logic
-          console.error('Error in onRetry callback:', callbackError);
+          logger.error('Error in onRetry callback', callbackError);
         }
       }
 
       // Log the retry attempt
-      console.warn(
-        `[Retry] Attempt ${attempt}/${maxAttempts} failed. Retrying in ${delayMs}ms...`,
-        {
-          error: executionError.message,
-          code: executionError.code,
-          context: executionError.context,
-        }
-      );
+      logger.warn(`Attempt ${attempt}/${maxAttempts} failed. Retrying in ${delayMs}ms...`, {
+        error: executionError.message,
+        code: executionError.code,
+        context: executionError.context,
+      });
 
       // Wait before retrying
       try {
         await sleep(delayMs, signal);
-      } catch (sleepError) {
+      } catch (_sleepError: unknown) {
         // If sleep was aborted, throw cancellation error
         throw new ExecutionError(
           'Execution cancelled during retry',

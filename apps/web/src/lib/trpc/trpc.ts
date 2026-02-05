@@ -2,14 +2,39 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import { auth } from '@clerk/nextjs/server';
 import superjson from 'superjson';
 import { db } from '@baleyui/db';
+import { validateApiKey } from '@/lib/api/validate-api-key';
 
 /**
  * Create tRPC context for each request.
  * Contains the database client and user info.
+ * Supports both Clerk session auth and API key auth.
  */
-export const createTRPCContext = async () => {
+export const createTRPCContext = async (req?: Request) => {
+  // Try Clerk session auth first
   const { userId } = await auth();
-  return { db, userId };
+  if (userId) {
+    return { db, userId, workspaceId: null as string | null, authMethod: 'session' as const };
+  }
+
+  // Try API key auth if request is provided
+  if (req) {
+    const authHeader = req.headers.get('authorization');
+    if (authHeader?.startsWith('Bearer bui_')) {
+      try {
+        const validation = await validateApiKey(authHeader);
+        return {
+          db,
+          userId: null,
+          workspaceId: validation.workspaceId,
+          authMethod: 'api_key' as const,
+        };
+      } catch {
+        // Invalid API key, fall through
+      }
+    }
+  }
+
+  return { db, userId: null, workspaceId: null as string | null, authMethod: null };
 };
 
 export type Context = Awaited<ReturnType<typeof createTRPCContext>>;
@@ -45,10 +70,34 @@ export const authenticatedProcedure = t.procedure.use(async ({ ctx, next }) => {
 });
 
 /**
- * Protected procedure - requires authentication.
- * Adds workspace to context after verifying user owns it.
+ * Protected procedure - requires authentication (session or API key).
+ * Adds workspace to context after verifying access.
  */
 export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
+  // API key auth - workspace comes from the API key validation
+  if (ctx.authMethod === 'api_key' && ctx.workspaceId) {
+    const workspace = await ctx.db.query.workspaces.findFirst({
+      where: (ws, { eq, and, isNull }) =>
+        and(eq(ws.id, ctx.workspaceId!), isNull(ws.deletedAt)),
+    });
+
+    if (!workspace) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Workspace not found',
+      });
+    }
+
+    return next({
+      ctx: {
+        ...ctx,
+        userId: null,
+        workspace,
+      },
+    });
+  }
+
+  // Session auth - require userId
   if (!ctx.userId) {
     throw new TRPCError({
       code: 'UNAUTHORIZED',

@@ -76,13 +76,10 @@ function OrbGlow({
     <div
       className={cn(
         'absolute inset-0 rounded-full bg-gradient-radial',
+        'scale-150 blur-sm',
         glowColors[state],
         pulsing && 'animate-pulse'
       )}
-      style={{
-        transform: 'scale(1.5)',
-        filter: 'blur(12px)',
-      }}
     />
   );
 }
@@ -138,10 +135,7 @@ function OrbCore({
       {state === 'thinking' && (
         <>
           <div className="absolute inset-0 rounded-full border-2 border-primary-foreground/20 animate-ping" />
-          <div
-            className="absolute inset-0 rounded-full border-2 border-primary-foreground/10 animate-ping"
-            style={{ animationDelay: '0.5s' }}
-          />
+          <div className="absolute inset-0 rounded-full border-2 border-primary-foreground/10 animate-ping [animation-delay:0.5s]" />
         </>
       )}
 

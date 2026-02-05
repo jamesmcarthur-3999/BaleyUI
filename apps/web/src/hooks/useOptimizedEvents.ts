@@ -76,6 +76,9 @@ export function useOptimizedEvents({
   const seenEventsRef = useRef<Set<string>>(new Set());
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const shouldReconnectRef = useRef(true);
+  const retryCountRef = useRef(0);
+  const onConnectionChangeRef = useRef(onConnectionChange);
+  onConnectionChangeRef.current = onConnectionChange;
 
   // Process batched events
   const processBatch = useCallback(() => {
@@ -145,9 +148,10 @@ export function useOptimizedEvents({
 
       eventSource.onopen = () => {
         setIsConnected(true);
+        retryCountRef.current = 0;
         setRetryCount(0);
         setError(null);
-        onConnectionChange?.(true);
+        onConnectionChangeRef.current?.(true);
       };
 
       eventSource.onmessage = (e) => {
@@ -163,18 +167,19 @@ export function useOptimizedEvents({
         eventSource.close();
         eventSourceRef.current = null;
         setIsConnected(false);
-        onConnectionChange?.(false);
+        onConnectionChangeRef.current?.(false);
 
         // Attempt reconnection with exponential backoff
-        if (shouldReconnectRef.current && retryCount < maxRetries) {
+        if (shouldReconnectRef.current && retryCountRef.current < maxRetries) {
           setIsReconnecting(true);
-          const delay = Math.min(1000 * Math.pow(2, retryCount), 30000);
+          const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
 
           reconnectTimeoutRef.current = setTimeout(() => {
-            setRetryCount((c) => c + 1);
+            retryCountRef.current += 1;
+            setRetryCount(retryCountRef.current);
             connect();
           }, delay);
-        } else if (retryCount >= maxRetries) {
+        } else if (retryCountRef.current >= maxRetries) {
           setError(new Error('Max reconnection attempts reached'));
           setIsReconnecting(false);
         }
@@ -183,7 +188,7 @@ export function useOptimizedEvents({
       setError(err instanceof Error ? err : new Error(String(err)));
       setIsConnected(false);
     }
-  }, [workspaceId, retryCount, maxRetries, addEventToBatch, onConnectionChange]);
+  }, [workspaceId, maxRetries, addEventToBatch]);
 
   // Manual reconnect
   const reconnect = useCallback(() => {
@@ -320,8 +325,10 @@ export function useEventFilter({
       return true;
     });
 
-    // Only update if result changed
-    if (JSON.stringify(filtered) !== JSON.stringify(prevResultRef.current)) {
+    // Only update if result changed (efficient comparison by IDs)
+    const prevIds = prevResultRef.current.map(e => e.id).join(',');
+    const newIds = filtered.map(e => e.id).join(',');
+    if (prevIds !== newIds) {
       prevResultRef.current = filtered;
       setFilteredEvents(filtered);
     }

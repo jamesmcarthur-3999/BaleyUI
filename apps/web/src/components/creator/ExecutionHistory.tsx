@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronUp, ChevronDown, Clock, CheckCircle, XCircle, Loader2, Ban } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
@@ -111,28 +110,25 @@ export function ExecutionHistory({
       </button>
 
       {/* Executions list */}
-      <AnimatePresence initial={false}>
-        {!isCollapsed && (
-          <motion.div
-            id="execution-history"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="overflow-hidden"
-          >
-            <div className="divide-y">
-              {executions.map((execution) => (
-                <ExecutionRow
-                  key={execution.id}
-                  execution={execution}
-                  onClick={onExecutionClick}
-                />
-              ))}
-            </div>
-          </motion.div>
+      <div
+        id="execution-history"
+        className={cn(
+          'grid transition-[grid-template-rows] duration-200 ease-in-out',
+          isCollapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'
         )}
-      </AnimatePresence>
+      >
+        <div className="overflow-hidden">
+          <div className="divide-y">
+            {executions.map((execution) => (
+              <ExecutionRow
+                key={execution.id}
+                execution={execution}
+                onClick={onExecutionClick}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

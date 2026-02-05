@@ -7,6 +7,9 @@
 
 import { z } from 'zod';
 import { executeInternalBaleybot } from './internal-baleybots';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('baleybot/reviewer');
 
 export interface ExecutionContext {
   baleybotId: string;
@@ -272,7 +275,7 @@ Analyze this execution and provide improvement suggestions. Limit to ${maxSugges
 
       return validateReviewResult(output as Partial<ReviewResult>);
     } catch (error) {
-      console.error('Review failed:', error);
+      logger.error('Review failed', error);
 
       // Return a basic review result on failure
       return {

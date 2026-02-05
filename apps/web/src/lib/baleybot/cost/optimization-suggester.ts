@@ -20,6 +20,9 @@ import {
   sql,
 } from '@baleyui/db';
 import { calculateCost } from './usage-tracker';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('optimization-suggester');
 
 // ============================================================================
 // TYPES
@@ -405,7 +408,7 @@ export async function generateOptimizations(
   const pattern = await analyzeUsagePattern(baleybotId);
 
   if (!pattern) {
-    console.log(`[optimization-suggester] No usage data for BB ${baleybotId}`);
+    log.debug(`No usage data for BB ${baleybotId}`);
     return [];
   }
 
@@ -430,9 +433,10 @@ export async function generateOptimizations(
   // Sort by savings amount (highest first)
   suggestions.sort((a, b) => b.savingsAmount - a.savingsAmount);
 
-  console.log(
-    `[optimization-suggester] Generated ${suggestions.length} suggestions for BB ${baleybotId}`
-  );
+  log.debug(`Generated ${suggestions.length} suggestions for BB ${baleybotId}`, {
+    baleybotId,
+    suggestionCount: suggestions.length,
+  });
 
   return suggestions;
 }

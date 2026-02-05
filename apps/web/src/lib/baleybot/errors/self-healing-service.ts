@@ -8,7 +8,15 @@
  * - AI errors: retry with fallback model
  */
 
+// TODO: STYLE-002 - This file is over 600 lines (~607 lines). Consider splitting into:
+// - self-healing/types.ts (type definitions)
+// - self-healing/handlers.ts (error handler implementations)
+// - self-healing/service.ts (main service)
+
 import type { ExecutorContext } from '../executor';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('self-healing');
 
 // ============================================================================
 // TYPES
@@ -399,9 +407,9 @@ export async function handleError(
   // Find appropriate handler
   for (const handler of errorHandlers) {
     if (handler.canHandle(error, context)) {
-      console.log(`[self-healing] Using ${handler.name} for error: ${error.message}`);
+      log.debug(`Using ${handler.name} for error`, { error: error.message });
       const resolution = await handler.handle(error, context);
-      console.log(`[self-healing] Resolution: ${resolution.action} - ${resolution.message}`);
+      log.debug(`Resolution: ${resolution.action}`, { message: resolution.message });
       return resolution;
     }
   }

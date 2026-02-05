@@ -13,6 +13,9 @@ import { baleybotsRouter } from './baleybots';
 import { policiesRouter } from './policies';
 import { toolsRouter } from './tools';
 import { triggersRouter } from './triggers';
+import { notificationsRouter } from './notifications';
+import { memoryRouter } from './memory';
+import { scheduledTasksRouter } from './scheduled-tasks';
 
 export const appRouter = router({
   workspaces: workspacesRouter,
@@ -29,6 +32,9 @@ export const appRouter = router({
   policies: policiesRouter,
   tools: toolsRouter,
   triggers: triggersRouter,
+  notifications: notificationsRouter,
+  memory: memoryRouter,
+  scheduledTasks: scheduledTasksRouter,
 });
 
 export type AppRouter = typeof appRouter;

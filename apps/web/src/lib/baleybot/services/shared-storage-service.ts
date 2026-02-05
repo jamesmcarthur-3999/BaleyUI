@@ -14,6 +14,9 @@ import {
   and,
   lte,
 } from '@baleyui/db';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('shared-storage');
 
 // ============================================================================
 // TYPES
@@ -124,9 +127,7 @@ export function createSharedStorageService(): SharedStorageService {
           },
         });
 
-      console.log(
-        `[shared_storage] Wrote key "${key}" in workspace ${workspaceId}`
-      );
+      log.debug(`Wrote key "${key}"`, { workspaceId, key });
     },
 
     async read(workspaceId: string, key: string): Promise<unknown | null> {
@@ -182,9 +183,7 @@ export function createSharedStorageService(): SharedStorageService {
 
       const deleted = result.length > 0;
       if (deleted) {
-        console.log(
-          `[shared_storage] Deleted key "${key}" from workspace ${workspaceId}`
-        );
+        log.debug(`Deleted key "${key}"`, { workspaceId, key });
       }
       return deleted;
     },
@@ -218,9 +217,7 @@ export function createSharedStorageService(): SharedStorageService {
         .returning({ id: baleybotSharedStorage.id });
 
       if (result.length > 0) {
-        console.log(
-          `[shared_storage] Cleaned up ${result.length} expired entries`
-        );
+        log.info(`Cleaned up ${result.length} expired entries`);
       }
 
       return result.length;

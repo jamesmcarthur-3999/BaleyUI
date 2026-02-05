@@ -16,6 +16,15 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import type { FlowNode, FlowEdge, Trigger, PartialUpdateData } from '@/lib/types';
 import { createLogger } from '@/lib/logger';
 import { executeFlow } from '@/lib/flow-executor';
+import {
+  withErrorHandling,
+  throwNotFound,
+  throwForbidden,
+  nameSchema,
+  descriptionSchema,
+  uuidSchema,
+  versionSchema,
+} from '../helpers';
 
 const log = createLogger('flows-router');
 
@@ -84,29 +93,54 @@ const flowTriggersSchema = z.array(flowTriggerSchema).optional();
 export const flowsRouter = router({
   /**
    * List all flows in the workspace with node/edge counts for preview.
+   * API-003: Add pagination support
+   * API-004: Return only necessary fields for list view
    */
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const allFlows = await ctx.db.query.flows.findMany({
-      where: and(
-        eq(flows.workspaceId, ctx.workspace.id),
-        notDeleted(flows)
-      ),
-      orderBy: (flows, { desc }) => [desc(flows.createdAt)],
-    });
+  list: protectedProcedure
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(100).optional().default(50),
+        cursor: uuidSchema.optional(),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      // API-004: Select only fields needed for list display
+      const allFlows = await ctx.db.query.flows.findMany({
+        where: and(
+          eq(flows.workspaceId, ctx.workspace.id),
+          notDeleted(flows)
+        ),
+        columns: {
+          id: true,
+          name: true,
+          description: true,
+          nodes: true, // Needed for nodeCount
+          edges: true, // Needed for edgeCount
+          enabled: true,
+          createdAt: true,
+          updatedAt: true,
+          version: true,
+          // Exclude heavy fields: triggers
+        },
+        orderBy: (flows, { desc }) => [desc(flows.createdAt)],
+        limit: input?.limit ?? 50,
+      });
 
-    // Add node/edge counts for preview
-    return allFlows.map((flow) => ({
-      ...flow,
-      nodeCount: Array.isArray(flow.nodes) ? flow.nodes.length : 0,
-      edgeCount: Array.isArray(flow.edges) ? flow.edges.length : 0,
-    }));
-  }),
+      // Add node/edge counts for preview
+      // Note: nodes/edges are included as they're needed for visual previews
+      return allFlows.map((flow) => ({
+        ...flow,
+        nodeCount: Array.isArray(flow.nodes) ? flow.nodes.length : 0,
+        edgeCount: Array.isArray(flow.edges) ? flow.edges.length : 0,
+      }));
+    }),
 
   /**
    * Get a single flow by ID with full nodes and edges.
+   * API-001: Use standardized UUID schema
    */
   getById: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: uuidSchema }))
     .query(async ({ ctx, input }) => {
       const flow = await ctx.db.query.flows.findFirst({
         where: and(
@@ -117,10 +151,7 @@ export const flowsRouter = router({
       });
 
       if (!flow) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Flow not found',
-        });
+        throwNotFound('Flow');
       }
 
       return flow;
@@ -128,12 +159,13 @@ export const flowsRouter = router({
 
   /**
    * Create a new flow with empty nodes/edges.
+   * API-001: Stricter input validation
    */
   create: protectedProcedure
     .input(
       z.object({
-        name: z.string().min(1).max(255),
-        description: z.string().optional(),
+        name: nameSchema,
+        description: descriptionSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -157,17 +189,28 @@ export const flowsRouter = router({
 
   /**
    * Update a flow with optimistic locking.
+   * API-001: Stricter input validation
+   * API-002: Use shared error handling
    */
   update: protectedProcedure
     .input(
       z.object({
-        id: z.string().uuid(),
-        version: z.number().int(),
-        name: z.string().min(1).max(255).optional(),
-        description: z.string().optional(),
-        nodes: flowNodesSchema,
-        edges: flowEdgesSchema,
-        triggers: flowTriggersSchema,
+        id: uuidSchema,
+        version: versionSchema,
+        name: nameSchema.optional(),
+        description: descriptionSchema,
+        nodes: flowNodesSchema.refine(
+          (nodes) => !nodes || nodes.length <= 500,
+          'Flow cannot have more than 500 nodes'
+        ),
+        edges: flowEdgesSchema.refine(
+          (edges) => !edges || edges.length <= 1000,
+          'Flow cannot have more than 1000 edges'
+        ),
+        triggers: flowTriggersSchema.refine(
+          (triggers) => !triggers || triggers.length <= 50,
+          'Flow cannot have more than 50 triggers'
+        ),
         enabled: z.boolean().optional(),
       })
     )
@@ -179,13 +222,11 @@ export const flowsRouter = router({
           eq(flows.workspaceId, ctx.workspace.id),
           notDeleted(flows)
         ),
+        columns: { id: true },
       });
 
       if (!existing) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Flow not found',
-        });
+        throwNotFound('Flow');
       }
 
       // Prepare update data (only include fields that are provided)
@@ -198,21 +239,19 @@ export const flowsRouter = router({
       if (input.triggers !== undefined) updateData.triggers = input.triggers;
       if (input.enabled !== undefined) updateData.enabled = input.enabled;
 
-      const updated = await updateWithLock(
-        flows,
-        input.id,
-        input.version,
-        updateData
+      // API-002: Use shared error handling helper
+      return await withErrorHandling(
+        () => updateWithLock(flows, input.id, input.version, updateData),
+        'Flow'
       );
-
-      return updated;
     }),
 
   /**
    * Delete a flow (soft delete).
+   * API-001: Use standardized UUID schema
    */
   delete: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: uuidSchema }))
     .mutation(async ({ ctx, input }) => {
       // Verify flow exists and belongs to workspace
       const existing = await ctx.db.query.flows.findFirst({
@@ -221,25 +260,25 @@ export const flowsRouter = router({
           eq(flows.workspaceId, ctx.workspace.id),
           notDeleted(flows)
         ),
+        columns: { id: true },
       });
 
       if (!existing) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Flow not found',
-        });
+        throwNotFound('Flow');
       }
 
-      const deleted = await softDelete(flows, input.id, ctx.userId);
+      // API key auth has null userId - use fallback for audit trail
+      const deleted = await softDelete(flows, input.id, ctx.userId ?? 'system:api-key');
 
       return deleted;
     }),
 
   /**
    * Duplicate an existing flow.
+   * API-001: Use standardized UUID schema
    */
   duplicate: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: uuidSchema }))
     .mutation(async ({ ctx, input }) => {
       // Fetch the original flow
       const original = await ctx.db.query.flows.findFirst({
@@ -251,10 +290,7 @@ export const flowsRouter = router({
       });
 
       if (!original) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Flow not found',
-        });
+        throwNotFound('Flow');
       }
 
       // Create a copy with a new name, disabled by default
@@ -278,11 +314,12 @@ export const flowsRouter = router({
 
   /**
    * Execute a flow (start a new execution).
+   * API-001: Use standardized UUID schema
    */
   execute: protectedProcedure
     .input(
       z.object({
-        flowId: z.string().uuid(),
+        flowId: uuidSchema,
         input: z.unknown().optional(),
       })
     )
@@ -305,10 +342,7 @@ export const flowsRouter = router({
       });
 
       if (!flow) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Flow not found',
-        });
+        throwNotFound('Flow');
       }
 
       // Create a new flow execution record
@@ -422,14 +456,22 @@ export const flowsRouter = router({
 
   /**
    * Get a flow execution by ID with status and results.
+   * API-001: Use standardized UUID schema
+   * API-002: Use shared error helpers
    */
   getExecution: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: uuidSchema }))
     .query(async ({ ctx, input }) => {
       const execution = await ctx.db.query.flowExecutions.findFirst({
         where: eq(flowExecutions.id, input.id),
         with: {
-          flow: true,
+          flow: {
+            columns: {
+              id: true,
+              name: true,
+              workspaceId: true,
+            },
+          },
           blockExecutions: {
             orderBy: (blockExecutions, { asc }) => [asc(blockExecutions.createdAt)],
           },
@@ -437,18 +479,12 @@ export const flowsRouter = router({
       });
 
       if (!execution) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Flow execution not found',
-        });
+        throwNotFound('Flow execution');
       }
 
       // Verify the flow belongs to the user's workspace
       if (execution.flow.workspaceId !== ctx.workspace.id) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You do not have access to this execution',
-        });
+        throwForbidden('You do not have access to this execution');
       }
 
       return execution;
@@ -456,13 +492,15 @@ export const flowsRouter = router({
 
   /**
    * List recent flow executions with optional filtering.
+   * API-001: Use standardized UUID schema
+   * API-004: Return only necessary fields
    */
   listExecutions: protectedProcedure
     .input(
       z.object({
-        flowId: z.string().uuid().optional(),
+        flowId: uuidSchema.optional(),
         status: z.enum(['pending', 'running', 'completed', 'failed', 'cancelled']).optional(),
-        limit: z.number().min(1).max(100).default(50),
+        limit: z.number().int().min(1).max(100).default(50),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -477,13 +515,11 @@ export const flowsRouter = router({
             eq(flows.workspaceId, ctx.workspace.id),
             notDeleted(flows)
           ),
+          columns: { id: true },
         });
 
         if (!flow) {
-          throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'Flow not found',
-          });
+          throwNotFound('Flow');
         }
 
         conditions.push(eq(flowExecutions.flowId, input.flowId));
@@ -493,9 +529,7 @@ export const flowsRouter = router({
         conditions.push(eq(flowExecutions.status, input.status));
       }
 
-      // If no flowId provided, we need to filter by workspace
-      // This requires a subquery or join, so we'll fetch all flows first
-      let workspaceFlowIds: string[] = [];
+      // If no flowId provided, filter by workspace flows at DB level
       if (!input.flowId) {
         const workspaceFlows = await ctx.db.query.flows.findMany({
           where: and(
@@ -504,12 +538,13 @@ export const flowsRouter = router({
           ),
           columns: { id: true },
         });
-        workspaceFlowIds = workspaceFlows.map((f) => f.id);
+        const workspaceFlowIds = workspaceFlows.map((f) => f.id);
 
         if (workspaceFlowIds.length === 0) {
-          // No flows in workspace, return empty array
           return [];
         }
+
+        conditions.push(inArray(flowExecutions.flowId, workspaceFlowIds));
       }
 
       const executions = await ctx.db.query.flowExecutions.findMany({
@@ -527,40 +562,36 @@ export const flowsRouter = router({
         limit: input.limit,
       });
 
-      // Filter to only include executions from flows in this workspace
-      const filteredExecutions = executions.filter(
-        (exec) => exec.flow.workspaceId === ctx.workspace.id
-      );
-
-      return filteredExecutions;
+      return executions;
     }),
 
   /**
    * Cancel a running flow execution.
+   * API-001: Use standardized UUID schema
+   * API-002: Use shared error helpers
    */
   cancelExecution: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: uuidSchema }))
     .mutation(async ({ ctx, input }) => {
       // Verify execution exists and belongs to workspace
       const execution = await ctx.db.query.flowExecutions.findFirst({
         where: eq(flowExecutions.id, input.id),
         with: {
-          flow: true,
+          flow: {
+            columns: {
+              id: true,
+              workspaceId: true,
+            },
+          },
         },
       });
 
       if (!execution) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Flow execution not found',
-        });
+        throwNotFound('Flow execution');
       }
 
       if (execution.flow.workspaceId !== ctx.workspace.id) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You do not have access to this execution',
-        });
+        throwForbidden('You do not have access to this execution');
       }
 
       // Only pending or running executions can be cancelled
@@ -583,7 +614,7 @@ export const flowsRouter = router({
         .where(eq(flowExecutions.id, input.id))
         .returning();
 
-      // TODO(Phase 3): Implement flow cancellation by:
+      // TODO(EXEC-001): Implement flow cancellation by:
       // 1. Get running BaleyBot executions from flowExecution.blockExecutions
       // 2. Signal cancellation to each running executor via AbortController
       // 3. Update individual block execution statuses

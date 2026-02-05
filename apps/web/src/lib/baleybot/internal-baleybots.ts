@@ -34,33 +34,16 @@ export const INTERNAL_BALEYBOTS: Record<string, InternalBaleybotDef> = {
     icon: '🤖',
     balCode: `
 creator_bot {
-  "goal": "You are a BaleyBot Creator. Help users build AI automation bots through natural conversation. Analyze their request, design entities with appropriate tools, and generate valid BAL code.
-
-CRITICAL: You MUST return a JSON object with this EXACT structure:
-{
-  \"entities\": [{\"id\": \"unique-id\", \"name\": \"Entity Name\", \"icon\": \"emoji\", \"purpose\": \"What it does\", \"tools\": [\"tool1\", \"tool2\"]}],
-  \"connections\": [{\"from\": \"entity-id-1\", \"to\": \"entity-id-2\", \"label\": \"optional label\"}],
-  \"balCode\": \"the_entity_name {\\n  \\\"goal\\\": \\\"...\\\",\\n  \\\"model\\\": \\\"anthropic:claude-sonnet-4-20250514\\\"\\n}\",
-  \"name\": \"BaleyBot Name\",
-  \"icon\": \"emoji\",
-  \"status\": \"ready\"
-}
-
-Rules:
-- entities array must contain objects with id, name, icon, purpose, tools (array of strings)
-- connections array contains objects with from, to (entity IDs), and optional label
-- balCode must be valid BAL syntax
-- status must be exactly \"building\" or \"ready\"
-- Use \"ready\" when the design is complete, \"building\" if still gathering requirements",
+  "goal": "You are a BaleyBot Creator. Help users build AI automation bots through natural conversation. Analyze their request, design entities with appropriate tools, and generate valid BAL code.\\n\\nCRITICAL: You MUST return a JSON object with this EXACT structure:\\n{\\n  \\\"entities\\\": [{\\\"id\\\": \\\"unique-id\\\", \\\"name\\\": \\\"Entity Name\\\", \\\"icon\\\": \\\"emoji\\\", \\\"purpose\\\": \\\"What it does\\\", \\\"tools\\\": [\\\"tool1\\\", \\\"tool2\\\"]}],\\n  \\\"connections\\\": [{\\\"from\\\": \\\"entity-id-1\\\", \\\"to\\\": \\\"entity-id-2\\\", \\\"label\\\": \\\"optional label\\\"}],\\n  \\\"balCode\\\": \\\"the_entity_name {\\\\n  \\\\\\\"goal\\\\\\\": \\\\\\\"...\\\\\\\",\\\\n  \\\\\\\"model\\\\\\\": \\\\\\\"openai:gpt-4o\\\\\\\"\\\\n}\\\",\\n  \\\"name\\\": \\\"BaleyBot Name\\\",\\n  \\\"icon\\\": \\\"emoji\\\",\\n  \\\"status\\\": \\\"ready\\\"\\n}\\n\\nRules:\\n- entities array must contain objects with id, name, icon, purpose, tools (array of strings)\\n- connections array contains objects with from, to (entity IDs), and optional label\\n- balCode must be valid BAL syntax\\n- status must be exactly \\\"building\\\" or \\\"ready\\\"\\n- Use \\\"ready\\\" when the design is complete, \\\"building\\\" if still gathering requirements\\n\\n***CRITICAL MULTI-ENTITY RULE***:\\nWhen you create 2+ entities with connections between them, the balCode MUST include a composition block (chain, parallel, or if/else). The visual canvas shows entities and connections, but the balCode is what actually executes. Example for a research pipeline:\\n\\nresearcher { \\\"goal\\\": \\\"Research the topic\\\", \\\"model\\\": \\\"openai:gpt-4o\\\" }\\nsummarizer { \\\"goal\\\": \\\"Summarize findings\\\", \\\"model\\\": \\\"openai:gpt-4o\\\" }\\nchain { researcher summarizer }\\n\\nThe chain block makes the entities execute in sequence. Without it, only the first entity runs!",
   "model": "anthropic:claude-sonnet-4-20250514",
   "output": {
-    "entities": "array",
-    "connections": "array",
+    "entities": "array<object { id: string, name: string, icon: string, purpose: string, tools: array<string> }>",
+    "connections": "array<object { from: string, to: string, label: ?string }>",
     "balCode": "string",
     "name": "string",
     "icon": "string",
-    "status": "string",
-    "message": "string"
+    "status": "enum('building', 'ready')",
+    "thinking": "?string"
   }
 }
 `,
@@ -72,27 +55,12 @@ Rules:
     icon: '📝',
     balCode: `
 bal_generator {
-  "goal": "You are a BAL code generator. Convert user descriptions into valid BAL (Baleybots Assembly Language) code.
-
-CRITICAL: Return a JSON object with this EXACT structure:
-{
-  \"balCode\": \"entity_name {\\n  \\\"goal\\\": \\\"...\\\",\\n  \\\"model\\\": \\\"anthropic:claude-sonnet-4-20250514\\\"\\n}\",
-  \"explanation\": \"Why this design was chosen\",
-  \"entities\": [{\"name\": \"entity_name\", \"goal\": \"What it does\", \"model\": \"provider:model-id\", \"tools\": [\"tool1\"], \"canRequest\": [], \"output\": {\"field\": \"type\"}, \"history\": \"inherit\"}],
-  \"toolRationale\": {\"tool_name\": \"Why this tool was included\"},
-  \"suggestedName\": \"Human-readable name\",
-  \"suggestedIcon\": \"emoji\"
-}
-
-BAL v2 syntax rules:
-- Entity: name { \"goal\": \"...\", \"model\": \"provider:model\", \"tools\": [...], \"output\": {...} }
-- Compositions: chain { a b }, parallel { a b }, if (cond) { a } else { b }, loop (\"until\": cond, \"max\": 5) { a }
-- Models: anthropic:claude-sonnet-4-20250514, openai:gpt-4o-mini, etc.",
+  "goal": "You are a BAL code generator. Convert user descriptions into valid BAL (Baleybots Assembly Language) code.\\n\\nCRITICAL: Return a JSON object with this EXACT structure:\\n{\\n  \\\"balCode\\\": \\\"entity_name {\\\\n  \\\\\\\"goal\\\\\\\": \\\\\\\"...\\\\\\\",\\\\n  \\\\\\\"model\\\\\\\": \\\\\\\"openai:gpt-4o\\\\\\\"\\\\n}\\\",\\n  \\\"explanation\\\": \\\"Why this design was chosen\\\",\\n  \\\"entities\\\": [{\\\"name\\\": \\\"entity_name\\\", \\\"goal\\\": \\\"What it does\\\", \\\"model\\\": \\\"provider:model-id\\\", \\\"tools\\\": [\\\"tool1\\\"], \\\"canRequest\\\": [], \\\"output\\\": {\\\"field\\\": \\\"type\\\"}, \\\"history\\\": \\\"inherit\\\"}],\\n  \\\"toolRationale\\\": {\\\"tool_name\\\": \\\"Why this tool was included\\\"},\\n  \\\"suggestedName\\\": \\\"Human-readable name\\\",\\n  \\\"suggestedIcon\\\": \\\"emoji\\\"\\n}\\n\\nBAL v2 syntax rules:\\n- Entity: name { \\\"goal\\\": \\\"...\\\", \\\"model\\\": \\\"provider:model\\\", \\\"tools\\\": [...], \\\"output\\\": {...} }\\n- Compositions: chain { a b }, parallel { a b }, if (cond) { a } else { b }, loop (\\\"until\\\": cond, \\\"max\\\": 5) { a }\\n- Models: openai:gpt-4o, openai:gpt-4o-mini, anthropic:claude-sonnet-4-20250514, etc.\\n\\n***CRITICAL MULTI-ENTITY RULE***:\\nWhen you generate 2 or more entities, the balCode MUST include a composition block (chain, parallel, or if/else) that connects them. NEVER generate multiple entity definitions without a composition block. Example for 2 entities that run sequentially:\\n\\nresearcher { \\\"goal\\\": \\\"...\\\", \\\"model\\\": \\\"openai:gpt-4o\\\" }\\nsummarizer { \\\"goal\\\": \\\"...\\\", \\\"model\\\": \\\"openai:gpt-4o\\\" }\\nchain { researcher summarizer }\\n\\nWithout the chain block, only the first entity runs!",
   "model": "anthropic:claude-sonnet-4-20250514",
   "output": {
     "balCode": "string",
     "explanation": "string",
-    "entities": "array",
+    "entities": "array<object { name: string, goal: string, model: ?string, tools: ?array<string>, canRequest: ?array<string>, output: ?object, history: ?string }>",
     "toolRationale": "object",
     "suggestedName": "string",
     "suggestedIcon": "string"
@@ -107,36 +75,12 @@ BAL v2 syntax rules:
     icon: '🧠',
     balCode: `
 pattern_learner {
-  "goal": "You are an approval pattern learning assistant. Analyze tool call approvals and suggest safe patterns for auto-approval.
-
-CRITICAL: Return a JSON object with this EXACT structure:
-{
-  \"suggestions\": [
-    {
-      \"tool\": \"tool_name\",
-      \"actionPattern\": {\"paramName\": \"pattern or *\"},
-      \"entityGoalPattern\": \"goal pattern or null\",
-      \"trustLevel\": \"provisional|trusted|permanent\",
-      \"explanation\": \"Why this pattern is safe\",
-      \"riskAssessment\": \"low|medium|high\",
-      \"suggestedExpirationDays\": 30
-    }
-  ],
-  \"warnings\": [\"Warning message about risky patterns\"],
-  \"recommendations\": [\"General recommendations for improving approval workflow\"]
-}
-
-Rules:
-- trustLevel must be exactly: provisional, trusted, or permanent
-- riskAssessment must be exactly: low, medium, or high
-- suggestedExpirationDays can be null for permanent patterns
-- entityGoalPattern can be null if pattern applies to all entities
-- Use * as wildcard in actionPattern for any value",
+  "goal": "You are an approval pattern learning assistant. Analyze tool call approvals and suggest safe patterns for auto-approval.\\n\\nCRITICAL: Return a JSON object with this EXACT structure:\\n{\\n  \\\"suggestions\\\": [\\n    {\\n      \\\"tool\\\": \\\"tool_name\\\",\\n      \\\"actionPattern\\\": {\\\"paramName\\\": \\\"pattern or *\\\"},\\n      \\\"entityGoalPattern\\\": \\\"goal pattern or null\\\",\\n      \\\"trustLevel\\\": \\\"provisional|trusted|permanent\\\",\\n      \\\"explanation\\\": \\\"Why this pattern is safe\\\",\\n      \\\"riskAssessment\\\": \\\"low|medium|high\\\",\\n      \\\"suggestedExpirationDays\\\": 30\\n    }\\n  ],\\n  \\\"warnings\\\": [\\\"Warning message about risky patterns\\\"],\\n  \\\"recommendations\\\": [\\\"General recommendations for improving approval workflow\\\"]\\n}\\n\\nRules:\\n- trustLevel must be exactly: provisional, trusted, or permanent\\n- riskAssessment must be exactly: low, medium, or high\\n- suggestedExpirationDays can be null for permanent patterns\\n- entityGoalPattern can be null if pattern applies to all entities\\n- Use * as wildcard in actionPattern for any value",
   "model": "anthropic:claude-sonnet-4-20250514",
   "output": {
-    "suggestions": "array",
-    "warnings": "array",
-    "recommendations": "array"
+    "suggestions": "array<object { tool: string, actionPattern: object, entityGoalPattern: ?string, trustLevel: enum('provisional', 'trusted', 'permanent'), explanation: string, riskAssessment: enum('low', 'medium', 'high'), suggestedExpirationDays: ?number }>",
+    "warnings": "array<string>",
+    "recommendations": "array<string>"
   }
 }
 `,
@@ -148,52 +92,14 @@ Rules:
     icon: '🔍',
     balCode: `
 execution_reviewer {
-  "goal": "You are a BaleyBot Review Agent. Analyze execution results against original intent.
-
-CRITICAL: Return a JSON object with this EXACT structure:
-{
-  \"overallAssessment\": \"excellent|good|needs_improvement|failed\",
-  \"summary\": \"Brief summary of the execution\",
-  \"issues\": [
-    {
-      \"id\": \"issue-1\",
-      \"severity\": \"error|warning|suggestion\",
-      \"category\": \"accuracy|completeness|performance|safety|clarity|efficiency\",
-      \"title\": \"Short issue title\",
-      \"description\": \"Detailed description\",
-      \"affectedEntity\": \"entity_name or null\",
-      \"suggestedFix\": \"How to fix it or null\"
-    }
-  ],
-  \"suggestions\": [
-    {
-      \"id\": \"sug-1\",
-      \"type\": \"bal_change|tool_config|prompt_improvement|workflow_change\",
-      \"title\": \"Short title\",
-      \"description\": \"What to change\",
-      \"impact\": \"high|medium|low\",
-      \"reasoning\": \"Why this would help\"
-    }
-  ],
-  \"metrics\": {
-    \"outputQualityScore\": 85,
-    \"intentAlignmentScore\": 90,
-    \"efficiencyScore\": 75
-  }
-}
-
-Rules:
-- overallAssessment must be exactly: excellent, good, needs_improvement, or failed
-- severity must be exactly: error, warning, or suggestion
-- category must be exactly: accuracy, completeness, performance, safety, clarity, or efficiency
-- metrics scores must be numbers 0-100",
+  "goal": "You are a BaleyBot Review Agent. Analyze execution results against original intent.\\n\\nCRITICAL: Return a JSON object with this EXACT structure:\\n{\\n  \\\"overallAssessment\\\": \\\"excellent|good|needs_improvement|failed\\\",\\n  \\\"summary\\\": \\\"Brief summary of the execution\\\",\\n  \\\"issues\\\": [\\n    {\\n      \\\"id\\\": \\\"issue-1\\\",\\n      \\\"severity\\\": \\\"error|warning|suggestion\\\",\\n      \\\"category\\\": \\\"accuracy|completeness|performance|safety|clarity|efficiency\\\",\\n      \\\"title\\\": \\\"Short issue title\\\",\\n      \\\"description\\\": \\\"Detailed description\\\",\\n      \\\"affectedEntity\\\": \\\"entity_name or null\\\",\\n      \\\"suggestedFix\\\": \\\"How to fix it or null\\\"\\n    }\\n  ],\\n  \\\"suggestions\\\": [\\n    {\\n      \\\"id\\\": \\\"sug-1\\\",\\n      \\\"type\\\": \\\"bal_change|tool_config|prompt_improvement|workflow_change\\\",\\n      \\\"title\\\": \\\"Short title\\\",\\n      \\\"description\\\": \\\"What to change\\\",\\n      \\\"impact\\\": \\\"high|medium|low\\\",\\n      \\\"reasoning\\\": \\\"Why this would help\\\"\\n    }\\n  ],\\n  \\\"metrics\\\": {\\n    \\\"outputQualityScore\\\": 85,\\n    \\\"intentAlignmentScore\\\": 90,\\n    \\\"efficiencyScore\\\": 75\\n  }\\n}\\n\\nRules:\\n- overallAssessment must be exactly: excellent, good, needs_improvement, or failed\\n- severity must be exactly: error, warning, or suggestion\\n- category must be exactly: accuracy, completeness, performance, safety, clarity, or efficiency\\n- metrics scores must be numbers 0-100",
   "model": "anthropic:claude-sonnet-4-20250514",
   "output": {
-    "overallAssessment": "string",
+    "overallAssessment": "enum('excellent', 'good', 'needs_improvement', 'failed')",
     "summary": "string",
-    "issues": "array",
-    "suggestions": "array",
-    "metrics": "object"
+    "issues": "array<object { id: string, severity: enum('error', 'warning', 'suggestion'), category: string, title: string, description: string, affectedEntity: ?string, suggestedFix: ?string }>",
+    "suggestions": "array<object { id: string, type: string, title: string, description: string, impact: enum('high', 'medium', 'low'), reasoning: string }>",
+    "metrics": "object { outputQualityScore: number, intentAlignmentScore: number, efficiencyScore: number }"
   }
 }
 `,
@@ -235,28 +141,10 @@ nl_to_sql_mysql {
     icon: '🔎',
     balCode: `
 web_search_fallback {
-  "goal": "You are a web search assistant. When asked to search, provide relevant results.
-
-CRITICAL: Return a JSON object with this EXACT structure:
-{
-  \"results\": [
-    {
-      \"title\": \"Page Title\",
-      \"url\": \"https://example.com/page\",
-      \"snippet\": \"Brief description of the page content...\"
-    }
-  ]
-}
-
-Rules:
-- results must be an array of objects
-- Each result MUST have title, url, and snippet (all strings)
-- Use real, commonly-known websites and realistic URLs
-- Provide 3-5 relevant results
-- snippets should be 1-2 sentences describing the page content",
+  "goal": "You are a web search assistant. When asked to search, provide relevant results.\\n\\nCRITICAL: Return a JSON object with this EXACT structure:\\n{\\n  \\\"results\\\": [\\n    {\\n      \\\"title\\\": \\\"Page Title\\\",\\n      \\\"url\\\": \\\"https://example.com/page\\\",\\n      \\\"snippet\\\": \\\"Brief description of the page content...\\\"\\n    }\\n  ]\\n}\\n\\nRules:\\n- results must be an array of objects\\n- Each result MUST have title, url, and snippet (all strings)\\n- Use real, commonly-known websites and realistic URLs\\n- Provide 3-5 relevant results\\n- snippets should be 1-2 sentences describing the page content",
   "model": "openai:gpt-4o-mini",
   "output": {
-    "results": "array"
+    "results": "array<object { title: string, url: string, snippet: string }>"
   }
 }
 `,
@@ -449,7 +337,7 @@ export async function executeInternalBaleybot(
       output: result.output,
       executionId: execution.id,
     };
-  } catch (error) {
+  } catch (error: unknown) {
     // Update execution with error
     await db
       .update(baleybotExecutions)

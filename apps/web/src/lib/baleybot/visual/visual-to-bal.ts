@@ -7,6 +7,9 @@
 
 import type { VisualNode, VisualEdge, VisualGraph } from './bal-to-nodes';
 import { parseBalCode } from '../generator';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('visual-to-bal');
 
 // ============================================================================
 // TYPES
@@ -35,7 +38,7 @@ export function applyNodeChange(
   const entityIndex = entities.findIndex((e) => e.name === change.nodeId);
 
   if (entityIndex === -1) {
-    console.warn(`[visual-to-bal] Entity "${change.nodeId}" not found`);
+    logger.warn(`Entity "${change.nodeId}" not found`);
     return balCode;
   }
 

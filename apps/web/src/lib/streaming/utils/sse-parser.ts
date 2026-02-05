@@ -6,6 +6,9 @@
  */
 
 import type { ServerStreamEvent, BaleybotStreamEvent } from '../types';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('sse-parser');
 
 // ============================================================================
 // Types
@@ -85,7 +88,13 @@ function parseSSEEvent(eventBlock: string): ServerStreamEvent | null {
     return {
       botId: '',
       botName: '',
-      event: { type: 'done', reason: 'end_turn', agent_id: '' },
+      event: {
+        type: 'done',
+        reason: 'turn_yielded',
+        agent_id: '',
+        timestamp: Date.now(),
+        duration_ms: 0,
+      },
       timestamp: Date.now(),
     };
   }
@@ -110,9 +119,9 @@ function parseSSEEvent(eventBlock: string): ServerStreamEvent | null {
 
     // Unknown format, skip
     return null;
-  } catch (e) {
+  } catch (error: unknown) {
     // Invalid JSON, skip this event
-    console.warn('Failed to parse SSE event:', data, e);
+    logger.warn('Failed to parse SSE event', { data, error });
     return null;
   }
 }

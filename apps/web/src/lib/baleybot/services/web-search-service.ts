@@ -1,89 +1,50 @@
 /**
  * Web Search Service
  *
- * Provides web search capability with multiple backends:
- * 1. Tavily API (primary) - if API key is configured
- * 2. AI Model fallback - uses internal web_search_fallback BaleyBot if no API key
- *
- * The service is designed to be injected into the web_search built-in tool.
+ * Wraps @baleybots/tools webSearchTool with BaleyUI-specific AI fallback.
+ * When Tavily API key is not configured, falls back to internal BaleyBot.
  */
 
+import { webSearchTool } from '@baleybots/tools';
+import type { WebSearchParams, WebSearchResponse } from '@baleybots/tools';
 import { executeInternalBaleybot } from '../internal-baleybots';
+import { createLogger, extractErrorMessage } from '@/lib/logger';
+
+const logger = createLogger('web-search');
+
+// Re-export types from @baleybots/tools
+export type { WebSearchParams, WebSearchResponse } from '@baleybots/tools';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
+/**
+ * Simplified result for backward compatibility
+ */
 export interface SearchResult {
   title: string;
   url: string;
   snippet: string;
 }
 
-export interface WebSearchConfig {
+export interface WebSearchServiceConfig {
   tavilyApiKey?: string;
+  defaultSearchDepth?: 'basic' | 'advanced';
+  defaultMaxResults?: number;
+  snippetMaxLength?: number;
 }
 
 export interface WebSearchService {
-  search(query: string, numResults: number): Promise<SearchResult[]>;
-}
+  /**
+   * Basic search returning simplified results (backward compatible)
+   */
+  search(query: string, numResults?: number): Promise<SearchResult[]>;
 
-// ============================================================================
-// TAVILY IMPLEMENTATION
-// ============================================================================
-
-interface TavilySearchResponse {
-  results: Array<{
-    title: string;
-    url: string;
-    content: string;
-    score: number;
-  }>;
-  answer?: string;
-  query: string;
-}
-
-async function searchWithTavily(
-  apiKey: string,
-  query: string,
-  numResults: number
-): Promise<SearchResult[]> {
-  const response = await fetch('https://api.tavily.com/search', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      api_key: apiKey,
-      query,
-      max_results: numResults,
-      include_answer: false,
-      include_raw_content: false,
-      search_depth: 'basic',
-    }),
-    signal: AbortSignal.timeout(30000), // 30 second timeout
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    if (response.status === 401) {
-      throw new Error('Invalid Tavily API key. Please check your API key in workspace settings.');
-    }
-    if (response.status === 429) {
-      throw new Error('Tavily rate limit exceeded. Please try again later.');
-    }
-    throw new Error(`Tavily search failed: ${response.status} ${errorText}`);
-  }
-
-  const data = (await response.json()) as TavilySearchResponse;
-
-  return data.results.map((result) => ({
-    title: result.title,
-    url: result.url,
-    snippet: result.content.length > 500
-      ? result.content.substring(0, 500) + '...'
-      : result.content,
-  }));
+  /**
+   * Full search exposing all @baleybots/tools features
+   */
+  searchFull(params: WebSearchParams): Promise<WebSearchResponse>;
 }
 
 // ============================================================================
@@ -146,8 +107,8 @@ Each result should have: title, url, snippet.`;
     }));
   } catch (error) {
     // If AI search fails, return an informative result
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[web_search] AI fallback failed:', message);
+    const message = extractErrorMessage(error);
+    logger.error('AI fallback failed', { message });
 
     return [
       {
@@ -156,6 +117,100 @@ Each result should have: title, url, snippet.`;
         snippet: `Web search is currently unavailable. To enable web search, add a Tavily API key in your workspace settings. Error: ${message}`,
       },
     ];
+  }
+}
+
+// ============================================================================
+// SERVICE IMPLEMENTATION
+// ============================================================================
+
+class WebSearchServiceImpl implements WebSearchService {
+  private tavilyTool: ReturnType<typeof webSearchTool> | null = null;
+  private snippetMaxLength: number;
+  private defaultMaxResults: number;
+  private defaultSearchDepth: 'basic' | 'advanced';
+
+  constructor(config: WebSearchServiceConfig = {}) {
+    this.snippetMaxLength = config.snippetMaxLength ?? 500;
+    this.defaultMaxResults = config.defaultMaxResults ?? 5;
+    this.defaultSearchDepth = config.defaultSearchDepth ?? 'basic';
+
+    if (config.tavilyApiKey && config.tavilyApiKey.trim().length > 0) {
+      this.tavilyTool = webSearchTool({
+        apiKey: config.tavilyApiKey,
+        defaultSearchDepth: this.defaultSearchDepth,
+        defaultMaxResults: this.defaultMaxResults,
+      });
+    }
+  }
+
+  /**
+   * Basic search returning simplified results (backward compatible)
+   */
+  async search(query: string, numResults: number = 5): Promise<SearchResult[]> {
+    if (!query?.trim()) {
+      throw new Error('Search query cannot be empty');
+    }
+
+    const sanitizedNumResults = Math.max(1, Math.min(numResults, 20));
+
+    // Use @baleybots/tools if Tavily key available
+    if (this.tavilyTool) {
+      try {
+        // Call the tool's function directly
+        const rawResponse = await this.tavilyTool.function({
+          query,
+          maxResults: sanitizedNumResults,
+        });
+
+        // Handle the response - webSearchTool returns Promise<WebSearchResponse>
+        // but TypeScript infers a union type that includes AsyncGenerator
+        const response = rawResponse as WebSearchResponse;
+
+        return response.results.map((r) => ({
+          title: r.title,
+          url: r.url,
+          snippet: this.truncateSnippet(r.content),
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        // Auth error -> fall back to AI
+        if (
+          message.includes('401') ||
+          message.includes('API key') ||
+          message.includes('Unauthorized') ||
+          message.includes('Invalid Tavily')
+        ) {
+          logger.warn('Tavily auth failed, falling back to AI search');
+          return searchWithAI(query, sanitizedNumResults);
+        }
+
+        throw error;
+      }
+    }
+
+    // No Tavily key -> use AI fallback
+    return searchWithAI(query, sanitizedNumResults);
+  }
+
+  /**
+   * Full search exposing all @baleybots/tools features
+   */
+  async searchFull(params: WebSearchParams): Promise<WebSearchResponse> {
+    if (!this.tavilyTool) {
+      throw new Error('Full search requires Tavily API key. Configure TAVILY_API_KEY in workspace settings.');
+    }
+
+    // webSearchTool returns Promise<WebSearchResponse> but TypeScript infers
+    // a union type that includes AsyncGenerator. Cast to expected type.
+    const response = await this.tavilyTool.function(params);
+    return response as WebSearchResponse;
+  }
+
+  private truncateSnippet(content: string): string {
+    if (content.length <= this.snippetMaxLength) return content;
+    return content.substring(0, this.snippetMaxLength) + '...';
   }
 }
 
@@ -169,38 +224,29 @@ Each result should have: title, url, snippet.`;
  * @param config - Configuration including optional Tavily API key
  * @returns WebSearchService instance
  */
-export function createWebSearchService(config: WebSearchConfig): WebSearchService {
-  return {
-    async search(query: string, numResults: number): Promise<SearchResult[]> {
-      // Validate inputs
-      if (!query || query.trim().length === 0) {
-        throw new Error('Search query cannot be empty');
-      }
+export function createWebSearchService(config: WebSearchServiceConfig = {}): WebSearchService {
+  return new WebSearchServiceImpl(config);
+}
 
-      const sanitizedNumResults = Math.max(1, Math.min(numResults, 20));
+// ============================================================================
+// SINGLETON INSTANCE
+// ============================================================================
 
-      // Use Tavily if API key is available
-      if (config.tavilyApiKey && config.tavilyApiKey.trim().length > 0) {
-        try {
-          return await searchWithTavily(
-            config.tavilyApiKey,
-            query,
-            sanitizedNumResults
-          );
-        } catch (error) {
-          // If Tavily fails with auth error, fall back to AI
-          // But if it's a rate limit or other error, let it propagate
-          const message = error instanceof Error ? error.message : '';
-          if (message.includes('Invalid Tavily API key')) {
-            console.warn('[web_search] Tavily auth failed, falling back to AI search');
-            return searchWithAI(query, sanitizedNumResults);
-          }
-          throw error;
-        }
-      }
+let instance: WebSearchService | null = null;
 
-      // Fall back to AI search
-      return searchWithAI(query, sanitizedNumResults);
-    },
-  };
+/**
+ * Configure the singleton web search service
+ */
+export function configureWebSearch(config: WebSearchServiceConfig): void {
+  instance = new WebSearchServiceImpl(config);
+}
+
+/**
+ * Get the singleton web search service
+ */
+export function getWebSearchService(): WebSearchService {
+  if (!instance) {
+    instance = new WebSearchServiceImpl();
+  }
+  return instance;
 }

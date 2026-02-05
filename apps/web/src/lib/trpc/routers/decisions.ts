@@ -77,15 +77,14 @@ export const decisionsRouter = router({
       }
 
       // Fetch decisions with block info
+      // PERF-007: Only return summary fields in list view, full payload in getById
       const items = await ctx.db
         .select({
           id: decisions.id,
           blockId: decisions.blockId,
           blockName: blocks.name,
           blockExecutionId: decisions.blockExecutionId,
-          input: decisions.input,
-          output: decisions.output,
-          reasoning: decisions.reasoning,
+          // Omitted: input, output, reasoning, feedbackCorrectedOutput (large payloads)
           model: decisions.model,
           tokensInput: decisions.tokensInput,
           tokensOutput: decisions.tokensOutput,
@@ -94,7 +93,6 @@ export const decisionsRouter = router({
           feedbackCorrect: decisions.feedbackCorrect,
           feedbackCategory: decisions.feedbackCategory,
           feedbackNotes: decisions.feedbackNotes,
-          feedbackCorrectedOutput: decisions.feedbackCorrectedOutput,
           feedbackAt: decisions.feedbackAt,
           createdAt: decisions.createdAt,
         })

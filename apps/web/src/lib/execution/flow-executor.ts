@@ -16,6 +16,11 @@
  * - route(), parallel(), loop(), etc.
  */
 
+// TODO: STYLE-002 - This file is over 600 lines (~627 lines). Consider splitting into:
+// - flow-executor/executor.ts (main FlowExecutor class)
+// - flow-executor/graph-builder.ts (buildExecutionGraph logic)
+// - flow-executor/helpers.ts (utility functions)
+
 import {
   db,
   flows,
@@ -41,6 +46,9 @@ import type {
   NodeState,
 } from './types';
 import type { FlowNode, FlowEdge, FlowNodeType, FlowTrigger } from '@/lib/baleybots/types';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('flow-executor');
 
 // ============================================================================
 // TYPES
@@ -151,8 +159,8 @@ export class FlowExecutor {
     );
 
     // 5. Start execution asynchronously
-    executor.execute().catch((error) => {
-      console.error(`Flow execution ${execution.id} failed:`, error);
+    executor.execute().catch((error: unknown) => {
+      logger.error(`Flow execution ${execution.id} failed`, error);
     });
 
     return executor;
@@ -253,7 +261,7 @@ export class FlowExecutor {
         output,
         metrics: this.stateMachine.getMetrics(),
       };
-    } catch (error) {
+    } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
 
@@ -522,7 +530,7 @@ export class FlowExecutor {
         durationMs,
         timestamp: Date.now(),
       });
-    } catch (error) {
+    } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
 

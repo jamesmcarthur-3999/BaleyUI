@@ -6,7 +6,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { verifyWorkspaceOwnership } from '@/lib/auth';
 import { eventStore } from '@/lib/events/event-store';
 import { builderEventEmitter } from '@/lib/events/event-emitter';
 
@@ -14,12 +14,13 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
-  const { userId } = await auth();
-  if (!userId) {
-    return new Response('Unauthorized', { status: 401 });
-  }
-
   const { workspaceId } = await params;
+
+  // Verify the user owns this workspace - prevents unauthorized access
+  const workspace = await verifyWorkspaceOwnership(workspaceId);
+  if (!workspace) {
+    return new Response('Forbidden', { status: 403 });
+  }
   const lastSequence = parseInt(
     request.nextUrl.searchParams.get('lastSequence') ?? '0'
   );

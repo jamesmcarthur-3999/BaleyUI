@@ -18,218 +18,276 @@ import { relations } from 'drizzle-orm';
 // WORKSPACES
 // ============================================================================
 
-export const workspaces = pgTable('workspaces', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: varchar('name', { length: 255 }).notNull(),
-  slug: varchar('slug', { length: 255 }).unique().notNull(),
-  ownerId: varchar('owner_id', { length: 255 }).notNull(), // Clerk user ID
+export const workspaces = pgTable(
+  'workspaces',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: varchar('name', { length: 255 }).notNull(),
+    slug: varchar('slug', { length: 255 }).unique().notNull(),
+    ownerId: varchar('owner_id', { length: 255 }).notNull(), // Clerk user ID
 
-  // Soft delete fields
-  deletedAt: timestamp('deleted_at'),
-  deletedBy: varchar('deleted_by', { length: 255 }),
+    // Soft delete fields
+    deletedAt: timestamp('deleted_at'),
+    deletedBy: varchar('deleted_by', { length: 255 }),
 
-  // Optimistic locking
-  version: integer('version').default(1).notNull(),
+    // Optimistic locking
+    version: integer('version').default(1).notNull(),
 
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('workspaces_owner_id_idx').on(table.ownerId),
+    index('workspaces_deleted_at_idx').on(table.deletedAt),
+  ]
+);
 
 // ============================================================================
 // API KEYS
 // ============================================================================
 
-export const apiKeys = pgTable('api_keys', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workspaceId: uuid('workspace_id')
-    .references(() => workspaces.id, { onDelete: 'cascade' })
-    .notNull(),
-  name: varchar('name', { length: 255 }).notNull(), // Display name for the key
-  keyHash: varchar('key_hash', { length: 64 }).notNull(), // SHA256 hash of the key
-  keyPrefix: varchar('key_prefix', { length: 20 }).notNull(), // First 12 chars for display (bui_live_XXX)
-  keySuffix: varchar('key_suffix', { length: 4 }).notNull(), // Last 4 chars for display
-  permissions: jsonb('permissions').notNull(), // Array of permissions ['read', 'execute', 'admin']
-  lastUsedAt: timestamp('last_used_at'),
-  expiresAt: timestamp('expires_at'),
-  revokedAt: timestamp('revoked_at'), // For soft revoke
-  createdBy: varchar('created_by', { length: 255 }).notNull(), // Clerk user ID
+export const apiKeys = pgTable(
+  'api_keys',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: varchar('name', { length: 255 }).notNull(), // Display name for the key
+    keyHash: varchar('key_hash', { length: 64 }).notNull(), // SHA256 hash of the key
+    keyPrefix: varchar('key_prefix', { length: 20 }).notNull(), // First 12 chars for display (bui_live_XXX)
+    keySuffix: varchar('key_suffix', { length: 4 }).notNull(), // Last 4 chars for display
+    permissions: jsonb('permissions').notNull(), // Array of permissions ['read', 'execute', 'admin']
+    lastUsedAt: timestamp('last_used_at'),
+    expiresAt: timestamp('expires_at'),
+    revokedAt: timestamp('revoked_at'), // For soft revoke
+    createdBy: varchar('created_by', { length: 255 }).notNull(), // Clerk user ID
 
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('api_keys_workspace_id_idx').on(table.workspaceId),
+    index('api_keys_key_hash_idx').on(table.keyHash),
+    index('api_keys_revoked_at_idx').on(table.revokedAt),
+    index('api_keys_workspace_revoked_idx').on(table.workspaceId, table.revokedAt),
+  ]
+);
 
 // ============================================================================
 // PROVIDER CONNECTIONS (OpenAI, Anthropic, Ollama, Database)
 // ============================================================================
 
-export const connections = pgTable('connections', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workspaceId: uuid('workspace_id')
-    .references(() => workspaces.id, { onDelete: 'cascade' })
-    .notNull(),
-  type: varchar('type', { length: 50 }).notNull(), // 'openai' | 'anthropic' | 'ollama' | 'postgres' | 'mysql' | 'mongodb'
-  name: varchar('name', { length: 255 }).notNull(),
-  config: jsonb('config').notNull(), // Encrypted credentials, base URLs, etc.
-  isDefault: boolean('is_default').default(false),
-  isOperational: boolean('is_operational').default(false), // If true, use this DB for BB execution results/analytics
-  status: varchar('status', { length: 50 }).default('unconfigured'), // 'connected' | 'error' | 'unconfigured'
+export const connections = pgTable(
+  'connections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    type: varchar('type', { length: 50 }).notNull(), // 'openai' | 'anthropic' | 'ollama' | 'postgres' | 'mysql' | 'mongodb'
+    name: varchar('name', { length: 255 }).notNull(),
+    config: jsonb('config').notNull(), // Encrypted credentials, base URLs, etc.
+    isDefault: boolean('is_default').default(false),
+    isOperational: boolean('is_operational').default(false), // If true, use this DB for BB execution results/analytics
+    status: varchar('status', { length: 50 }).default('unconfigured'), // 'connected' | 'error' | 'unconfigured'
 
-  // For Ollama
-  availableModels: jsonb('available_models'), // Cached list of local models
-  lastCheckedAt: timestamp('last_checked_at'),
+    // For Ollama
+    availableModels: jsonb('available_models'), // Cached list of local models
+    lastCheckedAt: timestamp('last_checked_at'),
 
-  // Soft delete fields
-  deletedAt: timestamp('deleted_at'),
-  deletedBy: varchar('deleted_by', { length: 255 }),
+    // Soft delete fields
+    deletedAt: timestamp('deleted_at'),
+    deletedBy: varchar('deleted_by', { length: 255 }),
 
-  // Optimistic locking
-  version: integer('version').default(1).notNull(),
+    // Optimistic locking
+    version: integer('version').default(1).notNull(),
 
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('connections_workspace_id_idx').on(table.workspaceId),
+    index('connections_type_idx').on(table.type),
+    index('connections_status_idx').on(table.status),
+    index('connections_deleted_at_idx').on(table.deletedAt),
+  ]
+);
 
 // ============================================================================
 // TOOLS (reusable across blocks)
 // ============================================================================
 
-export const tools = pgTable('tools', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workspaceId: uuid('workspace_id')
-    .references(() => workspaces.id, { onDelete: 'cascade' })
-    .notNull(),
-  name: varchar('name', { length: 255 }).notNull(),
-  description: text('description').notNull(),
-  inputSchema: jsonb('input_schema').notNull(), // Zod schema as JSON
-  code: text('code').notNull(), // TypeScript function body
+export const tools = pgTable(
+  'tools',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description').notNull(),
+    inputSchema: jsonb('input_schema').notNull(), // Zod schema as JSON
+    code: text('code').notNull(), // TypeScript function body
 
-  // For database tools
-  connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'cascade' }),
-  isGenerated: boolean('is_generated').default(false),
+    // For database tools
+    connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'cascade' }),
+    isGenerated: boolean('is_generated').default(false),
 
-  // Soft delete fields
-  deletedAt: timestamp('deleted_at'),
-  deletedBy: varchar('deleted_by', { length: 255 }),
+    // Soft delete fields
+    deletedAt: timestamp('deleted_at'),
+    deletedBy: varchar('deleted_by', { length: 255 }),
 
-  // Optimistic locking
-  version: integer('version').default(1).notNull(),
+    // Optimistic locking
+    version: integer('version').default(1).notNull(),
 
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('tools_workspace_id_idx').on(table.workspaceId),
+    index('tools_connection_id_idx').on(table.connectionId),
+    index('tools_deleted_at_idx').on(table.deletedAt),
+  ]
+);
 
 // ============================================================================
 // BLOCKS (AI, Function, Composition patterns)
 // ============================================================================
 
-export const blocks = pgTable('blocks', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workspaceId: uuid('workspace_id')
-    .references(() => workspaces.id, { onDelete: 'cascade' })
-    .notNull(),
-  type: varchar('type', { length: 50 }).notNull(), // 'ai' | 'function' | 'router' | 'pipeline' | 'loop' | 'parallel'
-  name: varchar('name', { length: 255 }).notNull(),
-  description: text('description'),
+export const blocks = pgTable(
+  'blocks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    type: varchar('type', { length: 50 }).notNull(), // 'ai' | 'function' | 'router' | 'pipeline' | 'loop' | 'parallel'
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
 
-  // Schemas
-  inputSchema: jsonb('input_schema').default({}),
-  outputSchema: jsonb('output_schema').default({}),
+    // Schemas
+    inputSchema: jsonb('input_schema').default({}),
+    outputSchema: jsonb('output_schema').default({}),
 
-  // AI Block fields
-  connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'cascade' }),
-  model: varchar('model', { length: 255 }),
-  goal: text('goal'),
-  systemPrompt: text('system_prompt'),
-  temperature: decimal('temperature', { precision: 3, scale: 2 }),
-  maxTokens: integer('max_tokens'),
-  maxToolIterations: integer('max_tool_iterations').default(25),
+    // AI Block fields
+    connectionId: uuid('connection_id').references(() => connections.id, { onDelete: 'cascade' }),
+    model: varchar('model', { length: 255 }),
+    goal: text('goal'),
+    systemPrompt: text('system_prompt'),
+    temperature: decimal('temperature', { precision: 3, scale: 2 }),
+    maxTokens: integer('max_tokens'),
+    maxToolIterations: integer('max_tool_iterations').default(25),
 
-  // Function Block fields
-  code: text('code'),
+    // Function Block fields
+    code: text('code'),
 
-  // Router Block fields (stores route configuration)
-  routerConfig: jsonb('router_config'),
+    // Router Block fields (stores route configuration)
+    routerConfig: jsonb('router_config'),
 
-  // Loop Block fields
-  loopConfig: jsonb('loop_config'),
+    // Loop Block fields
+    loopConfig: jsonb('loop_config'),
 
-  // Tools attached to this block
-  toolIds: jsonb('tool_ids').default([]), // UUID[]
+    // Tools attached to this block
+    toolIds: jsonb('tool_ids').default([]), // UUID[]
 
-  // Execution mode (Phase 4.3: Hybrid Mode)
-  executionMode: varchar('execution_mode', { length: 50 }).default('ai_only'), // 'ai_only' | 'code_only' | 'hybrid' | 'ab_test'
-  generatedCode: text('generated_code'),
-  codeGeneratedAt: timestamp('code_generated_at'),
-  codeAccuracy: decimal('code_accuracy', { precision: 5, scale: 2 }),
-  hybridThreshold: decimal('hybrid_threshold', { precision: 5, scale: 2 }).default('80.00'), // Confidence threshold for code path
+    // Execution mode (Phase 4.3: Hybrid Mode)
+    executionMode: varchar('execution_mode', { length: 50 }).default('ai_only'), // 'ai_only' | 'code_only' | 'hybrid' | 'ab_test'
+    generatedCode: text('generated_code'),
+    codeGeneratedAt: timestamp('code_generated_at'),
+    codeAccuracy: decimal('code_accuracy', { precision: 5, scale: 2 }),
+    hybridThreshold: decimal('hybrid_threshold', { precision: 5, scale: 2 }).default('80.00'), // Confidence threshold for code path
 
-  // Metrics
-  executionCount: integer('execution_count').default(0),
-  avgLatencyMs: integer('avg_latency_ms'),
-  lastExecutedAt: timestamp('last_executed_at'),
+    // Metrics
+    executionCount: integer('execution_count').default(0),
+    avgLatencyMs: integer('avg_latency_ms'),
+    lastExecutedAt: timestamp('last_executed_at'),
 
-  // Soft delete fields
-  deletedAt: timestamp('deleted_at'),
-  deletedBy: varchar('deleted_by', { length: 255 }),
+    // Soft delete fields
+    deletedAt: timestamp('deleted_at'),
+    deletedBy: varchar('deleted_by', { length: 255 }),
 
-  // Optimistic locking
-  version: integer('version').default(1).notNull(),
+    // Optimistic locking
+    version: integer('version').default(1).notNull(),
 
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('blocks_workspace_id_idx').on(table.workspaceId),
+    index('blocks_type_idx').on(table.type),
+    index('blocks_connection_id_idx').on(table.connectionId),
+    index('blocks_deleted_at_idx').on(table.deletedAt),
+  ]
+);
 
 // ============================================================================
 // FLOWS (visual composition)
 // ============================================================================
 
-export const flows = pgTable('flows', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workspaceId: uuid('workspace_id')
-    .references(() => workspaces.id, { onDelete: 'cascade' })
-    .notNull(),
-  name: varchar('name', { length: 255 }).notNull(),
-  description: text('description'),
+export const flows = pgTable(
+  'flows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
 
-  // React Flow graph
-  nodes: jsonb('nodes').default([]),
-  edges: jsonb('edges').default([]),
+    // React Flow graph
+    nodes: jsonb('nodes').default([]),
+    edges: jsonb('edges').default([]),
 
-  // Triggers
-  triggers: jsonb('triggers').default([]), // webhook, schedule, manual
+    // Triggers
+    triggers: jsonb('triggers').default([]), // webhook, schedule, manual
 
-  enabled: boolean('enabled').default(false),
+    enabled: boolean('enabled').default(false),
 
-  // Soft delete fields
-  deletedAt: timestamp('deleted_at'),
-  deletedBy: varchar('deleted_by', { length: 255 }),
+    // Soft delete fields
+    deletedAt: timestamp('deleted_at'),
+    deletedBy: varchar('deleted_by', { length: 255 }),
 
-  // Optimistic locking
-  version: integer('version').default(1).notNull(),
+    // Optimistic locking
+    version: integer('version').default(1).notNull(),
 
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('flows_workspace_id_idx').on(table.workspaceId),
+    index('flows_enabled_idx').on(table.enabled),
+    index('flows_deleted_at_idx').on(table.deletedAt),
+  ]
+);
 
 // ============================================================================
 // FLOW EXECUTIONS
 // ============================================================================
 
-export const flowExecutions = pgTable('flow_executions', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  flowId: uuid('flow_id')
-    .references(() => flows.id, { onDelete: 'cascade' })
-    .notNull(),
-  flowVersion: integer('flow_version').notNull(),
-  triggeredBy: jsonb('triggered_by').notNull(),
-  status: varchar('status', { length: 50 }).notNull(), // 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-  input: jsonb('input'),
-  output: jsonb('output'),
-  error: jsonb('error'),
-  startedAt: timestamp('started_at'),
-  completedAt: timestamp('completed_at'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+export const flowExecutions = pgTable(
+  'flow_executions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    flowId: uuid('flow_id')
+      .references(() => flows.id, { onDelete: 'cascade' })
+      .notNull(),
+    flowVersion: integer('flow_version').notNull(),
+    triggeredBy: jsonb('triggered_by').notNull(),
+    status: varchar('status', { length: 50 }).notNull(), // 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+    input: jsonb('input'),
+    output: jsonb('output'),
+    error: jsonb('error'),
+    startedAt: timestamp('started_at'),
+    completedAt: timestamp('completed_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('flow_executions_flow_id_idx').on(table.flowId),
+    index('flow_executions_status_idx').on(table.status),
+    index('flow_executions_created_at_idx').on(table.createdAt),
+  ]
+);
 
 // ============================================================================
 // WEBHOOK LOGS (for webhook trigger invocations)
@@ -272,87 +330,105 @@ export const webhookLogs = pgTable(
 // BLOCK EXECUTIONS (individual block runs, standalone or within flow)
 // ============================================================================
 
-export const blockExecutions = pgTable('block_executions', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  blockId: uuid('block_id')
-    .references(() => blocks.id, { onDelete: 'cascade' })
-    .notNull(),
-  flowExecutionId: uuid('flow_execution_id').references(
-    () => flowExecutions.id,
-    { onDelete: 'cascade' }
-  ),
+export const blockExecutions = pgTable(
+  'block_executions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    blockId: uuid('block_id')
+      .references(() => blocks.id, { onDelete: 'cascade' })
+      .notNull(),
+    flowExecutionId: uuid('flow_execution_id').references(
+      () => flowExecutions.id,
+      { onDelete: 'cascade' }
+    ),
 
-  // BaleyBots runtime IDs
-  baleybotId: varchar('baleybot_id', { length: 100 }), // e.g., 'baleybot-1-a3f891'
-  parentBaleybotId: varchar('parent_baleybot_id', { length: 100 }),
+    // BaleyBots runtime IDs
+    baleybotId: varchar('baleybot_id', { length: 100 }), // e.g., 'baleybot-1-a3f891'
+    parentBaleybotId: varchar('parent_baleybot_id', { length: 100 }),
 
-  status: varchar('status', { length: 50 }).notNull(), // 'pending' | 'running' | 'complete' | 'failed' | 'cancelled' | 'stale'
-  input: jsonb('input'),
-  output: jsonb('output'),
-  error: text('error'),
+    status: varchar('status', { length: 50 }).notNull(), // 'pending' | 'running' | 'complete' | 'failed' | 'cancelled' | 'stale'
+    input: jsonb('input'),
+    output: jsonb('output'),
+    error: text('error'),
 
-  // For AI blocks
-  model: varchar('model', { length: 255 }),
-  tokensInput: integer('tokens_input'),
-  tokensOutput: integer('tokens_output'),
-  reasoning: text('reasoning'), // For reasoning models
+    // For AI blocks
+    model: varchar('model', { length: 255 }),
+    tokensInput: integer('tokens_input'),
+    tokensOutput: integer('tokens_output'),
+    reasoning: text('reasoning'), // For reasoning models
 
-  // Hybrid mode tracking (Phase 4.3)
-  executionPath: varchar('execution_path', { length: 20 }), // 'ai' | 'code'
-  fallbackReason: text('fallback_reason'), // Why AI was used instead of code
-  patternMatched: text('pattern_matched'), // Which pattern was matched (for code path)
-  matchConfidence: decimal('match_confidence', { precision: 5, scale: 2 }), // Pattern match confidence
+    // Hybrid mode tracking (Phase 4.3)
+    executionPath: varchar('execution_path', { length: 20 }), // 'ai' | 'code'
+    fallbackReason: text('fallback_reason'), // Why AI was used instead of code
+    patternMatched: text('pattern_matched'), // Which pattern was matched (for code path)
+    matchConfidence: decimal('match_confidence', { precision: 5, scale: 2 }), // Pattern match confidence
 
-  // Streaming events (for replay)
-  streamEvents: jsonb('stream_events').default([]),
+    // Streaming events (for replay)
+    streamEvents: jsonb('stream_events').default([]),
 
-  // Heartbeat for detecting stale executions
-  heartbeatAt: timestamp('heartbeat_at'),
-  heartbeatInterval: integer('heartbeat_interval_ms').default(5000),
+    // Heartbeat for detecting stale executions
+    heartbeatAt: timestamp('heartbeat_at'),
+    heartbeatInterval: integer('heartbeat_interval_ms').default(5000),
 
-  // Server instance tracking (for crash recovery)
-  serverId: varchar('server_id', { length: 100 }),
-  serverStartedAt: timestamp('server_started_at'),
+    // Server instance tracking (for crash recovery)
+    serverId: varchar('server_id', { length: 100 }),
+    serverStartedAt: timestamp('server_started_at'),
 
-  // Retry tracking
-  attemptNumber: integer('attempt_number').default(1),
-  maxAttempts: integer('max_attempts').default(3),
+    // Retry tracking
+    attemptNumber: integer('attempt_number').default(1),
+    maxAttempts: integer('max_attempts').default(3),
 
-  // Event storage
-  eventCount: integer('event_count').default(0),
-  lastEventIndex: integer('last_event_index').default(-1),
+    // Event storage
+    eventCount: integer('event_count').default(0),
+    lastEventIndex: integer('last_event_index').default(-1),
 
-  startedAt: timestamp('started_at'),
-  completedAt: timestamp('completed_at'),
-  durationMs: integer('duration_ms'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+    startedAt: timestamp('started_at'),
+    completedAt: timestamp('completed_at'),
+    durationMs: integer('duration_ms'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('block_executions_block_id_idx').on(table.blockId),
+    index('block_executions_flow_execution_id_idx').on(table.flowExecutionId),
+    index('block_executions_status_idx').on(table.status),
+    index('block_executions_created_at_idx').on(table.createdAt),
+  ]
+);
 
 // ============================================================================
 // TOOL EXECUTIONS (within block execution)
 // ============================================================================
 
-export const toolExecutions = pgTable('tool_executions', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  blockExecutionId: uuid('block_execution_id')
-    .references(() => blockExecutions.id, { onDelete: 'cascade' })
-    .notNull(),
-  toolId: uuid('tool_id').references(() => tools.id, { onDelete: 'cascade' }),
-  toolCallId: varchar('tool_call_id', { length: 100 }),
-  toolName: varchar('tool_name', { length: 255 }).notNull(),
-  arguments: jsonb('arguments'),
-  result: jsonb('result'),
-  error: text('error'),
+export const toolExecutions = pgTable(
+  'tool_executions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    blockExecutionId: uuid('block_execution_id')
+      .references(() => blockExecutions.id, { onDelete: 'cascade' })
+      .notNull(),
+    toolId: uuid('tool_id').references(() => tools.id, { onDelete: 'cascade' }),
+    toolCallId: varchar('tool_call_id', { length: 100 }),
+    toolName: varchar('tool_name', { length: 255 }).notNull(),
+    arguments: jsonb('arguments'),
+    result: jsonb('result'),
+    error: text('error'),
 
-  // Approval tracking
-  requiresApproval: boolean('requires_approval').default(false),
-  approvalStatus: varchar('approval_status', { length: 50 }), // 'pending' | 'approved' | 'rejected' | 'modified'
-  approvalDecision: jsonb('approval_decision'),
-  approvedAt: timestamp('approved_at'),
+    // Approval tracking
+    requiresApproval: boolean('requires_approval').default(false),
+    approvalStatus: varchar('approval_status', { length: 50 }), // 'pending' | 'approved' | 'rejected' | 'modified'
+    approvalDecision: jsonb('approval_decision'),
+    approvedAt: timestamp('approved_at'),
 
-  durationMs: integer('duration_ms'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+    durationMs: integer('duration_ms'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('tool_executions_block_execution_id_idx').on(table.blockExecutionId),
+    index('tool_executions_tool_id_idx').on(table.toolId),
+    index('tool_executions_approval_status_idx').on(table.approvalStatus),
+    index('tool_executions_created_at_idx').on(table.createdAt),
+  ]
+);
 
 // ============================================================================
 // AI DECISIONS (derived from block executions, for observability)
@@ -399,41 +475,52 @@ export const decisions = pgTable(
 // PATTERNS (extracted rules from decisions)
 // ============================================================================
 
-export const patterns = pgTable('patterns', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  blockId: uuid('block_id')
-    .references(() => blocks.id, { onDelete: 'cascade' })
-    .notNull(),
-  rule: text('rule').notNull(), // Human-readable
-  condition: jsonb('condition').notNull(), // Machine-parseable (JSON Logic)
-  outputTemplate: jsonb('output_template'),
-  confidence: decimal('confidence', { precision: 5, scale: 4 }),
-  supportCount: integer('support_count'),
-  samples: jsonb('samples').default([]), // Array of {input, output, decisionId} for validation
-  patternType: varchar('pattern_type', { length: 50 }), // 'threshold' | 'set_membership' | 'compound' | 'exact_match'
-  generatedCode: text('generated_code'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+export const patterns = pgTable(
+  'patterns',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    blockId: uuid('block_id')
+      .references(() => blocks.id, { onDelete: 'cascade' })
+      .notNull(),
+    rule: text('rule').notNull(), // Human-readable
+    condition: jsonb('condition').notNull(), // Machine-parseable (JSON Logic)
+    outputTemplate: jsonb('output_template'),
+    confidence: decimal('confidence', { precision: 5, scale: 4 }),
+    supportCount: integer('support_count'),
+    samples: jsonb('samples').default([]), // Array of {input, output, decisionId} for validation
+    patternType: varchar('pattern_type', { length: 50 }), // 'threshold' | 'set_membership' | 'compound' | 'exact_match'
+    generatedCode: text('generated_code'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('patterns_block_id_idx').on(table.blockId),
+    index('patterns_pattern_type_idx').on(table.patternType),
+  ]
+);
 
 // ============================================================================
 // TEST CASES
 // ============================================================================
 
-export const testCases = pgTable('test_cases', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  blockId: uuid('block_id')
-    .references(() => blocks.id, { onDelete: 'cascade' })
-    .notNull(),
-  name: varchar('name', { length: 255 }).notNull(),
-  description: text('description'),
-  input: jsonb('input').notNull(),
-  expectedOutput: jsonb('expected_output'),
-  assertions: jsonb('assertions').default([]),
-  tags: jsonb('tags').default([]),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+export const testCases = pgTable(
+  'test_cases',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    blockId: uuid('block_id')
+      .references(() => blocks.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
+    input: jsonb('input').notNull(),
+    expectedOutput: jsonb('expected_output'),
+    assertions: jsonb('assertions').default([]),
+    tags: jsonb('tags').default([]),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [index('test_cases_block_id_idx').on(table.blockId)]
+);
 
 // ============================================================================
 // RESILIENCE INFRASTRUCTURE TABLES
@@ -457,6 +544,7 @@ export const executionEvents = pgTable(
   },
   (table) => [
     uniqueIndex('execution_event_idx').on(table.executionId, table.index),
+    index('execution_events_type_idx').on(table.eventType),
   ]
 );
 
@@ -643,6 +731,7 @@ export const baleybots = pgTable(
   (table) => [
     index('baleybots_workspace_idx').on(table.workspaceId),
     index('baleybots_status_idx').on(table.status),
+    index('baleybots_deleted_at_idx').on(table.deletedAt),
   ]
 );
 
@@ -683,6 +772,7 @@ export const baleybotExecutions = pgTable(
     index('baleybot_executions_baleybot_idx').on(table.baleybotId),
     index('baleybot_executions_status_idx').on(table.status),
     index('baleybot_executions_created_idx').on(table.createdAt),
+    index('baleybot_executions_baleybot_status_idx').on(table.baleybotId, table.status),
   ]
 );
 
@@ -774,32 +864,36 @@ export const approvalPatterns = pgTable(
 // WORKSPACE POLICIES (tool governance)
 // ============================================================================
 
-export const workspacePolicies = pgTable('workspace_policies', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workspaceId: uuid('workspace_id')
-    .references(() => workspaces.id, { onDelete: 'cascade' })
-    .notNull()
-    .unique(),
+export const workspacePolicies = pgTable(
+  'workspace_policies',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull()
+      .unique(),
 
-  // Tool policies
-  allowedTools: jsonb('allowed_tools').$type<string[]>(),
-  forbiddenTools: jsonb('forbidden_tools').$type<string[]>(),
-  requiresApprovalTools: jsonb('requires_approval_tools').$type<string[]>(),
+    // Tool policies
+    allowedTools: jsonb('allowed_tools').$type<string[]>(),
+    forbiddenTools: jsonb('forbidden_tools').$type<string[]>(),
+    requiresApprovalTools: jsonb('requires_approval_tools').$type<string[]>(),
 
-  // Global limits
-  maxAutoApproveAmount: integer('max_auto_approve_amount'),
-  reapprovalIntervalDays: integer('reapproval_interval_days').default(90),
-  maxAutoFiresBeforeReview: integer('max_auto_fires_before_review').default(100),
+    // Global limits
+    maxAutoApproveAmount: integer('max_auto_approve_amount'),
+    reapprovalIntervalDays: integer('reapproval_interval_days').default(90),
+    maxAutoFiresBeforeReview: integer('max_auto_fires_before_review').default(100),
 
-  // Pattern learning manual (natural language guidelines for AI)
-  learningManual: text('learning_manual'),
+    // Pattern learning manual (natural language guidelines for AI)
+    learningManual: text('learning_manual'),
 
-  // Optimistic locking
-  version: integer('version').default(1).notNull(),
+    // Optimistic locking
+    version: integer('version').default(1).notNull(),
 
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [index('workspace_policies_workspace_id_idx').on(table.workspaceId)]
+);
 
 // ============================================================================
 // BALEYBOT MEMORY (for store_memory tool)

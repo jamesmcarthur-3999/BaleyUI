@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect, memo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useRef } from 'react';
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { VisualEntity, Connection, CreationStatus } from '@/lib/baleybot/creator-types';
@@ -43,19 +42,8 @@ const MAX_ZOOM = 1.5;
 const ZOOM_STEP = 0.1;
 const ENTITIES_BEFORE_AUTO_ZOOM = 5;
 
-// Animation variants for entities
-const entityVariants = {
-  initial: { opacity: 0, scale: 0.8, y: 20 },
-  animate: { opacity: 1, scale: 1, y: 0 },
-  exit: { opacity: 0, scale: 0.8, y: -20 },
-};
-
-// Spring animation config
-const springConfig = {
-  type: 'spring' as const,
-  stiffness: 300,
-  damping: 25,
-};
+// Animation classes for entities
+const ENTITY_ANIMATION_DURATION = 300; // ms
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -149,30 +137,14 @@ function DotGridBackground() {
  */
 function EmptyState() {
   return (
-    <motion.div
-      className="absolute inset-0 flex flex-col items-center justify-center"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      <motion.span
-        className="text-6xl mb-4"
-        animate={{
-          scale: [1, 1.1, 1],
-          rotate: [0, 5, -5, 0],
-        }}
-        transition={{
-          duration: 3,
-          repeat: Infinity,
-          ease: 'easeInOut',
-        }}
-      >
+    <div className="absolute inset-0 flex flex-col items-center justify-center animate-fade-in">
+      <span className="text-6xl mb-4 animate-sparkle">
         ✨
-      </motion.span>
+      </span>
       <p className="text-muted-foreground text-center max-w-xs">
         Describe what you want your BaleyBot to do, and watch it come to life
       </p>
-    </motion.div>
+    </div>
   );
 }
 
@@ -181,69 +153,31 @@ function EmptyState() {
  */
 function BuildingIndicator() {
   return (
-    <motion.div
-      className="absolute inset-0 flex items-center justify-center"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      <motion.div
-        className="relative"
-        animate={{
-          scale: [1, 1.2, 1],
-        }}
-        transition={{
-          duration: 1.5,
-          repeat: Infinity,
-          ease: 'easeInOut',
-        }}
-      >
+    <div className="absolute inset-0 flex items-center justify-center animate-fade-in">
+      <div className="relative animate-orb-pulse">
         {/* Outer glow */}
         <div className="absolute inset-0 w-20 h-20 rounded-full bg-primary/20 blur-xl" />
         {/* Inner orb */}
-        <motion.div
-          className="relative w-16 h-16 rounded-full bg-gradient-to-br from-primary to-primary/60"
-          animate={{
-            boxShadow: [
-              '0 0 20px hsl(262 83% 58% / 0.3)',
-              '0 0 40px hsl(262 83% 58% / 0.5)',
-              '0 0 20px hsl(262 83% 58% / 0.3)',
-            ],
-          }}
-          transition={{
-            duration: 1.5,
-            repeat: Infinity,
-            ease: 'easeInOut',
-          }}
-        />
+        <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-primary to-primary/60 animate-orb-glow" />
         {/* Sparkles */}
         {[0, 1, 2, 3].map((i) => (
-          <motion.div
+          <div
             key={i}
-            className="absolute w-2 h-2 rounded-full bg-primary"
+            className="absolute w-2 h-2 rounded-full bg-primary animate-sparkle-burst"
             style={{
               top: '50%',
               left: '50%',
-            }}
-            animate={{
-              x: [0, Math.cos((i * Math.PI) / 2) * 40],
-              y: [0, Math.sin((i * Math.PI) / 2) * 40],
-              opacity: [1, 0],
-              scale: [1, 0.5],
-            }}
-            transition={{
-              duration: 1,
-              repeat: Infinity,
-              delay: i * 0.25,
-              ease: 'easeOut',
-            }}
+              '--sparkle-x': `${Math.cos((i * Math.PI) / 2) * 40}px`,
+              '--sparkle-y': `${Math.sin((i * Math.PI) / 2) * 40}px`,
+              animationDelay: `${i * 250}ms`,
+            } as React.CSSProperties}
           />
         ))}
-      </motion.div>
+      </div>
       <p className="absolute mt-32 text-sm text-muted-foreground animate-pulse-soft">
         Building your BaleyBot...
       </p>
-    </motion.div>
+    </div>
   );
 }
 
@@ -263,17 +197,37 @@ function ConnectionLine({
   isMobile?: boolean;
 }) {
   const endpoints = getConnectionEndpoints(connection.from, connection.to, entities, isMobile);
+  const [isAnimated, setIsAnimated] = useState(false);
+  const pathRef = useRef<SVGPathElement>(null);
+  const [pathLength, setPathLength] = useState(0);
 
-  if (!endpoints) return null;
+  // Trigger animation after mount
+  useEffect(() => {
+    const timer = setTimeout(() => setIsAnimated(true), 50);
+    return () => clearTimeout(timer);
+  }, []);
 
-  const { from, to } = endpoints;
+  // Derive path from endpoints (safe even when null)
+  const from = endpoints?.from;
+  const to = endpoints?.to;
+  const midY = from && to ? (from.y + to.y) / 2 : 0;
+  const path = from && to
+    ? `M ${from.x} ${from.y} C ${from.x} ${midY}, ${to.x} ${midY}, ${to.x} ${to.y}`
+    : '';
 
-  // Calculate control points for a smooth curve
-  const midY = (from.y + to.y) / 2;
-  const path = `M ${from.x} ${from.y} C ${from.x} ${midY}, ${to.x} ${midY}, ${to.x} ${to.y}`;
+  useEffect(() => {
+    if (pathRef.current) {
+      setPathLength(pathRef.current.getTotalLength());
+    }
+  }, [path]);
+
+  if (!endpoints || !from || !to) return null;
+
+  const targetDashOffset = connection.status === 'drawing' ? pathLength * 0.5 : 0;
+  const opacity = connection.status === 'removing' ? 0 : dimmed ? 0.3 : 1;
 
   return (
-    <g>
+    <g style={{ opacity, transition: 'opacity 0.3s ease-in-out' }}>
       {/* Gradient definition */}
       <defs>
         <linearGradient
@@ -288,41 +242,34 @@ function ConnectionLine({
         </linearGradient>
       </defs>
       {/* Connection path */}
-      <motion.path
+      <path
+        ref={pathRef}
         d={path}
         fill="none"
         stroke={`url(#gradient-${connection.id})`}
         strokeWidth="2"
-        strokeDasharray="6 4"
+        strokeDasharray={pathLength}
+        strokeDashoffset={isAnimated ? targetDashOffset : pathLength}
         strokeLinecap="round"
-        initial={{ pathLength: 0, opacity: 0 }}
-        animate={{
-          pathLength: connection.status === 'drawing' ? 0.5 : 1,
-          opacity: connection.status === 'removing' ? 0 : dimmed ? 0.3 : 1,
-        }}
-        transition={{
-          pathLength: { duration: 0.8, ease: 'easeInOut' },
-          opacity: { duration: 0.3 },
-        }}
+        style={{ transition: 'stroke-dashoffset 0.8s ease-in-out' }}
       />
       {/* Arrow head */}
-      <motion.circle
+      <circle
         cx={to.x}
         cy={to.y}
         r="4"
         fill="hsl(15 90% 65%)"
-        initial={{ scale: 0, opacity: 0 }}
-        animate={{
-          scale: connection.status === 'removing' ? 0 : 1,
-          opacity: connection.status === 'removing' ? 0 : dimmed ? 0.3 : 1,
+        style={{
+          transform: isAnimated && connection.status !== 'removing' ? 'scale(1)' : 'scale(0)',
+          transformOrigin: `${to.x}px ${to.y}px`,
+          transition: 'transform 0.3s ease-out 0.6s',
         }}
-        transition={{ delay: 0.6 }}
       />
     </g>
   );
 }
 
-const MemoizedConnectionLine = memo(ConnectionLine);
+// React 19 compiler handles memoization automatically
 
 /**
  * Entity card component
@@ -342,24 +289,26 @@ function EntityCard({
   isMobile?: boolean;
 }) {
   const position = getEntityPosition(index, total, isMobile);
+  const [isVisible, setIsVisible] = useState(false);
+
+  // Trigger animation with stagger delay
+  useEffect(() => {
+    const timer = setTimeout(() => setIsVisible(true), index * 100);
+    return () => clearTimeout(timer);
+  }, [index]);
 
   return (
-    <motion.div
-      className="absolute"
+    <div
+      className={cn(
+        'absolute transition-all duration-300 ease-out',
+        isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-[0.8] translate-y-5',
+        dimmed && 'opacity-40 scale-95'
+      )}
       style={{
         left: position.x,
         top: position.y,
-        transform: 'translate(-50%, -50%)',
+        transform: `translate(-50%, -50%) ${isVisible && !dimmed ? 'scale(1)' : dimmed ? 'scale(0.95)' : 'scale(0.8)'}`,
       }}
-      variants={entityVariants}
-      initial="initial"
-      animate={dimmed ? { opacity: 0.4, scale: 0.95, y: 0 } : 'animate'}
-      exit="exit"
-      transition={{
-        ...springConfig,
-        delay: index * 0.1, // Stagger effect
-      }}
-      layout
     >
       <div
         className={cn(
@@ -436,11 +385,11 @@ function EntityCard({
           </div>
         )}
       </div>
-    </motion.div>
+    </div>
   );
 }
 
-const MemoizedEntityCard = memo(EntityCard);
+// React 19 compiler handles memoization automatically
 
 // ============================================================================
 // MAIN COMPONENT
@@ -516,14 +465,10 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
       <DotGridBackground />
 
       {/* Empty state */}
-      <AnimatePresence mode="wait">
-        {showEmpty && <EmptyState />}
-      </AnimatePresence>
+      {showEmpty && <EmptyState />}
 
       {/* Building indicator */}
-      <AnimatePresence mode="wait">
-        {showBuilding && <BuildingIndicator />}
-      </AnimatePresence>
+      {showBuilding && <BuildingIndicator />}
 
       {/* Zoomable content container (Phase 5.3, responsive Phase 4.1) */}
       <div
@@ -543,81 +488,50 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
             <svg
               className="absolute inset-0 w-full h-full pointer-events-none"
             >
-              <AnimatePresence>
-                {connections.map((connection) => (
-                  <MemoizedConnectionLine
-                    key={connection.id}
-                    connection={connection}
-                    entities={sortedEntities}
-                    dimmed={isRebuilding}
-                    isMobile={isMobile}
-                  />
-                ))}
-              </AnimatePresence>
+              {connections.map((connection) => (
+                <ConnectionLine
+                  key={connection.id}
+                  connection={connection}
+                  entities={sortedEntities}
+                  dimmed={isRebuilding}
+                  isMobile={isMobile}
+                />
+              ))}
             </svg>
           )}
 
           {/* Entities layer */}
           <div className="absolute inset-0">
-            <AnimatePresence mode="popLayout">
-              {sortedEntities.map((entity, index) => (
-                <MemoizedEntityCard
-                  key={entity.id}
-                  entity={entity}
-                  index={index}
-                  total={sortedEntities.length}
-                  dimmed={isRebuilding}
-                  isMobile={isMobile}
-                />
-              ))}
-            </AnimatePresence>
+            {sortedEntities.map((entity, index) => (
+              <EntityCard
+                key={entity.id}
+                entity={entity}
+                index={index}
+                total={sortedEntities.length}
+                dimmed={isRebuilding}
+                isMobile={isMobile}
+              />
+            ))}
           </div>
         </div>
       </div>
 
       {/* Rebuilding overlay */}
-      <AnimatePresence>
-        {isRebuilding && (
-          <motion.div
-            className="absolute inset-0 flex items-center justify-center pointer-events-none"
-            style={{ zIndex: 5 }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            <motion.div
-              className="bg-background/80 backdrop-blur-sm rounded-2xl px-6 py-4 shadow-lg border border-border/50"
-              initial={{ scale: 0.9, y: 10 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 10 }}
-              transition={springConfig}
-            >
-              <div className="flex items-center gap-3">
-                <motion.div
-                  className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-primary/60"
-                  animate={{
-                    scale: [1, 1.1, 1],
-                    boxShadow: [
-                      '0 0 10px hsl(262 83% 58% / 0.3)',
-                      '0 0 20px hsl(262 83% 58% / 0.5)',
-                      '0 0 10px hsl(262 83% 58% / 0.3)',
-                    ],
-                  }}
-                  transition={{
-                    duration: 1.5,
-                    repeat: Infinity,
-                    ease: 'easeInOut',
-                  }}
-                />
-                <p className="text-sm font-medium text-foreground">
-                  Updating your BaleyBot...
-                </p>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {isRebuilding && (
+        <div
+          className="absolute inset-0 flex items-center justify-center pointer-events-none animate-fade-in"
+          style={{ zIndex: 5 }}
+        >
+          <div className="bg-background/80 backdrop-blur-sm rounded-2xl px-6 py-4 shadow-lg border border-border/50 animate-scale-in">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-primary/60 animate-orb-glow animate-orb-pulse-sm" />
+              <p className="text-sm font-medium text-foreground">
+                Updating your BaleyBot...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Zoom controls (Phase 5.3, responsive Phase 4.1) */}
       {showEntities && (
@@ -676,29 +590,23 @@ export function Canvas({ entities, connections, status, className }: CanvasProps
 
       {/* Status indicator */}
       {status === 'ready' && entities.length > 0 && (
-        <motion.div
-          className="absolute bottom-4 left-1/2 -translate-x-1/2"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
+        <div
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 animate-fade-in-up"
+          style={{ animationDelay: '500ms', animationFillMode: 'backwards' }}
         >
           <span className="badge-success px-3 py-1.5 rounded-full text-xs font-medium">
             Ready to deploy
           </span>
-        </motion.div>
+        </div>
       )}
 
       {/* Error state */}
       {status === 'error' && (
-        <motion.div
-          className="absolute bottom-4 left-1/2 -translate-x-1/2"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 animate-fade-in-up">
           <span className="badge-error px-3 py-1.5 rounded-full text-xs font-medium">
             Something went wrong
           </span>
-        </motion.div>
+        </div>
       )}
     </div>
   );

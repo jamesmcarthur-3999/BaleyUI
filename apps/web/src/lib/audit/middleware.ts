@@ -1,6 +1,9 @@
 import { db, auditLogs } from '@baleyui/db';
 import type { AuditAction } from '@baleyui/db';
 import type { Context } from '../trpc/trpc';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('audit/middleware');
 
 /**
  * Audit log entry data to be logged
@@ -14,9 +17,11 @@ export interface AuditLogData {
 }
 
 /**
- * Extended context with audit logging capability
+ * Extended context with audit logging capability.
+ * Uses type intersection instead of interface extension because Context
+ * is a union type (Awaited<ReturnType<...>>) which cannot be extended.
  */
-export interface AuditContext extends Context {
+export type AuditContext = Context & {
   /**
    * Log an audit event for the current request.
    * Captures what changed, who changed it, and contextual metadata.
@@ -45,7 +50,7 @@ export interface AuditContext extends Context {
     userAgent?: string;
     requestId?: string;
   };
-}
+};
 
 /**
  * tRPC middleware that adds audit logging capability to the context.
@@ -142,7 +147,7 @@ export const auditMiddleware = async <T>({
       });
     } catch (error) {
       // Log the error but don't fail the request
-      console.error('Failed to write audit log:', error);
+      logger.error('Failed to write audit log', error);
       // In production, you might want to send this to a monitoring service
     }
   };

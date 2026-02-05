@@ -3,6 +3,7 @@
 import { Card, CardContent } from '@/components/ui/card';
 import type { TextBlockConfig } from '@/lib/outputs/types';
 import { cn } from '@/lib/utils';
+import { sanitizeForDisplay, escapeHtml } from '@/lib/utils/sanitize-html';
 
 // ============================================================================
 // TYPES
@@ -29,8 +30,8 @@ export function TextBlock({ config, className }: TextBlockProps) {
 
   const renderContent = () => {
     if (format === 'html') {
-      // Sanitize HTML in production - here we just render as text for safety
-      return <div dangerouslySetInnerHTML={{ __html: content }} />;
+      // Sanitize HTML to prevent XSS attacks
+      return <div dangerouslySetInnerHTML={{ __html: sanitizeForDisplay(content) }} />;
     }
 
     if (format === 'markdown') {
@@ -69,13 +70,13 @@ export function TextBlock({ config, className }: TextBlockProps) {
               .replace(/\*(.+?)\*/g, '<em>$1</em>')
               .replace(/`(.+?)`/g, '<code class="px-1 py-0.5 bg-muted rounded text-sm">$1</code>');
 
-            // List items
+            // List items - sanitize processed HTML
             if (line.startsWith('- ') || line.startsWith('* ')) {
               return (
                 <li
                   key={index}
                   className="ml-4"
-                  dangerouslySetInnerHTML={{ __html: processed.slice(2) }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeForDisplay(processed.slice(2)) }}
                 />
               );
             }
@@ -85,11 +86,11 @@ export function TextBlock({ config, className }: TextBlockProps) {
               return <div key={index} className="h-2" />;
             }
 
-            // Regular paragraphs
+            // Regular paragraphs - sanitize processed HTML
             return (
               <p
                 key={index}
-                dangerouslySetInnerHTML={{ __html: processed }}
+                dangerouslySetInnerHTML={{ __html: sanitizeForDisplay(processed) }}
               />
             );
           })}

@@ -1,10 +1,21 @@
 'use client';
 
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
+import { Play, Clock, Zap, AlertCircle, Pause, FileQuestion, MoreHorizontal, Trash2 } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ROUTES } from '@/lib/routes';
-import { Play, Clock, Zap, AlertCircle, Pause, FileQuestion } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
 import { TriggerBadge } from './TriggerConfig';
+
 import type { TriggerConfig } from '@/lib/baleybot/types';
 
 interface BaleybotCardProps {
@@ -13,10 +24,15 @@ interface BaleybotCardProps {
   description: string | null;
   icon: string | null;
   status: 'draft' | 'active' | 'paused' | 'error';
+  version: number;
   executionCount: number;
   lastExecutedAt: Date | null;
   trigger?: TriggerConfig;
   className?: string;
+  onExecute?: (id: string) => void;
+  onPause?: (id: string) => void;
+  onActivate?: (id: string) => void;
+  onDelete?: (id: string) => void;
 }
 
 const statusConfig = {
@@ -48,10 +64,15 @@ export function BaleybotCard({
   description,
   icon,
   status,
+  version: _version,
   executionCount,
   lastExecutedAt,
   trigger,
   className,
+  onExecute,
+  onPause,
+  onActivate,
+  onDelete,
 }: BaleybotCardProps) {
   const config = statusConfig[status];
   const StatusIcon = config.Icon;
@@ -74,10 +95,57 @@ export function BaleybotCard({
     <Link href={ROUTES.baleybots.detail(id)}>
       <div
         className={cn(
-          'card-playful group cursor-pointer rounded-2xl overflow-hidden',
+          'card-playful group relative cursor-pointer rounded-2xl overflow-hidden',
           className
         )}
       >
+        {/* Actions dropdown */}
+        <div
+          className="absolute top-3 right-3 z-10"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => onExecute?.(id)}>
+                <Play className="mr-2 h-4 w-4" />
+                Execute
+              </DropdownMenuItem>
+              {status !== 'active' && (
+                <DropdownMenuItem onClick={() => onActivate?.(id)}>
+                  <Zap className="mr-2 h-4 w-4" />
+                  Activate
+                </DropdownMenuItem>
+              )}
+              {status === 'active' && (
+                <DropdownMenuItem onClick={() => onPause?.(id)}>
+                  <Pause className="mr-2 h-4 w-4" />
+                  Pause
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => onDelete?.(id)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
         {/* Status color bar */}
         <div className={cn(
           'h-1 transition-all duration-300 group-hover:h-1.5',

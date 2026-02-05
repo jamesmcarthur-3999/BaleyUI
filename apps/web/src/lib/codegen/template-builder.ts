@@ -4,21 +4,108 @@
 
 import { DetectedPattern, PatternType } from './types';
 
+// ============================================================================
+// AST Type Definitions
+// ============================================================================
+
+/**
+ * Base AST node interface
+ */
+interface BaseConditionAst {
+  type?: PatternType;
+}
+
+/**
+ * AST for threshold conditions: input.field > value
+ */
+interface ThresholdConditionAst extends BaseConditionAst {
+  type?: 'threshold';
+  field?: string;
+  operator?: string;
+  threshold: unknown;
+}
+
+/**
+ * AST for set membership conditions: ['a', 'b'].includes(input.field)
+ */
+interface SetMembershipConditionAst extends BaseConditionAst {
+  type?: 'set_membership';
+  field?: string;
+  values?: unknown[];
+}
+
+/**
+ * AST for exact match conditions: input.field === value
+ */
+interface ExactMatchConditionAst extends BaseConditionAst {
+  type?: 'exact_match';
+  field?: string;
+  value: unknown;
+}
+
+/**
+ * AST for compound conditions: condA && condB
+ */
+interface CompoundConditionAst extends BaseConditionAst {
+  type?: 'compound';
+  conditions?: ConditionAst[];
+  operator?: string;
+}
+
+/**
+ * Generic AST with field, operator, and value (fallback)
+ */
+interface GenericConditionAst extends BaseConditionAst {
+  field?: string;
+  operator?: string;
+  value?: unknown;
+}
+
+/**
+ * Union type for all condition AST variants
+ */
+type ConditionAst =
+  | ThresholdConditionAst
+  | SetMembershipConditionAst
+  | ExactMatchConditionAst
+  | CompoundConditionAst
+  | GenericConditionAst;
+
+// ============================================================================
+// Type Guards
+// ============================================================================
+
+function isThresholdAst(ast: ConditionAst): ast is ThresholdConditionAst {
+  return ast.type === 'threshold' || 'threshold' in ast;
+}
+
+function isSetMembershipAst(ast: ConditionAst): ast is SetMembershipConditionAst {
+  return ast.type === 'set_membership' || 'values' in ast;
+}
+
+function isExactMatchAst(ast: ConditionAst): ast is ExactMatchConditionAst {
+  return ast.type === 'exact_match' || ('value' in ast && !('operator' in ast && ast.operator));
+}
+
+function isCompoundAst(ast: ConditionAst): ast is CompoundConditionAst {
+  return ast.type === 'compound' || 'conditions' in ast;
+}
+
 /**
  * Convert a pattern to a JavaScript condition string.
  */
 export function buildConditionCode(pattern: DetectedPattern): string {
-  const ast = pattern.conditionAst as any;
+  const ast = pattern.conditionAst as ConditionAst;
 
   switch (pattern.type) {
     case 'threshold':
-      return buildThresholdCondition(ast);
+      return buildThresholdCondition(ast as ThresholdConditionAst);
     case 'set_membership':
-      return buildSetMembershipCondition(ast);
+      return buildSetMembershipCondition(ast as SetMembershipConditionAst);
     case 'compound':
-      return buildCompoundCondition(ast);
+      return buildCompoundCondition(ast as CompoundConditionAst);
     case 'exact_match':
-      return buildExactMatchCondition(ast);
+      return buildExactMatchCondition(ast as ExactMatchConditionAst);
     default:
       throw new Error(`Unknown pattern type: ${pattern.type}`);
   }
@@ -27,7 +114,7 @@ export function buildConditionCode(pattern: DetectedPattern): string {
 /**
  * Build threshold condition: input.field > value
  */
-function buildThresholdCondition(ast: any): string {
+function buildThresholdCondition(ast: ThresholdConditionAst): string {
   const field = ast.field || 'value';
   const operator = ast.operator || '>';
   const threshold = ast.threshold;
@@ -38,7 +125,7 @@ function buildThresholdCondition(ast: any): string {
 /**
  * Build set membership condition: ['a', 'b'].includes(input.field)
  */
-function buildSetMembershipCondition(ast: any): string {
+function buildSetMembershipCondition(ast: SetMembershipConditionAst): string {
   const field = ast.field || 'value';
   const values = ast.values || [];
   const valuesStr = JSON.stringify(values);
@@ -49,7 +136,7 @@ function buildSetMembershipCondition(ast: any): string {
 /**
  * Build compound condition: condA && condB
  */
-function buildCompoundCondition(ast: any): string {
+function buildCompoundCondition(ast: CompoundConditionAst): string {
   const conditions = ast.conditions || [];
   const operator = ast.operator || '&&';
 
@@ -57,21 +144,21 @@ function buildCompoundCondition(ast: any): string {
     return 'true';
   }
 
-  const conditionStrings = conditions.map((cond: any) => {
+  const conditionStrings = conditions.map((cond: ConditionAst) => {
     // Recursively build nested conditions
-    if (cond.type === 'threshold') {
-      return buildThresholdCondition(cond);
-    } else if (cond.type === 'set_membership') {
-      return buildSetMembershipCondition(cond);
-    } else if (cond.type === 'exact_match') {
-      return buildExactMatchCondition(cond);
+    if (cond.type === 'threshold' || isThresholdAst(cond)) {
+      return buildThresholdCondition(cond as ThresholdConditionAst);
+    } else if (cond.type === 'set_membership' || isSetMembershipAst(cond)) {
+      return buildSetMembershipCondition(cond as SetMembershipConditionAst);
+    } else if (cond.type === 'exact_match' || isExactMatchAst(cond)) {
+      return buildExactMatchCondition(cond as ExactMatchConditionAst);
     } else {
-      return buildConditionFromAst(cond);
+      return buildConditionFromAst(cond as GenericConditionAst);
     }
   });
 
   if (conditionStrings.length === 1) {
-    return conditionStrings[0];
+    return conditionStrings[0] ?? 'true';
   }
 
   return conditionStrings.map((c: string) => `(${c})`).join(` ${operator} `);
@@ -80,7 +167,7 @@ function buildCompoundCondition(ast: any): string {
 /**
  * Build exact match condition: input.field === value
  */
-function buildExactMatchCondition(ast: any): string {
+function buildExactMatchCondition(ast: ExactMatchConditionAst): string {
   const field = ast.field || 'value';
   const value = ast.value;
 
@@ -90,7 +177,7 @@ function buildExactMatchCondition(ast: any): string {
 /**
  * Generic AST to condition builder (fallback)
  */
-function buildConditionFromAst(ast: any): string {
+function buildConditionFromAst(ast: GenericConditionAst): string {
   if (ast.field && ast.operator && ast.value !== undefined) {
     return `input.${ast.field} ${ast.operator} ${JSON.stringify(ast.value)}`;
   }

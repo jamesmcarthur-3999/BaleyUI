@@ -55,7 +55,13 @@ export async function executeFlow(context: FlowExecutionContext): Promise<{
       const baleybot = baleybots.get(node.data.baleybotId);
       if (baleybot?.balCode) {
         try {
+          // Convert node inputs to string for BAL execution
+          const inputStr = typeof nodeInputs === 'string'
+            ? nodeInputs
+            : JSON.stringify(nodeInputs);
+
           const result = await executeBALCode(baleybot.balCode, {
+            input: inputStr,
             apiKey,
             timeout: 60000,
           });

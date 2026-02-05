@@ -2,16 +2,39 @@
  * REST API v1: Execute Flow
  *
  * POST /api/v1/flows/[id]/execute - Execute a flow with input data
+ *
+ * This endpoint triggers execution of a complete flow, which may contain
+ * multiple nodes (BaleyBots, conditions, actions, etc.) connected together.
+ * The execution runs asynchronously - use the stream endpoint to monitor progress.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { db, flows, flowExecutions, eq, and, notDeleted } from '@baleyui/db';
+import {
+  db,
+  flows,
+  flowExecutions,
+  baleybots,
+  eq,
+  and,
+  inArray,
+  notDeleted,
+} from '@baleyui/db';
 import { validateApiKey, hasPermission } from '@/lib/api/validate-api-key';
+import { createLogger } from '@/lib/logger';
+import { executeFlow } from '@/lib/flow-executor';
+import type { FlowNode, FlowEdge } from '@/lib/types';
+
+const log = createLogger('v1-flows-execute');
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  let executionId: string | null = null;
+
   try {
     // Validate API key
     const authHeader = request.headers.get('authorization');
@@ -42,18 +65,12 @@ export async function POST(
     });
 
     if (!flow) {
-      return NextResponse.json(
-        { error: 'Flow not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Flow not found' }, { status: 404 });
     }
 
     // Check if flow is enabled
     if (!flow.enabled) {
-      return NextResponse.json(
-        { error: 'Flow is disabled' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Flow is disabled' }, { status: 400 });
     }
 
     // Create a new flow execution record
@@ -80,32 +97,162 @@ export async function POST(
       );
     }
 
-    // TODO: Integrate with BaleyBots execution engine to actually run the flow
-    // For now, we just create the execution record
+    executionId = execution.id;
+
+    // Extract BaleyBot IDs from flow nodes
+    const nodes = (flow.nodes || []) as FlowNode[];
+    const edges = (flow.edges || []) as FlowEdge[];
+    const baleybotIds = nodes
+      .filter((n) => n.type === 'baleybot' && n.data?.baleybotId)
+      .map((n) => n.data?.baleybotId as string)
+      .filter((id): id is string => id !== undefined);
+
+    // Fetch all referenced baleybots
+    const baleybotMap = new Map<string, { balCode: string }>();
+    if (baleybotIds.length > 0) {
+      const fetchedBaleybots = await db.query.baleybots.findMany({
+        where: and(
+          inArray(baleybots.id, baleybotIds),
+          eq(baleybots.workspaceId, validation.workspaceId),
+          notDeleted(baleybots)
+        ),
+        columns: {
+          id: true,
+          balCode: true,
+        },
+      });
+      for (const bot of fetchedBaleybots) {
+        if (bot.balCode) {
+          baleybotMap.set(bot.id, { balCode: bot.balCode });
+        }
+      }
+    }
+
+    // Update execution status to running
+    await db
+      .update(flowExecutions)
+      .set({ status: 'running' })
+      .where(eq(flowExecutions.id, executionId));
+
+    log.info('Starting flow execution', {
+      executionId,
+      flowId,
+      nodeCount: nodes.length,
+      baleybotCount: baleybotMap.size,
+    });
+
+    // Execute the flow asynchronously
+    // We don't await this - the caller can use the stream endpoint to monitor
+    executeFlowAsync(
+      executionId,
+      flowId,
+      nodes,
+      edges,
+      input,
+      baleybotMap
+    ).catch((error) => {
+      log.error('Flow execution error (async)', { executionId, flowId, error });
+    });
 
     return NextResponse.json({
       workspaceId: validation.workspaceId,
-      executionId: execution.id,
-      flowId: execution.flowId,
-      status: execution.status,
-      message: 'Flow execution started successfully',
+      executionId,
+      flowId,
+      status: 'running',
+      message: 'Flow execution started. Use the stream endpoint to monitor progress.',
+      streamUrl: `/api/v1/executions/${executionId}/stream`,
     });
   } catch (error) {
-    console.error('Failed to execute flow:', error);
+    log.error('Failed to execute flow', { error, executionId });
 
-    if (error instanceof Error && error.message.includes('API key')) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 401 }
-      );
+    // Update execution as failed if we have an execution ID
+    if (executionId) {
+      await db
+        .update(flowExecutions)
+        .set({
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          completedAt: new Date(),
+        })
+        .where(eq(flowExecutions.id, executionId));
     }
 
+    if (error instanceof Error && error.message.includes('API key')) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+
+    const isDev = process.env.NODE_ENV === 'development';
     return NextResponse.json(
       {
         error: 'Failed to execute flow',
-        details: error instanceof Error ? error.message : 'Unknown error',
+        ...(isDev ? { details: error instanceof Error ? error.message : 'Unknown error' } : {}),
+        executionId,
       },
       { status: 500 }
     );
+  }
+}
+
+/**
+ * Execute the flow asynchronously and update the execution record when complete
+ */
+async function executeFlowAsync(
+  executionId: string,
+  flowId: string,
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+  input: unknown,
+  baleybotMap: Map<string, { balCode: string }>
+): Promise<void> {
+  const startTime = Date.now();
+
+  try {
+    // Execute the flow
+    const result = await executeFlow({
+      flowId,
+      executionId,
+      nodes: nodes as Parameters<typeof executeFlow>[0]['nodes'],
+      edges: edges as Parameters<typeof executeFlow>[0]['edges'],
+      input,
+      apiKey: process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY || '',
+      baleybots: baleybotMap,
+    });
+
+    // Update execution with result
+    await db
+      .update(flowExecutions)
+      .set({
+        status: result.status === 'success' ? 'completed' : 'failed',
+        output: result.outputs,
+        error: result.error || null,
+        completedAt: new Date(),
+      })
+      .where(eq(flowExecutions.id, executionId));
+
+    log.info('Flow execution completed', {
+      executionId,
+      flowId,
+      status: result.status,
+      durationMs: Date.now() - startTime,
+    });
+  } catch (error) {
+    // Update execution as failed
+    await db
+      .update(flowExecutions)
+      .set({
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+        completedAt: new Date(),
+      })
+      .where(eq(flowExecutions.id, executionId));
+
+    log.error('Flow execution failed', {
+      executionId,
+      flowId,
+      error: error instanceof Error ? error.message : String(error),
+      durationMs: Date.now() - startTime,
+    });
+
+    throw error;
   }
 }

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
 import { Loader2, CloudOff, Wifi } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -54,24 +53,14 @@ export function SkeletonBlock({ lines = 3, animated = true, className }: Skeleto
   return (
     <div className={cn('space-y-2', className)}>
       {Array.from({ length: lines }).map((_, i) => (
-        <motion.div
+        <div
           key={i}
           className={cn(
             'h-4 rounded bg-muted',
-            i === lines - 1 && 'w-3/4' // Last line shorter
+            i === lines - 1 && 'w-3/4', // Last line shorter
+            animated && 'animate-skeleton-pulse'
           )}
-          animate={
-            animated
-              ? {
-                  opacity: [0.5, 1, 0.5],
-                }
-              : undefined
-          }
-          transition={{
-            duration: 1.5,
-            repeat: Infinity,
-            delay: i * 0.1,
-          }}
+          style={animated ? { animationDelay: `${i * 100}ms` } : undefined}
         />
       ))}
     </div>
@@ -94,12 +83,10 @@ export function NetworkStatus({ isOffline, isReconnecting, className }: NetworkS
   if (!isOffline && !isReconnecting) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
+    <div
       className={cn(
         'flex items-center gap-2 px-3 py-2 rounded-lg text-sm',
+        'animate-slide-down',
         isOffline
           ? 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400'
           : 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400',
@@ -117,7 +104,7 @@ export function NetworkStatus({ isOffline, isReconnecting, className }: NetworkS
           <span>Reconnecting...</span>
         </>
       )}
-    </motion.div>
+    </div>
   );
 }
 
@@ -165,15 +152,10 @@ export function LoadingDots({ className }: { className?: string }) {
   return (
     <span className={cn('inline-flex gap-1', className)}>
       {[0, 1, 2].map((i) => (
-        <motion.span
+        <span
           key={i}
-          className="w-1.5 h-1.5 rounded-full bg-current"
-          animate={{ opacity: [0.3, 1, 0.3] }}
-          transition={{
-            duration: 1,
-            repeat: Infinity,
-            delay: i * 0.2,
-          }}
+          className="w-1.5 h-1.5 rounded-full bg-current animate-loading-dot"
+          style={{ animationDelay: `${i * 200}ms` }}
         />
       ))}
     </span>

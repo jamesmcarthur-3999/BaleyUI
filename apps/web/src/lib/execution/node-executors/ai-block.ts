@@ -23,6 +23,9 @@ import { createProviderError, TimeoutError } from '../errors';
 import { routeExecution, type ExecutionMode } from '../mode-router';
 import { canHandleWithCode } from '../pattern-matcher';
 import { trackFallback, trackCodeExecution, trackABTestExecution } from '../fallback-tracker';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('ai-block');
 
 /**
  * Get the BaleyBots model configuration for a connection
@@ -109,7 +112,7 @@ async function executeGeneratedCode(code: string, input: unknown): Promise<unkno
           clearTimeout(timeoutId);
           reject(new Error(`Code execution failed: ${error.message}`));
         });
-    } catch (error) {
+    } catch (error: unknown) {
       clearTimeout(timeoutId);
       reject(new Error(`Code execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`));
     }
@@ -167,9 +170,9 @@ export const aiBlockExecutor: NodeExecutor = {
         }
 
         return result;
-      } catch (error) {
+      } catch (error: unknown) {
         // Code execution failed, fall back to AI
-        console.error('Code execution failed, falling back to AI:', error);
+        logger.error('Code execution failed, falling back to AI', error);
 
         await trackFallback({
           blockId: block.id,
@@ -282,7 +285,7 @@ export const aiBlockExecutor: NodeExecutor = {
       );
 
       return result;
-    } catch (error) {
+    } catch (error: unknown) {
       // Convert unknown errors to typed provider errors
       throw createProviderError(providerName, error, {
         nodeId: node.nodeId,

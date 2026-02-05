@@ -148,3 +148,36 @@ export const logger = {
 };
 
 export type { Logger, LogLevel, LogEntry };
+
+/**
+ * Extract a human-readable error message from an unknown error.
+ *
+ * This standardizes error message extraction across the codebase,
+ * replacing inconsistent patterns like:
+ *   - `error instanceof Error ? error.message : String(error)`
+ *   - `error?.message || 'Unknown error'`
+ *
+ * @param error - The unknown error to extract a message from
+ * @param fallback - Optional fallback message (default: 'Unknown error')
+ * @returns A human-readable error message
+ *
+ * @example
+ * try {
+ *   await someOperation();
+ * } catch (error) {
+ *   logger.error('Operation failed', error);
+ *   return { error: extractErrorMessage(error) };
+ * }
+ */
+export function extractErrorMessage(error: unknown, fallback = 'Unknown error'): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return fallback;
+}

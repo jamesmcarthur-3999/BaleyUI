@@ -90,6 +90,8 @@ export {
   canExecute,
   getEntityNames,
   getStructure,
+  getPreferredProvider,
+  balParseCache, // PERF-008: Export for cache management and testing
   type ExecutorContext,
   type RuntimeToolDefinition,
 } from './executor';

@@ -187,7 +187,7 @@ describe('BaleyUI Client', () => {
         json: async () => ({}),
       });
 
-      const error = await client.request('/test').catch((e) => e);
+      const error = await client.request('/test').catch((e) => e) as RateLimitError;
       expect(error).toBeInstanceOf(RateLimitError);
       expect(error.retryAfter).toBe(60);
     });
@@ -200,7 +200,7 @@ describe('BaleyUI Client', () => {
         json: async () => ({ error: 'Server error' }),
       });
 
-      const error = await client.request('/test').catch((e) => e);
+      const error = await client.request('/test').catch((e) => e) as BaleyUIError;
       expect(error).toBeInstanceOf(BaleyUIError);
       expect(error.statusCode).toBe(500);
     });

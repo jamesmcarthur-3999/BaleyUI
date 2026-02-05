@@ -13,6 +13,26 @@ import {
   balToSchemaFields,
 } from './schema-utils';
 
+/**
+ * Shallow equality check for BAL schemas.
+ * More efficient than JSON.stringify for small schemas.
+ */
+function areBALSchemasEqual(
+  a: Record<string, string>,
+  b: Record<string, string>
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+
+  if (aKeys.length !== bKeys.length) return false;
+
+  for (const key of aKeys) {
+    if (a[key] !== b[key]) return false;
+  }
+
+  return true;
+}
+
 interface SchemaBuilderProps {
   /** The BAL output schema as a Record<string, string> */
   value: Record<string, string>;
@@ -51,10 +71,11 @@ export function SchemaBuilder({
     // Only update if the serialized form is different to avoid infinite loops
     const currentBAL = schemaFieldsToBAL(fields);
     const newBAL = schemaFieldsToBAL(newFields);
-    if (JSON.stringify(currentBAL) !== JSON.stringify(newBAL)) {
+    // Use efficient shallow comparison instead of JSON.stringify
+    if (!areBALSchemasEqual(currentBAL, newBAL)) {
       setFields(newFields);
     }
-  }, [value]);
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps -- `fields` intentionally excluded to avoid infinite loop
 
   /**
    * Notify parent of schema changes

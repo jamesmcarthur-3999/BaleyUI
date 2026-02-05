@@ -9,6 +9,13 @@
  */
 
 import type { BaleybotStreamEvent } from './types';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('streaming-adapter');
+
+// Pre-compiled regexes for performance (avoid recompilation per chunk)
+const SSE_EVENT_SEPARATOR = /\r?\n\r?\n/;
+const SSE_DATA_LINE = /^data:\s*(.+)$/m;
 
 // ============================================================================
 // AI SDK Event Types (what we convert TO)
@@ -83,6 +90,28 @@ export function convertBaleybotEvent(event: BaleybotStreamEvent): AISDKStreamEve
         }],
       };
 
+    // NEW: Handle tool_call_stream_delta (alternative format for streaming tool arguments)
+    case 'tool_call_stream_delta':
+      return {
+        type: 'tool-input-delta',
+        toolCallId: event.id,
+        inputTextDelta: event.delta,
+      };
+
+    // NEW: Handle tool_call_stream_output (streaming tool output)
+    case 'tool_call_stream_output':
+      return {
+        type: 'data',
+        data: [{ toolStreamOutput: { id: event.id, output: event.output } }],
+      };
+
+    // NEW: Handle tool_call_stream_error (tool streaming error)
+    case 'tool_call_stream_error':
+      return {
+        type: 'error',
+        error: `Tool stream error (${event.id}): ${event.error?.message || 'Unknown error'}`,
+      };
+
     case 'error':
       const errorMessage = event.error instanceof Error
         ? event.error.message
@@ -139,21 +168,35 @@ function formatSSE(event: AISDKStreamEvent): string {
 export function createBaleybotToAISDKStream(): TransformStream<Uint8Array, Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
-  let buffer = '';
+  // Array-based buffering for performance (avoids O(n^2) string concatenation)
+  const chunks: string[] = [];
+  let lastEmitTime = Date.now();
+  const HEARTBEAT_INTERVAL_MS = 15000;
 
   return new TransformStream({
     transform(chunk, controller) {
-      buffer += decoder.decode(chunk, { stream: true });
+      chunks.push(decoder.decode(chunk, { stream: true }));
+      const buffer = chunks.join('');
+      chunks.length = 0;
 
-      // Split on double newlines (SSE event separator)
-      const parts = buffer.split(/\r?\n\r?\n/);
-      buffer = parts.pop() || '';
+      // Send heartbeat if no data emitted for 15s (prevents proxy/browser timeouts)
+      const now = Date.now();
+      if (now - lastEmitTime > HEARTBEAT_INTERVAL_MS) {
+        controller.enqueue(encoder.encode(': heartbeat\n\n'));
+        lastEmitTime = now;
+      }
+
+      // Split on double newlines (SSE event separator) - using pre-compiled regex
+      const parts = buffer.split(SSE_EVENT_SEPARATOR);
+      // Push remainder back into chunks buffer
+      const remainder = parts.pop() || '';
+      if (remainder) chunks.push(remainder);
 
       for (const part of parts) {
         if (!part.trim()) continue;
 
-        // Parse the SSE event
-        const dataMatch = part.match(/^data:\s*(.+)$/m);
+        // Parse the SSE event - using pre-compiled regex
+        const dataMatch = part.match(SSE_DATA_LINE);
         if (!dataMatch) continue;
 
         const data = dataMatch[1];
@@ -175,17 +218,24 @@ export function createBaleybotToAISDKStream(): TransformStream<Uint8Array, Uint8
           const aiEvent = convertBaleybotEvent(baleyEvent);
           if (aiEvent) {
             controller.enqueue(encoder.encode(formatSSE(aiEvent)));
+            lastEmitTime = Date.now();
           }
-        } catch {
-          // Skip malformed events
+        } catch (error) {
+          // Log malformed events instead of silently swallowing
+          logger.warn('Failed to parse BaleyBot stream event', {
+            error: error instanceof Error ? error.message : String(error),
+            data: data?.slice(0, 200), // Truncate for logging
+          });
         }
       }
     },
 
     flush(controller) {
       // Process any remaining buffer
+      const buffer = chunks.join('');
+      chunks.length = 0;
       if (buffer.trim()) {
-        const dataMatch = buffer.match(/^data:\s*(.+)$/m);
+        const dataMatch = buffer.match(SSE_DATA_LINE);
         const data = dataMatch?.[1];
         if (data && data !== '[DONE]') {
           try {
@@ -195,8 +245,12 @@ export function createBaleybotToAISDKStream(): TransformStream<Uint8Array, Uint8
             if (aiEvent) {
               controller.enqueue(encoder.encode(formatSSE(aiEvent)));
             }
-          } catch {
-            // Ignore
+          } catch (error) {
+            // Log flush errors instead of silently ignoring
+            logger.warn('Failed to parse remaining buffer during stream flush', {
+              error: error instanceof Error ? error.message : String(error),
+              buffer: buffer?.slice(0, 200), // Truncate for logging
+            });
           }
         }
       }
@@ -266,7 +320,7 @@ export function createAISDKStreamFromEvents(
         }
         controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         controller.close();
-      } catch (error) {
+      } catch (error: unknown) {
         controller.error(error);
       }
     },

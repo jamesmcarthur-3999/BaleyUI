@@ -41,8 +41,10 @@ export {
 // Web Search
 export {
   createWebSearchService,
+  configureWebSearch,
+  getWebSearchService,
   type WebSearchService,
-  type WebSearchConfig,
+  type WebSearchServiceConfig,
   type SearchResult,
 } from './web-search-service';
 
@@ -61,6 +63,14 @@ export {
   type EphemeralToolService,
   type EphemeralToolConfig,
 } from './ephemeral-tool-service';
+
+// AI Credentials
+export {
+  getWorkspaceAICredentials,
+  hasAIConnection,
+  type AICredentials,
+  type AIProviderType,
+} from './ai-credentials-service';
 
 // ============================================================================
 // SERVICE INITIALIZATION

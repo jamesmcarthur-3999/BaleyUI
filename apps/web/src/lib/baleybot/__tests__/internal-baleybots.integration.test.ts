@@ -102,24 +102,28 @@ describe('internal-baleybots integration', () => {
 
     it('each bot has required properties', () => {
       for (const [name, def] of Object.entries(INTERNAL_BALEYBOTS)) {
-        expect(def.name).toBe(name);
-        expect(typeof def.description).toBe('string');
-        expect(typeof def.icon).toBe('string');
-        expect(typeof def.balCode).toBe('string');
-        expect(def.balCode).toContain(name); // BAL code contains entity name
+        expect(def).toBeDefined();
+        if (def) {
+          expect(def.name).toBe(name);
+          expect(typeof def.description).toBe('string');
+          expect(typeof def.icon).toBe('string');
+          expect(typeof def.balCode).toBe('string');
+          expect(def.balCode).toContain(name); // BAL code contains entity name
+        }
       }
     });
 
     it('creator_bot has proper BAL structure', () => {
       const def = INTERNAL_BALEYBOTS.creator_bot;
-      expect(def.balCode).toContain('"goal"');
-      expect(def.balCode).toContain('"model"');
-      expect(def.balCode).toContain('"output"');
+      expect(def).toBeDefined();
+      expect(def!.balCode).toContain('"goal"');
+      expect(def!.balCode).toContain('"model"');
+      expect(def!.balCode).toContain('"output"');
     });
 
     it('SQL bots are configured for different databases', () => {
-      expect(INTERNAL_BALEYBOTS.nl_to_sql_postgres.balCode).toContain('PostgreSQL');
-      expect(INTERNAL_BALEYBOTS.nl_to_sql_mysql.balCode).toContain('MySQL');
+      expect(INTERNAL_BALEYBOTS.nl_to_sql_postgres!.balCode).toContain('PostgreSQL');
+      expect(INTERNAL_BALEYBOTS.nl_to_sql_mysql!.balCode).toContain('MySQL');
     });
   });
 

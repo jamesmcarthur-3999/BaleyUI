@@ -72,6 +72,29 @@ export const ROUTES = {
     approvals: '/dashboard/settings/approvals',
   },
 
+  // Tools
+  tools: {
+    list: '/dashboard/tools',
+  },
+
+  // Notifications
+  notifications: {
+    list: '/dashboard/notifications',
+  },
+
+  // Scheduled Tasks
+  scheduledTasks: {
+    list: '/dashboard/scheduled-tasks',
+  },
+
+  // Connections
+  connections: {
+    list: '/dashboard/connections',
+  },
+
+  // Companion
+  companion: '/dashboard/companion',
+
   // Auth
   auth: {
     signIn: '/sign-in',

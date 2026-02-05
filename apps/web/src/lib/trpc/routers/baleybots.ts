@@ -325,7 +325,8 @@ export const baleybotsRouter = router({
         });
       }
 
-      const deleted = await softDelete(baleybots, input.id, ctx.userId);
+      // API key auth has null userId - use fallback for audit trail
+      const deleted = await softDelete(baleybots, input.id, ctx.userId ?? 'system:api-key');
 
       return deleted;
     }),
@@ -433,10 +434,9 @@ export const baleybotsRouter = router({
         });
       }
 
-      // Use a transaction to ensure atomicity of all database operations
-      return await ctx.db.transaction(async (tx) => {
-        // Create execution record
-        const [execution] = await tx
+      // Create execution record and update count in a transaction
+      const execution = await ctx.db.transaction(async (tx) => {
+        const [exec] = await tx
           .insert(baleybotExecutions)
           .values({
             baleybotId: input.id,
@@ -448,7 +448,7 @@ export const baleybotsRouter = router({
           })
           .returning();
 
-        if (!execution) {
+        if (!exec) {
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
             message: 'Failed to create execution record',
@@ -465,141 +465,142 @@ export const baleybotsRouter = router({
           })
           .where(eq(baleybots.id, input.id));
 
-        // Execute the BAL code using @baleyui/sdk
-        const startTime = Date.now();
-        try {
-          // Update status to running
-          await tx
-            .update(baleybotExecutions)
-            .set({ status: 'running', startedAt: new Date() })
-            .where(eq(baleybotExecutions.id, execution.id));
+        return exec;
+      });
 
-          // Get preferred provider from BAL code (respects model specified in entities)
-          const preferredProvider = getPreferredProvider(baleybot.balCode);
+      // Execute the BAL code outside the transaction so failure status updates persist
+      const startTime = Date.now();
+      try {
+        // Update status to running
+        await ctx.db
+          .update(baleybotExecutions)
+          .set({ status: 'running', startedAt: new Date() })
+          .where(eq(baleybotExecutions.id, execution.id));
 
-          // Get AI credentials from workspace connections, matching the BAL code's provider
-          const credentials = await getWorkspaceAICredentials(ctx.workspace.id, preferredProvider);
-          if (!credentials) {
-            throw new TRPCError({
-              code: 'PRECONDITION_FAILED',
-              message: preferredProvider
-                ? `No ${preferredProvider} provider configured for this workspace. Please add an ${preferredProvider === 'openai' ? 'OpenAI' : 'Anthropic'} connection in Settings.`
-                : 'No AI provider configured for this workspace. Please add an OpenAI or Anthropic connection in Settings.',
-            });
-          }
+        // Get preferred provider from BAL code (respects model specified in entities)
+        const preferredProvider = getPreferredProvider(baleybot.balCode);
 
-          // Configure web search if Tavily key is available
-          if (process.env.TAVILY_API_KEY) {
-            configureWebSearch(process.env.TAVILY_API_KEY);
-          }
-
-          // Initialize built-in tool services (spawn, notify, schedule, memory)
-          initializeBuiltInToolServices();
-
-          // Build tool context for this execution
-          const toolCtx: BuiltInToolContext = {
-            workspaceId: ctx.workspace.id,
-            baleybotId: input.id,
-            executionId: execution.id,
-            userId: ctx.userId!,
-          };
-
-          // Get built-in runtime tools with implementations
-          const runtimeTools = getBuiltInRuntimeTools(toolCtx);
-
-          // Convert to format expected by SDK
-          const availableTools: Record<string, {
-            name: string;
-            description: string;
-            inputSchema: Record<string, unknown>;
-            function: (args: Record<string, unknown>) => Promise<unknown>;
-          }> = {};
-
-          for (const [name, tool] of runtimeTools.entries()) {
-            availableTools[name] = {
-              name: tool.name,
-              description: tool.description,
-              inputSchema: tool.inputSchema,
-              function: tool.function,
-            };
-          }
-
-          log.info('Loaded tools for execution', {
-            executionId: execution.id,
-            tools: Object.keys(availableTools),
-          });
-
-          // Execute the BAL code with the provided input and available tools
-          // Don't override model - let BAL code's model specification take precedence
-          const inputStr = input.input ? JSON.stringify(input.input) : undefined;
-          const result = await executeBALCode(baleybot.balCode, {
-            input: inputStr,
-            apiKey: credentials.apiKey,
-            timeout: 60000, // 60 second timeout
-            availableTools,
-          });
-
-          const duration = Date.now() - startTime;
-
-          log.info('Baleybot execution completed', {
-            baleybotId: input.id,
-            executionId: execution.id,
-            status: result.status,
-            durationMs: duration,
-          });
-
-          // Update execution with result
-          await tx
-            .update(baleybotExecutions)
-            .set({
-              status: result.status === 'success' ? 'completed' : result.status === 'cancelled' ? 'cancelled' : 'failed',
-              output: result.result,
-              error: result.error,
-              completedAt: new Date(),
-              durationMs: duration,
-            })
-            .where(eq(baleybotExecutions.id, execution.id));
-
-          // Return updated execution
-          const updatedExecution = await tx.query.baleybotExecutions.findFirst({
-            where: eq(baleybotExecutions.id, execution.id),
-          });
-
-          return updatedExecution || execution;
-        } catch (error) {
-          const duration = Date.now() - startTime;
-          const internalErrorMessage = error instanceof Error ? error.message : String(error);
-
-          log.error('Baleybot execution failed', {
-            error: error instanceof Error ? error.message : String(error),
-            baleybotId: input.id,
-            executionId: execution.id,
-            durationMs: duration,
-          });
-
-          // Update execution with error (store full error internally)
-          // This will be committed even though we throw, because we want to record the failure
-          await tx
-            .update(baleybotExecutions)
-            .set({
-              status: 'failed',
-              error: internalErrorMessage,
-              completedAt: new Date(),
-              durationMs: duration,
-            })
-            .where(eq(baleybotExecutions.id, execution.id));
-
-          // Sanitize error message before sending to client
-          const errorMessage = isUserFacingError(error)
-            ? sanitizeErrorMessage(error)
-            : 'Execution failed due to an internal error';
-
+        // Get AI credentials from workspace connections, matching the BAL code's provider
+        const credentials = await getWorkspaceAICredentials(ctx.workspace.id, preferredProvider);
+        if (!credentials) {
           throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: errorMessage,
+            code: 'PRECONDITION_FAILED',
+            message: preferredProvider
+              ? `No ${preferredProvider} provider configured for this workspace. Please add an ${preferredProvider === 'openai' ? 'OpenAI' : 'Anthropic'} connection in Settings.`
+              : 'No AI provider configured for this workspace. Please add an OpenAI or Anthropic connection in Settings.',
           });
         }
-      });
+
+        // Configure web search if Tavily key is available
+        if (process.env.TAVILY_API_KEY) {
+          configureWebSearch(process.env.TAVILY_API_KEY);
+        }
+
+        // Initialize built-in tool services (spawn, notify, schedule, memory)
+        initializeBuiltInToolServices();
+
+        // Build tool context for this execution
+        const toolCtx: BuiltInToolContext = {
+          workspaceId: ctx.workspace.id,
+          baleybotId: input.id,
+          executionId: execution.id,
+          userId: ctx.userId!,
+        };
+
+        // Get built-in runtime tools with implementations
+        const runtimeTools = getBuiltInRuntimeTools(toolCtx);
+
+        // Convert to format expected by SDK
+        const availableTools: Record<string, {
+          name: string;
+          description: string;
+          inputSchema: Record<string, unknown>;
+          function: (args: Record<string, unknown>) => Promise<unknown>;
+        }> = {};
+
+        for (const [name, tool] of runtimeTools.entries()) {
+          availableTools[name] = {
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+            function: tool.function,
+          };
+        }
+
+        log.info('Loaded tools for execution', {
+          executionId: execution.id,
+          tools: Object.keys(availableTools),
+        });
+
+        // Execute the BAL code with the provided input and available tools
+        // Don't override model - let BAL code's model specification take precedence
+        const inputStr = input.input ? JSON.stringify(input.input) : undefined;
+        const result = await executeBALCode(baleybot.balCode, {
+          input: inputStr,
+          apiKey: credentials.apiKey,
+          timeout: 60000, // 60 second timeout
+          availableTools,
+        });
+
+        const duration = Date.now() - startTime;
+
+        log.info('Baleybot execution completed', {
+          baleybotId: input.id,
+          executionId: execution.id,
+          status: result.status,
+          durationMs: duration,
+        });
+
+        // Update execution with result
+        await ctx.db
+          .update(baleybotExecutions)
+          .set({
+            status: result.status === 'success' ? 'completed' : result.status === 'cancelled' ? 'cancelled' : 'failed',
+            output: result.result,
+            error: result.error,
+            completedAt: new Date(),
+            durationMs: duration,
+          })
+          .where(eq(baleybotExecutions.id, execution.id));
+
+        // Return updated execution
+        const updatedExecution = await ctx.db.query.baleybotExecutions.findFirst({
+          where: eq(baleybotExecutions.id, execution.id),
+        });
+
+        return updatedExecution || execution;
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        const internalErrorMessage = error instanceof Error ? error.message : String(error);
+
+        log.error('Baleybot execution failed', {
+          error: error instanceof Error ? error.message : String(error),
+          baleybotId: input.id,
+          executionId: execution.id,
+          durationMs: duration,
+        });
+
+        // Update execution with error OUTSIDE transaction so it persists
+        await ctx.db
+          .update(baleybotExecutions)
+          .set({
+            status: 'failed',
+            error: internalErrorMessage,
+            completedAt: new Date(),
+            durationMs: duration,
+          })
+          .where(eq(baleybotExecutions.id, execution.id));
+
+        // Sanitize error message before sending to client
+        const errorMessage = isUserFacingError(error)
+          ? sanitizeErrorMessage(error)
+          : 'Execution failed due to an internal error';
+
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: errorMessage,
+        });
+      }
     }),
 
   /**

@@ -8,6 +8,9 @@
 import { db, tools, baleybots, eq, and, sql } from '@baleyui/db';
 import type { EphemeralAgentConfig } from './ephemeral-agent-service';
 import type { EphemeralToolConfig } from './ephemeral-tool-service';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('promotion-service');
 
 // ============================================================================
 // TYPES
@@ -103,9 +106,11 @@ async function execute(args) {
     })
     .returning({ id: tools.id });
 
-  console.log(
-    `[promotion-service] Promoted ephemeral tool "${toolConfig.name}" to workspace tool "${name}" (id: ${promotedTool!.id})`
-  );
+  log.info(`Promoted ephemeral tool "${toolConfig.name}" to workspace tool "${name}"`, {
+    toolId: promotedTool!.id,
+    originalName: toolConfig.name,
+    newName: name,
+  });
 
   return {
     success: true,
@@ -173,9 +178,11 @@ ${modelLine}${toolsList}}`;
     })
     .returning({ id: baleybots.id });
 
-  console.log(
-    `[promotion-service] Promoted ephemeral agent "${agentConfig.name}" to BaleyBot "${name}" (id: ${promotedBot!.id})`
-  );
+  log.info(`Promoted ephemeral agent "${agentConfig.name}" to BaleyBot "${name}"`, {
+    baleybotId: promotedBot!.id,
+    originalName: agentConfig.name,
+    newName: name,
+  });
 
   return {
     success: true,

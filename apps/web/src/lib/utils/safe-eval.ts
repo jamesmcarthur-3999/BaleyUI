@@ -15,6 +15,12 @@
  * @module safe-eval
  */
 
+// TODO: STYLE-002 - This file is over 600 lines (~824 lines). Consider splitting into:
+// - safe-eval/tokenizer.ts (tokenization logic)
+// - safe-eval/parser.ts (AST parsing)
+// - safe-eval/evaluator.ts (expression evaluation)
+// - safe-eval/index.ts (public API)
+
 /**
  * Forbidden patterns that indicate potentially malicious expressions
  */

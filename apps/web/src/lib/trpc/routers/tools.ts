@@ -177,7 +177,8 @@ export const toolsRouter = router({
         });
       }
 
-      await softDelete(tools, input.id, ctx.userId!);
+      // API key auth has null userId - use fallback for audit trail
+      await softDelete(tools, input.id, ctx.userId ?? 'system:api-key');
 
       return { success: true };
     }),

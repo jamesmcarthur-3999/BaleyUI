@@ -36,10 +36,11 @@ import type { ExecutionEvent } from '../types';
 /**
  * Create a mock ExecutionEvent for testing.
  * Uses minimal properties since we're testing the emitter, not the event structure.
+ * Always includes timestamp since recordToEvent validates this.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mockEvent(type: string, props: Record<string, unknown> = {}): any {
-  return { type, ...props };
+  return { type, timestamp: Date.now(), ...props };
 }
 
 describe('ExecutionEventEmitter', () => {
@@ -144,9 +145,10 @@ describe('ExecutionEventEmitter', () => {
   describe('replay', () => {
     it('should replay events from index', async () => {
       const { db } = await import('@baleyui/db');
+      const ts = Date.now();
       const mockEvents = [
-        { index: 5, eventData: { type: 'node_start', nodeId: 'node-1' } },
-        { index: 6, eventData: { type: 'node_complete', nodeId: 'node-1' } },
+        { index: 5, eventData: { type: 'node_start', nodeId: 'node-1', timestamp: ts } },
+        { index: 6, eventData: { type: 'node_complete', nodeId: 'node-1', timestamp: ts + 100 } },
       ];
 
       vi.mocked(db.query.executionEvents.findMany).mockResolvedValue(
@@ -157,7 +159,7 @@ describe('ExecutionEventEmitter', () => {
       const events = await emitter.replay(5);
 
       expect(events).toHaveLength(2);
-      expect(events[0]).toEqual({ type: 'node_start', nodeId: 'node-1' });
+      expect(events[0]).toMatchObject({ type: 'node_start', nodeId: 'node-1' });
     });
 
     it('should return empty array without blockExecutionId', async () => {
@@ -169,11 +171,12 @@ describe('ExecutionEventEmitter', () => {
 
     it('should filter invalid event data', async () => {
       const { db } = await import('@baleyui/db');
+      const ts = Date.now();
       const mockEvents = [
-        { index: 0, eventData: { type: 'node_start', nodeId: 'node-1' } },
+        { index: 0, eventData: { type: 'node_start', nodeId: 'node-1', timestamp: ts } },
         { index: 1, eventData: null }, // Invalid
         { index: 2, eventData: 'not an object' }, // Invalid
-        { index: 3, eventData: { type: 'node_complete', nodeId: 'node-1' } },
+        { index: 3, eventData: { type: 'node_complete', nodeId: 'node-1', timestamp: ts + 100 } },
       ];
 
       vi.mocked(db.query.executionEvents.findMany).mockResolvedValue(

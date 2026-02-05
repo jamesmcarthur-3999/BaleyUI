@@ -22,6 +22,9 @@
  */
 
 import { z } from 'zod';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('analytics/schema-parser');
 
 // ============================================================================
 // TYPES
@@ -177,7 +180,7 @@ export function extractAnalyticsFromBAL(balCode: string): AnalyticsSchema | null
 
     return parseAnalyticsSchema(config);
   } catch (error) {
-    console.error('[analytics] Failed to parse analytics block:', error);
+    logger.error('Failed to parse analytics block', error);
     return null;
   }
 }

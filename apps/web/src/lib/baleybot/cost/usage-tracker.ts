@@ -6,6 +6,9 @@
  */
 
 import { db, baleybotUsage, baleybotExecutions, eq, and, gte, lte, desc, sql } from '@baleyui/db';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('usage-tracker');
 
 // ============================================================================
 // TYPES
@@ -111,10 +114,11 @@ export async function recordUsage(usage: UsageRecord): Promise<string> {
     })
     .returning({ id: baleybotUsage.id });
 
-  console.log(
-    `[usage-tracker] Recorded usage for BB ${usage.baleybotId}: ` +
-      `${usage.tokenInput + usage.tokenOutput} tokens, $${estimatedCost.toFixed(6)} estimated`
-  );
+  log.debug(`Recorded usage for BB ${usage.baleybotId}`, {
+    baleybotId: usage.baleybotId,
+    tokens: usage.tokenInput + usage.tokenOutput,
+    estimatedCost: `$${estimatedCost.toFixed(6)}`,
+  });
 
   return record!.id;
 }
@@ -171,7 +175,7 @@ export async function recordUsageFromExecution(
 
   // Don't record if no usage data
   if (tokenInput === 0 && tokenOutput === 0 && apiCalls === 0 && toolCalls === 0) {
-    console.log(`[usage-tracker] No usage data found for execution ${executionId}`);
+    log.debug(`No usage data found for execution ${executionId}`);
     return null;
   }
 

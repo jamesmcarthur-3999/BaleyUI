@@ -25,6 +25,43 @@ export const WEB_SEARCH_SCHEMA = {
       minimum: 1,
       maximum: 20,
     },
+    // NEW: Expose @baleybots/tools features
+    search_depth: {
+      type: 'string',
+      enum: ['basic', 'advanced'],
+      description: 'Search depth: basic (faster) or advanced (more relevant)',
+      default: 'basic',
+    },
+    topic: {
+      type: 'string',
+      enum: ['general', 'news'],
+      description: 'Topic category: general or news for real-time updates',
+    },
+    time_range: {
+      type: 'string',
+      enum: ['day', 'week', 'month', 'year'],
+      description: 'Filter results by publish date',
+    },
+    include_answer: {
+      type: 'boolean',
+      description: 'Include AI-generated answer summarizing search results',
+      default: false,
+    },
+    include_images: {
+      type: 'boolean',
+      description: 'Include image results',
+      default: false,
+    },
+    include_domains: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Only search these specific domains',
+    },
+    exclude_domains: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Exclude these domains from results',
+    },
   },
   required: ['query'],
 } as const;

@@ -64,6 +64,7 @@ export default function BaleybotsListPage() {
                   description={bb.description}
                   icon={bb.icon}
                   status={bb.status as 'draft' | 'active' | 'paused' | 'error'}
+                  version={bb.version}
                   executionCount={bb.executionCount ?? 0}
                   lastExecutedAt={
                     bb.lastExecutedAt ? new Date(bb.lastExecutedAt) : null

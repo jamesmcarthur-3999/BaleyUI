@@ -41,7 +41,64 @@ export interface AutoSaveResult {
   hasUnsavedChanges: boolean;
 }
 
+/**
+ * Efficient shallow equality check.
+ * For primitives, does direct comparison.
+ * For objects/arrays, compares first-level keys/values.
+ * Falls back to JSON.stringify only for nested objects.
+ */
 function defaultIsEqual<T>(a: T, b: T): boolean {
+  // Same reference or both primitive and equal
+  if (a === b) return true;
+
+  // Handle null/undefined
+  if (a == null || b == null) return a === b;
+
+  // Different types
+  if (typeof a !== typeof b) return false;
+
+  // Primitives that aren't equal
+  if (typeof a !== 'object') return false;
+
+  // Arrays
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    // For small arrays, do shallow comparison
+    if (a.length <= 10) {
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+      }
+      return true;
+    }
+    // For larger arrays, fall back to JSON (but this should be rare)
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  // Objects - shallow comparison of keys
+  const aKeys = Object.keys(a as object);
+  const bKeys = Object.keys(b as object);
+
+  if (aKeys.length !== bKeys.length) return false;
+
+  // For small objects, do shallow comparison
+  if (aKeys.length <= 10) {
+    for (const key of aKeys) {
+      const aVal = (a as Record<string, unknown>)[key];
+      const bVal = (b as Record<string, unknown>)[key];
+      // Shallow compare - primitives or same reference
+      if (aVal !== bVal) {
+        // If nested objects, fall back to JSON for just that value
+        if (typeof aVal === 'object' && typeof bVal === 'object') {
+          if (JSON.stringify(aVal) !== JSON.stringify(bVal)) return false;
+        } else {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  // For larger objects, fall back to JSON
   return JSON.stringify(a) === JSON.stringify(b);
 }
 

@@ -23,6 +23,11 @@ import {
 } from '@baleyui/db';
 import { executeBALCode } from '@baleyui/sdk';
 import { parseCronExpression } from './cron-utils';
+import { createLogger } from '@/lib/logger';
+import { requireEnv } from '@/lib/env';
+import { getWorkspaceAICredentials } from '@/lib/baleybot/services';
+
+const log = createLogger('cron');
 
 // ============================================================================
 // TYPES
@@ -44,18 +49,32 @@ interface TaskResult {
 export async function GET(request: Request): Promise<Response> {
   // Verify cron authorization
   const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
 
-  if (!cronSecret) {
-    console.error('[cron] CRON_SECRET environment variable not set');
+  let cronSecret: string;
+  try {
+    cronSecret = requireEnv('CRON_SECRET', 'cron job authorization');
+  } catch {
+    log.error('CRON_SECRET environment variable not set');
     return NextResponse.json(
       { error: 'Cron not configured' },
       { status: 500 }
     );
   }
 
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    console.warn('[cron] Unauthorized cron request');
+  // Use timing-safe comparison for bearer token
+  const expectedHeader = `Bearer ${cronSecret}`;
+  const headersMatch = authHeader !== null
+    && authHeader.length === expectedHeader.length
+    && (() => {
+        const { timingSafeEqual } = require('crypto');
+        return timingSafeEqual(
+          Buffer.from(authHeader, 'utf-8'),
+          Buffer.from(expectedHeader, 'utf-8')
+        );
+      })();
+
+  if (!headersMatch) {
+    log.warn('Unauthorized cron request');
     return NextResponse.json(
       { error: 'Unauthorized' },
       { status: 401 }
@@ -63,7 +82,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const startTime = Date.now();
-  console.log('[cron] Starting scheduled task processing');
+  log.info(' Starting scheduled task processing');
 
   try {
     // Query due tasks (limit to 10 per invocation to prevent timeout)
@@ -77,14 +96,14 @@ export async function GET(request: Request): Promise<Response> {
     });
 
     if (dueTasks.length === 0) {
-      console.log('[cron] No due tasks found');
+      log.info(' No due tasks found');
       return NextResponse.json({
         processed: 0,
         durationMs: Date.now() - startTime,
       });
     }
 
-    console.log(`[cron] Found ${dueTasks.length} due tasks`);
+    log.info(`Found ${dueTasks.length} due tasks`);
 
     // Process each task
     const results: TaskResult[] = [];
@@ -96,9 +115,7 @@ export async function GET(request: Request): Promise<Response> {
     const completedCount = results.filter((r) => r.status === 'completed').length;
     const failedCount = results.filter((r) => r.status === 'failed').length;
 
-    console.log(
-      `[cron] Processed ${results.length} tasks: ${completedCount} completed, ${failedCount} failed`
-    );
+    log.info('Processed scheduled tasks', { total: results.length, completed: completedCount, failed: failedCount });
 
     return NextResponse.json({
       processed: results.length,
@@ -109,12 +126,13 @@ export async function GET(request: Request): Promise<Response> {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[cron] Error processing scheduled tasks:', message);
+    log.error(' Error processing scheduled tasks:', message);
 
+    const isDev = process.env.NODE_ENV === 'development';
     return NextResponse.json(
       {
         error: 'Failed to process scheduled tasks',
-        message,
+        ...(isDev ? { message } : {}),
         durationMs: Date.now() - startTime,
       },
       { status: 500 }
@@ -140,7 +158,7 @@ interface ScheduledTask {
 
 async function processScheduledTask(task: ScheduledTask): Promise<TaskResult> {
   const taskStartTime = Date.now();
-  console.log(`[cron] Processing task ${task.id} for BB ${task.baleybotId}`);
+  log.info('Processing scheduled task', { taskId: task.id, baleybotId: task.baleybotId });
 
   try {
     // Mark task as running
@@ -184,17 +202,18 @@ async function processScheduledTask(task: ScheduledTask): Promise<TaskResult> {
       throw new Error('Failed to create execution record');
     }
 
-    // Get API key for execution (from environment for now)
-    // In production, this would come from workspace connection settings
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('No API key configured for scheduled execution');
+    // Get AI credentials from workspace connections
+    const credentials = await getWorkspaceAICredentials(task.workspaceId);
+    if (!credentials) {
+      throw new Error('No AI provider configured for this workspace. Please add an OpenAI or Anthropic connection in Settings.');
     }
 
-    // Execute the BaleyBot
+    // Execute the BaleyBot with the scheduled task's input
+    const inputStr = task.input ? JSON.stringify(task.input) : undefined;
     const result = await executeBALCode(baleybot.balCode, {
-      model: 'gpt-4o-mini',
-      apiKey,
+      input: inputStr,
+      model: credentials.model,
+      apiKey: credentials.apiKey,
       timeout: 55000, // 55 seconds (leave margin for cron timeout)
     });
 
@@ -239,7 +258,7 @@ async function processScheduledTask(task: ScheduledTask): Promise<TaskResult> {
     const durationMs = Date.now() - taskStartTime;
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-    console.error(`[cron] Task ${task.id} failed:`, errorMessage);
+    log.error('Scheduled task failed', { taskId: task.id, error: errorMessage });
 
     // Update task with failure
     await db
@@ -277,7 +296,7 @@ async function rescheduleRecurringTask(task: ScheduledTask): Promise<void> {
 
   // Check if max runs reached
   if (task.maxRuns !== null && (task.runCount ?? 0) + 1 >= task.maxRuns) {
-    console.log(`[cron] Task ${task.id} reached max runs, marking completed`);
+    log.info('Task reached max runs', { taskId: task.id });
     await db
       .update(scheduledTasks)
       .set({ status: 'completed' })
@@ -289,11 +308,11 @@ async function rescheduleRecurringTask(task: ScheduledTask): Promise<void> {
   const nextRun = parseCronExpression(task.cronExpression);
 
   if (!nextRun) {
-    console.error(`[cron] Invalid cron expression for task ${task.id}: ${task.cronExpression}`);
+    log.error('Invalid cron expression', { taskId: task.id, cronExpression: task.cronExpression });
     return;
   }
 
-  console.log(`[cron] Rescheduling task ${task.id} for ${nextRun.toISOString()}`);
+  log.info('Rescheduling task', { taskId: task.id, nextRun: nextRun.toISOString() });
 
   await db
     .update(scheduledTasks)

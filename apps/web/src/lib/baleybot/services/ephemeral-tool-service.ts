@@ -15,6 +15,9 @@
 import { Baleybot } from '@baleybots/core';
 import type { BuiltInToolContext, CreateToolResult } from '../tools/built-in';
 import type { RuntimeToolDefinition } from '../executor';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('ephemeral-tool');
 
 // ============================================================================
 // TYPES
@@ -69,7 +72,7 @@ async function executeNLImplementation(
   implementation: string,
   args: Record<string, unknown>
 ): Promise<unknown> {
-  console.log(`[ephemeral_tool] Executing "${toolName}" with NL implementation`);
+  log.debug(`Executing "${toolName}" with NL implementation`, { toolName });
 
   try {
     // Create a specialized Baleybot for executing this tool
@@ -113,7 +116,7 @@ Return the tool's output:`;
     return text;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`[ephemeral_tool] Error executing "${toolName}": ${message}`);
+    log.error(`Error executing "${toolName}"`, { toolName, error: message });
     throw new Error(`Ephemeral tool "${toolName}" execution failed: ${message}`);
   }
 }
@@ -165,9 +168,10 @@ export function createEphemeralToolService(): EphemeralToolService {
         );
       }
 
-      console.log(
-        `[create_tool] Creating ephemeral tool "${config.name}": ${config.description}`
-      );
+      log.info(`Creating ephemeral tool "${config.name}"`, {
+        name: config.name,
+        description: config.description,
+      });
 
       // Create the runtime tool definition
       const runtimeTool: RuntimeToolDefinition = {
@@ -193,9 +197,9 @@ export function createEphemeralToolService(): EphemeralToolService {
       // Store the tool
       ephemeralTools.set(config.name, runtimeTool);
 
-      console.log(
-        `[create_tool] Ephemeral tool "${config.name}" created successfully`
-      );
+      log.info(`Ephemeral tool "${config.name}" created successfully`, {
+        name: config.name,
+      });
 
       return {
         created: true,

@@ -62,7 +62,7 @@ export interface UseNavigationGuardReturn {
  */
 export function useNavigationGuard(
   isDirty: boolean,
-  onSave: () => Promise<boolean>
+  onSave: () => Promise<boolean | string | null>
 ): UseNavigationGuardReturn {
   const router = useRouter();
   const [showDialog, setShowDialog] = useState(false);
