@@ -65,7 +65,7 @@ export function CreateBaleybotPrompt({ className }: CreateBaleybotPromptProps) {
 
         <div className="space-y-5">
           {/* Input area with glow effect */}
-          <div className={`relative rounded-2xl transition-all duration-300 ${isFocused ? 'glow-sm' : ''}`}>
+          <div className={`relative rounded-2xl transition-shadow duration-300 ${isFocused ? 'glow-sm' : ''}`}>
             <textarea
               placeholder="I need to..."
               value={prompt}
@@ -76,7 +76,7 @@ export function CreateBaleybotPrompt({ className }: CreateBaleybotPromptProps) {
               }}
               onBlur={() => setIsFocused(false)}
               onKeyDown={handleKeyDown}
-              className={`w-full resize-none rounded-2xl border-2 border-border bg-background/50 px-5 py-4 text-lg transition-all duration-300 placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none ${
+              className={`w-full resize-none rounded-2xl border-2 border-border bg-background/50 px-5 py-4 text-lg transition-[border-color] duration-300 placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none ${
                 isExpanded ? 'min-h-[120px]' : 'min-h-[60px]'
               }`}
             />

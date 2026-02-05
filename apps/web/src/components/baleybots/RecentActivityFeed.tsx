@@ -126,7 +126,7 @@ export function RecentActivityFeed({
                 <Link
                   key={execution.id}
                   href={ROUTES.activity.execution(execution.id)}
-                  className={`flex items-center gap-4 rounded-xl p-3 hover:bg-primary/5 transition-all duration-200 group animate-fade-in opacity-0 stagger-${Math.min(index + 1, 6)}`}
+                  className={`flex items-center gap-4 rounded-xl p-3 hover:bg-primary/5 transition-colors duration-200 group animate-fade-in stagger-${Math.min(index + 1, 6)}`}
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 text-xl shrink-0 transition-transform group-hover:scale-105">
                     {execution.baleybotIcon || '🤖'}
@@ -156,7 +156,7 @@ export function RecentActivityFeed({
                       )}
                     </div>
                   </div>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground/50 transition-all group-hover:text-primary group-hover:translate-x-1" />
+                  <ArrowRight className="h-4 w-4 text-muted-foreground/50 transition-[color,transform] group-hover:text-primary group-hover:translate-x-1" />
                 </Link>
               );
             })}

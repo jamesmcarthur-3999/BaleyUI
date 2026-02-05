@@ -129,12 +129,12 @@ export default function HomePage() {
           </div>
 
           {/* Create Prompt - Hero Card */}
-          <div className="animate-fade-in-up stagger-1 opacity-0">
+          <div className="animate-fade-in-up stagger-1">
             <CreateBaleybotPrompt />
           </div>
 
           {/* BaleyBots Grid */}
-          <div className="animate-fade-in-up stagger-2 opacity-0">
+          <div className="animate-fade-in-up stagger-2">
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-3">
                 <div className="icon-box w-10 h-10">
@@ -167,7 +167,7 @@ export default function HomePage() {
                 {baleybots.slice(0, 6).map((bb, index) => (
                   <div
                     key={bb.id}
-                    className={`animate-fade-in-up opacity-0 stagger-${Math.min(index + 1, 6)}`}
+                    className={`animate-fade-in-up stagger-${Math.min(index + 1, 6)}`}
                   >
                     <BaleybotCard
                       id={bb.id}
@@ -213,7 +213,7 @@ export default function HomePage() {
           </div>
 
           {/* Recent Activity */}
-          <div className="animate-fade-in-up stagger-3 opacity-0">
+          <div className="animate-fade-in-up stagger-3">
             <RecentActivityFeed
               executions={activityFeedData}
               isLoading={activityLoading}
@@ -222,7 +222,7 @@ export default function HomePage() {
 
           {/* Getting Started - show only if no baleybots */}
           {!isLoading && (!baleybots || baleybots.length === 0) && (
-            <div className="animate-fade-in-up stagger-4 opacity-0">
+            <div className="animate-fade-in-up stagger-4">
               <div className="card-playful rounded-2xl p-8">
                 <h3 className="text-xl font-semibold mb-6 text-center">
                   Getting Started is Easy

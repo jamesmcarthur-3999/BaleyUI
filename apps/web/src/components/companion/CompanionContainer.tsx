@@ -132,7 +132,7 @@ function CompanionOrb({
         'bg-gradient-to-br from-primary to-primary/80',
         'shadow-lg shadow-primary/25',
         'flex items-center justify-center',
-        'transition-all duration-300 ease-out',
+        'transition-[transform,box-shadow] duration-300 ease-out',
         'hover:scale-110 hover:shadow-xl hover:shadow-primary/30',
         'focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2',
         state.isThinking && 'animate-pulse'
@@ -225,7 +225,7 @@ export function CompanionContainer({
       >
         <div className="flex flex-col items-end gap-3">
           {/* Quick action buttons */}
-          <div className="flex items-center gap-2 bg-background/95 backdrop-blur rounded-full px-2 py-1 border shadow-lg">
+          <div className="flex items-center gap-2 bg-background rounded-full px-2 py-1 border shadow-lg">
             <Button
               variant="ghost"
               size="icon"
@@ -285,7 +285,7 @@ export function CompanionContainer({
     >
       <div
         className={cn(
-          'w-96 bg-background/95 backdrop-blur',
+          'w-96 bg-background',
           'border rounded-xl shadow-2xl',
           'flex flex-col',
           'max-h-[80vh]',

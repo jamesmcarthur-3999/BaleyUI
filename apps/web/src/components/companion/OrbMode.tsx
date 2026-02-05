@@ -120,7 +120,7 @@ function OrbCore({
         stateColors[state],
         'shadow-lg',
         'flex items-center justify-center',
-        'transition-all duration-300 ease-out',
+        'transition-transform duration-300 ease-out',
         'hover:scale-110',
         'focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2',
         state === 'thinking' && 'animate-pulse'
@@ -182,7 +182,7 @@ function ActivityIndicator({
     <div
       className={cn(
         'absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full',
-        'bg-background/95 backdrop-blur border rounded-lg shadow-lg',
+        'bg-background border rounded-lg shadow-lg',
         'px-3 py-2 min-w-[200px] max-w-[280px]',
         'animate-in slide-in-from-bottom-2 fade-in duration-200'
       )}
@@ -255,7 +255,7 @@ function QuickActions({
         className={cn(
           'absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full',
           'flex items-center gap-1',
-          'bg-background/95 backdrop-blur border rounded-full shadow-lg',
+          'bg-background border rounded-full shadow-lg',
           'px-1 py-1',
           'animate-in slide-in-from-bottom-2 fade-in duration-200'
         )}

@@ -148,7 +148,7 @@ export function BaleybotCard({
 
         {/* Status color bar */}
         <div className={cn(
-          'h-1 transition-all duration-300 group-hover:h-1.5',
+          'h-1 transition-[height] duration-300 group-hover:h-1.5',
           status === 'active' && 'bg-gradient-to-r from-emerald-400 to-emerald-500',
           status === 'draft' && 'bg-gradient-to-r from-primary/60 to-primary',
           status === 'paused' && 'bg-gradient-to-r from-amber-400 to-amber-500',

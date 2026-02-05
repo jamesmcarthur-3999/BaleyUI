@@ -133,9 +133,7 @@
 
   .bg-gradient-hero {
     background:
-      radial-gradient(ellipse 80% 50% at 50% -20%, hsl(262 83% 58% / 0.15), transparent),
-      radial-gradient(ellipse 60% 40% at 80% 50%, hsl(15 90% 65% / 0.1), transparent),
-      radial-gradient(ellipse 50% 30% at 20% 80%, hsl(262 60% 70% / 0.1), transparent),
+      radial-gradient(ellipse 80% 50% at 50% -20%, hsl(262 83% 58% / 0.12), transparent),
       hsl(var(--background));
   }
 
@@ -150,9 +148,7 @@
 
   .dark .bg-gradient-hero {
     background:
-      radial-gradient(ellipse 80% 50% at 50% -20%, hsl(262 75% 65% / 0.2), transparent),
-      radial-gradient(ellipse 60% 40% at 80% 50%, hsl(15 80% 55% / 0.1), transparent),
-      radial-gradient(ellipse 50% 30% at 20% 80%, hsl(280 60% 50% / 0.1), transparent),
+      radial-gradient(ellipse 80% 50% at 50% -20%, hsl(262 75% 65% / 0.15), transparent),
       hsl(var(--background));
   }
 
@@ -186,7 +182,7 @@
     box-shadow:
       0 1px 2px hsl(262 20% 50% / 0.04),
       0 4px 12px hsl(262 20% 50% / 0.06);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .card-playful:hover {
@@ -514,23 +510,23 @@
 
 @layer utilities {
   .animate-fade-in {
-    animation: fade-in 0.4s ease-out forwards;
+    animation: fade-in 0.4s ease-out backwards;
   }
 
   .animate-fade-in-up {
-    animation: fade-in-up 0.5s ease-out forwards;
+    animation: fade-in-up 0.5s ease-out backwards;
   }
 
   .animate-scale-in {
-    animation: scale-in 0.3s ease-out forwards;
+    animation: scale-in 0.3s ease-out backwards;
   }
 
   .animate-slide-in-right {
-    animation: slide-in-right 0.4s ease-out forwards;
+    animation: slide-in-right 0.4s ease-out backwards;
   }
 
   .animate-bounce-subtle {
-    animation: bounce-subtle 2s ease-in-out infinite;
+    animation: bounce-subtle 2s ease-in-out 3;
   }
 
   .animate-pulse-soft {
@@ -582,7 +578,7 @@
   }
 
   .animate-slide-down {
-    animation: slide-down 0.3s ease-out forwards;
+    animation: slide-down 0.3s ease-out backwards;
   }
 
   /* Stagger delays for lists */

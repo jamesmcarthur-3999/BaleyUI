@@ -7,7 +7,7 @@ const cardVariants = cva(
   [
     // Base styles - refined, sophisticated
     'rounded-xl border bg-card text-card-foreground',
-    'transition-all duration-200',
+    'transition-[transform,box-shadow] duration-200',
   ].join(' '),
   {
     variants: {

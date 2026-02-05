@@ -27,7 +27,7 @@ function AppShell({ children }: AppShellProps) {
   return (
     <div className="min-h-screen flex flex-col">
       {/* Minimal Top Navigation */}
-      <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="sticky top-0 z-40 w-full border-b bg-background">
         <div className="container max-w-4xl mx-auto flex h-14 items-center justify-between">
           {/* Logo */}
           <Link
