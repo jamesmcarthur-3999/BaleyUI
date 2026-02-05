@@ -17,8 +17,8 @@ export default async function HomePage() {
     <main className="relative min-h-screen overflow-hidden bg-background">
       {/* Ambient background effects */}
       <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-accent/5" />
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-primary/10 rounded-full blur-[120px] opacity-50" />
-      <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-accent/10 rounded-full blur-[100px] opacity-40" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] rounded-full opacity-50" style={{ background: 'radial-gradient(circle, hsl(var(--primary) / 0.1) 0%, transparent 60%)' }} />
+      <div className="absolute bottom-0 right-0 w-[400px] h-[400px] rounded-full opacity-40" style={{ background: 'radial-gradient(circle, hsl(var(--accent) / 0.1) 0%, transparent 60%)' }} />
 
       {/* Noise texture overlay */}
       <div className="absolute inset-0 noise pointer-events-none" />

@@ -109,8 +109,8 @@ export default function HomePage() {
       {/* Decorative orbs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="orb orb-purple w-[500px] h-[500px] -top-48 -right-24" />
-        <div className="orb orb-coral w-[400px] h-[400px] top-1/2 -left-32" style={{ animationDelay: '-7s' }} />
-        <div className="orb orb-lavender w-[300px] h-[300px] bottom-24 right-1/4" style={{ animationDelay: '-13s' }} />
+        <div className="orb orb-coral w-[400px] h-[400px] top-1/2 -left-32" />
+        <div className="orb orb-lavender w-[300px] h-[300px] bottom-24 right-1/4" />
       </div>
 
       <div className="relative mx-auto max-w-6xl px-6 lg:px-8 py-12">

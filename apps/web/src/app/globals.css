@@ -156,26 +156,23 @@
       hsl(var(--background));
   }
 
-  /* Floating orb decorations */
+  /* Floating orb decorations — static radial gradients instead of blur filter */
   .orb {
     position: absolute;
     border-radius: 50%;
-    filter: blur(60px);
-    opacity: 0.5;
     pointer-events: none;
-    animation: float 20s ease-in-out infinite;
   }
 
   .orb-purple {
-    background: hsl(262 83% 58% / 0.3);
+    background: radial-gradient(circle, hsl(262 83% 58% / 0.15) 0%, hsl(262 83% 58% / 0.05) 40%, transparent 70%);
   }
 
   .orb-coral {
-    background: hsl(15 90% 65% / 0.25);
+    background: radial-gradient(circle, hsl(15 90% 65% / 0.12) 0%, hsl(15 90% 65% / 0.04) 40%, transparent 70%);
   }
 
   .orb-lavender {
-    background: hsl(280 60% 75% / 0.2);
+    background: radial-gradient(circle, hsl(280 60% 75% / 0.1) 0%, hsl(280 60% 75% / 0.03) 40%, transparent 70%);
   }
 
   /* Card enhancements */
@@ -351,17 +348,6 @@
    ANIMATIONS
    ============================================ */
 
-@keyframes float {
-  0%, 100% {
-    transform: translate(0, 0) rotate(0deg);
-  }
-  33% {
-    transform: translate(30px, -30px) rotate(5deg);
-  }
-  66% {
-    transform: translate(-20px, 20px) rotate(-3deg);
-  }
-}
 
 @keyframes fade-in {
   from {
