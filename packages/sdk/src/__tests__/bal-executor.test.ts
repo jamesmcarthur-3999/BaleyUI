@@ -184,10 +184,10 @@ describe('executeBALCode', () => {
       onEvent: (event) => events.push(event),
     });
 
-    expect(events.some((e: any) => e.type === 'parsing')).toBe(true);
-    expect(events.some((e: any) => e.type === 'compiled')).toBe(true);
-    expect(events.some((e: any) => e.type === 'started')).toBe(true);
-    expect(events.some((e: any) => e.type === 'completed')).toBe(true);
+    expect(events.some((e) => (e as Record<string, unknown>).type === 'parsing')).toBe(true);
+    expect(events.some((e) => (e as Record<string, unknown>).type === 'compiled')).toBe(true);
+    expect(events.some((e) => (e as Record<string, unknown>).type === 'started')).toBe(true);
+    expect(events.some((e) => (e as Record<string, unknown>).type === 'completed')).toBe(true);
   });
 });
 
@@ -215,7 +215,7 @@ describe('streamBALExecution', () => {
       events.push(event);
     }
 
-    const types = events.map((e: any) => e.type);
+    const types = events.map((e) => (e as Record<string, unknown>).type);
     expect(types).toContain('parsing');
     expect(types).toContain('compiled');
     expect(types).toContain('started');
@@ -237,6 +237,7 @@ describe('streamBALExecution', () => {
     const generator = streamBALExecution('@entity Test @run Test("input")');
 
     // Consume all events
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     for await (const _ of generator) {
       // consume
     }

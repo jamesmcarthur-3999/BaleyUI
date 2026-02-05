@@ -54,7 +54,7 @@ vi.mock('@baleybots/core', () => ({
 
 import { db } from '@baleyui/db';
 import type { CompiledNode, NodeExecutorContext } from '../types';
-import type { FunctionBlockNodeData, AIBlockNodeData } from '@/lib/baleybots/types';
+import type { FunctionBlockNodeData } from '@/lib/baleybots/types';
 
 describe('Node Executors', () => {
   let mockContext: NodeExecutorContext;

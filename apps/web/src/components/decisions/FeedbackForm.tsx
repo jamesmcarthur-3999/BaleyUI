@@ -14,7 +14,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Save, X, AlertCircle } from 'lucide-react';
+import { Save, AlertCircle } from 'lucide-react';
 import { trpc } from '@/lib/trpc/client';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -51,7 +51,7 @@ const FEEDBACK_CATEGORIES: { value: FeedbackCategory; label: string; description
 interface Decision {
   id: string;
   blockName: string;
-  output: any;
+  output: unknown;
   feedbackCorrect: boolean | null;
   feedbackCategory: string | null;
   feedbackNotes: string | null;
@@ -110,7 +110,7 @@ export function FeedbackForm({ decision, onSuccess, onCancel }: FeedbackFormProp
     if (correctedOutput.trim()) {
       try {
         parsedOutput = JSON.parse(correctedOutput);
-      } catch (e) {
+      } catch {
         toast({
           title: 'Invalid JSON',
           description: 'Corrected output must be valid JSON',
@@ -318,10 +318,10 @@ export function BatchFeedbackForm({ decisions, onSuccess, onCancel }: BatchFeedb
       utils.decisions.getStats.invalidate();
 
       onSuccess?.();
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: 'Failed to Submit Batch Feedback',
-        description: error.message,
+        description: error instanceof Error ? error.message : 'Unknown error',
         variant: 'destructive',
       });
     }

@@ -13,7 +13,7 @@ vi.mock('@baleyui/db', () => {
     db: {
       query: {
         baleybots: {
-          findFirst: vi.fn().mockImplementation(({ where }) => {
+          findFirst: vi.fn().mockImplementation(({ where: _where }) => {
             // Return null to simulate "not found" - will trigger creation
             return Promise.resolve(null);
           }),
@@ -25,7 +25,7 @@ vi.mock('@baleyui/db', () => {
           findFirst: vi.fn().mockResolvedValue({ id: 'system-ws-id', slug: '__system__' }),
         },
       },
-      insert: vi.fn().mockImplementation((table) => ({
+      insert: vi.fn().mockImplementation((_table) => ({
         values: vi.fn().mockImplementation((values) => ({
           returning: vi.fn().mockImplementation(() => {
             // Simulate successful insertion

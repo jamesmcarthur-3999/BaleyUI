@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef } from 'react';
 import {
   Table,
   TableBody,
@@ -59,58 +59,55 @@ export function DecisionTable({ decisions, isLoading, onDecisionSelect }: Decisi
     setExpandedIds(newExpanded);
   };
 
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLTableRowElement>, decision: Decision, index: number) => {
-      switch (event.key) {
-        case 'Enter':
-        case ' ':
-          event.preventDefault();
-          toggleExpanded(decision.id);
-          onDecisionSelect?.(decision);
-          break;
-        case 'ArrowDown':
-          event.preventDefault();
-          if (index < decisions.length - 1) {
-            const nextIndex = index + 1;
-            setFocusedIndex(nextIndex);
-            rowRefs.current.get(nextIndex)?.focus();
-          }
-          break;
-        case 'ArrowUp':
-          event.preventDefault();
-          if (index > 0) {
-            const prevIndex = index - 1;
-            setFocusedIndex(prevIndex);
-            rowRefs.current.get(prevIndex)?.focus();
-          }
-          break;
-        case 'Home':
-          event.preventDefault();
-          if (decisions.length > 0) {
-            setFocusedIndex(0);
-            rowRefs.current.get(0)?.focus();
-          }
-          break;
-        case 'End':
-          event.preventDefault();
-          if (decisions.length > 0) {
-            const lastIndex = decisions.length - 1;
-            setFocusedIndex(lastIndex);
-            rowRefs.current.get(lastIndex)?.focus();
-          }
-          break;
-      }
-    },
-    [decisions, onDecisionSelect, expandedIds]
-  );
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>, decision: Decision, index: number) => {
+    switch (event.key) {
+      case 'Enter':
+      case ' ':
+        event.preventDefault();
+        toggleExpanded(decision.id);
+        onDecisionSelect?.(decision);
+        break;
+      case 'ArrowDown':
+        event.preventDefault();
+        if (index < decisions.length - 1) {
+          const nextIndex = index + 1;
+          setFocusedIndex(nextIndex);
+          rowRefs.current.get(nextIndex)?.focus();
+        }
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        if (index > 0) {
+          const prevIndex = index - 1;
+          setFocusedIndex(prevIndex);
+          rowRefs.current.get(prevIndex)?.focus();
+        }
+        break;
+      case 'Home':
+        event.preventDefault();
+        if (decisions.length > 0) {
+          setFocusedIndex(0);
+          rowRefs.current.get(0)?.focus();
+        }
+        break;
+      case 'End':
+        event.preventDefault();
+        if (decisions.length > 0) {
+          const lastIndex = decisions.length - 1;
+          setFocusedIndex(lastIndex);
+          rowRefs.current.get(lastIndex)?.focus();
+        }
+        break;
+    }
+  };
 
-  const setRowRef = useCallback((index: number, element: HTMLTableRowElement | null) => {
+  const setRowRef = (index: number, element: HTMLTableRowElement | null) => {
     if (element) {
       rowRefs.current.set(index, element);
     } else {
       rowRefs.current.delete(index);
     }
-  }, []);
+  };
 
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleString('en-US', {

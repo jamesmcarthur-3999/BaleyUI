@@ -39,8 +39,6 @@ import {
   Play,
   MoreVertical,
   Loader2,
-  Settings,
-  Webhook,
   Copy,
   Trash2,
   Power,
@@ -58,7 +56,7 @@ export default function FlowEditorPage({
   const { id } = use(params);
   const router = useRouter();
   const { toast } = useToast();
-  const utils = trpc.useUtils();
+  trpc.useUtils();
   const { nodes, edges, selectedNodeId, lastSaved, setNodes, setEdges, setLastSaved, setAutoSaving } = useFlowStore();
   const [flowName, setFlowName] = useState('');
   const [flowVersion, setFlowVersion] = useState(1);
@@ -75,7 +73,7 @@ export default function FlowEditorPage({
   // Fetch flow data
   const { data: flow, isLoading: isLoadingFlow, error: flowError } = trpc.flows.getById.useQuery(
     { id },
-    { enabled: !!id }
+    { enabled: !!id, staleTime: 5 * 60 * 1000 }
   );
 
   // Fetch blocks for palette
@@ -242,7 +240,7 @@ export default function FlowEditorPage({
           ? 'The flow can now be triggered.'
           : 'The flow will not run until re-enabled.',
       });
-    } catch (error) {
+    } catch {
       setFlowEnabled(!newEnabled); // Revert on error
     }
   };

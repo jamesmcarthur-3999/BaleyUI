@@ -1,7 +1,8 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import { db, eq, isNull, and } from '@baleyui/db';
+import { db, eq } from '@baleyui/db';
 import { createLogger } from '@/lib/logger';
+import { apiErrors } from '@/lib/api/error-response';
 
 const logger = createLogger('api/executions/result');
 
@@ -9,14 +10,13 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const requestId = req.headers.get('x-request-id') ?? undefined;
+
   try {
     // Authenticate the request
     const { userId } = await auth();
     if (!userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return apiErrors.unauthorized();
     }
 
     const { id: executionId } = await params;
@@ -28,10 +28,7 @@ export async function GET(
     });
 
     if (!workspace) {
-      return NextResponse.json(
-        { error: 'No workspace found' },
-        { status: 404 }
-      );
+      return apiErrors.notFound('Workspace');
     }
 
     // Get the execution with block info
@@ -43,26 +40,17 @@ export async function GET(
     });
 
     if (!execution || !execution.block) {
-      return NextResponse.json(
-        { error: 'Execution not found' },
-        { status: 404 }
-      );
+      return apiErrors.notFound('Execution');
     }
 
     // Verify workspace access
     if (execution.block.workspaceId !== workspace.id) {
-      return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
-      );
+      return apiErrors.forbidden();
     }
 
     // Check if execution is complete
     if (execution.status !== 'complete' && execution.status !== 'failed') {
-      return NextResponse.json(
-        { error: 'Execution not yet complete' },
-        { status: 404 }
-      );
+      return apiErrors.notFound('Execution result');
     }
 
     // Return the result
@@ -79,9 +67,6 @@ export async function GET(
     });
   } catch (error) {
     logger.error('Error getting execution result', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return apiErrors.internal(error, { requestId });
   }
 }

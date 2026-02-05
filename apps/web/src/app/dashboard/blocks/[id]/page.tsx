@@ -141,6 +141,7 @@ export default function BlockEditorPage() {
               <GenerateCodeDialog
                 blockId={block.id}
                 blockName={block.name}
+                blockVersion={block.version}
                 outputSchema={block.outputSchema as Record<string, unknown> | undefined}
               />
             </div>
@@ -201,7 +202,7 @@ export default function BlockEditorPage() {
             </TabsList>
 
             <TabsContent value="patterns">
-              <PatternAnalyzerPanel blockId={block.id} />
+              <PatternAnalyzerPanel blockId={block.id} blockVersion={block.version} />
             </TabsContent>
 
             <TabsContent value="config">

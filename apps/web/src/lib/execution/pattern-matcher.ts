@@ -9,6 +9,13 @@ import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('pattern-matcher');
 
+// Pre-compiled regexes for pattern extraction (avoid re-creating per call)
+const IF_CONDITION_REGEX = /if\s*\(\s*(\w+(?:\.\w+)*)\s*(===|!==|==|!=|>|<|>=|<=|includes|startsWith|endsWith)\s*['"`]?([^'"`\)]+)['"`]?\s*\)/g;
+const SWITCH_REGEX = /switch\s*\(\s*(\w+(?:\.\w+)*)\s*\)\s*{([^}]+)}/g;
+const CASE_REGEX = /case\s+['"`]?([^'"`:\s]+)['"`]?\s*:/g;
+const REGEX_VALIDATION_REGEX = /\/([^\/]+)\/\.(test|exec)\s*\(\s*(\w+(?:\.\w+)*)\s*\)/g;
+const TYPEOF_REGEX = /typeof\s+(\w+(?:\.\w+)*)\s*===\s*['"`](\w+)['"`]/g;
+
 export interface PatternMatchResult {
   canHandle: boolean;
   matchedPattern?: string;
@@ -120,10 +127,10 @@ function extractIfConditions(code: string): Pattern[] {
 
   // Match if statements with field comparisons
   // Example: if (input.type === 'email')
-  const ifRegex = /if\s*\(\s*(\w+(?:\.\w+)*)\s*(===|!==|==|!=|>|<|>=|<=|includes|startsWith|endsWith)\s*['"`]?([^'"`\)]+)['"`]?\s*\)/g;
+  IF_CONDITION_REGEX.lastIndex = 0;
 
   let match;
-  while ((match = ifRegex.exec(code)) !== null) {
+  while ((match = IF_CONDITION_REGEX.exec(code)) !== null) {
     const [, field, operator, value] = match;
 
     const condition: PatternCondition = {
@@ -150,18 +157,18 @@ function extractSwitchCases(code: string): Pattern[] {
 
   // Match switch statements
   // Example: switch(input.type) { case 'email': ... }
-  const switchRegex = /switch\s*\(\s*(\w+(?:\.\w+)*)\s*\)\s*{([^}]+)}/g;
+  SWITCH_REGEX.lastIndex = 0;
 
   let match;
-  while ((match = switchRegex.exec(code)) !== null) {
+  while ((match = SWITCH_REGEX.exec(code)) !== null) {
     const [, field, caseBlock] = match;
 
     // Extract case values
-    const caseRegex = /case\s+['"`]?([^'"`:\s]+)['"`]?\s*:/g;
+    CASE_REGEX.lastIndex = 0;
     const values: string[] = [];
 
     let caseMatch;
-    while ((caseMatch = caseRegex.exec(caseBlock || '')) !== null) {
+    while ((caseMatch = CASE_REGEX.exec(caseBlock || '')) !== null) {
       values.push(caseMatch[1] || '');
     }
 
@@ -189,10 +196,10 @@ function extractValidations(code: string): Pattern[] {
 
   // Match regex validations
   // Example: /^[a-z]+$/.test(input.value)
-  const regexValidation = /\/([^\/]+)\/\.(test|exec)\s*\(\s*(\w+(?:\.\w+)*)\s*\)/g;
+  REGEX_VALIDATION_REGEX.lastIndex = 0;
 
   let match;
-  while ((match = regexValidation.exec(code)) !== null) {
+  while ((match = REGEX_VALIDATION_REGEX.exec(code)) !== null) {
     const [, pattern, , field] = match;
 
     patterns.push({
@@ -208,9 +215,9 @@ function extractValidations(code: string): Pattern[] {
 
   // Match typeof checks
   // Example: typeof input.value === 'string'
-  const typeofRegex = /typeof\s+(\w+(?:\.\w+)*)\s*===\s*['"`](\w+)['"`]/g;
+  TYPEOF_REGEX.lastIndex = 0;
 
-  while ((match = typeofRegex.exec(code)) !== null) {
+  while ((match = TYPEOF_REGEX.exec(code)) !== null) {
     const [, field, type] = match;
 
     patterns.push({
@@ -294,8 +301,16 @@ function checkCondition(input: unknown, condition: PatternCondition): boolean {
 
       case 'regex':
         if (typeof condition.value === 'string') {
-          const regex = new RegExp(condition.value);
-          return regex.test(String(value));
+          // Limit regex length to prevent ReDoS
+          if (condition.value.length > 200) {
+            return false;
+          }
+          try {
+            const regex = new RegExp(condition.value);
+            return regex.test(String(value));
+          } catch {
+            return false; // Invalid regex
+          }
         }
         return false;
 

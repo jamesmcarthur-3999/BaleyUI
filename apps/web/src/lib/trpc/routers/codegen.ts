@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { patterns, blocks, decisions, eq, and, notDeleted, inArray } from '@baleyui/db';
+import { patterns, blocks, decisions, eq, and, notDeleted, inArray, updateWithLock } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { generateCode, validateGeneratedCode, getPatternStats } from '@/lib/codegen/code-generator';
 import { testGeneratedCode } from '@/lib/codegen/historical-tester';
@@ -150,6 +150,7 @@ export const codegenRouter = router({
     .input(
       z.object({
         blockId: z.string().uuid(),
+        version: z.number().int(),
         code: z.string().min(1),
         accuracy: z.number().min(0).max(100).optional(), // Test accuracy percentage
         patternIds: z.array(z.string().uuid()).optional(),
@@ -181,20 +182,14 @@ export const codegenRouter = router({
         });
       }
 
-      // Update block with generated code (using correct Phase 4 fields)
-      const [updated] = await ctx.db
-        .update(blocks)
-        .set({
-          generatedCode: input.code, // Phase 4 field for generated code
-          codeGeneratedAt: new Date(),
-          codeAccuracy: input.accuracy?.toFixed(2) ?? null, // Store accuracy as decimal string
-          updatedAt: new Date(),
-        })
-        .where(eq(blocks.id, input.blockId))
-        .returning();
+      // Update block with generated code using optimistic locking
+      const updated = await updateWithLock(blocks, input.blockId, input.version, {
+        generatedCode: input.code,
+        codeGeneratedAt: new Date(),
+        codeAccuracy: input.accuracy?.toFixed(2) ?? null,
+      });
 
-      // Optionally update patterns with the generated code reference
-      // Verify each patternId belongs to a block in this workspace before updating
+      // Update patterns sequentially (no Promise.all race)
       if (input.patternIds && input.patternIds.length > 0) {
         const validPatterns = await ctx.db
           .select({ id: patterns.id })
@@ -207,19 +202,17 @@ export const codegenRouter = router({
 
         const validIds = new Set(validPatterns.map(p => p.id));
 
-        await Promise.all(
-          input.patternIds
-            .filter(patternId => validIds.has(patternId))
-            .map(patternId =>
-              ctx.db
-                .update(patterns)
-                .set({
-                  generatedCode: input.code,
-                  updatedAt: new Date(),
-                })
-                .where(eq(patterns.id, patternId))
-            )
-        );
+        for (const patternId of input.patternIds) {
+          if (validIds.has(patternId)) {
+            await ctx.db
+              .update(patterns)
+              .set({
+                generatedCode: input.code,
+                updatedAt: new Date(),
+              })
+              .where(eq(patterns.id, patternId));
+          }
+        }
       }
 
       return updated;

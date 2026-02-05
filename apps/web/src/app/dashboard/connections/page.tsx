@@ -1,15 +1,42 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { Plug, Plus, Wifi, WifiOff, Trash2, RefreshCw } from 'lucide-react';
+
+const CONNECTION_TYPES = [
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'ollama', label: 'Ollama' },
+  { value: 'postgres', label: 'PostgreSQL' },
+  { value: 'mysql', label: 'MySQL' },
+] as const;
+
+type ConnectionType = (typeof CONNECTION_TYPES)[number]['value'];
 
 /**
  * Map connection type to a badge variant. Falls back to 'secondary'
@@ -67,7 +94,7 @@ interface TestResult {
  */
 export default function ConnectionsPage() {
   const utils = trpc.useUtils();
-  const { data: connectionsList, isLoading } = trpc.connections.list.useQuery();
+  const { data: connectionsList, isLoading } = trpc.connections.list.useQuery(undefined, { staleTime: 10 * 60 * 1000 });
 
   const testMutation = trpc.connections.test.useMutation({
     onSuccess() {
@@ -81,7 +108,41 @@ export default function ConnectionsPage() {
     },
   });
 
+  const createMutation = trpc.connections.create.useMutation({
+    onSuccess() {
+      utils.connections.list.invalidate();
+      setDialogOpen(false);
+      resetForm();
+    },
+  });
+
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [formType, setFormType] = useState<ConnectionType>('openai');
+  const [formName, setFormName] = useState('');
+  const [formApiKey, setFormApiKey] = useState('');
+  const [formBaseUrl, setFormBaseUrl] = useState('');
+
+  function resetForm() {
+    setFormType('openai');
+    setFormName('');
+    setFormApiKey('');
+    setFormBaseUrl('');
+  }
+
+  function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!formName.trim()) return;
+
+    createMutation.mutate({
+      type: formType,
+      name: formName.trim(),
+      config: {
+        ...(formApiKey ? { apiKey: formApiKey } : {}),
+        ...(formBaseUrl ? { baseUrl: formBaseUrl } : {}),
+      },
+    });
+  }
 
   async function handleTest(id: string): Promise<void> {
     // Clear previous result
@@ -120,12 +181,83 @@ export default function ConnectionsPage() {
               Manage AI provider and database connections
             </p>
           </div>
-          <Button asChild>
-            <Link href="#">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Connection
-            </Link>
-          </Button>
+          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Connection
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <form onSubmit={handleCreate}>
+                <DialogHeader>
+                  <DialogTitle>Add Connection</DialogTitle>
+                  <DialogDescription>
+                    Connect an AI provider or database to your workspace.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="connection-type">Type</Label>
+                    <Select value={formType} onValueChange={(v) => setFormType(v as ConnectionType)}>
+                      <SelectTrigger id="connection-type">
+                        <SelectValue placeholder="Select a type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CONNECTION_TYPES.map((ct) => (
+                          <SelectItem key={ct.value} value={ct.value}>
+                            {ct.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="connection-name">Name</Label>
+                    <Input
+                      id="connection-name"
+                      placeholder="My OpenAI Connection"
+                      value={formName}
+                      onChange={(e) => setFormName(e.target.value)}
+                      maxLength={100}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="connection-api-key">API Key</Label>
+                    <Input
+                      id="connection-api-key"
+                      type="password"
+                      placeholder="sk-..."
+                      value={formApiKey}
+                      onChange={(e) => setFormApiKey(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="connection-base-url">
+                      Base URL <span className="text-muted-foreground font-normal">(optional)</span>
+                    </Label>
+                    <Input
+                      id="connection-base-url"
+                      placeholder="https://api.openai.com/v1"
+                      value={formBaseUrl}
+                      onChange={(e) => setFormBaseUrl(e.target.value)}
+                    />
+                  </div>
+                  {createMutation.isError && (
+                    <p className="text-sm text-destructive">
+                      {createMutation.error.message}
+                    </p>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button type="submit" disabled={createMutation.isPending || !formName.trim()}>
+                    {createMutation.isPending ? 'Creating...' : 'Create Connection'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Connections Grid */}

@@ -19,13 +19,24 @@ import type { NodeExecutor, CompiledNode, NodeExecutorContext } from './index';
 import type { AIBlockNodeData } from '@/lib/baleybots/types';
 import { retryProviderCall } from '../retry';
 import { withCircuitBreaker } from '../circuit-breaker';
-import { createProviderError, TimeoutError } from '../errors';
+import { createProviderError } from '../errors';
 import { routeExecution, type ExecutionMode } from '../mode-router';
 import { canHandleWithCode } from '../pattern-matcher';
 import { trackFallback, trackCodeExecution, trackABTestExecution } from '../fallback-tracker';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('ai-block');
+
+// Try to load isolated-vm dynamically
+let ivm: typeof import('isolated-vm') | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  ivm = require('isolated-vm');
+} catch {
+  // isolated-vm not available
+}
+
+const ISOLATE_MEMORY_LIMIT = 128;
 
 /**
  * Get the BaleyBots model configuration for a connection
@@ -59,64 +70,48 @@ function getModelConfig(
 }
 
 /**
- * Execute generated code with the input
- * Uses sandboxed execution with timeout and restricted globals
+ * Execute generated code with the input in a sandboxed V8 isolate
  */
-const CODE_EXECUTION_TIMEOUT_MS = 5000; // 5 second timeout for code execution
+const CODE_EXECUTION_TIMEOUT_MS = 5000;
 
 async function executeGeneratedCode(code: string, input: unknown): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    // Set timeout for code execution
-    const timeoutId = setTimeout(() => {
-      reject(new Error('Code execution timed out (5s limit)'));
-    }, CODE_EXECUTION_TIMEOUT_MS);
+  if (!ivm) {
+    throw new Error(
+      'Code execution unavailable: isolated-vm is not installed'
+    );
+  }
 
-    try {
-      // Create sandboxed execution environment
-      // The generated code should export a default function that takes input and returns output
-      const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+  const isolate = new ivm.Isolate({ memoryLimit: ISOLATE_MEMORY_LIMIT });
 
-      // Wrap the code in a function that provides input
-      // Note: We use a restrictive environment that prevents access to dangerous globals
-      const wrappedCode = `
-        "use strict";
-        ${code}
+  try {
+    const context = await isolate.createContext();
+    const jail = context.global;
 
-        // If code exports default function, use it
-        if (typeof module !== 'undefined' && module.exports && typeof module.exports === 'function') {
-          return await module.exports(input);
-        }
+    await jail.set('global', jail.derefInto());
+    await jail.set('__input__', new ivm.ExternalCopy(input).copyInto());
 
-        // If code defines a 'process' or 'execute' function, use it
-        if (typeof processInput === 'function') {
-          return await processInput(input);
-        }
-        if (typeof execute === 'function') {
-          return await execute(input);
-        }
+    const wrappedCode = `
+      "use strict";
+      const input = __input__;
+      ${code}
 
-        // Otherwise, assume code is inline and return the last value
-        return input;
-      `;
+      if (typeof module !== 'undefined' && module.exports && typeof module.exports === 'function') {
+        module.exports(input);
+      } else if (typeof processInput === 'function') {
+        processInput(input);
+      } else if (typeof execute === 'function') {
+        execute(input);
+      } else {
+        input;
+      }
+    `;
 
-      // Create the async function - runs in strict mode
-      const fn = new AsyncFunction('input', wrappedCode);
-
-      // Execute and resolve
-      fn(input)
-        .then((result: unknown) => {
-          clearTimeout(timeoutId);
-          resolve(result);
-        })
-        .catch((error: Error) => {
-          clearTimeout(timeoutId);
-          reject(new Error(`Code execution failed: ${error.message}`));
-        });
-    } catch (error: unknown) {
-      clearTimeout(timeoutId);
-      reject(new Error(`Code execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`));
-    }
-  });
+    const script = await isolate.compileScript(wrappedCode);
+    const result = await script.run(context, { timeout: CODE_EXECUTION_TIMEOUT_MS });
+    return result;
+  } finally {
+    isolate.dispose();
+  }
 }
 
 export const aiBlockExecutor: NodeExecutor = {

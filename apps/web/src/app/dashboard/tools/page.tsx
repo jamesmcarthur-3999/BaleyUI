@@ -1,12 +1,24 @@
 'use client';
 
-import Link from 'next/link';
+import { useState } from 'react';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 
 import { Wrench, Plus, Cog, Calendar } from 'lucide-react';
 
@@ -29,6 +41,32 @@ function formatDate(date: Date | string): string {
  */
 export default function ToolsPage() {
   const { data: tools, isLoading } = trpc.tools.list.useQuery();
+  const utils = trpc.useUtils();
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [implementation, setImplementation] = useState('');
+
+  const createTool = trpc.tools.create.useMutation({
+    onSuccess: () => {
+      utils.tools.list.invalidate();
+      setDialogOpen(false);
+      setName('');
+      setDescription('');
+      setImplementation('');
+    },
+  });
+
+  function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    createTool.mutate({
+      name,
+      description,
+      inputSchema: { type: 'object', properties: {} },
+      code: implementation,
+    });
+  }
 
   return (
     <div className="container py-10">
@@ -41,12 +79,65 @@ export default function ToolsPage() {
               Manage workspace tools for your BaleyBots
             </p>
           </div>
-          <Button asChild>
-            <Link href="#">
-              <Plus className="h-4 w-4 mr-2" />
-              Create Tool
-            </Link>
-          </Button>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Tool
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <form onSubmit={handleCreate}>
+                <DialogHeader>
+                  <DialogTitle>Create Tool</DialogTitle>
+                  <DialogDescription>
+                    Define a custom tool for your BaleyBots to use.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="tool-name">Name</Label>
+                    <Input
+                      id="tool-name"
+                      placeholder="my_tool"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="tool-description">Description</Label>
+                    <Textarea
+                      id="tool-description"
+                      placeholder="Describe what this tool does..."
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="tool-implementation">Implementation</Label>
+                    <Textarea
+                      id="tool-implementation"
+                      placeholder="// JavaScript code..."
+                      className="font-mono text-sm min-h-[120px]"
+                      value={implementation}
+                      onChange={(e) => setImplementation(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    type="submit"
+                    disabled={createTool.isPending}
+                  >
+                    {createTool.isPending ? 'Creating...' : 'Create Tool'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Tools Grid */}

@@ -5,7 +5,7 @@
  * Shows a confirmation dialog with options to discard, save, or cancel.
  */
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 /**
@@ -69,35 +69,32 @@ export function useNavigationGuard(
   const [pendingPath, setPendingPath] = useState<string | null>(null);
 
   // Navigate with guard check
-  const guardedNavigate = useCallback(
-    (path: string) => {
-      if (isDirty) {
-        setPendingPath(path);
-        setShowDialog(true);
-      } else {
-        router.push(path);
-      }
-    },
-    [isDirty, router]
-  );
+  const guardedNavigate = (path: string) => {
+    if (isDirty) {
+      setPendingPath(path);
+      setShowDialog(true);
+    } else {
+      router.push(path);
+    }
+  };
 
   // Close dialog without navigating
-  const closeDialog = useCallback(() => {
+  const closeDialog = () => {
     setShowDialog(false);
     setPendingPath(null);
-  }, []);
+  };
 
   // Discard changes and navigate
-  const handleDiscard = useCallback(() => {
+  const handleDiscard = () => {
     setShowDialog(false);
     if (pendingPath) {
       router.push(pendingPath);
     }
     setPendingPath(null);
-  }, [pendingPath, router]);
+  };
 
   // Save then navigate
-  const handleSaveAndLeave = useCallback(async () => {
+  const handleSaveAndLeave = async () => {
     const saved = await onSave();
     if (saved && pendingPath) {
       setShowDialog(false);
@@ -108,7 +105,7 @@ export function useNavigationGuard(
       setShowDialog(false);
       setPendingPath(null);
     }
-  }, [onSave, pendingPath, router]);
+  };
 
   return {
     guardedNavigate,

@@ -10,9 +10,6 @@
 
 import {
   ExecutionError,
-  RetryableError,
-  ProviderError,
-  TimeoutError,
   ErrorCode,
   type ErrorContext,
   parseError,
@@ -66,7 +63,7 @@ export interface RetryOptions {
 /**
  * Default retry strategy - only retry on transient errors
  */
-function defaultShouldRetry(error: ExecutionError, attempt: number): boolean {
+function defaultShouldRetry(error: ExecutionError, _attempt: number): boolean {
   // Don't retry if max attempts reached (checked elsewhere)
   // Don't retry validation errors
   if (error.code === ErrorCode.VALIDATION_FAILED) {
@@ -242,7 +239,7 @@ export async function withRetry<T>(
       // Wait before retrying
       try {
         await sleep(delayMs, signal);
-      } catch (_sleepError: unknown) {
+      } catch {
         // If sleep was aborted, throw cancellation error
         throw new ExecutionError(
           'Execution cancelled during retry',

@@ -267,7 +267,7 @@ function ToolCallSummary({ toolCalls }: { toolCalls: ToolCallState[] }) {
 // ============================================================================
 
 export function NodeExecutionCard({
-  nodeId,
+  nodeId: _nodeId,
   nodeType,
   label,
   state,
@@ -376,7 +376,7 @@ export function NodeExecutionCard({
               <div className="space-y-2 relative">
                 {/* Timeline line */}
                 <div className="absolute left-[7px] top-3 bottom-3 w-px bg-border" />
-                {state.toolCalls.map((tc, index) => (
+                {state.toolCalls.map((tc, _index) => (
                   <div key={tc.id} className="relative pl-5">
                     {/* Timeline dot */}
                     <div className={cn(

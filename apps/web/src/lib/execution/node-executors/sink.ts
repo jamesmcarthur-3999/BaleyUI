@@ -13,13 +13,33 @@ import type { DatabaseConnectionConfig } from '@/lib/connections/providers';
 
 const logger = createLogger('sink-executor');
 
+const SAFE_IDENTIFIER = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+function quoteIdentifier(name: string): string {
+  if (!SAFE_IDENTIFIER.test(name)) {
+    throw new Error(`Invalid SQL identifier: ${name}`);
+  }
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/** Reject URLs pointing to private/internal networks */
+function isPrivateUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname;
+    return /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|0\.|localhost|::1|\[::1\])/.test(hostname);
+  } catch {
+    return true; // Invalid URLs are treated as private
+  }
+}
+
 export const sinkExecutor: NodeExecutor = {
   type: 'sink',
 
   async execute(
     node: CompiledNode,
     input: unknown,
-    context: NodeExecutorContext
+    _context: NodeExecutorContext
   ): Promise<unknown> {
     const data = node.data as SinkNodeData;
 
@@ -68,10 +88,12 @@ export const sinkExecutor: NodeExecutor = {
             ? input as Record<string, unknown>
             : { value: input };
           const columns = Object.keys(inputData);
+          const quotedTable = quoteIdentifier(tableName);
+          const quotedColumns = columns.map(c => quoteIdentifier(c));
           const placeholders = columns.map((_, i) => `$${i + 1}`);
           const values = Object.values(inputData);
 
-          const insertSQL = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+          const insertSQL = `INSERT INTO ${quotedTable} (${quotedColumns.join(', ')}) VALUES (${placeholders.join(', ')})`;
           await executor.queryWithParams(insertSQL, values);
 
           return {
@@ -109,6 +131,10 @@ export const sinkExecutor: NodeExecutor = {
             throw new Error('Webhook URL not configured');
           }
 
+          if (isPrivateUrl(webhookUrl)) {
+            throw new Error('Webhook URLs to private/internal networks are not allowed');
+          }
+
           // Prepare payload
           const payload = JSON.stringify(input);
 
@@ -123,21 +149,28 @@ export const sinkExecutor: NodeExecutor = {
             headers['X-BaleyUI-Signature'] = createSignatureHeader(payload, signingSecret);
           }
 
-          // Send webhook
-          const response = await fetch(webhookUrl, {
-            method: 'POST',
-            headers,
-            body: payload,
-          });
+          // Send webhook with timeout
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 10000);
+          try {
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers,
+              body: payload,
+              signal: controller.signal,
+            });
 
-          return {
-            __sinkResult: true,
-            sinkType: 'webhook',
-            completedAt: new Date().toISOString(),
-            delivered: response.ok,
-            statusCode: response.status,
-            output: input,
-          };
+            return {
+              __sinkResult: true,
+              sinkType: 'webhook',
+              completedAt: new Date().toISOString(),
+              delivered: response.ok,
+              statusCode: response.status,
+              output: input,
+            };
+          } finally {
+            clearTimeout(timeout);
+          }
         } catch (error: unknown) {
           logger.error('Webhook delivery failed', error);
           return {

@@ -19,7 +19,6 @@ import {
   desc,
   sql,
 } from '@baleyui/db';
-import { calculateCost } from './usage-tracker';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('optimization-suggester');

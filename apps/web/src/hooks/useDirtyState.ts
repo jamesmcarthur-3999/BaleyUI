@@ -5,51 +5,8 @@
  * Used to warn users before losing unsaved work.
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
-
-/**
- * Deep equality check for objects with cycle detection
- */
-function deepEqual(a: unknown, b: unknown, seen = new WeakSet<object>()): boolean {
-  // Same reference or primitives
-  if (a === b) return true;
-
-  // Different types
-  if (typeof a !== typeof b) return false;
-
-  // Handle null
-  if (a === null || b === null) return a === b;
-
-  // Primitives
-  if (typeof a !== 'object') return a === b;
-
-  // Cycle detection
-  if (seen.has(a as object)) return true; // Assume equal for cycles
-  seen.add(a as object);
-
-  // Arrays
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    return a.every((item, i) => deepEqual(item, b[i], seen));
-  }
-
-  // Objects
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-
-  const keysA = Object.keys(a as object);
-  const keysB = Object.keys(b as object);
-
-  if (keysA.length !== keysB.length) return false;
-
-  return keysA.every(key =>
-    key in (b as object) &&
-    deepEqual(
-      (a as Record<string, unknown>)[key],
-      (b as Record<string, unknown>)[key],
-      seen
-    )
-  );
-}
+import { useState, useRef, useEffect } from 'react';
+import { deepEqual } from '@/lib/utils/deep-equal';
 
 /**
  * State shape for tracking dirty state in the creator
@@ -127,20 +84,18 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
   }, [currentState]);
 
   // Mark current state as clean (after save)
-  // Uses ref for stable identity - prevents infinite loops when used in effects
-  const markClean = useCallback(() => {
+  const markClean = () => {
     savedStateRef.current = { ...currentStateRef.current };
     setIsDirty(false);
-  }, []);
+  };
 
   // Mark state as dirty manually (e.g., after AI modifies entities)
-  const markDirty = useCallback(() => {
+  const markDirty = () => {
     setIsDirty(true);
-  }, []);
+  };
 
   // Get human-readable list of what changed
-  // Uses ref for stable identity - prevents infinite loops when used in effects
-  const getChanges = useCallback((): string[] => {
+  const getChanges = (): string[] => {
     const changes: string[] = [];
     const saved = savedStateRef.current;
     const current = currentStateRef.current;
@@ -165,7 +120,7 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
     }
 
     return changes;
-  }, []);
+  };
 
   return {
     isDirty,

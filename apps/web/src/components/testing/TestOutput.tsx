@@ -9,7 +9,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Copy, Check, ChevronDown, ChevronRight } from 'lucide-react';
 import { StreamingText } from '@/components/streaming/StreamingText';
 import { StreamingJSON } from '@/components/streaming/StreamingJSON';
-import { cn } from '@/lib/utils';
 
 interface TestOutputProps {
   output: string | object | null;

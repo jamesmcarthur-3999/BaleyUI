@@ -66,36 +66,31 @@ export const toolsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Check for duplicate name in workspace
-      const existing = await ctx.db.query.tools.findFirst({
-        where: and(
-          eq(tools.workspaceId, ctx.workspace.id),
-          eq(tools.name, input.name),
-          notDeleted(tools)
-        ),
-      });
+      try {
+        const [tool] = await ctx.db
+          .insert(tools)
+          .values({
+            workspaceId: ctx.workspace.id,
+            name: input.name,
+            description: input.description,
+            inputSchema: input.inputSchema,
+            code: input.code,
+            connectionId: input.connectionId,
+            isGenerated: input.isGenerated ?? false,
+          })
+          .returning();
 
-      if (existing) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: `A tool named "${input.name}" already exists in this workspace`,
-        });
+        return tool;
+      } catch (error: unknown) {
+        // Handle unique constraint violation
+        if (error instanceof Error && (error.message.includes('UNIQUE') || error.message.includes('unique') || error.message.includes('duplicate'))) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: `A tool named "${input.name}" already exists in this workspace`,
+          });
+        }
+        throw error;
       }
-
-      const [tool] = await ctx.db
-        .insert(tools)
-        .values({
-          workspaceId: ctx.workspace.id,
-          name: input.name,
-          description: input.description,
-          inputSchema: input.inputSchema,
-          code: input.code,
-          connectionId: input.connectionId,
-          isGenerated: input.isGenerated ?? false,
-        })
-        .returning();
-
-      return tool;
     }),
 
   /**

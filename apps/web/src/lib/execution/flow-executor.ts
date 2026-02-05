@@ -205,9 +205,26 @@ export class FlowExecutor {
   // ============================================================================
 
   /**
-   * Main execution loop
+   * Main execution loop with overall timeout
    */
   private async execute(): Promise<ExecutionResult> {
+    const FLOW_TIMEOUT_MS = 5 * 60 * 1000;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => {
+        this.abortController.abort();
+        reject(new Error('Flow execution timed out after 5 minutes'));
+      }, FLOW_TIMEOUT_MS);
+      this.abortController.signal.addEventListener('abort', () => clearTimeout(timer));
+    });
+
+    return Promise.race([this.executeCore(), timeoutPromise]);
+  }
+
+  /**
+   * Core execution logic
+   */
+  private async executeCore(): Promise<ExecutionResult> {
     try {
       // Transition to running
       await this.stateMachine.transition('running');
@@ -462,12 +479,6 @@ export class FlowExecutor {
     const startTime = Date.now();
 
     try {
-      // Create node emitter
-      const nodeEmitter = this.eventAggregator.createNodeEmitter(
-        node.nodeId,
-        blockExec.id
-      );
-
       // Build executor context
       const context: NodeExecutorContext = {
         executionId: this.executionId,
@@ -574,7 +585,7 @@ export class FlowExecutor {
   /**
    * Get the input for a node based on its incoming edges
    */
-  private getNodeInput(node: CompiledNode, graph: ExecutionGraph): unknown {
+  private getNodeInput(node: CompiledNode, _graph: ExecutionGraph): unknown {
     // Source nodes use flow input
     if (node.type === 'source') {
       return this.input;

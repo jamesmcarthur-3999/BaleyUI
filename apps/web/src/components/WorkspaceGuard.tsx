@@ -17,7 +17,7 @@ interface WorkspaceGuardProps {
 export function WorkspaceGuard({ children }: WorkspaceGuardProps) {
   const router = useRouter();
 
-  const { data, isLoading, error } = trpc.workspaces.checkWorkspace.useQuery(undefined, {
+  const { data, isLoading } = trpc.workspaces.checkWorkspace.useQuery(undefined, {
     retry: false,
     staleTime: 60000, // Cache for 1 minute
   });

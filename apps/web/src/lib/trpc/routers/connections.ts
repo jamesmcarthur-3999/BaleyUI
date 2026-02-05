@@ -1,11 +1,10 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { connections, eq, and, notDeleted, softDelete, updateWithLock, OptimisticLockError } from '@baleyui/db';
-import { TRPCError } from '@trpc/server';
+import { connections, eq, and, notDeleted, softDelete, updateWithLock, sql } from '@baleyui/db';
 import { encrypt, decrypt } from '@/lib/encryption';
 import { testConnection } from '@/lib/connections/test';
 import { listOllamaModels } from '@/lib/connections/ollama';
-import type { ConnectionConfig, PartialUpdateData } from '@/lib/types';
+import type { ConnectionConfig } from '@/lib/types';
 import { createLogger } from '@/lib/logger';
 import {
   withErrorHandling,
@@ -108,20 +107,16 @@ export const connectionsRouter = router({
         limit: input?.limit ?? 50,
       });
 
-      // Decrypt API keys for display (masked)
+      // Mask API keys without decrypting (decryption only needed for edit form)
       return allConnections.map((conn) => {
         const config = conn.config as ConnectionConfig;
 
-        // Return masked API key for security
         if (config.apiKey) {
-          const decryptedKey = decrypt(config.apiKey);
-          const maskedKey = decryptedKey.slice(0, 8) + '...' + decryptedKey.slice(-4);
-
           return {
             ...conn,
             config: {
               ...config,
-              apiKey: maskedKey,
+              apiKey: '••••••••',
               _hasApiKey: true,
             },
           };
@@ -154,9 +149,16 @@ export const connectionsRouter = router({
       const config = connection.config as ConnectionConfig;
       const decryptedConfig = decryptObject(config, ['apiKey']);
 
+      // Mask the API key - only show last 4 characters
+      const maskedConfig = { ...decryptedConfig };
+      if (typeof maskedConfig.apiKey === 'string' && maskedConfig.apiKey.length > 4) {
+        const last4 = maskedConfig.apiKey.slice(-4);
+        maskedConfig.apiKey = `****${last4}`;
+      }
+
       return {
         ...connection,
-        config: decryptedConfig,
+        config: maskedConfig,
       };
     }),
 
@@ -200,6 +202,26 @@ export const connectionsRouter = router({
           updatedAt: new Date(),
         })
         .returning();
+
+      // Enforce single default: if multiple were created concurrently,
+      // keep only the earliest one as default
+      if (isFirstOfType) {
+        await ctx.db.execute(sql`
+          UPDATE connections SET is_default = false
+          WHERE workspace_id = ${ctx.workspace.id}
+            AND type = ${input.type}
+            AND is_default = true
+            AND deleted_at IS NULL
+            AND id != (
+              SELECT id FROM connections
+              WHERE workspace_id = ${ctx.workspace.id}
+                AND type = ${input.type}
+                AND is_default = true
+                AND deleted_at IS NULL
+              ORDER BY created_at ASC LIMIT 1
+            )
+        `);
+      }
 
       return connection;
     }),

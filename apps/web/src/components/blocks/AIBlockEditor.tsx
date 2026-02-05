@@ -19,21 +19,21 @@ import { trpc } from '@/lib/trpc/client';
 import { Loader2 } from 'lucide-react';
 
 interface AIBlockEditorProps {
-  block: any;
-  onChange: (data: any) => void;
+  block: Record<string, unknown>;
+  onChange: (data: Record<string, unknown>) => void;
 }
 
 export function AIBlockEditor({ block, onChange }: AIBlockEditorProps) {
-  const [connectionId, setConnectionId] = useState<string | null>(block.connectionId || null);
-  const [model, setModel] = useState<string | null>(block.model || null);
-  const [goal, setGoal] = useState(block.goal || '');
-  const [systemPrompt, setSystemPrompt] = useState(block.systemPrompt || '');
+  const [connectionId, setConnectionId] = useState<string | null>((block.connectionId as string) || null);
+  const [model, setModel] = useState<string | null>((block.model as string) || null);
+  const [goal, setGoal] = useState((block.goal as string) || '');
+  const [systemPrompt, setSystemPrompt] = useState((block.systemPrompt as string) || '');
   const [temperature, setTemperature] = useState(
-    block.temperature ? parseFloat(block.temperature) : 0.7
+    block.temperature ? parseFloat(String(block.temperature)) : 0.7
   );
-  const [maxTokens, setMaxTokens] = useState(block.maxTokens || 1000);
-  const [maxToolIterations, setMaxToolIterations] = useState(block.maxToolIterations || 25);
-  const [selectedToolIds, setSelectedToolIds] = useState<string[]>(block.toolIds || []);
+  const [maxTokens, setMaxTokens] = useState((block.maxTokens as number) || 1000);
+  const [maxToolIterations, setMaxToolIterations] = useState((block.maxToolIterations as number) || 25);
+  const [selectedToolIds, setSelectedToolIds] = useState<string[]>((block.toolIds as string[]) || []);
   const [inputSchema, setInputSchema] = useState(
     JSON.stringify(block.inputSchema || {}, null, 2)
   );
@@ -44,7 +44,12 @@ export function AIBlockEditor({ block, onChange }: AIBlockEditorProps) {
   const { data: connections, isLoading: connectionsLoading } = trpc.connections.list.useQuery();
 
   // Fetch tools from the block (they're already included via getById)
-  const tools = block.tools || [];
+  const tools = (Array.isArray(block.tools) ? block.tools : []) as Array<{
+    id: string;
+    name: string;
+    description?: string | null;
+    type?: string;
+  }>;
 
   useEffect(() => {
     try {
@@ -64,6 +69,7 @@ export function AIBlockEditor({ block, onChange }: AIBlockEditorProps) {
       // Invalid JSON, don't update
       console.error('Invalid JSON schema:', error);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     connectionId,
     model,

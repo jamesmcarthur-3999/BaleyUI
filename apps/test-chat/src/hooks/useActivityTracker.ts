@@ -134,6 +134,7 @@ Respond ONLY with valid JSON in this format:
     if (shouldTrigger) {
       analyze()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, autoTriggerAfter])
 
   // Cleanup on unmount

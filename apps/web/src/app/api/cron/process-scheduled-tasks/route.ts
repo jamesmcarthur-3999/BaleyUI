@@ -10,6 +10,7 @@
  * Security: Requires CRON_SECRET authorization header
  */
 
+import { timingSafeEqual } from 'crypto';
 import { NextResponse } from 'next/server';
 import {
   db,
@@ -26,6 +27,7 @@ import { parseCronExpression } from './cron-utils';
 import { createLogger } from '@/lib/logger';
 import { requireEnv } from '@/lib/env';
 import { getWorkspaceAICredentials } from '@/lib/baleybot/services';
+import { apiErrors, createErrorResponse } from '@/lib/api/error-response';
 
 const log = createLogger('cron');
 
@@ -50,48 +52,41 @@ export async function GET(request: Request): Promise<Response> {
   // Verify cron authorization
   const authHeader = request.headers.get('authorization');
 
+  const requestId = request.headers.get('x-request-id') ?? undefined;
+
   let cronSecret: string;
   try {
     cronSecret = requireEnv('CRON_SECRET', 'cron job authorization');
   } catch {
     log.error('CRON_SECRET environment variable not set');
-    return NextResponse.json(
-      { error: 'Cron not configured' },
-      { status: 500 }
-    );
+    return createErrorResponse(500, null, { message: 'Cron not configured', requestId });
   }
 
   // Use timing-safe comparison for bearer token
   const expectedHeader = `Bearer ${cronSecret}`;
   const headersMatch = authHeader !== null
     && authHeader.length === expectedHeader.length
-    && (() => {
-        const { timingSafeEqual } = require('crypto');
-        return timingSafeEqual(
-          Buffer.from(authHeader, 'utf-8'),
-          Buffer.from(expectedHeader, 'utf-8')
-        );
-      })();
+    && timingSafeEqual(
+      Buffer.from(authHeader, 'utf-8'),
+      Buffer.from(expectedHeader, 'utf-8')
+    );
 
   if (!headersMatch) {
     log.warn('Unauthorized cron request');
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    );
+    return apiErrors.unauthorized();
   }
 
   const startTime = Date.now();
   log.info(' Starting scheduled task processing');
 
   try {
-    // Query due tasks (limit to 10 per invocation to prevent timeout)
+    // Query due tasks (limit to 50 per invocation)
     const dueTasks = await db.query.scheduledTasks.findMany({
       where: and(
         eq(scheduledTasks.status, 'pending'),
         lte(scheduledTasks.runAt, new Date())
       ),
-      limit: 10,
+      limit: 50,
       orderBy: (tasks, { asc }) => [asc(tasks.runAt)],
     });
 
@@ -101,6 +96,10 @@ export async function GET(request: Request): Promise<Response> {
         processed: 0,
         durationMs: Date.now() - startTime,
       });
+    }
+
+    if (dueTasks.length === 50) {
+      log.warn('Scheduled task backlog detected', { processedBatch: 50 });
     }
 
     log.info(`Found ${dueTasks.length} due tasks`);
@@ -128,15 +127,7 @@ export async function GET(request: Request): Promise<Response> {
     const message = error instanceof Error ? error.message : 'Unknown error';
     log.error(' Error processing scheduled tasks:', message);
 
-    const isDev = process.env.NODE_ENV === 'development';
-    return NextResponse.json(
-      {
-        error: 'Failed to process scheduled tasks',
-        ...(isDev ? { message } : {}),
-        durationMs: Date.now() - startTime,
-      },
-      { status: 500 }
-    );
+    return apiErrors.internal(error, { requestId });
   }
 }
 

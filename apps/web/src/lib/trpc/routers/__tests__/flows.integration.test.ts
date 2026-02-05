@@ -7,7 +7,7 @@
  * Run with: TEST_DATABASE_URL=postgres://... pnpm test flows.integration.test.ts
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // Skip integration tests if no test database configured
 const SKIP_INTEGRATION = !process.env.TEST_DATABASE_URL;

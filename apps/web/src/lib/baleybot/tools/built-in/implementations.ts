@@ -29,8 +29,10 @@ import {
   STORE_MEMORY_SCHEMA,
   CREATE_AGENT_SCHEMA,
   CREATE_TOOL_SCHEMA,
+  SHARED_STORAGE_SCHEMA,
   BUILT_IN_TOOLS_METADATA,
 } from './index';
+import { createSharedStorageToolImpl } from '../../services/shared-storage-service';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('built-in-tools');
@@ -77,7 +79,7 @@ export function configureWebSearch(tavilyApiKey?: string): void {
 
 async function webSearchImpl(
   args: WebSearchArgs,
-  ctx: BuiltInToolContext
+  _ctx: BuiltInToolContext
 ): Promise<WebSearchResult[]> {
   const numResults = Math.min(args.num_results ?? 5, 20);
 
@@ -102,7 +104,7 @@ interface FetchUrlArgs {
 
 async function fetchUrlImpl(
   args: FetchUrlArgs,
-  ctx: BuiltInToolContext
+  _ctx: BuiltInToolContext
 ): Promise<FetchUrlResult> {
   const format = args.format ?? 'text';
 
@@ -361,7 +363,7 @@ let parentToolsStore: Map<string, RuntimeToolDefinition> | null = null;
 
 async function createAgentImpl(
   args: CreateAgentArgs,
-  ctx: BuiltInToolContext
+  _ctx: BuiltInToolContext
 ): Promise<CreateAgentResult> {
   logger.info('Creating ephemeral agent', { name: args.name, goal: args.goal });
 
@@ -521,6 +523,21 @@ export function getBuiltInRuntimeTools(ctx: BuiltInToolContext): Map<string, Run
     'Define a custom tool for the current execution',
     CREATE_TOOL_SCHEMA as Record<string, unknown>,
     wrapImpl<CreateToolArgs>(createToolImpl),
+    ctx
+  ));
+
+  // Shared storage - workspace-scoped cross-BB key-value store
+  const sharedStorageImpl = createSharedStorageToolImpl();
+  tools.set('shared_storage', createRuntimeTool(
+    'shared_storage',
+    'Read and write workspace-scoped shared data for cross-BB communication',
+    SHARED_STORAGE_SCHEMA as Record<string, unknown>,
+    async (args: Record<string, unknown>, toolCtx: BuiltInToolContext) => {
+      return sharedStorageImpl(
+        args as { action: 'write' | 'read' | 'delete' | 'list'; key?: string; value?: unknown; ttl_seconds?: number; prefix?: string },
+        { workspaceId: toolCtx.workspaceId, baleybotId: toolCtx.baleybotId, executionId: toolCtx.executionId }
+      );
+    },
     ctx
   ));
 

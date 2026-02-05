@@ -12,8 +12,8 @@ export interface AuditLogData {
   entityType: string;
   entityId: string;
   action: AuditAction;
-  changes?: Record<string, any>;
-  previousValues?: Record<string, any>;
+  changes?: Record<string, unknown>;
+  previousValues?: Record<string, unknown>;
 }
 
 /**
@@ -180,10 +180,10 @@ export const auditMiddleware = async <T>({
  * ```
  */
 export function getChanges(
-  previous: Record<string, any>,
-  current: Record<string, any>
-): Record<string, any> {
-  const changes: Record<string, any> = {};
+  previous: Record<string, unknown>,
+  current: Record<string, unknown>
+): Record<string, unknown> {
+  const changes: Record<string, unknown> = {};
 
   for (const key in current) {
     if (current[key] !== previous[key]) {
@@ -211,10 +211,10 @@ export function getChanges(
  * ```
  */
 export function getPreviousValues(
-  previous: Record<string, any>,
+  previous: Record<string, unknown>,
   changedKeys: string[]
-): Record<string, any> {
-  const previousValues: Record<string, any> = {};
+): Record<string, unknown> {
+  const previousValues: Record<string, unknown> = {};
 
   for (const key of changedKeys) {
     if (key in previous) {

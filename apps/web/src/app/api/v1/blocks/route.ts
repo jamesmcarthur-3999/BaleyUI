@@ -8,10 +8,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, blocks, eq, and, notDeleted } from '@baleyui/db';
 import { validateApiKey, hasPermission } from '@/lib/api/validate-api-key';
 import { createLogger } from '@/lib/logger';
+import { apiErrors } from '@/lib/api/error-response';
 
 const logger = createLogger('api/v1/blocks');
 
 export async function GET(request: NextRequest) {
+  const requestId = request.headers.get('x-request-id') ?? undefined;
+
   try {
     // Validate API key
     const authHeader = request.headers.get('authorization');
@@ -19,10 +22,7 @@ export async function GET(request: NextRequest) {
 
     // Check read permission
     if (!hasPermission(validation, 'read')) {
-      return NextResponse.json(
-        { error: 'Insufficient permissions. Required: read or admin' },
-        { status: 403 }
-      );
+      return apiErrors.forbidden('Insufficient permissions. Required: read or admin');
     }
 
     // Fetch all blocks for the workspace
@@ -59,19 +59,9 @@ export async function GET(request: NextRequest) {
     logger.error('Failed to list blocks', error);
 
     if (error instanceof Error && error.message.includes('API key')) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 401 }
-      );
+      return apiErrors.unauthorized(error.message);
     }
 
-    const isDev = process.env.NODE_ENV === 'development';
-    return NextResponse.json(
-      {
-        error: 'Failed to list blocks',
-        ...(isDev ? { details: error instanceof Error ? error.message : 'Unknown error' } : {}),
-      },
-      { status: 500 }
-    );
+    return apiErrors.internal(error, { requestId });
   }
 }

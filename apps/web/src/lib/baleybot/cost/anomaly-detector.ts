@@ -18,7 +18,6 @@ import {
   eq,
   and,
   gte,
-  lte,
   desc,
   sql,
 } from '@baleyui/db';

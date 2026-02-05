@@ -2,7 +2,7 @@
 
 import { X, Target, Cpu, Zap, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { VisualNode } from '@/lib/baleybot/visual/bal-to-nodes';
+import type { VisualNode } from '@/lib/baleybot/visual/types';
 
 interface NodeEditorProps {
   node: VisualNode;

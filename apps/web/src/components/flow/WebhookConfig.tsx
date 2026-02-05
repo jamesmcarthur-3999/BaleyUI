@@ -50,7 +50,7 @@ export function WebhookConfig({ flowId }: WebhookConfigProps) {
 
   // Generate webhook mutation
   const generateMutation = trpc.webhooks.generateWebhook.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (_data) => {
       toast({
         title: 'Webhook Generated',
         description: 'Your webhook URL has been created successfully.',

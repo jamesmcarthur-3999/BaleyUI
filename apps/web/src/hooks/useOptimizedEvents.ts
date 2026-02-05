@@ -8,7 +8,7 @@
  * - Selective subscription filtering
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { type BuilderEvent } from '@/lib/events/types';
 
 export interface EventSubscriptionOptions {
@@ -81,7 +81,7 @@ export function useOptimizedEvents({
   onConnectionChangeRef.current = onConnectionChange;
 
   // Process batched events
-  const processBatch = useCallback(() => {
+  const processBatch = () => {
     if (batchRef.current.length === 0) return;
 
     const batch = [...batchRef.current];
@@ -102,10 +102,10 @@ export function useOptimizedEvents({
     // Trigger callbacks
     batch.forEach((event) => onEvent?.(event));
     onBatch?.(batch);
-  }, [onEvent, onBatch]);
+  };
 
   // Add event to batch
-  const addEventToBatch = useCallback((event: BuilderEvent) => {
+  const addEventToBatch = (event: BuilderEvent) => {
     // Deduplicate by event ID
     if (seenEventsRef.current.has(event.id)) return;
     seenEventsRef.current.add(event.id);
@@ -130,10 +130,10 @@ export function useOptimizedEvents({
         processBatch();
       }, batchInterval);
     }
-  }, [eventTypes, batchInterval, processBatch]);
+  };
 
   // Connect to SSE
-  const connect = useCallback(() => {
+  const connect = () => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
@@ -188,17 +188,17 @@ export function useOptimizedEvents({
       setError(err instanceof Error ? err : new Error(String(err)));
       setIsConnected(false);
     }
-  }, [workspaceId, maxRetries, addEventToBatch]);
+  };
 
   // Manual reconnect
-  const reconnect = useCallback(() => {
+  const reconnect = () => {
     shouldReconnectRef.current = true;
     setRetryCount(0);
     connect();
-  }, [connect]);
+  };
 
   // Disconnect
-  const disconnect = useCallback(() => {
+  const disconnect = () => {
     shouldReconnectRef.current = false;
 
     if (reconnectTimeoutRef.current) {
@@ -213,15 +213,15 @@ export function useOptimizedEvents({
 
     setIsConnected(false);
     setIsReconnecting(false);
-  }, []);
+  };
 
   // Clear events
-  const clearEvents = useCallback(() => {
+  const clearEvents = () => {
     setEvents([]);
     setLastEvent(null);
     batchRef.current = [];
     seenEventsRef.current.clear();
-  }, []);
+  };
 
   // Connect on mount, disconnect on unmount
   useEffect(() => {
@@ -325,10 +325,11 @@ export function useEventFilter({
       return true;
     });
 
-    // Only update if result changed (efficient comparison by IDs)
-    const prevIds = prevResultRef.current.map(e => e.id).join(',');
-    const newIds = filtered.map(e => e.id).join(',');
-    if (prevIds !== newIds) {
+    // Only update if result changed (efficient comparison by length + last element)
+    const prev = prevResultRef.current;
+    const changed = prev.length !== filtered.length
+      || (filtered.length > 0 && prev[prev.length - 1]?.id !== filtered[filtered.length - 1]?.id);
+    if (changed) {
       prevResultRef.current = filtered;
       setFilteredEvents(filtered);
     }

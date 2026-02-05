@@ -49,3 +49,14 @@ drizzle/meta/
 
 # Worktrees
 .worktrees/
+
+# Local databases
+*.db
+!packages/db/**/*.db
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# Screenshots (dev/debug)
+*.png
+!apps/web/public/**/*.png

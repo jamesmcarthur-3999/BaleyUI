@@ -2,7 +2,7 @@
  * @baleyui/react Hooks
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { BaleyUI } from '@baleyui/sdk';
 import type { ExecutionEvent, Execution } from '@baleyui/sdk';
 import type { FlowRunnerState, ChatMessage, ChatWidgetState } from './types';

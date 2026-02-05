@@ -34,7 +34,7 @@ export default function WorkspaceSettingsPage() {
   });
 
   const updateMutation = trpc.workspaces.update.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (_data) => {
       toast({
         title: 'Workspace Updated',
         description: 'Your workspace settings have been saved successfully.',

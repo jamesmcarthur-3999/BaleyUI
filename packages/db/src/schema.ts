@@ -392,6 +392,7 @@ export const blockExecutions = pgTable(
     index('block_executions_flow_execution_id_idx').on(table.flowExecutionId),
     index('block_executions_status_idx').on(table.status),
     index('block_executions_created_at_idx').on(table.createdAt),
+    index('block_exec_flow_created_idx').on(table.flowExecutionId, table.createdAt),
   ]
 );
 
@@ -468,6 +469,7 @@ export const decisions = pgTable(
     index('decisions_block_idx').on(table.blockId),
     index('decisions_created_idx').on(table.createdAt),
     index('decisions_model_idx').on(table.model),
+    index('decisions_created_id_idx').on(table.createdAt, table.id),
   ]
 );
 
@@ -773,6 +775,7 @@ export const baleybotExecutions = pgTable(
     index('baleybot_executions_status_idx').on(table.status),
     index('baleybot_executions_created_idx').on(table.createdAt),
     index('baleybot_executions_baleybot_status_idx').on(table.baleybotId, table.status),
+    index('bb_exec_bot_created_idx').on(table.baleybotId, table.createdAt),
   ]
 );
 

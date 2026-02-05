@@ -75,31 +75,6 @@ function toCoreTool(tool: RuntimeToolDefinition): CoreToolDefinition {
 }
 
 /**
- * Generate BAL code for an ephemeral agent
- */
-function generateAgentBAL(config: EphemeralAgentConfig): string {
-  const toolsArray = config.tools && config.tools.length > 0
-    ? `"tools": [${config.tools.map(t => `"${t}"`).join(', ')}],`
-    : '';
-
-  const model = config.model
-    ? `"model": "${config.model}",`
-    : '';
-
-  return `
-{
-  "name": "${config.name}",
-  "goal": "${config.goal.replace(/"/g, '\\"')}",
-  ${model}
-  ${toolsArray}
-  "output": {
-    "result": "string"
-  }
-}
-`.trim();
-}
-
-/**
  * Create an ephemeral agent service
  */
 export function createEphemeralAgentService(): EphemeralAgentService {

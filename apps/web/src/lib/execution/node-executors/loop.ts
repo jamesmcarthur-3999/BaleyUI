@@ -137,18 +137,31 @@ export const loopExecutor: NodeExecutor = {
       // Execute body node if configured
       let bodyOutput: unknown = currentData;
       if (data.bodyNodeId) {
-        const bodyNode = context.nodeResults.get(data.bodyNodeId);
-        // Look up the body node in compiled nodes and execute it
-        const bodyCompiledNode: CompiledNode = {
-          nodeId: data.bodyNodeId,
-          type: (bodyNode as CompiledNode)?.type ?? 'function-block',
-          data: (bodyNode as CompiledNode)?.data ?? {},
-          incomingEdges: [],
-          outgoingEdges: [],
-        };
+        // Try to get the compiled node from context
+        // nodeResults may contain either execution results or compiled node data
+        const bodyNodeData = context.nodeResults.get(data.bodyNodeId);
 
-        // If the body node is available in context as a compiled node, use it directly
-        // Otherwise, execute via the registry
+        let bodyCompiledNode: CompiledNode;
+        if (bodyNodeData && typeof bodyNodeData === 'object' && 'type' in bodyNodeData && 'data' in bodyNodeData) {
+          // This is a compiled node structure
+          bodyCompiledNode = {
+            nodeId: data.bodyNodeId,
+            type: (bodyNodeData as CompiledNode).type,
+            data: (bodyNodeData as CompiledNode).data,
+            incomingEdges: (bodyNodeData as CompiledNode).incomingEdges ?? [],
+            outgoingEdges: (bodyNodeData as CompiledNode).outgoingEdges ?? [],
+          };
+        } else {
+          // Fallback: construct minimal node for execution
+          bodyCompiledNode = {
+            nodeId: data.bodyNodeId,
+            type: (data as Record<string, unknown>).bodyNodeType as CompiledNode['type'] ?? 'function-block',
+            data: ((data as Record<string, unknown>).bodyNodeData ?? {}) as CompiledNode['data'],
+            incomingEdges: [],
+            outgoingEdges: [],
+          };
+        }
+
         bodyOutput = await executeNode(bodyCompiledNode, currentData, context);
       }
 

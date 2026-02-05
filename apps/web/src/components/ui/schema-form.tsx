@@ -97,7 +97,7 @@ interface FieldProps {
   disabled?: boolean;
 }
 
-function StringField({ name, schema, value, onChange, required, disabled }: FieldProps) {
+function StringField({ name, schema, value, onChange, required: _required, disabled }: FieldProps) {
   const hasEnum = schema.enum && schema.enum.length > 0;
   const isLongText = schema.format === 'textarea' || (schema.maxLength && schema.maxLength > 200);
 
@@ -180,7 +180,7 @@ function BooleanField({ schema, value, onChange, disabled }: FieldProps) {
   );
 }
 
-function ArrayField({ name, schema, value, onChange, disabled }: FieldProps) {
+function ArrayField({ name: _name, schema, value, onChange, disabled }: FieldProps) {
   const items = Array.isArray(value) ? value : [];
   const itemSchema = schema.items || { type: 'string' };
   const itemType = Array.isArray(itemSchema.type) ? itemSchema.type[0] : itemSchema.type;

@@ -9,7 +9,7 @@
 import type { ToolDefinition } from '../../types';
 import type { RuntimeToolDefinition } from '../../executor';
 import type { DatabaseSchema } from './schema-introspection';
-import { formatSchemaForAI, getCompactSchemaSummary } from './schema-introspection';
+import { formatSchemaForAI } from './schema-introspection';
 
 // ============================================================================
 // TYPES
@@ -218,7 +218,6 @@ export function generateDatabaseToolDefinition(
   config: DatabaseToolConfig
 ): ToolDefinition {
   const { connection } = config;
-  const schemaSummary = getCompactSchemaSummary(connection.schema);
 
   return {
     name: `database_${connection.connectionId.substring(0, 8)}`,

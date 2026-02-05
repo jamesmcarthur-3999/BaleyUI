@@ -17,8 +17,25 @@ import { Loader2, RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
 import { listOllamaModels, formatBytes } from '@/lib/connections/ollama';
 import type { OllamaModel } from '@/lib/connections/providers';
 
+interface ConnectionFormValues {
+  name: string;
+  config: {
+    apiKey?: string;
+    baseUrl?: string;
+    organization?: string;
+    host?: string;
+    port?: number;
+    database?: string;
+    username?: string;
+    password?: string;
+    connectionUrl?: string;
+    ssl?: boolean;
+    schema?: string;
+  };
+}
+
 interface OllamaFormProps {
-  form: UseFormReturn<any>;
+  form: UseFormReturn<ConnectionFormValues>;
 }
 
 export function OllamaForm({ form }: OllamaFormProps) {

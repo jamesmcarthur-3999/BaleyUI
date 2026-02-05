@@ -5,7 +5,8 @@
  * Optimized to prevent unnecessary saves and network calls.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { deepEqual } from '@/lib/utils/deep-equal';
 
 export type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
@@ -22,7 +23,7 @@ export interface AutoSaveOptions<T> {
   onSuccess?: () => void;
   /** Callback when save fails */
   onError?: (error: Error) => void;
-  /** Compare function to detect changes (default: JSON.stringify comparison) */
+  /** Compare function to detect changes (default: deep equality with cycle detection) */
   isEqual?: (a: T, b: T) => boolean;
 }
 
@@ -41,65 +42,8 @@ export interface AutoSaveResult {
   hasUnsavedChanges: boolean;
 }
 
-/**
- * Efficient shallow equality check.
- * For primitives, does direct comparison.
- * For objects/arrays, compares first-level keys/values.
- * Falls back to JSON.stringify only for nested objects.
- */
 function defaultIsEqual<T>(a: T, b: T): boolean {
-  // Same reference or both primitive and equal
-  if (a === b) return true;
-
-  // Handle null/undefined
-  if (a == null || b == null) return a === b;
-
-  // Different types
-  if (typeof a !== typeof b) return false;
-
-  // Primitives that aren't equal
-  if (typeof a !== 'object') return false;
-
-  // Arrays
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    // For small arrays, do shallow comparison
-    if (a.length <= 10) {
-      for (let i = 0; i < a.length; i++) {
-        if (a[i] !== b[i]) return false;
-      }
-      return true;
-    }
-    // For larger arrays, fall back to JSON (but this should be rare)
-    return JSON.stringify(a) === JSON.stringify(b);
-  }
-
-  // Objects - shallow comparison of keys
-  const aKeys = Object.keys(a as object);
-  const bKeys = Object.keys(b as object);
-
-  if (aKeys.length !== bKeys.length) return false;
-
-  // For small objects, do shallow comparison
-  if (aKeys.length <= 10) {
-    for (const key of aKeys) {
-      const aVal = (a as Record<string, unknown>)[key];
-      const bVal = (b as Record<string, unknown>)[key];
-      // Shallow compare - primitives or same reference
-      if (aVal !== bVal) {
-        // If nested objects, fall back to JSON for just that value
-        if (typeof aVal === 'object' && typeof bVal === 'object') {
-          if (JSON.stringify(aVal) !== JSON.stringify(bVal)) return false;
-        } else {
-          return false;
-        }
-      }
-    }
-    return true;
-  }
-
-  // For larger objects, fall back to JSON
-  return JSON.stringify(a) === JSON.stringify(b);
+  return deepEqual(a, b);
 }
 
 export function useAutoSave<T>({
@@ -132,15 +76,23 @@ export function useAutoSave<T>({
     };
   }, []);
 
-  // Perform save
-  const performSave = useCallback(async (dataToSave: T) => {
+  // Stable refs for callbacks to avoid effect re-triggers
+  const onSaveRef = useRef(onSave);
+  const onSuccessRef = useRef(onSuccess);
+  const onErrorRef = useRef(onError);
+  onSaveRef.current = onSave;
+  onSuccessRef.current = onSuccess;
+  onErrorRef.current = onError;
+
+  // Perform save (ref-stable to avoid triggering effects)
+  const performSaveRef = useRef(async (dataToSave: T) => {
     if (!isMountedRef.current) return;
 
     setStatus('saving');
     setError(null);
 
     try {
-      await onSave(dataToSave);
+      await onSaveRef.current(dataToSave);
 
       if (!isMountedRef.current) return;
 
@@ -148,7 +100,7 @@ export function useAutoSave<T>({
       setLastSavedAt(new Date());
       setStatus('saved');
       setHasUnsavedChanges(false);
-      onSuccess?.();
+      onSuccessRef.current?.();
 
       // Reset to idle after showing "saved" briefly
       setTimeout(() => {
@@ -162,29 +114,29 @@ export function useAutoSave<T>({
       const saveError = err instanceof Error ? err : new Error(String(err));
       setError(saveError);
       setStatus('error');
-      onError?.(saveError);
+      onErrorRef.current?.(saveError);
     }
-  }, [onSave, onSuccess, onError]);
+  });
 
   // Manual save
-  const saveNow = useCallback(async () => {
+  const saveNow = async () => {
     // Cancel any pending debounced save
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
 
-    await performSave(pendingDataRef.current);
-  }, [performSave]);
+    await performSaveRef.current(pendingDataRef.current);
+  };
 
   // Cancel pending save
-  const cancel = useCallback(() => {
+  const cancel = () => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
       setStatus('idle');
     }
-  }, []);
+  };
 
   // Debounced auto-save effect
   useEffect(() => {
@@ -208,7 +160,7 @@ export function useAutoSave<T>({
 
     // Set new debounced save
     timeoutRef.current = setTimeout(() => {
-      performSave(data);
+      performSaveRef.current(data);
     }, debounceMs);
 
     return () => {
@@ -216,7 +168,7 @@ export function useAutoSave<T>({
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [data, enabled, debounceMs, isEqual, performSave]);
+  }, [data, enabled, debounceMs, isEqual]);
 
   // Save on unmount if there are unsaved changes
   useEffect(() => {
@@ -254,7 +206,7 @@ export function useDebounce<T extends (...args: Parameters<T>) => ReturnType<T>>
   // Keep callback ref up to date
   callbackRef.current = callback;
 
-  const debouncedFn = useCallback((...args: Parameters<T>) => {
+  const debouncedFn = (...args: Parameters<T>) => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
@@ -262,7 +214,7 @@ export function useDebounce<T extends (...args: Parameters<T>) => ReturnType<T>>
     timeoutRef.current = setTimeout(() => {
       callbackRef.current(...args);
     }, delay);
-  }, [delay]);
+  };
 
   // Cleanup on unmount
   useEffect(() => {
@@ -292,7 +244,7 @@ export function useThrottle<T extends (...args: Parameters<T>) => ReturnType<T>>
   // Keep callback ref up to date
   callbackRef.current = callback;
 
-  const throttledFn = useCallback((...args: Parameters<T>) => {
+  const throttledFn = (...args: Parameters<T>) => {
     const now = Date.now();
     const timeSinceLastRun = now - lastRunRef.current;
 
@@ -310,7 +262,7 @@ export function useThrottle<T extends (...args: Parameters<T>) => ReturnType<T>>
         callbackRef.current(...args);
       }, interval - timeSinceLastRun);
     }
-  }, [interval]);
+  };
 
   // Cleanup on unmount
   useEffect(() => {

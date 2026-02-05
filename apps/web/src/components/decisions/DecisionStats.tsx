@@ -1,8 +1,7 @@
 'use client';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Activity, CheckCircle2, Clock, DollarSign, Zap } from 'lucide-react';
+import { Activity, CheckCircle2, DollarSign, Zap } from 'lucide-react';
 import { formatCost, formatDuration } from '@/lib/format';
 
 interface DecisionStatsProps {

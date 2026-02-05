@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -14,12 +13,9 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { trpc } from '@/lib/trpc/client';
 import {
-  TrendingUp,
-  TrendingDown,
   DollarSign,
   Clock,
   CheckCircle2,
-  XCircle,
   AlertCircle,
   BarChart3,
   Calendar,
@@ -174,7 +170,7 @@ export function BlockAnalytics({ blockId }: BlockAnalyticsProps) {
         <h3 className="text-lg font-semibold">Analytics</h3>
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-muted-foreground" />
-          <Select value={timeRange} onValueChange={(value: any) => setTimeRange(value)}>
+          <Select value={timeRange} onValueChange={(value: string) => setTimeRange(value as '7d' | '30d' | '90d' | 'all')}>
             <SelectTrigger className="w-32">
               <SelectValue />
             </SelectTrigger>

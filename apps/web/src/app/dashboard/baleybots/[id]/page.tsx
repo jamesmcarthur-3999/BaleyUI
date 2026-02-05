@@ -2,11 +2,17 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
-import { Canvas, ChatInput, ActionBar, ConversationThread, ExecutionHistory, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError } from '@/components/creator';
-import { BalCodeEditor, SchemaBuilder, balToSchemaFields, schemaFieldsToBAL } from '@/components/baleybot';
-import { VisualEditor } from '@/components/visual-editor/VisualEditor';
+import { ChatInput, ActionBar, ConversationThread, ExecutionHistory, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError } from '@/components/creator';
+import { BalCodeEditor, SchemaBuilder } from '@/components/baleybot';
+
+// Dynamic import to avoid bundling @baleybots/core server-only modules in client
+const VisualEditor = dynamic(
+  () => import('@/components/visual-editor/VisualEditor').then(mod => ({ default: mod.VisualEditor })),
+  { ssr: false }
+);
 import { TriggerConfig } from '@/components/baleybots/TriggerConfig';
 import type { TriggerConfig as TriggerConfigType } from '@/lib/baleybot/types';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -29,7 +35,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, Save, Loader2, ChevronDown, ChevronUp, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, ListTree, Zap } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, ListTree, Zap } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } from '@/hooks';

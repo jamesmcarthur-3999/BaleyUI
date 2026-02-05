@@ -11,7 +11,6 @@ import {
   type Node,
   MarkerType,
   Panel,
-  useReactFlow,
 } from '@xyflow/react';
 import { useFlowStore } from '@/stores/flow';
 import { useBuilderEvents } from '@/hooks/useBuilderEvents';
@@ -22,10 +21,6 @@ import { Badge } from '@/components/ui/badge';
 import {
   Play,
   Pause,
-  RotateCcw,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
   Eye,
   EyeOff,
   Layers,
@@ -57,7 +52,7 @@ interface ExecutingNodeState {
 // ============================================================================
 
 export function FlowCanvas({
-  flowId,
+  flowId: _flowId,
   workspaceId,
   className,
   onSave,
@@ -79,11 +74,10 @@ export function FlowCanvas({
     addNode,
     addEdge: addEdgeToStore,
     selectNode,
-    selectedNodeId,
   } = useFlowStore();
 
   // Subscribe to builder events for real-time updates
-  const { events, isConnected } = useBuilderEvents({
+  const { isConnected } = useBuilderEvents({
     workspaceId: workspaceId || '',
     enabled: !!workspaceId && isExecuting,
     onEvent: (event) => {

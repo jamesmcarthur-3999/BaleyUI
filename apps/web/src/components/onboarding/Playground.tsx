@@ -10,8 +10,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  Play,
-  Pause,
   RefreshCw,
   Settings,
   Code,
@@ -19,7 +17,6 @@ import {
   Sparkles,
   Loader2,
   Check,
-  X,
   ChevronRight,
   Copy,
 } from 'lucide-react';
@@ -90,7 +87,7 @@ function ConfigPanel({
           className="min-h-[150px]"
         />
         <p className="text-xs text-muted-foreground">
-          This tells the AI how to behave. Start with "You are..."
+          This tells the AI how to behave. Start with &quot;You are...&quot;
         </p>
       </div>
 
@@ -419,11 +416,11 @@ export function Playground({
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-start gap-2">
                   <Check className="h-4 w-4 text-green-500 shrink-0 mt-0.5" />
-                  Start with "You are..." to establish identity
+                  Start with &quot;You are...&quot; to establish identity
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="h-4 w-4 text-green-500 shrink-0 mt-0.5" />
-                  Be specific about the agent's role and expertise
+                  Be specific about the agent&apos;s role and expertise
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="h-4 w-4 text-green-500 shrink-0 mt-0.5" />

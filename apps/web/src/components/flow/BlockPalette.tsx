@@ -83,7 +83,7 @@ export function BlockPalette({ blocks, className }: BlockPaletteProps) {
     blockType: string,
     blockId: string,
     blockName: string,
-    blockData?: any
+    blockData?: Record<string, unknown>
   ) => {
     setDraggedItemId(blockId);
     event.dataTransfer.setData(
@@ -106,8 +106,8 @@ export function BlockPalette({ blocks, className }: BlockPaletteProps) {
     event: React.KeyboardEvent<HTMLDivElement>,
     type: string,
     id: string,
-    name: string,
-    additionalData?: any
+    _name: string,
+    _additionalData?: Record<string, unknown>
   ) => {
     // Allow keyboard users to "pick up" the item for drag simulation
     if (event.key === 'Enter' || event.key === ' ') {
@@ -139,7 +139,7 @@ export function BlockPalette({ blocks, className }: BlockPaletteProps) {
     id: string,
     name: string,
     description?: string,
-    additionalData?: any
+    additionalData?: Record<string, unknown>
   ) => {
     const config = blockTypeConfig[type];
     const Icon = config.icon;

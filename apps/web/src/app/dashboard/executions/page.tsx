@@ -11,13 +11,6 @@ import { useRouter } from 'next/navigation';
 import { trpc } from '@/lib/trpc/client';
 import { ExecutionList } from '@/components/executions';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Play, Activity, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import type { FlowExecutionStatus } from '@/lib/execution/types';

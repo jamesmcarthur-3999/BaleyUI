@@ -6,10 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { ThumbsUp, ThumbsDown, Save, X } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc/client';
 import { useToast } from '@/components/ui/use-toast';
-import { cn } from '@/lib/utils';
 import { formatCost, formatDuration, formatTokens } from '@/lib/format';
 
 interface Decision {
@@ -18,8 +17,8 @@ interface Decision {
   blockName: string;
   blockType: string;
   blockExecutionId: string;
-  input: any;
-  output: any;
+  input: unknown;
+  output: unknown;
   reasoning: string | null;
   model: string | null;
   tokensInput: number | null;
@@ -28,7 +27,7 @@ interface Decision {
   cost: string | null;
   feedbackCorrect: boolean | null;
   feedbackNotes: string | null;
-  feedbackCorrectedOutput: any;
+  feedbackCorrectedOutput: unknown;
   feedbackAt: Date | null;
   createdAt: Date;
 }
@@ -74,7 +73,7 @@ export function DecisionDetail({ decision, onClose }: DecisionDetailProps) {
       if (correctedOutput.trim()) {
         try {
           parsedOutput = JSON.parse(correctedOutput);
-        } catch (e) {
+        } catch {
           toast({
             title: 'Invalid JSON',
             description: 'Corrected output must be valid JSON',
@@ -96,11 +95,11 @@ export function DecisionDetail({ decision, onClose }: DecisionDetailProps) {
     }
   };
 
-  const formatJson = (data: any) => {
+  const formatJson = (data: unknown) => {
     if (!data) return 'null';
     try {
       return JSON.stringify(data, null, 2);
-    } catch (e) {
+    } catch {
       return String(data);
     }
   };
@@ -225,7 +224,7 @@ export function DecisionDetail({ decision, onClose }: DecisionDetailProps) {
                   <p className="text-sm text-muted-foreground mt-1">{decision.feedbackNotes}</p>
                 </div>
               )}
-              {decision.feedbackCorrectedOutput && (
+              {Boolean(decision.feedbackCorrectedOutput) && (
                 <div>
                   <span className="text-sm font-medium">Corrected Output:</span>
                   <pre className="rounded-md bg-muted p-3 text-xs overflow-auto max-h-40 mt-1">

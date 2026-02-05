@@ -27,6 +27,7 @@ export async function testOpenAIConnection(
     const response = await fetch(url, {
       method: 'GET',
       headers,
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {
@@ -38,17 +39,24 @@ export async function testOpenAIConnection(
       };
     }
 
-    const data = await response.json();
+    const data: { data?: { id: string }[] } = await response.json();
     const modelCount = data.data?.length || 0;
 
     return {
       success: true,
       message: `Successfully connected to OpenAI. Found ${modelCount} models.`,
       details: {
-        models: data.data?.slice(0, 5).map((m: any) => m.id) || [],
+        models: data.data?.slice(0, 5).map((m) => m.id) || [],
       },
     };
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      return {
+        success: false,
+        message: 'Connection test timed out after 15 seconds',
+        details: { error: 'TimeoutError' },
+      };
+    }
     return {
       success: false,
       message: `Connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -79,6 +87,7 @@ export async function testAnthropicConnection(
         max_tokens: 1,
         messages: [{ role: 'user', content: 'test' }],
       }),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {
@@ -105,6 +114,13 @@ export async function testAnthropicConnection(
       message: 'Successfully connected to Anthropic.',
     };
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      return {
+        success: false,
+        message: 'Connection test timed out after 15 seconds',
+        details: { error: 'TimeoutError' },
+      };
+    }
     return {
       success: false,
       message: `Connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -128,6 +144,7 @@ export async function testOllamaConnection(
       headers: {
         'Content-Type': 'application/json',
       },
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {
@@ -149,6 +166,13 @@ export async function testOllamaConnection(
       },
     };
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      return {
+        success: false,
+        message: 'Connection test timed out after 15 seconds',
+        details: { error: 'TimeoutError' },
+      };
+    }
     return {
       success: false,
       message: `Connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`,

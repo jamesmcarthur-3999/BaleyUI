@@ -4,7 +4,7 @@
  * Validates API keys from Authorization header and returns workspace context.
  */
 
-import { db, apiKeys, eq, and, isNull, gt, or } from '@baleyui/db';
+import { db, apiKeys, eq, and, isNull } from '@baleyui/db';
 import { createHash } from 'crypto';
 import { createLogger } from '@/lib/logger';
 
@@ -45,7 +45,7 @@ export async function validateApiKey(
 
   // Validate key format (bui_live_* or bui_test_*)
   if (!apiKey.startsWith('bui_live_') && !apiKey.startsWith('bui_test_')) {
-    throw new Error('Invalid API key format');
+    throw new Error('Invalid API key');
   }
 
   // Hash the API key to look it up in the database
@@ -65,7 +65,7 @@ export async function validateApiKey(
 
   // Check if key has expired
   if (key.expiresAt && new Date(key.expiresAt) < new Date()) {
-    throw new Error('API key has expired');
+    throw new Error('Invalid API key');
   }
 
   // Update lastUsedAt timestamp (fire and forget - don't await)

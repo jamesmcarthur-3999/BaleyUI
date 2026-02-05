@@ -85,9 +85,6 @@ describe('flows router', () => {
 
     it('validates workspace access', async () => {
       // The router checks if user has access to the workspace
-      const workspaceId = 'ws-1';
-      const userId = 'user-123';
-
       // Simulate workspace membership check
       const hasAccess = true; // Would be checked via workspaceMembers table
       expect(hasAccess).toBe(true);

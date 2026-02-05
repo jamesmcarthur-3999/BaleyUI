@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { blocks, connections, tools, eq, and, notDeleted, softDelete, updateWithLock, inArray } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
-import type { BlockSchema, RouterConfig, LoopConfig, PartialUpdateData, ToolReference } from '@/lib/types';
+import type { PartialUpdateData, ToolReference } from '@/lib/types';
 import {
   withErrorHandling,
   throwNotFound,
@@ -10,7 +10,6 @@ import {
   descriptionSchema,
   uuidSchema,
   versionSchema,
-  paginationSchema,
 } from '../helpers';
 
 /**

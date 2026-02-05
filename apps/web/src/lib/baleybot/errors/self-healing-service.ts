@@ -206,7 +206,7 @@ const dataErrorHandler: ErrorHandler = {
     return category === 'data';
   },
 
-  async handle(error: Error, context: ErrorHandlerContext): Promise<ErrorResolution> {
+  async handle(error: Error, _context: ErrorHandlerContext): Promise<ErrorResolution> {
     // Data errors are usually not retryable - bad input stays bad
     return {
       action: 'skip',

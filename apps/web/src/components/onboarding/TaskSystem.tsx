@@ -17,7 +17,6 @@ import {
   Play,
   Star,
 } from 'lucide-react';
-import { onboardingSteps } from '@/lib/agents/onboarding';
 
 // ============================================================================
 // TYPES
@@ -418,7 +417,7 @@ export function TaskSystem({
               <div className="flex items-center gap-2">
                 <Trophy className="h-5 w-5 text-green-500" />
                 <span className="font-medium text-green-700 dark:text-green-400">
-                  Congratulations! You've completed all onboarding tasks!
+                  Congratulations! You&apos;ve completed all onboarding tasks!
                 </span>
               </div>
             </div>

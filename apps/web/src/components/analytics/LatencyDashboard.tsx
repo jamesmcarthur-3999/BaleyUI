@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Zap, Activity, TrendingDown, Code } from 'lucide-react';
+import { Zap, Activity, TrendingDown } from 'lucide-react';
 import { formatDuration } from '@/lib/format';
 
 interface LatencyMetrics {

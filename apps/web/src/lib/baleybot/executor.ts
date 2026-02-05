@@ -5,6 +5,7 @@
  * This keeps BaleyUI aligned with the canonical BAL implementation.
  */
 
+import crypto from 'crypto';
 import { parse, tokenize, buildZodSchema } from '@baleybots/tools';
 import type { OutputSchemaNode, ProgramNode } from '@baleybots/tools';
 import type {
@@ -48,14 +49,7 @@ class BALParseCache {
   private readonly ttlMs = 5 * 60 * 1000; // 5 minutes
 
   private hash(balCode: string): string {
-    // Simple hash using string content for correctness
-    let hash = 0;
-    for (let i = 0; i < balCode.length; i++) {
-      const char = balCode.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32bit integer
-    }
-    return `${balCode.length}_${hash}`;
+    return crypto.createHash('sha256').update(balCode).digest('hex');
   }
 
   get(balCode: string): ProgramNode | null {
@@ -647,13 +641,97 @@ export async function executeBaleybot(
     }
   }
 
+  const durationMs = Date.now() - startTime;
+
+  // ============================================================================
+  // POST-EXECUTION: Analytics, Usage Tracking, and Alerts (non-blocking)
+  // All service calls are wrapped in try/catch so failures don't affect results.
+  // ============================================================================
+
+  // Record metrics (built-in defaults + BAL analytics block if present)
+  if (ctx.baleybotId) {
+    try {
+      const { metricsService } = await import('./analytics/metrics-service');
+      const { getDefaultMetrics, extractAnalyticsFromBAL } = await import('./analytics/schema-parser');
+
+      const metricsCtx = {
+        workspaceId: ctx.workspaceId,
+        baleybotId: ctx.baleybotId,
+        executionId,
+        status: status === 'completed' ? 'completed' as const : 'failed' as const,
+        durationMs,
+        output,
+      };
+
+      // Always record default metrics (count, success rate, duration)
+      const metricDefs = getDefaultMetrics();
+
+      // Also record any custom metrics from the BAL analytics block
+      const analyticsSchema = extractAnalyticsFromBAL(balCode);
+      if (analyticsSchema?.track) {
+        metricDefs.push(...analyticsSchema.track);
+      }
+
+      await metricsService.recordMetrics(metricsCtx, metricDefs);
+    } catch (metricsErr) {
+      logger.warn('Metrics recording failed (non-fatal)', {
+        executionId,
+        error: metricsErr instanceof Error ? metricsErr.message : 'Unknown error',
+      });
+    }
+  }
+
+  // Record usage/cost tracking from execution segments
+  if (ctx.baleybotId) {
+    try {
+      const { recordUsageFromExecution } = await import('./cost/usage-tracker');
+      await recordUsageFromExecution(
+        ctx.workspaceId,
+        ctx.baleybotId,
+        executionId,
+        segments,
+        durationMs,
+      );
+    } catch (usageErr) {
+      logger.warn('Usage tracking failed (non-fatal)', {
+        executionId,
+        error: usageErr instanceof Error ? usageErr.message : 'Unknown error',
+      });
+    }
+  }
+
+  // Evaluate alert conditions on failure (check if error rate exceeds thresholds)
+  if (ctx.baleybotId && status === 'failed') {
+    try {
+      const { alertService } = await import('./analytics/alert-service');
+      const { extractAnalyticsFromBAL } = await import('./analytics/schema-parser');
+
+      const analyticsSchema = extractAnalyticsFromBAL(balCode);
+      if (analyticsSchema?.alertWhen) {
+        await alertService.evaluateAlerts(
+          {
+            workspaceId: ctx.workspaceId,
+            baleybotId: ctx.baleybotId,
+            executionId,
+          },
+          analyticsSchema.alertWhen,
+        );
+      }
+    } catch (alertErr) {
+      logger.warn('Alert evaluation failed (non-fatal)', {
+        executionId,
+        error: alertErr instanceof Error ? alertErr.message : 'Unknown error',
+      });
+    }
+  }
+
   return {
     executionId,
     status,
     output,
     error,
     segments,
-    durationMs: Date.now() - startTime,
+    durationMs,
     schemaValidation,
   };
 }

@@ -1,9 +1,8 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { patterns, blocks, decisions, eq, and, desc, notDeleted, withTransaction } from '@baleyui/db';
-import { TRPCError } from '@trpc/server';
 import { analyzeDecisions } from '@/lib/patterns/pattern-analyzer';
-import type { PatternCondition, PatternOutputTemplate, PartialUpdateData } from '@/lib/types';
+import type { PartialUpdateData } from '@/lib/types';
 import {
   throwNotFound,
   uuidSchema,

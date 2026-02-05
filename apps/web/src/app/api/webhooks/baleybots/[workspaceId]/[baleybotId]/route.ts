@@ -24,21 +24,13 @@ import { executeBALCode } from '@baleyui/sdk';
 import { createLogger } from '@/lib/logger';
 import { getWorkspaceAICredentials } from '@/lib/baleybot/services';
 import { checkApiRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { createErrorResponse } from '@/lib/api/error-response';
 
 const log = createLogger('baleybot-webhook');
 
 // ============================================================================
 // TYPES
 // ============================================================================
-
-interface WebhookResponse {
-  success: boolean;
-  executionId?: string;
-  message?: string;
-  error?: string;
-  requestId?: string;
-  details?: string;
-}
 
 // ============================================================================
 // HELPERS
@@ -53,14 +45,6 @@ function getClientIp(request: NextRequest): string | undefined {
     request.headers.get('x-real-ip') ||
     undefined
   );
-}
-
-/**
- * Generate a cryptographically secure webhook secret
- * Note: This is a local helper, not exported (Next.js route files should only export route handlers)
- */
-function generateWebhookSecret(): string {
-  return 'whk_' + crypto.randomBytes(32).toString('hex');
 }
 
 /**
@@ -89,7 +73,7 @@ function verifyWebhookSecret(expected: string, provided: string | null): boolean
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ workspaceId: string; baleybotId: string }> }
-): Promise<NextResponse<WebhookResponse>> {
+) {
   const startTime = Date.now();
   const { workspaceId, baleybotId } = await params;
 
@@ -100,7 +84,7 @@ export async function POST(
 
   // Rate limiting: 60 requests per minute per IP
   const rateLimitKey = `webhook:baleybot:${ipAddress || 'unknown'}`;
-  const rateLimitResult = checkApiRateLimit(rateLimitKey, RATE_LIMITS.webhookPerMinute);
+  const rateLimitResult = await checkApiRateLimit(rateLimitKey, RATE_LIMITS.webhookPerMinute);
 
   if (rateLimitResult.limited) {
     log.warn('Rate limit exceeded for BaleyBot webhook', { ipAddress, baleybotId });
@@ -299,15 +283,7 @@ export async function POST(
       clientError = 'Failed to create execution record';
     }
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: clientError,
-        requestId, // Include for support/debugging
-        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
-      },
-      { status: statusCode }
-    );
+    return createErrorResponse(statusCode, error, { message: clientError, requestId });
   }
 }
 

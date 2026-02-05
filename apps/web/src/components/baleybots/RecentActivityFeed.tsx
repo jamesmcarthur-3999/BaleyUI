@@ -7,7 +7,6 @@ import { ROUTES } from '@/lib/routes';
 import {
   CheckCircle2,
   XCircle,
-  Play,
   Clock,
   ArrowRight,
   Activity,

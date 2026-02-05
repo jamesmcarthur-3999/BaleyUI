@@ -10,7 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, flows, eq, and, notDeleted } from '@baleyui/db';
 import { getCurrentAuth } from '@/lib/auth';
 import { FlowExecutor } from '@/lib/execution';
-import { createLogger, extractErrorMessage } from '@/lib/logger';
+import { createLogger } from '@/lib/logger';
+import { apiErrors } from '@/lib/api/error-response';
 
 const logger = createLogger('api/flows/execute');
 
@@ -18,6 +19,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const requestId = request.headers.get('x-request-id') ?? undefined;
+
   try {
     // Authenticate
     const { userId, workspace } = await getCurrentAuth();
@@ -39,18 +42,12 @@ export async function POST(
     });
 
     if (!flow) {
-      return NextResponse.json(
-        { error: 'Flow not found' },
-        { status: 404 }
-      );
+      return apiErrors.notFound('Flow');
     }
 
     // Check if flow is enabled
     if (!flow.enabled) {
-      return NextResponse.json(
-        { error: 'Flow is disabled' },
-        { status: 400 }
-      );
+      return apiErrors.badRequest('Flow is disabled');
     }
 
     // Start execution
@@ -72,26 +69,13 @@ export async function POST(
     logger.error('Failed to start flow execution', error);
 
     if (error instanceof Error && error.message === 'Not authenticated') {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return apiErrors.unauthorized();
     }
 
     if (error instanceof Error && error.message === 'No workspace found') {
-      return NextResponse.json(
-        { error: 'Workspace not found' },
-        { status: 404 }
-      );
+      return apiErrors.notFound('Workspace');
     }
 
-    const isDev = process.env.NODE_ENV === 'development';
-    return NextResponse.json(
-      {
-        error: 'Failed to start execution',
-        ...(isDev ? { details: extractErrorMessage(error) } : {}),
-      },
-      { status: 500 }
-    );
+    return apiErrors.internal(error, { requestId });
   }
 }

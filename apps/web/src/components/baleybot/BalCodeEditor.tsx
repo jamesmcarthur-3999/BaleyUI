@@ -196,6 +196,7 @@ export function BalCodeEditor({
   // Update markers when errors/warnings change
   useEffect(() => {
     updateMarkers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [errors, warnings]);
 
   // Cleanup debounce timer

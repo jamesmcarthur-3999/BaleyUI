@@ -5,8 +5,7 @@
  * This enables bidirectional sync between visual and code views.
  */
 
-import type { VisualNode, VisualEdge, VisualGraph } from './bal-to-nodes';
-import { parseBalCode } from '../generator';
+import type { VisualNode, VisualEdge, VisualGraph, ParsedEntities } from './types';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('visual-to-bal');
@@ -25,21 +24,21 @@ export interface NodeChange {
 // ============================================================================
 
 /**
- * Apply a node change to BAL code
- * Returns the updated BAL code with the change applied
+ * Apply a node change using pre-parsed entities (client-safe — no server imports).
+ * Call parseBalEntities() server action first, then pass the result here.
  */
-export function applyNodeChange(
-  balCode: string,
+export function applyNodeChangeFromParsed(
+  parsed: ParsedEntities,
   change: NodeChange
 ): string {
-  const { entities, chain } = parseBalCode(balCode);
+  const { entities, chain } = parsed;
 
   // Find the entity to update
   const entityIndex = entities.findIndex((e) => e.name === change.nodeId);
 
   if (entityIndex === -1) {
     logger.warn(`Entity "${change.nodeId}" not found`);
-    return balCode;
+    return rebuildBAL(entities, chain);
   }
 
   // Update the entity config

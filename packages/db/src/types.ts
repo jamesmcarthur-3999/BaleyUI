@@ -35,6 +35,39 @@ export type NewAuditLog = InferInsertModel<typeof schema.auditLogs>;
 export type NewBackgroundJob = InferInsertModel<typeof schema.backgroundJobs>;
 export type NewBuilderEvent = InferInsertModel<typeof schema.builderEvents>;
 
+// BaleyBot types
+export type ApiKey = InferSelectModel<typeof schema.apiKeys>;
+export type WebhookLog = InferSelectModel<typeof schema.webhookLogs>;
+export type Baleybot = InferSelectModel<typeof schema.baleybots>;
+export type BaleybotExecution = InferSelectModel<typeof schema.baleybotExecutions>;
+export type BaleybotTrigger = InferSelectModel<typeof schema.baleybotTriggers>;
+export type ApprovalPattern = InferSelectModel<typeof schema.approvalPatterns>;
+export type WorkspacePolicy = InferSelectModel<typeof schema.workspacePolicies>;
+export type BaleybotMemory = InferSelectModel<typeof schema.baleybotMemory>;
+export type BaleybotSharedStorage = InferSelectModel<typeof schema.baleybotSharedStorage>;
+export type Notification = InferSelectModel<typeof schema.notifications>;
+export type ScheduledTask = InferSelectModel<typeof schema.scheduledTasks>;
+export type BaleybotMetric = InferSelectModel<typeof schema.baleybotMetrics>;
+export type BaleybotMetricAggregate = InferSelectModel<typeof schema.baleybotMetricAggregates>;
+export type BaleybotUsage = InferSelectModel<typeof schema.baleybotUsage>;
+export type BaleybotAlert = InferSelectModel<typeof schema.baleybotAlerts>;
+
+export type NewApiKey = InferInsertModel<typeof schema.apiKeys>;
+export type NewWebhookLog = InferInsertModel<typeof schema.webhookLogs>;
+export type NewBaleybot = InferInsertModel<typeof schema.baleybots>;
+export type NewBaleybotExecution = InferInsertModel<typeof schema.baleybotExecutions>;
+export type NewBaleybotTrigger = InferInsertModel<typeof schema.baleybotTriggers>;
+export type NewApprovalPattern = InferInsertModel<typeof schema.approvalPatterns>;
+export type NewWorkspacePolicy = InferInsertModel<typeof schema.workspacePolicies>;
+export type NewBaleybotMemory = InferInsertModel<typeof schema.baleybotMemory>;
+export type NewBaleybotSharedStorage = InferInsertModel<typeof schema.baleybotSharedStorage>;
+export type NewNotification = InferInsertModel<typeof schema.notifications>;
+export type NewScheduledTask = InferInsertModel<typeof schema.scheduledTasks>;
+export type NewBaleybotMetric = InferInsertModel<typeof schema.baleybotMetrics>;
+export type NewBaleybotMetricAggregate = InferInsertModel<typeof schema.baleybotMetricAggregates>;
+export type NewBaleybotUsage = InferInsertModel<typeof schema.baleybotUsage>;
+export type NewBaleybotAlert = InferInsertModel<typeof schema.baleybotAlerts>;
+
 // Database type for dependency injection
 export type Database = typeof import('./index').db;
 

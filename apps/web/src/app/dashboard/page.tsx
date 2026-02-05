@@ -4,6 +4,7 @@ import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { trpc } from '@/lib/trpc/client';
+import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ROUTES } from '@/lib/routes';
@@ -17,10 +18,62 @@ import { Bot, ArrowRight, Sparkles, Zap } from 'lucide-react';
 export default function HomePage() {
   const { user } = useUser();
   const router = useRouter();
+  const { toast } = useToast();
+  const utils = trpc.useUtils();
 
   // Fetch BaleyBots
   const { data: baleybots, isLoading: baleybotsLoading } =
-    trpc.baleybots.list.useQuery();
+    trpc.baleybots.list.useQuery({ limit: 6 }, { staleTime: 5 * 60 * 1000 });
+
+  const activateMutation = trpc.baleybots.activate.useMutation({
+    onSuccess: () => {
+      toast({ title: 'BaleyBot Activated', description: 'The BaleyBot is now active.' });
+      utils.baleybots.list.invalidate();
+    },
+    onError: (error) => {
+      toast({ title: 'Activation Failed', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const pauseMutation = trpc.baleybots.pause.useMutation({
+    onSuccess: () => {
+      toast({ title: 'BaleyBot Paused', description: 'The BaleyBot has been paused.' });
+      utils.baleybots.list.invalidate();
+    },
+    onError: (error) => {
+      toast({ title: 'Pause Failed', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteMutation = trpc.baleybots.delete.useMutation({
+    onSuccess: () => {
+      toast({ title: 'BaleyBot Deleted', description: 'The BaleyBot has been removed.' });
+      utils.baleybots.list.invalidate();
+    },
+    onError: (error) => {
+      toast({ title: 'Delete Failed', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const handleExecute = (id: string) => {
+    router.push(ROUTES.baleybots.detail(id));
+  };
+
+  const handleActivate = (id: string) => {
+    const bb = baleybots?.find((b) => b.id === id);
+    if (!bb) return;
+    activateMutation.mutate({ id, version: bb.version });
+  };
+
+  const handlePause = (id: string) => {
+    const bb = baleybots?.find((b) => b.id === id);
+    if (!bb) return;
+    pauseMutation.mutate({ id, version: bb.version });
+  };
+
+  const handleDelete = (id: string) => {
+    deleteMutation.mutate({ id });
+  };
 
   // Fetch recent activity
   const { data: recentActivity, isLoading: activityLoading } =
@@ -129,6 +182,10 @@ export default function HomePage() {
                       lastExecutedAt={
                         bb.lastExecutedAt ? new Date(bb.lastExecutedAt) : null
                       }
+                      onExecute={handleExecute}
+                      onActivate={handleActivate}
+                      onPause={handlePause}
+                      onDelete={handleDelete}
                     />
                   </div>
                 ))}

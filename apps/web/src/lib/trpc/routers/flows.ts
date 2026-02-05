@@ -13,7 +13,7 @@ import {
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
-import type { FlowNode, FlowEdge, Trigger, PartialUpdateData } from '@/lib/types';
+import type { FlowNode, FlowEdge, PartialUpdateData } from '@/lib/types';
 import { createLogger } from '@/lib/logger';
 import { executeFlow } from '@/lib/flow-executor';
 import {
@@ -325,7 +325,7 @@ export const flowsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       // Rate limit: 10 executions per minute per user per workspace
-      checkRateLimit(
+      await checkRateLimit(
         `execute:${ctx.workspace.id}:${ctx.userId}`,
         RATE_LIMITS.execute
       );

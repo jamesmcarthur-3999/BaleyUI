@@ -15,7 +15,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import type { SchemaField, SchemaFieldType } from './schema-utils';
-import { createDefaultField, generateFieldId } from './schema-utils';
+import { createDefaultField } from './schema-utils';
 
 interface SchemaFieldComponentProps {
   field: SchemaField;
@@ -237,6 +237,7 @@ export function SchemaFieldComponent({
             size="icon"
             onClick={onDelete}
             className="h-8 w-8 text-muted-foreground hover:text-destructive"
+            aria-label={`Delete field ${field.name || 'unnamed'}`}
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -267,6 +268,7 @@ export function SchemaFieldComponent({
                       onClick={() => deleteEnumValue(index)}
                       className="h-8 w-8 shrink-0"
                       disabled={(field.enumValues?.length || 0) <= 1}
+                      aria-label={`Delete enum value ${value}`}
                     >
                       <Trash2 className="h-3 w-3" />
                     </Button>

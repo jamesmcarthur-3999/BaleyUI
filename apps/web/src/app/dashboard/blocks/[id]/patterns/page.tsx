@@ -74,7 +74,7 @@ export default function BlockPatternsPage() {
       </div>
 
       {/* Pattern analyzer panel */}
-      <PatternAnalyzerPanel blockId={blockId} />
+      <PatternAnalyzerPanel blockId={blockId} blockVersion={block.version} />
     </div>
   );
 }

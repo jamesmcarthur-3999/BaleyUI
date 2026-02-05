@@ -11,8 +11,25 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 
+interface ConnectionFormValues {
+  name: string;
+  config: {
+    apiKey?: string;
+    baseUrl?: string;
+    organization?: string;
+    host?: string;
+    port?: number;
+    database?: string;
+    username?: string;
+    password?: string;
+    connectionUrl?: string;
+    ssl?: boolean;
+    schema?: string;
+  };
+}
+
 interface OpenAIFormProps {
-  form: UseFormReturn<any>;
+  form: UseFormReturn<ConnectionFormValues>;
 }
 
 export function OpenAIForm({ form }: OpenAIFormProps) {

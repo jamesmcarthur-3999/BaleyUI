@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { BalCodeEditor } from '@/components/baleybot';
 import { Button } from '@/components/ui/button';
 import {
@@ -257,10 +258,10 @@ export default function PlaygroundPage() {
               </a>
             </Button>
             <Button variant="outline" size="sm" asChild>
-              <a href="/dashboard/baleybots/new">
+              <Link href="/dashboard/baleybots/new">
                 <ExternalLink className="h-4 w-4 mr-2" />
                 Create BaleyBot
-              </a>
+              </Link>
             </Button>
           </div>
         </div>
@@ -347,7 +348,7 @@ export default function PlaygroundPage() {
               <CardContent>
                 {parseResult === null ? (
                   <p className="text-sm text-muted-foreground">
-                    Click "Validate & Parse" to check your code.
+                    Click &quot;Validate &amp; Parse&quot; to check your code.
                   </p>
                 ) : parseResult.success ? (
                   <div className="space-y-3">
@@ -409,10 +410,10 @@ export default function PlaygroundPage() {
                       <code>parallel {'{ a b }'}</code> - Concurrent
                     </li>
                     <li>
-                      <code>if ("cond") {'{ }'}</code> - Conditional
+                      <code>if (&quot;cond&quot;) {'{ }'}</code> - Conditional
                     </li>
                     <li>
-                      <code>loop ("until": "...", "max": N) {'{ }'}</code> - Iterate
+                      <code>loop (&quot;until&quot;: &quot;...&quot;, &quot;max&quot;: N) {'{ }'}</code> - Iterate
                     </li>
                   </ul>
                 </div>

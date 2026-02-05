@@ -131,7 +131,7 @@ export function createEphemeralToolService(): EphemeralToolService {
   return {
     async create(
       config: EphemeralToolConfig,
-      ctx: BuiltInToolContext
+      _ctx: BuiltInToolContext
     ): Promise<CreateToolResult> {
       // Validate config
       if (!config.name || config.name.trim().length === 0) {

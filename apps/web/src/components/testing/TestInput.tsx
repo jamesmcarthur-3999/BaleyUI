@@ -57,7 +57,7 @@ export function TestInput({
         onChange(formatted);
         setError(null);
         setIsValid(true);
-      } catch (err) {
+      } catch {
         // If parsing fails, error is already shown
       }
     }

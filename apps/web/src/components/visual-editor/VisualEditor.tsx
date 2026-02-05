@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { Code, LayoutGrid, X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Code, LayoutGrid, Loader2 } from 'lucide-react';
 import { ClusterDiagram } from './ClusterDiagram';
 import { NodeEditor } from './NodeEditor';
-import { balToVisual } from '@/lib/baleybot/visual/bal-to-nodes';
-import { applyNodeChange } from '@/lib/baleybot/visual/visual-to-bal';
+import { parseBalToVisualGraph, parseBalEntities } from '@/app/dashboard/baleybots/[id]/actions';
+import { applyNodeChangeFromParsed } from '@/lib/baleybot/visual/visual-to-bal';
+import type { VisualGraph, ParsedEntities } from '@/lib/baleybot/visual/types';
 import { cn } from '@/lib/utils';
 
 interface VisualEditorProps {
@@ -25,9 +26,34 @@ export function VisualEditor({
 }: VisualEditorProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('visual');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [visualGraph, setVisualGraph] = useState<VisualGraph>({ nodes: [], edges: [] });
+  const [isParsing, setIsParsing] = useState(true);
+  const parsedEntitiesRef = useRef<ParsedEntities | null>(null);
+  const latestBalCodeRef = useRef(balCode);
 
-  // Get visual graph for the selected node
-  const visualGraph = balToVisual(balCode);
+  useEffect(() => {
+    let cancelled = false;
+    latestBalCodeRef.current = balCode;
+
+    const timeoutId = setTimeout(async () => {
+      setIsParsing(true);
+      const [graph, entities] = await Promise.all([
+        parseBalToVisualGraph(balCode),
+        parseBalEntities(balCode),
+      ]);
+      if (!cancelled && latestBalCodeRef.current === balCode) {
+        setVisualGraph(graph);
+        parsedEntitiesRef.current = entities;
+        setIsParsing(false);
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [balCode]);
+
   const selectedNode = selectedNodeId
     ? visualGraph.nodes.find((n) => n.id === selectedNodeId)
     : null;
@@ -37,11 +63,11 @@ export function VisualEditor({
   };
 
   const handleNodeUpdate = (changes: Record<string, unknown>) => {
-    if (!selectedNodeId || readOnly) return;
+    if (!selectedNodeId || readOnly || !parsedEntitiesRef.current) return;
 
-    const updatedCode = applyNodeChange(balCode, {
+    const updatedCode = applyNodeChangeFromParsed(parsedEntitiesRef.current, {
       nodeId: selectedNodeId,
-      changes: changes as Parameters<typeof applyNodeChange>[1]['changes'],
+      changes: changes as Parameters<typeof applyNodeChangeFromParsed>[1]['changes'],
     });
 
     onChange(updatedCode);
@@ -94,11 +120,16 @@ export function VisualEditor({
           </button>
         </div>
 
-        {selectedNode && viewMode !== 'code' && (
-          <span className="text-sm text-muted-foreground">
-            Editing: {formatNodeName(selectedNode.data.name)}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {isParsing && (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          )}
+          {selectedNode && viewMode !== 'code' && (
+            <span className="text-sm text-muted-foreground">
+              Editing: {formatNodeName(selectedNode.data.name)}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Main content */}
@@ -112,7 +143,8 @@ export function VisualEditor({
             )}
           >
             <ClusterDiagram
-              balCode={balCode}
+              graph={visualGraph}
+              isParsing={isParsing}
               onNodeClick={handleNodeClick}
               readOnly={readOnly}
               className="h-full"

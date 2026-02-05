@@ -15,7 +15,7 @@ export async function testGeneratedCode(
   db: Database
 ): Promise<HistoricalTestResult> {
   // Import decisions table
-  const { decisions, blocks, eq, and } = await import('@baleyui/db');
+  const { decisions, blocks, eq } = await import('@baleyui/db');
 
   // Fetch historical decisions for this block
   const historicalDecisions = await db

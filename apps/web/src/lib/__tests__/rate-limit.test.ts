@@ -11,38 +11,38 @@ describe('checkRateLimit', () => {
     vi.useRealTimers();
   });
 
-  it('allows requests within limit', () => {
+  it('allows requests within limit', async () => {
     const config = { windowMs: 1000, maxRequests: 3 };
-    expect(() => checkRateLimit('test-1', config)).not.toThrow();
-    expect(() => checkRateLimit('test-1', config)).not.toThrow();
-    expect(() => checkRateLimit('test-1', config)).not.toThrow();
+    await expect(checkRateLimit('test-1', config)).resolves.not.toThrow();
+    await expect(checkRateLimit('test-1', config)).resolves.not.toThrow();
+    await expect(checkRateLimit('test-1', config)).resolves.not.toThrow();
   });
 
-  it('throws on exceeding limit', () => {
+  it('throws on exceeding limit', async () => {
     const config = { windowMs: 1000, maxRequests: 2 };
-    checkRateLimit('test-2', config);
-    checkRateLimit('test-2', config);
-    expect(() => checkRateLimit('test-2', config)).toThrow('Rate limit exceeded');
+    await checkRateLimit('test-2', config);
+    await checkRateLimit('test-2', config);
+    await expect(checkRateLimit('test-2', config)).rejects.toThrow('Rate limit exceeded');
   });
 
-  it('resets after window expires', () => {
+  it('resets after window expires', async () => {
     const config = { windowMs: 1000, maxRequests: 1 };
-    checkRateLimit('test-3', config);
+    await checkRateLimit('test-3', config);
     vi.advanceTimersByTime(1001);
-    expect(() => checkRateLimit('test-3', config)).not.toThrow();
+    await expect(checkRateLimit('test-3', config)).resolves.not.toThrow();
   });
 
-  it('tracks different identifiers separately', () => {
+  it('tracks different identifiers separately', async () => {
     const config = { windowMs: 1000, maxRequests: 1 };
-    checkRateLimit('user-1', config);
-    expect(() => checkRateLimit('user-2', config)).not.toThrow();
+    await checkRateLimit('user-1', config);
+    await expect(checkRateLimit('user-2', config)).resolves.not.toThrow();
   });
 
-  it('includes retry-after in error message', () => {
+  it('includes retry-after in error message', async () => {
     const config = { windowMs: 60000, maxRequests: 1 };
-    checkRateLimit('test-retry', config);
+    await checkRateLimit('test-retry', config);
     try {
-      checkRateLimit('test-retry', config);
+      await checkRateLimit('test-retry', config);
     } catch (e: unknown) {
       expect((e as Error).message).toMatch(/Retry after \d+ seconds/);
     }

@@ -25,11 +25,6 @@ export function AccuracyReport({ testResult, className }: AccuracyReportProps) {
     return 'text-red-600';
   };
 
-  const getAccuracyVariant = (acc: number): 'default' | 'secondary' | 'destructive' => {
-    if (acc >= 90) return 'default';
-    if (acc >= 70) return 'secondary';
-    return 'destructive';
-  };
 
   return (
     <Card className={cn('w-full', className)}>

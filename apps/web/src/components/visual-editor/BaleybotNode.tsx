@@ -3,7 +3,7 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Zap, Clock, Globe, Wrench, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { VisualNode } from '@/lib/baleybot/visual/bal-to-nodes';
+import type { VisualNode } from '@/lib/baleybot/visual/types';
 
 type BaleybotNodeData = VisualNode['data'];
 

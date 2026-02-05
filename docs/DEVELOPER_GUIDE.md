@@ -288,7 +288,7 @@ const { events, isConnected, reconnect } = useOptimizedEvents({
 
 ```typescript
 // Keyboard navigation
-import { useRovingTabindex, useFocusTrap, useEscapeKey } from '@/hooks';
+import { useRovingTabindex, useAccessibleFocusTrap, useEscapeKey } from '@/hooks';
 
 // Roving tabindex for lists
 const { activeIndex, getItemProps } = useRovingTabindex(items.length, {
@@ -297,8 +297,8 @@ const { activeIndex, getItemProps } = useRovingTabindex(items.length, {
   onSelect: (index) => handleSelect(index),
 });
 
-// Focus trap for modals
-const containerRef = useFocusTrap({ active: isOpen });
+// Focus trap for modals (uses accessibility library)
+const containerRef = useAccessibleFocusTrap({ active: isOpen });
 
 // Escape key handler
 useEscapeKey(() => closeModal(), isOpen);

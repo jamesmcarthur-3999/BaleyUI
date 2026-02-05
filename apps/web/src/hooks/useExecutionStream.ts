@@ -5,7 +5,7 @@
  * Handles EventSource lifecycle, reconnection logic, and event parsing.
  */
 
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { parseSSEChunk } from '@/lib/streaming/utils';
 import type { ServerStreamEvent } from '@/lib/streaming/types';
 import { useVisibilityReconnect } from './useVisibilityReconnect';
@@ -133,7 +133,6 @@ export function useExecutionStream(
     initialReconnectDelay = 1000,
     maxReconnectDelay = 30000,
     reconnectOnVisibility = true,
-    headers,
     onConnect,
     onDisconnect,
     onError,
@@ -166,11 +165,69 @@ export function useExecutionStream(
     onErrorRef.current = onError;
   }, [onConnect, onDisconnect, onError]);
 
+  // Refs for options to avoid effect re-triggers
+  const baseUrlRef = useRef(baseUrl);
+  const executionIdRef = useRef(executionId);
+  const autoReconnectRef = useRef(autoReconnect);
+  const maxReconnectAttemptsRef = useRef(maxReconnectAttempts);
+  const initialReconnectDelayRef = useRef(initialReconnectDelay);
+  const maxReconnectDelayRef = useRef(maxReconnectDelay);
+
+  baseUrlRef.current = baseUrl;
+  executionIdRef.current = executionId;
+  autoReconnectRef.current = autoReconnect;
+  maxReconnectAttemptsRef.current = maxReconnectAttempts;
+  initialReconnectDelayRef.current = initialReconnectDelay;
+  maxReconnectDelayRef.current = maxReconnectDelay;
+
+  /**
+   * Disconnect from the stream
+   */
+  const disconnectRef = useRef(() => {
+    // Clear reconnect timeout
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    // Close EventSource
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+
+    isConnectingRef.current = false;
+    setStatus('idle');
+  });
+
+  /**
+   * Schedule a reconnection attempt with exponential backoff
+   */
+  const scheduleReconnectRef = useRef(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+
+    // Calculate delay with exponential backoff
+    const attempt = reconnectAttemptsRef.current;
+    const delay = Math.min(
+      initialReconnectDelayRef.current * Math.pow(2, attempt),
+      maxReconnectDelayRef.current
+    );
+
+    reconnectAttemptsRef.current += 1;
+
+    reconnectTimeoutRef.current = setTimeout(() => {
+      connectRef.current();
+    }, delay);
+  });
+
   /**
    * Connect to the SSE stream
    */
-  const connect = useCallback(() => {
-    if (!executionId || isConnectingRef.current || eventSourceRef.current) {
+  const connectRef = useRef(() => {
+    const currentExecutionId = executionIdRef.current;
+    if (!currentExecutionId || isConnectingRef.current || eventSourceRef.current) {
       return;
     }
 
@@ -180,7 +237,7 @@ export function useExecutionStream(
 
     try {
       // Build URL with lastEventIndex for resuming
-      const url = new URL(`${baseUrl}/${executionId}`, window.location.origin);
+      const url = new URL(`${baseUrlRef.current}/${currentExecutionId}`, window.location.origin);
       if (lastEventIndexRef.current >= 0) {
         url.searchParams.set('lastEventIndex', lastEventIndexRef.current.toString());
       }
@@ -189,8 +246,22 @@ export function useExecutionStream(
       const eventSource = new EventSource(url.toString());
       eventSourceRef.current = eventSource;
 
+      // Connection timeout - close if never opens
+      const connectionTimeout = setTimeout(() => {
+        if (isConnectingRef.current) {
+          eventSource.close();
+          eventSourceRef.current = null;
+          isConnectingRef.current = false;
+          const err = new Error('SSE connection timed out');
+          setError(err);
+          setStatus('error');
+          onErrorRef.current?.(err);
+        }
+      }, 30_000);
+
       // Handle connection open
       eventSource.addEventListener('open', () => {
+        clearTimeout(connectionTimeout);
         isConnectingRef.current = false;
         setStatus('connected');
         reconnectAttemptsRef.current = 0; // Reset on successful connection
@@ -219,7 +290,8 @@ export function useExecutionStream(
       });
 
       // Handle errors
-      eventSource.addEventListener('error', (e) => {
+      eventSource.addEventListener('error', () => {
+        clearTimeout(connectionTimeout);
         const err = new Error('SSE connection error');
         setError(err);
         onErrorRef.current?.(err);
@@ -234,8 +306,8 @@ export function useExecutionStream(
         onDisconnectRef.current?.();
 
         // Attempt reconnection if enabled
-        if (autoReconnect && reconnectAttemptsRef.current < maxReconnectAttempts) {
-          scheduleReconnect();
+        if (autoReconnectRef.current && reconnectAttemptsRef.current < maxReconnectAttemptsRef.current) {
+          scheduleReconnectRef.current();
         } else {
           setStatus('error');
         }
@@ -247,70 +319,27 @@ export function useExecutionStream(
       setError(error);
       onErrorRef.current?.(error);
     }
-  }, [
-    executionId,
-    baseUrl,
-    autoReconnect,
-    maxReconnectAttempts,
-  ]);
-
-  /**
-   * Schedule a reconnection attempt with exponential backoff
-   */
-  const scheduleReconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-    }
-
-    // Calculate delay with exponential backoff
-    const attempt = reconnectAttemptsRef.current;
-    const delay = Math.min(
-      initialReconnectDelay * Math.pow(2, attempt),
-      maxReconnectDelay
-    );
-
-    reconnectAttemptsRef.current += 1;
-
-    reconnectTimeoutRef.current = setTimeout(() => {
-      connect();
-    }, delay);
-  }, [connect, initialReconnectDelay, maxReconnectDelay]);
-
-  /**
-   * Disconnect from the stream
-   */
-  const disconnect = useCallback(() => {
-    // Clear reconnect timeout
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-
-    // Close EventSource
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-
-    isConnectingRef.current = false;
-    setStatus('idle');
-  }, []);
+  });
 
   /**
    * Manually trigger reconnection
    */
-  const reconnect = useCallback(() => {
-    disconnect();
+  const reconnect = () => {
+    disconnectRef.current();
     reconnectAttemptsRef.current = 0;
-    connect();
-  }, [disconnect, connect]);
+    connectRef.current();
+  };
+
+  const disconnect = () => {
+    disconnectRef.current();
+  };
 
   // Connect when executionId changes
   useEffect(() => {
     if (executionId) {
-      connect();
+      connectRef.current();
     } else {
-      disconnect();
+      disconnectRef.current();
       // Reset state when executionId becomes null
       setEvents([]);
       setError(null);
@@ -319,10 +348,11 @@ export function useExecutionStream(
     }
 
     // Cleanup on unmount or executionId change
+    const disconnectFn = disconnectRef.current;
     return () => {
-      disconnect();
+      disconnectFn();
     };
-  }, [executionId, connect, disconnect]);
+  }, [executionId]);
 
   // Reconnect when tab becomes visible
   useVisibilityReconnect(reconnect, {

@@ -11,6 +11,7 @@ import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { db, flowExecutions, blockExecutions, eq } from '@baleyui/db';
 import { createLogger } from '@/lib/logger';
+import { apiErrors } from '@/lib/api/error-response';
 
 const logger = createLogger('api/executions/status');
 
@@ -18,11 +19,13 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const requestId = req.headers.get('x-request-id') ?? undefined;
+
   try {
     // Authenticate the request
     const { userId } = await auth();
     if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return apiErrors.unauthorized();
     }
 
     const { id: executionId } = await params;
@@ -34,7 +37,7 @@ export async function GET(
     });
 
     if (!workspace) {
-      return NextResponse.json({ error: 'No workspace found' }, { status: 404 });
+      return apiErrors.notFound('Workspace');
     }
 
     // Try to find as flow execution first
@@ -49,7 +52,7 @@ export async function GET(
     if (flowExec) {
       // Verify workspace access
       if (flowExec.flow.workspaceId !== workspace.id) {
-        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+        return apiErrors.forbidden();
       }
 
       // Calculate progress based on block executions
@@ -98,12 +101,12 @@ export async function GET(
     });
 
     if (!blockExec || !blockExec.block) {
-      return NextResponse.json({ error: 'Execution not found' }, { status: 404 });
+      return apiErrors.notFound('Execution');
     }
 
     // Verify workspace access
     if (blockExec.block.workspaceId !== workspace.id) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      return apiErrors.forbidden();
     }
 
     // Calculate progress
@@ -134,9 +137,6 @@ export async function GET(
     });
   } catch (error) {
     logger.error('Error getting execution status', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return apiErrors.internal(error, { requestId });
   }
 }

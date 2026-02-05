@@ -42,10 +42,12 @@ function getModelsForConnection(connection: { type: string; availableModels?: un
     case 'ollama':
       // For Ollama, use the availableModels from the connection
       if (connection.availableModels && Array.isArray(connection.availableModels)) {
-        return connection.availableModels.map((model: any) => ({
-          id: model.name || model,
-          name: model.name || model,
-        }));
+        return connection.availableModels.map((model: unknown) => {
+          if (typeof model === 'object' && model !== null && 'name' in model) {
+            return { id: (model as { name: string }).name, name: (model as { name: string }).name };
+          }
+          return { id: String(model), name: String(model) };
+        });
       }
       return [];
     default:

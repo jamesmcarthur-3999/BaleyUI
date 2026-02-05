@@ -205,14 +205,14 @@ export function BlockEditor({ block }: BlockEditorProps) {
         {/* Type-Specific Editor */}
         {block.type === 'ai' && (
           <AIBlockEditor
-            block={blockData}
+            block={blockData as unknown as Record<string, unknown>}
             onChange={handleBlockDataChange}
           />
         )}
 
         {block.type === 'function' && (
           <FunctionBlockEditor
-            block={blockData}
+            block={blockData as unknown as Record<string, unknown>}
             onChange={handleBlockDataChange}
           />
         )}

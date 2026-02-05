@@ -113,6 +113,7 @@ function OrbCore({
   return (
     <button
       onClick={onClick}
+      aria-label={`AI assistant - ${state}`}
       className={cn(
         'relative h-14 w-14 rounded-full',
         'bg-gradient-to-br',

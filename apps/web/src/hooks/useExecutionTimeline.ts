@@ -255,7 +255,6 @@ export function useExecutionTimeline(
   // Use the base execution stream hook
   const {
     events,
-    status: connectionStatus,
     isConnected,
     reconnect,
     disconnect,

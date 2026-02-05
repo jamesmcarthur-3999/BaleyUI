@@ -37,9 +37,14 @@ export interface CircuitBreakerConfig {
   resetTimeoutMs?: number;
 
   /**
-   * Number of successful calls needed in half-open to close (default: 1)
+   * Number of successful calls needed in half-open to close (default: 3)
    */
   successThreshold?: number;
+
+  /**
+   * Maximum concurrent requests allowed in half-open state (default: 3)
+   */
+  halfOpenMaxConcurrent?: number;
 }
 
 interface FailureRecord {
@@ -51,6 +56,7 @@ class CircuitBreaker {
   private state: CircuitState = CircuitState.CLOSED;
   private failures: FailureRecord[] = [];
   private successes = 0;
+  private halfOpenInFlight = 0;
   private openedAt?: number;
   private lastFailureTime?: number;
   private lastCleanedAt = 0;
@@ -73,7 +79,22 @@ class CircuitBreaker {
    */
   canExecute(): boolean {
     this.updateState();
-    return this.state !== CircuitState.OPEN;
+    if (this.state === CircuitState.OPEN) {
+      return false;
+    }
+    if (this.state === CircuitState.HALF_OPEN) {
+      return this.halfOpenInFlight < this.config.halfOpenMaxConcurrent;
+    }
+    return true;
+  }
+
+  /**
+   * Record an attempt (increments in-flight count for half-open state)
+   */
+  recordAttempt(): void {
+    if (this.state === CircuitState.HALF_OPEN) {
+      this.halfOpenInFlight++;
+    }
   }
 
   /**
@@ -81,6 +102,7 @@ class CircuitBreaker {
    */
   recordSuccess(): void {
     if (this.state === CircuitState.HALF_OPEN) {
+      this.halfOpenInFlight = Math.max(0, this.halfOpenInFlight - 1);
       this.successes++;
       if (this.successes >= this.config.successThreshold) {
         this.close();
@@ -112,6 +134,7 @@ class CircuitBreaker {
       }
     } else if (this.state === CircuitState.HALF_OPEN) {
       // Failed during test, go back to open
+      this.halfOpenInFlight = Math.max(0, this.halfOpenInFlight - 1);
       this.open();
     }
   }
@@ -167,6 +190,7 @@ class CircuitBreaker {
     this.state = CircuitState.OPEN;
     this.openedAt = Date.now();
     this.successes = 0;
+    this.halfOpenInFlight = 0;
   }
 
   /**
@@ -188,6 +212,7 @@ class CircuitBreaker {
     this.state = CircuitState.CLOSED;
     this.failures = [];
     this.successes = 0;
+    this.halfOpenInFlight = 0;
     this.openedAt = undefined;
   }
 
@@ -216,7 +241,8 @@ class CircuitBreakerRegistry {
     failureThreshold: 5,
     failureWindowMs: 60000, // 1 minute
     resetTimeoutMs: 30000,  // 30 seconds
-    successThreshold: 1,
+    successThreshold: 3,
+    halfOpenMaxConcurrent: 3,
   };
 
   /**
@@ -300,6 +326,8 @@ export async function withCircuitBreaker<T>(
   if (!breaker.canExecute()) {
     throw new CircuitBreakerError(name, context);
   }
+
+  breaker.recordAttempt();
 
   try {
     const result = await fn();

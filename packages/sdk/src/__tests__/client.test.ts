@@ -545,9 +545,7 @@ describe('ExecutionsAPI', () => {
     it('throws TimeoutError when timeout is reached', async () => {
       // Use a very short timeout (10ms) and delay the mock response enough
       // for the timeout to be reached
-      let requestCount = 0;
       mockFetch.mockImplementation(async () => {
-        requestCount++;
         // Delay the response slightly on each call
         await new Promise((resolve) => setTimeout(resolve, 20));
         return {

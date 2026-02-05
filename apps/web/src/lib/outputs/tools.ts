@@ -15,7 +15,6 @@ import type {
   DataTableConfig,
   TextBlockConfig,
   ActionCardConfig,
-  OutputTemplateType,
 } from './types';
 
 // ============================================================================

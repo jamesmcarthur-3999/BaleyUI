@@ -152,7 +152,7 @@ describe('ExecutionEventEmitter', () => {
       ];
 
       vi.mocked(db.query.executionEvents.findMany).mockResolvedValue(
-        mockEvents as any
+        mockEvents as unknown as Awaited<ReturnType<typeof db.query.executionEvents.findMany>>
       );
 
       const emitter = new ExecutionEventEmitter('exec-1', 'block-exec-1');
@@ -180,7 +180,7 @@ describe('ExecutionEventEmitter', () => {
       ];
 
       vi.mocked(db.query.executionEvents.findMany).mockResolvedValue(
-        mockEvents as any
+        mockEvents as unknown as Awaited<ReturnType<typeof db.query.executionEvents.findMany>>
       );
 
       const emitter = new ExecutionEventEmitter('exec-1', 'block-exec-1');

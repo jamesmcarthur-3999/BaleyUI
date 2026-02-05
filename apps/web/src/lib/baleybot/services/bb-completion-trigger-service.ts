@@ -162,6 +162,8 @@ async function executeTriggeredBB(
   input: Record<string, unknown>,
   sourceExecutionId: string
 ): Promise<TriggerResult> {
+  let executionId: string | null = null;
+
   try {
     // Get the target BB
     const targetBB = await db.query.baleybots.findFirst({
@@ -214,6 +216,8 @@ async function executeTriggeredBB(
       throw new Error('Failed to create execution record');
     }
 
+    executionId = execution.id;
+
     log.info(
       `Executing triggered BB "${targetBB.name}" (${targetBB.id}) from trigger ${trigger.id}`
     );
@@ -262,10 +266,26 @@ async function executeTriggeredBB(
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     log.error(` Triggered BB execution failed:`, errorMessage);
 
+    // Mark the execution as failed so it doesn't stay stuck in 'running'
+    if (executionId) {
+      try {
+        await db
+          .update(baleybotExecutions)
+          .set({
+            status: 'failed',
+            error: errorMessage,
+            completedAt: new Date(),
+          })
+          .where(eq(baleybotExecutions.id, executionId));
+      } catch (updateErr) {
+        log.error('Failed to update execution status', updateErr);
+      }
+    }
+
     return {
       triggerId: trigger.id,
       targetBaleybotId: trigger.targetBaleybotId,
-      executionId: null,
+      executionId,
       success: false,
       error: errorMessage,
     };

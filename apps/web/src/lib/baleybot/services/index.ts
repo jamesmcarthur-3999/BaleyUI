@@ -72,6 +72,52 @@ export {
   type AIProviderType,
 } from './ai-credentials-service';
 
+// Shared Storage
+export {
+  createSharedStorageService,
+  sharedStorageService,
+  createSharedStorageToolImpl,
+  type SharedStorageService,
+  type SharedStorageEntry,
+  type SharedStorageResult,
+} from './shared-storage-service';
+
+// Analytics - Metrics
+export {
+  createMetricsService,
+  metricsService,
+  type MetricsService,
+  type ExecutionContext as MetricsExecutionContext,
+  type MetricValue,
+  type AggregateQuery,
+  type AggregateResult,
+} from '../analytics/metrics-service';
+
+// Analytics - Alerts
+export {
+  createAlertService,
+  alertService,
+  type AlertService,
+  type Alert,
+  type AlertCondition,
+  type EvaluationContext as AlertEvaluationContext,
+} from '../analytics/alert-service';
+
+// Cost - Usage Tracker
+export {
+  recordUsage,
+  recordUsageFromExecution,
+  calculateCost,
+  getUsageSummary,
+  getWorkspaceUsageSummary,
+  getUsageTrend,
+  getTopBBsByUsage,
+  getRecentUsage,
+  type UsageRecord,
+  type UsageSummary,
+  type UsageTrend,
+} from '../cost/usage-tracker';
+
 // ============================================================================
 // SERVICE INITIALIZATION
 // ============================================================================

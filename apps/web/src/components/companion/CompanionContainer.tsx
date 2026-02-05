@@ -9,7 +9,6 @@ import {
   Sparkles,
   Command,
   Minimize2,
-  Maximize2,
   X,
   Settings,
   Mic,

@@ -360,7 +360,7 @@ export function getOptionAriaProps(
 /**
  * Props for accessible tabs.
  */
-export function getTabsAriaProps(id: string, selectedIndex: number, count: number) {
+export function getTabsAriaProps(id: string, selectedIndex: number, _count: number) {
   return {
     tablist: {
       role: 'tablist' as const,

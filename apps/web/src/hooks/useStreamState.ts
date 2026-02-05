@@ -11,7 +11,6 @@ import {
   type ToolCallState,
   type ToolCallStatus,
   createInitialStreamState,
-  type BaleybotStreamEvent,
   type ServerStreamEvent,
 } from '@/lib/streaming/types';
 

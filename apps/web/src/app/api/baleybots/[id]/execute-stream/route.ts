@@ -17,8 +17,6 @@ import {
   db,
   baleybots,
   baleybotExecutions,
-  workspacePolicies,
-  workspaces,
   eq,
   and,
   notDeleted,
@@ -40,6 +38,7 @@ import { getPreferredModel } from '@/lib/baleybot/executor';
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
 import { validateApiKey } from '@/lib/api/validate-api-key';
 import { processBBCompletion } from '@/lib/baleybot/services/bb-completion-trigger-service';
+import { apiErrors, createErrorResponse } from '@/lib/api/error-response';
 
 const log = createLogger('baleybot-stream');
 
@@ -92,11 +91,13 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const requestId = req.headers.get('x-request-id') ?? undefined;
+
   try {
     // Authenticate the request (session or API key)
     const authResult = await authenticateRequest(req);
     if (!authResult) {
-      return new Response('Unauthorized', { status: 401 });
+      return apiErrors.unauthorized();
     }
 
     const { workspaceId, userId, authMethod } = authResult;
@@ -107,9 +108,9 @@ export async function POST(
       ? `execute:${workspaceId}:${userId}`
       : `execute:${workspaceId}:api`;
     try {
-      checkRateLimit(rateLimitKey, RATE_LIMITS.execute);
+      await checkRateLimit(rateLimitKey, RATE_LIMITS.execute);
     } catch {
-      return new Response('Rate limit exceeded', { status: 429 });
+      return createErrorResponse(429, null, { message: 'Rate limit exceeded', requestId });
     }
 
     // Get the BaleyBot
@@ -122,14 +123,12 @@ export async function POST(
     });
 
     if (!baleybot) {
-      return new Response('BaleyBot not found', { status: 404 });
+      return apiErrors.notFound('BaleyBot');
     }
 
     // Check if BaleyBot is in error state
     if (baleybot.status === 'error') {
-      return new Response('Cannot execute BaleyBot in error state', {
-        status: 400,
-      });
+      return apiErrors.badRequest('Cannot execute BaleyBot in error state');
     }
 
     // Parse request body for input
@@ -167,7 +166,7 @@ export async function POST(
       .returning();
 
     if (!execution) {
-      return new Response('Failed to create execution record', { status: 500 });
+      return createErrorResponse(500, null, { message: 'Failed to create execution record', requestId });
     }
 
     // Update execution count atomically
@@ -413,7 +412,7 @@ export async function POST(
       'Error in execute-stream endpoint',
       err instanceof Error ? err : undefined
     );
-    return new Response('Internal server error', { status: 500 });
+    return apiErrors.internal(err, { requestId });
   }
 }
 
@@ -424,11 +423,13 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const getRequestId = req.headers.get('x-request-id') ?? undefined;
+
   try {
     // Authenticate the request (session or API key)
     const authResult = await authenticateRequest(req);
     if (!authResult) {
-      return new Response('Unauthorized', { status: 401 });
+      return apiErrors.unauthorized();
     }
 
     const { workspaceId } = authResult;
@@ -436,9 +437,7 @@ export async function GET(
     const executionId = req.nextUrl.searchParams.get('executionId');
 
     if (!executionId) {
-      return new Response('executionId query parameter required', {
-        status: 400,
-      });
+      return apiErrors.badRequest('executionId query parameter required');
     }
 
     // Get the BaleyBot
@@ -451,7 +450,7 @@ export async function GET(
     });
 
     if (!baleybot) {
-      return new Response('BaleyBot not found', { status: 404 });
+      return apiErrors.notFound('BaleyBot');
     }
 
     // Get the execution
@@ -463,7 +462,7 @@ export async function GET(
     });
 
     if (!execution) {
-      return new Response('Execution not found', { status: 404 });
+      return apiErrors.notFound('Execution');
     }
 
     // Create replay stream
@@ -521,6 +520,6 @@ export async function GET(
       'Error in execute-stream GET endpoint',
       err instanceof Error ? err : undefined
     );
-    return new Response('Internal server error', { status: 500 });
+    return apiErrors.internal(err, { requestId: getRequestId });
   }
 }

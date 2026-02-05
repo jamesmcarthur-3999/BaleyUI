@@ -5,6 +5,7 @@ import { db, workspaces } from '@baleyui/db';
 import { createLogger } from '@/lib/logger';
 import { requireEnv } from '@/lib/env';
 import { checkApiRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { apiErrors } from '@/lib/api/error-response';
 
 const log = createLogger('clerk-webhook');
 
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
   // Rate limiting: 60 requests per minute per IP
   const ipAddress = getClientIp(headerPayload);
   const rateLimitKey = `webhook:clerk:${ipAddress || 'unknown'}`;
-  const rateLimitResult = checkApiRateLimit(rateLimitKey, RATE_LIMITS.webhookPerMinute);
+  const rateLimitResult = await checkApiRateLimit(rateLimitKey, RATE_LIMITS.webhookPerMinute);
 
   if (rateLimitResult.limited) {
     log.warn('Rate limit exceeded for Clerk webhook', { ipAddress });
@@ -50,9 +51,7 @@ export async function POST(req: Request) {
 
   // If there are no headers, error out
   if (!svix_id || !svix_timestamp || !svix_signature) {
-    return new Response('Missing svix headers', {
-      status: 400,
-    });
+    return apiErrors.badRequest('Missing svix headers');
   }
 
   // Get the body
@@ -74,9 +73,7 @@ export async function POST(req: Request) {
     }) as WebhookEvent;
   } catch (err) {
     log.error('Error verifying webhook', err);
-    return new Response('Error verifying webhook', {
-      status: 400,
-    });
+    return apiErrors.badRequest('Error verifying webhook');
   }
 
   // Handle the webhook

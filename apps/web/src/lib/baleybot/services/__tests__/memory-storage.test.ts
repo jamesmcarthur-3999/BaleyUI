@@ -151,7 +151,7 @@ describe('MemoryStorageService', () => {
         { key: 'key1' },
         { key: 'key2' },
         { key: 'key3' },
-      ] as any);
+      ] as unknown as Awaited<ReturnType<typeof db.query.baleybotMemory.findMany>>);
 
       const keys = await service.list(ctx);
       expect(keys).toEqual(['key1', 'key2', 'key3']);

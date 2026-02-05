@@ -218,7 +218,7 @@ async function ensureTablesExist(
  * Create storage service that uses BaleyUI's internal database
  */
 function createInternalStorageService(
-  workspaceId: string
+  _workspaceId: string
 ): OperationalStorageService {
   return {
     async storeExecution(record: ExecutionRecord): Promise<void> {

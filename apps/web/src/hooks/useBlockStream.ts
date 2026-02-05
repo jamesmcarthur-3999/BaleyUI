@@ -5,8 +5,8 @@
  * Combines execution API calls with SSE streaming and state management.
  */
 
-import { useReducer, useCallback, useRef, useEffect, useState } from 'react';
-import { streamReducer, type StreamAction } from './useStreamState';
+import { useReducer, useRef, useEffect, useState } from 'react';
+import { streamReducer } from './useStreamState';
 import { useExecutionStream } from './useExecutionStream';
 import { createInitialStreamState, type StreamState } from '@/lib/streaming/types';
 
@@ -119,6 +119,7 @@ export function useBlockStream(
   const [executionId, setExecutionId] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isExecutingRef = useRef(false);
+  const processedCountRef = useRef(0);
 
   // Callback refs
   const onExecutionStartRef = useRef(onExecutionStart);
@@ -136,7 +137,6 @@ export function useBlockStream(
   // Connect to SSE stream
   const {
     events,
-    status: streamStatus,
     error: streamError,
   } = useExecutionStream(executionId, {
     baseUrl,
@@ -149,13 +149,15 @@ export function useBlockStream(
 
   // Process incoming stream events
   useEffect(() => {
-    if (events.length > 0) {
-      const latestEvent = events[events.length - 1];
-      if (latestEvent) {
-        dispatch({ type: 'PROCESS_EVENT', event: latestEvent });
+    if (events.length > processedCountRef.current) {
+      const newEvents = events.slice(processedCountRef.current);
+      processedCountRef.current = events.length;
+
+      for (const event of newEvents) {
+        dispatch({ type: 'PROCESS_EVENT', event });
 
         // Check if stream is complete
-        if (latestEvent.event.type === 'done') {
+        if (event.event.type === 'done') {
           dispatch({ type: 'SET_STATUS', status: 'complete' });
           isExecutingRef.current = false;
         }
@@ -182,73 +184,71 @@ export function useBlockStream(
   /**
    * Execute the block with given input
    */
-  const execute = useCallback(
-    async (input: unknown) => {
-      // Prevent concurrent executions
-      if (isExecutingRef.current) {
-        throw new Error('Execution already in progress');
+  const execute = async (input: unknown) => {
+    // Prevent concurrent executions
+    if (isExecutingRef.current) {
+      throw new Error('Execution already in progress');
+    }
+
+    try {
+      isExecutingRef.current = true;
+
+      // Reset state
+      dispatch({ type: 'RESET' });
+      processedCountRef.current = 0;
+      dispatch({ type: 'START_STREAM' });
+
+      // Create abort controller for cancellation
+      abortControllerRef.current = new AbortController();
+
+      // Call API to start execution
+      const response = await fetch(`${baseUrl}/${blockId}/execute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ input }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.message || `Execution failed with status ${response.status}`
+        );
       }
 
-      try {
-        isExecutingRef.current = true;
+      const result = await response.json();
+      const newExecutionId = result.executionId;
 
-        // Reset state
-        dispatch({ type: 'RESET' });
-        dispatch({ type: 'START_STREAM' });
+      if (!newExecutionId) {
+        throw new Error('No execution ID returned from API');
+      }
 
-        // Create abort controller for cancellation
-        abortControllerRef.current = new AbortController();
-
-        // Call API to start execution
-        const response = await fetch(`${baseUrl}/${blockId}/execute`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ input }),
-          signal: abortControllerRef.current.signal,
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(
-            errorData.message || `Execution failed with status ${response.status}`
-          );
-        }
-
-        const result = await response.json();
-        const newExecutionId = result.executionId;
-
-        if (!newExecutionId) {
-          throw new Error('No execution ID returned from API');
-        }
-
-        // Set execution ID to trigger SSE connection
-        setExecutionId(newExecutionId);
-        onExecutionStartRef.current?.(newExecutionId);
-      } catch (err) {
-        // Handle abort (cancellation)
-        if (err instanceof Error && err.name === 'AbortError') {
-          dispatch({ type: 'CANCEL' });
-          onCancelRef.current?.();
-          isExecutingRef.current = false;
-          return;
-        }
-
-        // Handle other errors
-        const error = err instanceof Error ? err : new Error('Execution failed');
-        dispatch({ type: 'SET_ERROR', error });
-        onErrorRef.current?.(error);
+      // Set execution ID to trigger SSE connection
+      setExecutionId(newExecutionId);
+      onExecutionStartRef.current?.(newExecutionId);
+    } catch (err) {
+      // Handle abort (cancellation)
+      if (err instanceof Error && err.name === 'AbortError') {
+        dispatch({ type: 'CANCEL' });
+        onCancelRef.current?.();
         isExecutingRef.current = false;
+        return;
       }
-    },
-    [blockId, baseUrl]
-  );
+
+      // Handle other errors
+      const error = err instanceof Error ? err : new Error('Execution failed');
+      dispatch({ type: 'SET_ERROR', error });
+      onErrorRef.current?.(error);
+      isExecutingRef.current = false;
+    }
+  };
 
   /**
    * Cancel the running execution
    */
-  const cancel = useCallback(async () => {
+  const cancel = async () => {
     // Abort the fetch request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -273,20 +273,21 @@ export function useBlockStream(
     dispatch({ type: 'CANCEL' });
     onCancelRef.current?.();
     isExecutingRef.current = false;
-  }, [executionId, baseUrl]);
+  };
 
   /**
    * Reset the stream state
    */
-  const reset = useCallback(() => {
+  const reset = () => {
     // Cancel any running execution first
     if (isExecutingRef.current) {
       cancel();
     }
 
     dispatch({ type: 'RESET' });
+    processedCountRef.current = 0;
     setExecutionId(null);
-  }, [cancel]);
+  };
 
   return {
     state,

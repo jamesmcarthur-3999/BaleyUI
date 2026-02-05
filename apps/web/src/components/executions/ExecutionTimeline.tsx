@@ -11,7 +11,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import {
   CheckCircle2,
@@ -27,7 +26,7 @@ import { LiveStreamViewer } from './LiveStreamViewer';
 import { ExecutionMetrics } from './ExecutionMetrics';
 import { ExecutionActions, CopyOutputButton } from './ExecutionActions';
 import { SuccessCelebration } from './SuccessCelebration';
-import { useExecutionTimeline, type NodeState } from '@/hooks/useExecutionTimeline';
+import { useExecutionTimeline } from '@/hooks/useExecutionTimeline';
 import { cn } from '@/lib/utils';
 import type { FlowExecutionStatus } from '@/lib/execution/types';
 import type { FlowNodeType } from '@/lib/baleybots/types';

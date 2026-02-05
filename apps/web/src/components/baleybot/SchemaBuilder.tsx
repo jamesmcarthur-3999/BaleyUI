@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -64,6 +64,13 @@ export function SchemaBuilder({
   const [fields, setFields] = useState<SchemaField[]>(() =>
     balToSchemaFields(value)
   );
+  const liveRegionRef = useRef<HTMLDivElement>(null);
+
+  const announce = (message: string) => {
+    if (liveRegionRef.current) {
+      liveRegionRef.current.textContent = message;
+    }
+  };
 
   // Sync internal state when external value changes
   useEffect(() => {
@@ -93,6 +100,7 @@ export function SchemaBuilder({
     if (readOnly) return;
     const newField = createDefaultField(type, '');
     notifyChange([...fields, newField]);
+    announce(`Added ${type} field`);
   };
 
   /**
@@ -110,12 +118,15 @@ export function SchemaBuilder({
    */
   const deleteField = (index: number) => {
     if (readOnly) return;
+    const fieldName = fields[index]?.name || 'unnamed';
     notifyChange(fields.filter((_, i) => i !== index));
+    announce(`Removed field ${fieldName}`);
   };
 
   /**
    * Move a field up or down
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const moveField = (index: number, direction: 'up' | 'down') => {
     if (readOnly) return;
     const newIndex = direction === 'up' ? index - 1 : index + 1;
@@ -133,6 +144,9 @@ export function SchemaBuilder({
 
   return (
     <div className={cn('space-y-4', className)}>
+      {/* Screen reader live region for dynamic updates */}
+      <div ref={liveRegionRef} aria-live="polite" aria-atomic="true" className="sr-only" />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <Label className="text-sm font-medium">Output Schema</Label>

@@ -3,7 +3,7 @@
 import { Card, CardContent } from '@/components/ui/card';
 import type { TextBlockConfig } from '@/lib/outputs/types';
 import { cn } from '@/lib/utils';
-import { sanitizeForDisplay, escapeHtml } from '@/lib/utils/sanitize-html';
+import { sanitizeForDisplay } from '@/lib/utils/sanitize-html';
 
 // ============================================================================
 // TYPES
@@ -65,7 +65,7 @@ export function TextBlock({ config, className }: TextBlockProps) {
             }
 
             // Bold and italic
-            let processed = line
+            const processed = line
               .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
               .replace(/\*(.+?)\*/g, '<em>$1</em>')
               .replace(/`(.+?)`/g, '<code class="px-1 py-0.5 bg-muted rounded text-sm">$1</code>');

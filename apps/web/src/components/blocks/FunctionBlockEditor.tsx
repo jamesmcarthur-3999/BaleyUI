@@ -7,12 +7,12 @@ import { Textarea } from '@/components/ui/textarea';
 import Editor from '@monaco-editor/react';
 
 interface FunctionBlockEditorProps {
-  block: any;
-  onChange: (data: any) => void;
+  block: Record<string, unknown>;
+  onChange: (data: Record<string, unknown>) => void;
 }
 
 export function FunctionBlockEditor({ block, onChange }: FunctionBlockEditorProps) {
-  const [code, setCode] = useState(block.code || '');
+  const [code, setCode] = useState((block.code as string) || '');
   const [inputSchema, setInputSchema] = useState(
     JSON.stringify(block.inputSchema || {}, null, 2)
   );
@@ -31,6 +31,7 @@ export function FunctionBlockEditor({ block, onChange }: FunctionBlockEditorProp
       // Invalid JSON, don't update
       console.error('Invalid JSON schema:', error);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, inputSchema, outputSchema]);
 
   return (

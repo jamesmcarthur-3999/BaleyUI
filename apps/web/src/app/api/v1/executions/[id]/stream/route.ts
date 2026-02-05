@@ -8,7 +8,7 @@
  * Reconnection supported via fromIndex query parameter.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import {
   db,
   flowExecutions,
@@ -23,6 +23,7 @@ import {
 } from '@baleyui/db';
 import { validateApiKey, hasPermission } from '@/lib/api/validate-api-key';
 import { createLogger } from '@/lib/logger';
+import { apiErrors } from '@/lib/api/error-response';
 
 const log = createLogger('v1-execution-stream');
 
@@ -33,6 +34,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const requestId = request.headers.get('x-request-id') ?? undefined;
+
   try {
     // Validate API key
     const authHeader = request.headers.get('authorization');
@@ -40,10 +43,7 @@ export async function GET(
 
     // Check read permission
     if (!hasPermission(validation, 'read')) {
-      return NextResponse.json(
-        { error: 'Insufficient permissions. Required: read or admin' },
-        { status: 403 }
-      );
+      return apiErrors.forbidden('Insufficient permissions. Required: read or admin');
     }
 
     // Get execution ID from params
@@ -60,10 +60,7 @@ export async function GET(
     // Check workspace access for flow execution
     if (flowExec) {
       if (flowExec.flow.workspaceId !== validation.workspaceId) {
-        return NextResponse.json(
-          { error: 'Execution not found' },
-          { status: 404 }
-        );
+        return apiErrors.notFound('Execution');
       }
       return createFlowExecutionStream(request, executionId, flowExec.status);
     }
@@ -77,18 +74,12 @@ export async function GET(
     });
 
     if (!blockExec || !blockExec.block) {
-      return NextResponse.json(
-        { error: 'Execution not found' },
-        { status: 404 }
-      );
+      return apiErrors.notFound('Execution');
     }
 
     // Verify workspace access
     if (blockExec.block.workspaceId !== validation.workspaceId) {
-      return NextResponse.json(
-        { error: 'Execution not found' },
-        { status: 404 }
-      );
+      return apiErrors.notFound('Execution');
     }
 
     return createBlockExecutionStream(request, executionId, blockExec.status);
@@ -96,17 +87,10 @@ export async function GET(
     log.error('Error in stream endpoint', { error });
 
     if (error instanceof Error && error.message.includes('API key')) {
-      return NextResponse.json({ error: error.message }, { status: 401 });
+      return apiErrors.unauthorized(error.message);
     }
 
-    const isDev = process.env.NODE_ENV === 'development';
-    return NextResponse.json(
-      {
-        error: 'Failed to stream execution',
-        ...(isDev ? { details: error instanceof Error ? error.message : 'Unknown error' } : {}),
-      },
-      { status: 500 }
-    );
+    return apiErrors.internal(error, { requestId });
   }
 }
 
@@ -200,14 +184,22 @@ function createFlowExecutionStream(
           return;
         }
 
-        // Poll for new events with exponential backoff
+        // Max connection time to prevent leaked connections
+        const MAX_CONNECTION_MS = 5 * 60 * 1000;
+        const connectionTimer = setTimeout(() => {
+          controller.enqueue(encoder.encode(
+            `data: ${JSON.stringify({ type: 'reconnect', reason: 'max_connection_time' })}\n\n`
+          ));
+          if (pollTimer) clearTimeout(pollTimer);
+          controller.close();
+        }, MAX_CONNECTION_MS);
+
+        // Poll for new events with exponential backoff using recursive setTimeout
         let pollIntervalMs = 200;
         const maxPollIntervalMs = 2000;
-        let polling = false;
+        let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-        const pollInterval = setInterval(async () => {
-          if (polling) return;
-          polling = true;
+        const poll = async () => {
           try {
             // Check execution status
             const currentExecution = await db.query.flowExecutions.findFirst({
@@ -215,7 +207,7 @@ function createFlowExecutionStream(
             });
 
             if (!currentExecution) {
-              clearInterval(pollInterval);
+              clearTimeout(connectionTimer);
               controller.close();
               return;
             }
@@ -278,21 +270,26 @@ function createFlowExecutionStream(
               )
             ) {
               controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-              clearInterval(pollInterval);
+              clearTimeout(connectionTimer);
               controller.close();
+              return;
             }
+
+            // Schedule next poll with current interval
+            pollTimer = setTimeout(poll, pollIntervalMs);
           } catch (error) {
             log.error('Error polling for events', { executionId, error });
-            clearInterval(pollInterval);
+            clearTimeout(connectionTimer);
             controller.error(error);
-          } finally {
-            polling = false;
           }
-        }, pollIntervalMs);
+        };
+
+        pollTimer = setTimeout(poll, pollIntervalMs);
 
         // Clean up on connection close
         req.signal.addEventListener('abort', () => {
-          clearInterval(pollInterval);
+          if (pollTimer) clearTimeout(pollTimer);
+          clearTimeout(connectionTimer);
         });
       } catch (error) {
         log.error('Error in stream start', { executionId, error });
@@ -360,11 +357,22 @@ function createBlockExecutionStream(
           return;
         }
 
-        // Poll for new events with exponential backoff
+        // Max connection time to prevent leaked connections
+        const MAX_CONNECTION_MS = 5 * 60 * 1000;
+        const connectionTimer = setTimeout(() => {
+          controller.enqueue(encoder.encode(
+            `data: ${JSON.stringify({ type: 'reconnect', reason: 'max_connection_time' })}\n\n`
+          ));
+          if (pollTimer) clearTimeout(pollTimer);
+          controller.close();
+        }, MAX_CONNECTION_MS);
+
+        // Poll for new events with exponential backoff using recursive setTimeout
         let pollIntervalMs = 100;
         const maxPollIntervalMs = 1000;
+        let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-        const pollInterval = setInterval(async () => {
+        const poll = async () => {
           try {
             // Get new events
             const newEvents = await db.query.executionEvents.findMany({
@@ -408,19 +416,26 @@ function createBlockExecutionStream(
               )
             ) {
               controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-              clearInterval(pollInterval);
+              clearTimeout(connectionTimer);
               controller.close();
+              return;
             }
+
+            // Schedule next poll with current interval
+            pollTimer = setTimeout(poll, pollIntervalMs);
           } catch (error) {
             log.error('Error polling for events', { executionId, error });
-            clearInterval(pollInterval);
+            clearTimeout(connectionTimer);
             controller.error(error);
           }
-        }, pollIntervalMs);
+        };
+
+        pollTimer = setTimeout(poll, pollIntervalMs);
 
         // Clean up on connection close
         req.signal.addEventListener('abort', () => {
-          clearInterval(pollInterval);
+          if (pollTimer) clearTimeout(pollTimer);
+          clearTimeout(connectionTimer);
         });
       } catch (error) {
         log.error('Error in stream start', { executionId, error });

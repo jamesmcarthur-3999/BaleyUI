@@ -14,13 +14,14 @@ import { GenerateCodeDialog } from '@/components/codegen';
 
 interface PatternAnalyzerPanelProps {
   blockId: string;
+  blockVersion: number;
 }
 
 /**
  * Main panel for pattern analysis.
  * Shows output distribution, detected patterns, and analysis controls.
  */
-export function PatternAnalyzerPanel({ blockId }: PatternAnalyzerPanelProps) {
+export function PatternAnalyzerPanel({ blockId, blockVersion }: PatternAnalyzerPanelProps) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const { toast } = useToast();
 
@@ -191,6 +192,7 @@ export function PatternAnalyzerPanel({ blockId }: PatternAnalyzerPanelProps) {
             <GenerateCodeDialog
               blockId={blockId}
               blockName="Block"
+              blockVersion={blockVersion}
               trigger={
                 <Button variant="outline" className="gap-2">
                   <Code className="h-4 w-4" />

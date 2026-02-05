@@ -119,25 +119,13 @@ async function routeHybridExecution(
 }
 
 /**
- * Simple deterministic hash function for A/B test bucketing
- * Uses djb2 algorithm to convert string to a number
- */
-function hashString(str: string): number {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash * 33) ^ str.charCodeAt(i);
-  }
-  return hash >>> 0; // Convert to unsigned 32-bit integer
-}
-
-/**
- * Route A/B test execution with deterministic 50/50 split based on block ID
- * Uses a hash of the block ID to ensure consistent routing for the same block
+ * Route A/B test execution with true 50/50 split per execution.
+ * Uses random selection so each execution has an independent chance of being routed
+ * to either path, rather than deterministically routing the same block the same way.
  */
 function routeABTestExecution(block: BlockConfig): ExecutionRoutingResult {
-  // Deterministic 50/50 split based on block ID hash
-  const hash = hashString(block.id);
-  const useCode = hash % 2 === 0;
+  // True 50/50 split per execution using random selection
+  const useCode = Math.random() < 0.5;
 
   // If code path selected but no code available, fall back to AI
   if (useCode && !block.generatedCode) {
@@ -149,7 +137,7 @@ function routeABTestExecution(block: BlockConfig): ExecutionRoutingResult {
 
   return {
     mode: useCode ? 'code' : 'ai',
-    reason: `A/B test assigned ${useCode ? 'code' : 'AI'} path (bucket: ${hash % 2})`,
+    reason: `A/B test assigned ${useCode ? 'code' : 'AI'} path (random)`,
   };
 }
 
@@ -190,7 +178,7 @@ export function getExecutionModeDescription(mode: ExecutionMode): string {
     case 'hybrid':
       return 'Use code for known patterns, fall back to AI for edge cases. Best of both worlds.';
     case 'ab_test':
-      return 'Deterministic 50/50 split between AI and code based on block ID. Use for comparing performance.';
+      return 'Random 50/50 split between AI and code per execution. Use for comparing performance.';
     default:
       return '';
   }

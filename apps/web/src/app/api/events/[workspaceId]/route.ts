@@ -9,6 +9,7 @@ import { NextRequest } from 'next/server';
 import { verifyWorkspaceOwnership } from '@/lib/auth';
 import { eventStore } from '@/lib/events/event-store';
 import { builderEventEmitter } from '@/lib/events/event-emitter';
+import { apiErrors } from '@/lib/api/error-response';
 
 export async function GET(
   request: NextRequest,
@@ -19,7 +20,7 @@ export async function GET(
   // Verify the user owns this workspace - prevents unauthorized access
   const workspace = await verifyWorkspaceOwnership(workspaceId);
   if (!workspace) {
-    return new Response('Forbidden', { status: 403 });
+    return apiErrors.forbidden();
   }
   const lastSequence = parseInt(
     request.nextUrl.searchParams.get('lastSequence') ?? '0'
@@ -29,6 +30,16 @@ export async function GET(
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
+
+      // Max connection time to prevent leaked connections
+      const MAX_CONNECTION_MS = 10 * 60 * 1000;
+      const connectionTimer = setTimeout(() => {
+        controller.enqueue(encoder.encode(
+          `data: ${JSON.stringify({ type: 'reconnect', reason: 'max_connection_time' })}\n\n`
+        ));
+        unsubscribe();
+        controller.close();
+      }, MAX_CONNECTION_MS);
 
       // Send any missed events first
       const missedEvents = await eventStore.getAfterSequence(
@@ -54,6 +65,7 @@ export async function GET(
 
       // Handle client disconnect
       request.signal.addEventListener('abort', () => {
+        clearTimeout(connectionTimer);
         unsubscribe();
         controller.close();
       });

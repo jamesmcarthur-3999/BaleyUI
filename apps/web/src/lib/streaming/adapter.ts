@@ -172,8 +172,25 @@ export function createBaleybotToAISDKStream(): TransformStream<Uint8Array, Uint8
   const chunks: string[] = [];
   let lastEmitTime = Date.now();
   const HEARTBEAT_INTERVAL_MS = 15000;
+  let heartbeatInterval: NodeJS.Timeout | null = null;
 
   return new TransformStream({
+    start(controller) {
+      // Proactive heartbeat: send even when no upstream data arrives
+      heartbeatInterval = setInterval(() => {
+        const now = Date.now();
+        if (now - lastEmitTime > HEARTBEAT_INTERVAL_MS) {
+          try {
+            controller.enqueue(encoder.encode(': heartbeat\n\n'));
+            lastEmitTime = now;
+          } catch {
+            // Stream may be closed
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+          }
+        }
+      }, HEARTBEAT_INTERVAL_MS);
+    },
+
     transform(chunk, controller) {
       chunks.push(decoder.decode(chunk, { stream: true }));
       const buffer = chunks.join('');
@@ -231,6 +248,9 @@ export function createBaleybotToAISDKStream(): TransformStream<Uint8Array, Uint8
     },
 
     flush(controller) {
+      // Clean up heartbeat interval
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+
       // Process any remaining buffer
       const buffer = chunks.join('');
       chunks.length = 0;

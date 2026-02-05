@@ -8,7 +8,6 @@
 import {
   db,
   baleybotAlerts,
-  baleybotMetrics,
   notifications,
   eq,
   and,

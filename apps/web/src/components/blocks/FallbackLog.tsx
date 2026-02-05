@@ -33,7 +33,7 @@ interface FallbackLogProps {
 }
 
 export function FallbackLog({
-  blockId,
+  blockId: _blockId,
   entries,
   isLoading = false,
   onLoadMore,

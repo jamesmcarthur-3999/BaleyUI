@@ -8,7 +8,6 @@
 
 import { ExecutionCard, type ExecutionCardProps } from './ExecutionCard';
 import { ListSkeleton } from '@/components/ui/list-skeleton';
-import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
   Select,
@@ -17,8 +16,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Play, Filter, Inbox } from 'lucide-react';
+import { Filter, Inbox } from 'lucide-react';
 import type { FlowExecutionStatus } from '@/lib/execution/types';
+import { useVirtualList } from '@/hooks/useVirtualList';
 
 // ============================================================================
 // Types
@@ -109,6 +109,32 @@ function ExecutionFilters({
 // Component
 // ============================================================================
 
+const ITEM_HEIGHT = 120;
+const VIRTUALIZE_THRESHOLD = 20;
+
+function VirtualizedExecutionList({ executions }: { executions: ExecutionCardProps['execution'][] }) {
+  const { containerRef, totalHeight, virtualItems } = useVirtualList({
+    itemCount: executions.length,
+    itemHeight: ITEM_HEIGHT,
+    overscan: 5,
+  });
+
+  return (
+    <div ref={containerRef} className="overflow-auto" style={{ maxHeight: 600 }}>
+      <div style={{ height: totalHeight, position: 'relative' }}>
+        {virtualItems.map((item) => (
+          <div
+            key={executions[item.index]!.id}
+            style={{ position: 'absolute', top: item.start, height: item.size, left: 0, right: 0 }}
+          >
+            <ExecutionCard execution={executions[item.index]!} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function ExecutionList({
   executions,
   isLoading,
@@ -172,11 +198,15 @@ export function ExecutionList({
           onFlowFilterChange={onFlowFilterChange}
         />
       )}
-      <div className="space-y-3">
-        {executions.map((execution) => (
-          <ExecutionCard key={execution.id} execution={execution} />
-        ))}
-      </div>
+      {executions.length > VIRTUALIZE_THRESHOLD ? (
+        <VirtualizedExecutionList executions={executions} />
+      ) : (
+        <div className="space-y-3">
+          {executions.map((execution) => (
+            <ExecutionCard key={execution.id} execution={execution} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

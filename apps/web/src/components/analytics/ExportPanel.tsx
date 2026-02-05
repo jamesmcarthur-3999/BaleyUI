@@ -8,11 +8,17 @@ import { Badge } from '@/components/ui/badge';
 import { Download, FileJson, FileText, Calendar } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import type { TrainingDataItem } from '@/lib/types/execution';
+
+type ExportPreviewItem = TrainingDataItem & {
+  input?: string;
+  output?: string;
+};
 
 interface ExportPanelProps {
   blocks: Array<{ id: string; name: string }>;
   onExport: (options: ExportOptions) => void;
-  preview?: any[];
+  preview?: ExportPreviewItem[];
   rowCount?: number;
   isLoading?: boolean;
 }
@@ -156,7 +162,7 @@ export function ExportPanel({
             <Label htmlFor="feedback-filter">Feedback Filter</Label>
             <Select
               value={feedbackFilter}
-              onValueChange={(value) => setFeedbackFilter(value as any)}
+              onValueChange={(value) => setFeedbackFilter(value as 'all' | 'correct' | 'incorrect')}
             >
               <SelectTrigger id="feedback-filter">
                 <SelectValue />
@@ -172,7 +178,7 @@ export function ExportPanel({
           {/* Format Selector */}
           <div className="space-y-2">
             <Label htmlFor="format-select">Export Format</Label>
-            <Select value={format} onValueChange={(value) => setFormat(value as any)}>
+            <Select value={format} onValueChange={(value) => setFormat(value as 'jsonl' | 'csv')}>
               <SelectTrigger id="format-select">
                 <SelectValue />
               </SelectTrigger>

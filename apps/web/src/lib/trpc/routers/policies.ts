@@ -34,7 +34,7 @@ export const policiesRouter = router({
       where: eq(workspacePolicies.workspaceId, ctx.workspace.id),
     });
 
-    // Create default policies if none exist
+    // Create default policies if none exist (handle race with ON CONFLICT)
     if (!policies) {
       const [created] = await ctx.db
         .insert(workspacePolicies)
@@ -50,9 +50,13 @@ export const policiesRouter = router({
           createdAt: new Date(),
           updatedAt: new Date(),
         })
+        .onConflictDoNothing()
         .returning();
 
-      policies = created;
+      // If another request already created it, fetch the existing one
+      policies = created ?? await ctx.db.query.workspacePolicies.findFirst({
+        where: eq(workspacePolicies.workspaceId, ctx.workspace.id),
+      });
     }
 
     return policies;

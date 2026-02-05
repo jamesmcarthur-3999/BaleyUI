@@ -13,7 +13,7 @@ import {
   EmitInsightSchema,
   EmitTableSchema,
 } from '@/lib/outputs/tools';
-import { templates, getTemplate, listTemplates } from '@/lib/outputs/templates';
+import { getTemplate, listTemplates } from '@/lib/outputs/templates';
 
 // ============================================================================
 // OUTPUT BUILDER TESTS

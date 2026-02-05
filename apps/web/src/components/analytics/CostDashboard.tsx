@@ -50,7 +50,6 @@ export function CostDashboard({ data, isLoading }: CostDashboardProps) {
   const avgCostPerExecution = totalExecutions > 0 ? data.totalCost / totalExecutions : 0;
 
   const topBlock = data.costByBlock[0];
-  const topModel = data.costByModel[0];
 
   return (
     <div className="space-y-6">

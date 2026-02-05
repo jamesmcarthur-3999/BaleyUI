@@ -7,6 +7,8 @@
 
 import { parseBalCode } from '../generator';
 import type { TriggerConfig } from '../types';
+export type { VisualNode, VisualEdge, VisualGraph } from './types';
+import type { VisualNode, VisualEdge, VisualGraph } from './types';
 
 // ============================================================================
 // TRIGGER PARSING (moved inline after generator refactor)
@@ -50,46 +52,12 @@ function parseTriggerString(trigger: string): TriggerConfig | null {
 }
 
 // ============================================================================
-// TYPES
-// ============================================================================
-
-export interface VisualNode {
-  id: string;
-  type: 'baleybot' | 'trigger' | 'output';
-  data: {
-    name: string;
-    goal: string;
-    model?: string;
-    trigger?: TriggerConfig;
-    tools: string[];
-    canRequest: string[];
-    output?: Record<string, string>;
-  };
-  position: { x: number; y: number };
-}
-
-export interface VisualEdge {
-  id: string;
-  source: string;
-  target: string;
-  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel';
-  label?: string;
-  animated?: boolean;
-}
-
-export interface VisualGraph {
-  nodes: VisualNode[];
-  edges: VisualEdge[];
-}
-
-// ============================================================================
 // CONSTANTS
 // ============================================================================
 
 const NODE_WIDTH = 280;
 const NODE_HEIGHT = 150;
 const HORIZONTAL_GAP = 100;
-const VERTICAL_GAP = 80;
 
 // ============================================================================
 // CONVERTER
@@ -175,7 +143,7 @@ function calculatePosition(
   nodeName: string,
   orderedNames: string[],
   entityIndex: number,
-  totalEntities: number
+  _totalEntities: number
 ): { x: number; y: number } {
   const orderIndex = orderedNames.indexOf(nodeName);
   const effectiveIndex = orderIndex >= 0 ? orderIndex : entityIndex;

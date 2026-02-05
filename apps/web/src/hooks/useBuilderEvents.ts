@@ -37,6 +37,7 @@ export function useBuilderEvents({
   const [events, setEvents] = useState<StoredEvent[]>([]);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
   // Use refs for values that change frequently to avoid tearing down the connection
   const lastSequenceRef = useRef(0);
   const onEventRef = useRef(onEvent);
@@ -56,6 +57,7 @@ export function useBuilderEvents({
 
       eventSource.onopen = () => {
         setIsConnected(true);
+        reconnectAttemptsRef.current = 0;
       };
 
       eventSource.onmessage = (e) => {
@@ -79,8 +81,20 @@ export function useBuilderEvents({
       eventSource.onerror = () => {
         setIsConnected(false);
         eventSource.close();
-        // Reconnect after delay
-        reconnectTimeoutRef.current = setTimeout(connect, RECONNECTION.DEFAULT_DELAY_MS);
+        // Clear any existing reconnect timeout to prevent stacking
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+        // Exponential backoff with max 5 attempts
+        const attempts = reconnectAttemptsRef.current;
+        if (attempts < 5) {
+          const delay = Math.min(
+            RECONNECTION.DEFAULT_DELAY_MS * Math.pow(2, attempts),
+            30000
+          );
+          reconnectAttemptsRef.current += 1;
+          reconnectTimeoutRef.current = setTimeout(connect, delay);
+        }
       };
 
       eventSourceRef.current = eventSource;

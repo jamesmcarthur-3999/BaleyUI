@@ -8,7 +8,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   createSpawnBaleybotExecutor,
   extractToolsFromBAL,
-  type WorkspacePolicies,
 } from '../spawn-executor';
 
 // Helper type for partial mock data

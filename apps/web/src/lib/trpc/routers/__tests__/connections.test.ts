@@ -420,7 +420,6 @@ describe('Connections Router Logic', () => {
 
   describe('Encryption handling', () => {
     it('encrypts API key on create', async () => {
-      const config = { apiKey: 'sk-secret-key' };
       const encryptedConfig = { apiKey: 'encrypted:sk-secret-key' };
 
       const newConnection = createMockConnection({

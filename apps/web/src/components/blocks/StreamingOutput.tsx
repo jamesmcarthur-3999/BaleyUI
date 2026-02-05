@@ -10,7 +10,6 @@ import { StreamingText } from '@/components/streaming/StreamingText';
 import { StreamingJSON } from '@/components/streaming/StreamingJSON';
 import { ToolCallCard } from '@/components/streaming/ToolCallCard';
 import { StreamMetrics } from '@/components/streaming/StreamMetrics';
-import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import type { StreamState } from '@/lib/streaming/types/state';
 

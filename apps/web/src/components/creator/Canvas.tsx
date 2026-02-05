@@ -43,7 +43,6 @@ const ZOOM_STEP = 0.1;
 const ENTITIES_BEFORE_AUTO_ZOOM = 5;
 
 // Animation classes for entities
-const ENTITY_ANIMATION_DURATION = 300; // ms
 
 // ============================================================================
 // HELPER FUNCTIONS

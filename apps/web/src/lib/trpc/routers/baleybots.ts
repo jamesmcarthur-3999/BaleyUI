@@ -403,7 +403,7 @@ export const baleybotsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       // Rate limit: 10 executions per minute per user per workspace
-      checkRateLimit(
+      await checkRateLimit(
         `execute:${ctx.workspace.id}:${ctx.userId}`,
         RATE_LIMITS.execute
       );
@@ -695,32 +695,33 @@ export const baleybotsRouter = router({
       }).optional()
     )
     .query(async ({ ctx, input }) => {
-      // Get all BB IDs for this workspace
-      const workspaceBBs = await ctx.db.query.baleybots.findMany({
-        where: and(
+      // Single JOIN query instead of two round-trips
+      const executions = await ctx.db
+        .select({
+          id: baleybotExecutions.id,
+          baleybotId: baleybotExecutions.baleybotId,
+          status: baleybotExecutions.status,
+          triggeredBy: baleybotExecutions.triggeredBy,
+          startedAt: baleybotExecutions.startedAt,
+          completedAt: baleybotExecutions.completedAt,
+          durationMs: baleybotExecutions.durationMs,
+          output: baleybotExecutions.output,
+          createdAt: baleybotExecutions.createdAt,
+          baleybotName: baleybots.name,
+          baleybotIcon: baleybots.icon,
+        })
+        .from(baleybotExecutions)
+        .innerJoin(baleybots, eq(baleybotExecutions.baleybotId, baleybots.id))
+        .where(and(
           eq(baleybots.workspaceId, ctx.workspace.id),
           notDeleted(baleybots)
-        ),
-        columns: { id: true, name: true, icon: true },
-      });
-
-      if (workspaceBBs.length === 0) {
-        return [];
-      }
-
-      const bbIds = workspaceBBs.map((bb) => bb.id);
-      const bbMap = new Map(workspaceBBs.map((bb) => [bb.id, bb]));
-
-      // Get recent executions across all BBs
-      const executions = await ctx.db.query.baleybotExecutions.findMany({
-        where: inArray(baleybotExecutions.baleybotId, bbIds),
-        orderBy: [desc(baleybotExecutions.createdAt)],
-        limit: input?.limit ?? 20,
-      });
+        ))
+        .orderBy(desc(baleybotExecutions.createdAt))
+        .limit(input?.limit ?? 20);
 
       return executions.map((exec) => ({
         ...exec,
-        baleybot: bbMap.get(exec.baleybotId),
+        baleybot: { id: exec.baleybotId, name: exec.baleybotName, icon: exec.baleybotIcon },
       }));
     }),
 
@@ -730,17 +731,13 @@ export const baleybotsRouter = router({
   getDependents: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      // Find all BBs that have this BB in their dependencies
-      const allBBs = await ctx.db.query.baleybots.findMany({
+      // Use SQL JSONB contains operator to find BBs with this dependency
+      const dependents = await ctx.db.query.baleybots.findMany({
         where: and(
           eq(baleybots.workspaceId, ctx.workspace.id),
+          sql`${baleybots.dependencies}::jsonb @> ${JSON.stringify([input.id])}::jsonb`,
           notDeleted(baleybots)
         ),
-      });
-
-      const dependents = allBBs.filter((bb) => {
-        const deps = bb.dependencies as string[] | null;
-        return deps && deps.includes(input.id);
       });
 
       return dependents;
@@ -926,32 +923,21 @@ export const baleybotsRouter = router({
       // 2. Resume the execution with the approval decision
       // For now, we just record the decision
 
-      // Safely parse existing segments
-      let currentSegments: unknown[] = [];
-      if (execution.segments !== null && execution.segments !== undefined) {
-        if (Array.isArray(execution.segments)) {
-          currentSegments = execution.segments;
-        } else {
-          log.warn('Invalid segments format for execution', { executionId: input.executionId });
-        }
-      }
+      // Append segment atomically using SQL jsonb concatenation to prevent race conditions
+      const newSegment = {
+        type: 'approval_decision',
+        toolCallId: input.toolCallId,
+        approved: input.approved,
+        denyReason: input.denyReason,
+        decidedBy: ctx.userId,
+        decidedAt: new Date().toISOString(),
+      };
 
-      const updatedSegments = [
-        ...currentSegments,
-        {
-          type: 'approval_decision',
-          toolCallId: input.toolCallId,
-          approved: input.approved,
-          denyReason: input.denyReason,
-          decidedBy: ctx.userId,
-          decidedAt: new Date().toISOString(),
-        },
-      ];
-
-      await ctx.db
-        .update(baleybotExecutions)
-        .set({ segments: updatedSegments })
-        .where(eq(baleybotExecutions.id, input.executionId));
+      await ctx.db.execute(sql`
+        UPDATE baleybot_executions
+        SET segments = COALESCE(segments, '[]'::jsonb) || ${JSON.stringify([newSegment])}::jsonb
+        WHERE id = ${input.executionId}
+      `);
 
       return {
         approved: input.approved,

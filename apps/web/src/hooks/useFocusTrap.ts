@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 
 /**
  * Focusable element selector for focus trap.
@@ -71,7 +71,7 @@ export function useFocusTrap(isOpen: boolean) {
    * Handle Tab key navigation to keep focus within the container.
    * Cycles focus from last element to first (and vice versa with Shift+Tab).
    */
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== 'Tab') return;
 
     const focusableElements = containerRef.current?.querySelectorAll(
@@ -93,7 +93,7 @@ export function useFocusTrap(isOpen: boolean) {
       e.preventDefault();
       first.focus();
     }
-  }, []);
+  };
 
   return { containerRef, handleKeyDown };
 }

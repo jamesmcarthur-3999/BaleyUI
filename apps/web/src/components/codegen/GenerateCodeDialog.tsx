@@ -24,6 +24,7 @@ import { Separator } from '@/components/ui/separator';
 interface GenerateCodeDialogProps {
   blockId: string;
   blockName: string;
+  blockVersion: number;
   outputSchema?: Record<string, unknown>;
   onCodeSaved?: () => void;
   trigger?: React.ReactNode;
@@ -32,6 +33,7 @@ interface GenerateCodeDialogProps {
 export function GenerateCodeDialog({
   blockId,
   blockName,
+  blockVersion,
   outputSchema,
   onCodeSaved,
   trigger,
@@ -128,8 +130,9 @@ export function GenerateCodeDialog({
 
     saveMutation.mutate({
       blockId,
+      version: blockVersion,
       code: generatedResult.code,
-      accuracy: testResult?.accuracy, // Pass accuracy for codeAccuracy field
+      accuracy: testResult?.accuracy,
     });
   };
 

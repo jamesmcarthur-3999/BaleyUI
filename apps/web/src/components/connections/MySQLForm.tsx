@@ -14,8 +14,25 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useState } from 'react';
 
+interface ConnectionFormValues {
+  name: string;
+  config: {
+    apiKey?: string;
+    baseUrl?: string;
+    organization?: string;
+    host?: string;
+    port?: number;
+    database?: string;
+    username?: string;
+    password?: string;
+    connectionUrl?: string;
+    ssl?: boolean;
+    schema?: string;
+  };
+}
+
 interface MySQLFormProps {
-  form: UseFormReturn<any>;
+  form: UseFormReturn<ConnectionFormValues>;
 }
 
 export function MySQLForm({ form }: MySQLFormProps) {

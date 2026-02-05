@@ -5,7 +5,6 @@
  * Uses the internal execution_reviewer BaleyBot.
  */
 
-import { z } from 'zod';
 import { executeInternalBaleybot } from './internal-baleybots';
 import { createLogger } from '@/lib/logger';
 
@@ -71,58 +70,7 @@ export interface ReviewerConfig {
   maxSuggestions?: number;
 }
 
-// Schema for the review result
-const reviewResultSchema = z.object({
-  overallAssessment: z.enum(['excellent', 'good', 'needs_improvement', 'failed']),
-  summary: z.string().describe('Brief summary of the execution quality'),
-  issues: z.array(
-    z.object({
-      id: z.string(),
-      severity: z.enum(['error', 'warning', 'suggestion']),
-      category: z.enum([
-        'accuracy',
-        'completeness',
-        'performance',
-        'safety',
-        'clarity',
-        'efficiency',
-      ]),
-      title: z.string(),
-      description: z.string(),
-      affectedEntity: z.string().optional(),
-      suggestedFix: z.string().optional(),
-    })
-  ),
-  suggestions: z.array(
-    z.object({
-      id: z.string(),
-      type: z.enum([
-        'bal_change',
-        'tool_config',
-        'prompt_improvement',
-        'workflow_change',
-      ]),
-      title: z.string(),
-      description: z.string(),
-      impact: z.enum(['high', 'medium', 'low']),
-      balCodeChange: z
-        .object({
-          original: z.string(),
-          proposed: z.string(),
-          entityName: z.string().optional(),
-        })
-        .optional(),
-      reasoning: z.string(),
-    })
-  ),
-  metrics: z
-    .object({
-      outputQualityScore: z.number().min(0).max(100),
-      intentAlignmentScore: z.number().min(0).max(100),
-      efficiencyScore: z.number().min(0).max(100),
-    })
-    .optional(),
-});
+
 
 /**
  * Format output for display in the review prompt.

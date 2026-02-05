@@ -20,14 +20,12 @@ interface SimpleBarChartProps {
 export function SimpleBarChart({
   data,
   maxValue,
-  height = 200,
+  height: _height = 200,
   showValues = true,
   valueFormatter = (value) => value.toLocaleString(),
   className,
 }: SimpleBarChartProps) {
   const max = maxValue || Math.max(...data.map((d) => d.value), 1);
-  const barHeight = 32;
-  const gap = 8;
 
   return (
     <div className={cn('w-full', className)}>

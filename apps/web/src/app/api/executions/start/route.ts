@@ -1,8 +1,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import { db, blockExecutions, blocks, eq, isNull, and } from '@baleyui/db';
+import { db, blockExecutions } from '@baleyui/db';
 import { z } from 'zod';
 import { createLogger } from '@/lib/logger';
+import { apiErrors, createErrorResponse } from '@/lib/api/error-response';
 
 const logger = createLogger('api/executions/start');
 
@@ -12,14 +13,13 @@ const startExecutionSchema = z.object({
 });
 
 export async function POST(req: Request) {
+  const requestId = req.headers.get('x-request-id') ?? undefined;
+
   try {
     // Authenticate the request
     const { userId } = await auth();
     if (!userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return apiErrors.unauthorized();
     }
 
     // Parse and validate the request body
@@ -27,10 +27,7 @@ export async function POST(req: Request) {
     const parseResult = startExecutionSchema.safeParse(body);
 
     if (!parseResult.success) {
-      return NextResponse.json(
-        { error: 'Invalid request body', details: parseResult.error.issues },
-        { status: 400 }
-      );
+      return apiErrors.badRequest('Invalid request body');
     }
 
     const { blockId, input } = parseResult.data;
@@ -42,10 +39,7 @@ export async function POST(req: Request) {
     });
 
     if (!workspace) {
-      return NextResponse.json(
-        { error: 'No workspace found for this user' },
-        { status: 404 }
-      );
+      return apiErrors.notFound('Workspace');
     }
 
     // Verify the block exists and belongs to the user's workspace
@@ -59,10 +53,7 @@ export async function POST(req: Request) {
     });
 
     if (!block) {
-      return NextResponse.json(
-        { error: 'Block not found or access denied' },
-        { status: 404 }
-      );
+      return apiErrors.notFound('Block');
     }
 
     // Create the block execution record
@@ -71,16 +62,13 @@ export async function POST(req: Request) {
       .values({
         blockId: block.id,
         status: 'pending',
-        input: input as any,
+        input: input as Record<string, unknown>,
         model: block.model,
       })
       .returning();
 
     if (!execution) {
-      return NextResponse.json(
-        { error: 'Failed to create execution' },
-        { status: 500 }
-      );
+      return createErrorResponse(500, null, { message: 'Failed to create execution', requestId });
     }
 
     return NextResponse.json({
@@ -88,9 +76,6 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     logger.error('Error starting execution', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return apiErrors.internal(error, { requestId });
   }
 }

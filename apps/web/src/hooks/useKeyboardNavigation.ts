@@ -4,14 +4,12 @@
  * React hooks for accessible keyboard navigation patterns.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   createKeyboardNavigation,
-  setupRovingTabindex,
   trapFocus,
   saveFocus,
   announce,
-  type ArrowDirection,
 } from '@/lib/accessibility';
 
 // ============================================================================
@@ -56,52 +54,46 @@ export function useRovingTabindex(
   const containerRef = useRef<HTMLElement | null>(null);
 
   // Handle keyboard navigation
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      const items = Array.from(itemsRef.current.entries())
-        .sort(([a], [b]) => a - b)
-        .map(([, el]) => el);
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    const items = Array.from(itemsRef.current.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([, el]) => el);
 
-      if (items.length === 0) return;
+    if (items.length === 0) return;
 
-      const handler = createKeyboardNavigation(items, {
-        orientation,
-        loop,
-        onNavigate: (index) => {
-          setActiveIndex(index);
-          onSelect?.(index);
-        },
-        onActivate: (index) => {
-          onSelect?.(index);
-        },
-      });
+    const handler = createKeyboardNavigation(items, {
+      orientation,
+      loop,
+      onNavigate: (index) => {
+        setActiveIndex(index);
+        onSelect?.(index);
+      },
+      onActivate: (index) => {
+        onSelect?.(index);
+      },
+    });
 
-      handler(e.nativeEvent);
-    },
-    [orientation, loop, onSelect]
-  );
+    handler(e.nativeEvent);
+  };
 
   // Get props for individual items
-  const getItemProps = useCallback(
-    (index: number) => ({
-      tabIndex: index === activeIndex ? 0 : -1,
-      ref: (el: HTMLElement | null) => {
-        if (el) {
-          itemsRef.current.set(index, el);
-        } else {
-          itemsRef.current.delete(index);
-        }
-      },
-      onKeyDown: handleKeyDown,
-      onFocus: () => setActiveIndex(index),
-    }),
-    [activeIndex, handleKeyDown]
-  );
+  const getItemProps = (index: number) => ({
+    tabIndex: index === activeIndex ? 0 : -1,
+    ref: (el: HTMLElement | null) => {
+      if (el) {
+        itemsRef.current.set(index, el);
+      } else {
+        itemsRef.current.delete(index);
+      }
+    },
+    onKeyDown: handleKeyDown,
+    onFocus: () => setActiveIndex(index),
+  });
 
   // Container ref callback
-  const containerRefCallback = useCallback((el: HTMLElement | null) => {
+  const containerRefCallback = (el: HTMLElement | null) => {
     containerRef.current = el;
-  }, []);
+  };
 
   return {
     activeIndex,
@@ -124,7 +116,7 @@ export interface UseFocusTrapOptions {
   initialFocus?: string;
 }
 
-export function useFocusTrap(options: UseFocusTrapOptions = {}) {
+export function useAccessibleFocusTrap(options: UseFocusTrapOptions = {}) {
   const { active = true, restoreFocus = true, initialFocus } = options;
 
   const containerRef = useRef<HTMLElement | null>(null);
@@ -171,12 +163,9 @@ export interface UseAnnouncerOptions {
 export function useAnnouncer(options: UseAnnouncerOptions = {}) {
   const { politeness = 'polite' } = options;
 
-  const announceMessage = useCallback(
-    (message: string) => {
-      announce(message, politeness);
-    },
-    [politeness]
-  );
+  const announceMessage = (message: string) => {
+    announce(message, politeness);
+  };
 
   return announceMessage;
 }

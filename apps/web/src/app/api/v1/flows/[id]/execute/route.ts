@@ -21,6 +21,7 @@ import {
 } from '@baleyui/db';
 import { validateApiKey, hasPermission } from '@/lib/api/validate-api-key';
 import { createLogger } from '@/lib/logger';
+import { apiErrors, createErrorResponse } from '@/lib/api/error-response';
 import { executeFlow } from '@/lib/flow-executor';
 import type { FlowNode, FlowEdge } from '@/lib/types';
 
@@ -34,6 +35,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   let executionId: string | null = null;
+  const requestId = request.headers.get('x-request-id') ?? undefined;
 
   try {
     // Validate API key
@@ -42,10 +44,7 @@ export async function POST(
 
     // Check execute permission
     if (!hasPermission(validation, 'execute')) {
-      return NextResponse.json(
-        { error: 'Insufficient permissions. Required: execute or admin' },
-        { status: 403 }
-      );
+      return apiErrors.forbidden('Insufficient permissions. Required: execute or admin');
     }
 
     // Get flow ID from params
@@ -65,12 +64,12 @@ export async function POST(
     });
 
     if (!flow) {
-      return NextResponse.json({ error: 'Flow not found' }, { status: 404 });
+      return apiErrors.notFound('Flow');
     }
 
     // Check if flow is enabled
     if (!flow.enabled) {
-      return NextResponse.json({ error: 'Flow is disabled' }, { status: 400 });
+      return apiErrors.badRequest('Flow is disabled');
     }
 
     // Create a new flow execution record
@@ -91,10 +90,7 @@ export async function POST(
       .returning();
 
     if (!execution) {
-      return NextResponse.json(
-        { error: 'Failed to create execution' },
-        { status: 500 }
-      );
+      return createErrorResponse(500, null, { message: 'Failed to create execution', requestId });
     }
 
     executionId = execution.id;
@@ -178,18 +174,10 @@ export async function POST(
     }
 
     if (error instanceof Error && error.message.includes('API key')) {
-      return NextResponse.json({ error: error.message }, { status: 401 });
+      return apiErrors.unauthorized(error.message);
     }
 
-    const isDev = process.env.NODE_ENV === 'development';
-    return NextResponse.json(
-      {
-        error: 'Failed to execute flow',
-        ...(isDev ? { details: error instanceof Error ? error.message : 'Unknown error' } : {}),
-        executionId,
-      },
-      { status: 500 }
-    );
+    return apiErrors.internal(error, { requestId });
   }
 }
 
@@ -214,7 +202,7 @@ async function executeFlowAsync(
       nodes: nodes as Parameters<typeof executeFlow>[0]['nodes'],
       edges: edges as Parameters<typeof executeFlow>[0]['edges'],
       input,
-      apiKey: process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY || '',
+      apiKey: '',  // Workspace connections provide API keys; no platform key fallback
       baleybots: baleybotMap,
     });
 

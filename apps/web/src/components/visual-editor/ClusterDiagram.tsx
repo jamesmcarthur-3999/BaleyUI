@@ -13,12 +13,13 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { balToVisual, type VisualNode, type VisualEdge } from '@/lib/baleybot/visual/bal-to-nodes';
+import type { VisualNode, VisualEdge, VisualGraph } from '@/lib/baleybot/visual/types';
 import { BaleybotNode } from './BaleybotNode';
 import { cn } from '@/lib/utils';
 
 interface ClusterDiagramProps {
-  balCode: string;
+  graph: VisualGraph;
+  isParsing?: boolean;
   onNodeClick?: (nodeId: string) => void;
   onNodeChange?: (nodeId: string, data: Partial<VisualNode['data']>) => void;
   className?: string;
@@ -90,28 +91,26 @@ function toReactFlowEdge(edge: VisualEdge): Edge {
 }
 
 export function ClusterDiagram({
-  balCode,
+  graph,
+  isParsing: _isParsing,
   onNodeClick,
-  onNodeChange,
+  onNodeChange: _onNodeChange,
   className,
   readOnly = false,
 }: ClusterDiagramProps) {
-  // Convert BAL to visual graph
-  const visualGraph = balToVisual(balCode);
-
   // Convert to React Flow format
-  const initialNodes = visualGraph.nodes.map(toReactFlowNode);
-  const initialEdges = visualGraph.edges.map(toReactFlowEdge);
+  const initialNodes = graph.nodes.map(toReactFlowNode);
+  const initialEdges = graph.edges.map(toReactFlowEdge);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, , onNodesChange] = useNodesState(initialNodes);
+  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
 
   const handleNodeClick = (_event: React.MouseEvent, node: Node) => {
     onNodeClick?.(node.id);
   };
 
   // Empty state
-  if (visualGraph.nodes.length === 0) {
+  if (graph.nodes.length === 0) {
     return (
       <div
         className={cn(

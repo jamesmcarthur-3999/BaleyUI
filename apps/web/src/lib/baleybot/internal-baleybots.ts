@@ -5,7 +5,7 @@
  * These are stored in the database with isInternal: true.
  */
 
-import { db, baleybots, baleybotExecutions, eq, and, notDeleted } from '@baleyui/db';
+import { db, baleybots, baleybotExecutions, eq, notDeleted } from '@baleyui/db';
 import { getOrCreateSystemWorkspace } from '@/lib/system-workspace';
 import { executeBaleybot, type ExecutorContext } from './executor';
 import { createLogger } from '@/lib/logger';

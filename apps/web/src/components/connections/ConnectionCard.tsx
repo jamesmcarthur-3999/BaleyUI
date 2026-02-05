@@ -13,7 +13,7 @@ interface Connection {
   name: string;
   status: string | null;
   isDefault: boolean | null;
-  config: any;
+  config: unknown;
   createdAt: Date;
   lastCheckedAt: Date | null;
 }
@@ -25,6 +25,7 @@ interface ConnectionCardProps {
 }
 
 export function ConnectionCard({ connection, onDelete, onSetDefault }: ConnectionCardProps) {
+  const config = (connection.config ?? {}) as Record<string, unknown>;
   const provider = PROVIDERS[connection.type as keyof typeof PROVIDERS];
 
   const getStatusBadge = () => {
@@ -62,16 +63,16 @@ export function ConnectionCard({ connection, onDelete, onSetDefault }: Connectio
         <div className="space-y-4">
           {/* Configuration Details */}
           <div className="space-y-2 text-sm">
-            {connection.config.baseUrl && (
+            {Boolean(config.baseUrl) && (
               <div>
                 <span className="text-muted-foreground">Base URL:</span>{' '}
-                <span className="font-mono text-xs">{connection.config.baseUrl}</span>
+                <span className="font-mono text-xs">{String(config.baseUrl)}</span>
               </div>
             )}
-            {connection.config._hasApiKey && (
+            {Boolean(config._hasApiKey) && (
               <div>
                 <span className="text-muted-foreground">API Key:</span>{' '}
-                <span className="font-mono text-xs">{connection.config.apiKey}</span>
+                <span className="font-mono text-xs">{String(config.apiKey)}</span>
               </div>
             )}
             {connection.lastCheckedAt && (

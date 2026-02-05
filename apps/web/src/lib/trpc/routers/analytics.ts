@@ -17,6 +17,23 @@ import { TRPCError } from '@trpc/server';
 import { calculateCost } from '@/lib/analytics/cost-calculator';
 import type { TrainingDataItem } from '@/lib/types';
 
+const dateRangeInput = z.object({
+  startDate: z.date().optional(),
+  endDate: z.date().optional(),
+}).refine(data => {
+  if (data.startDate && data.endDate) {
+    const days = (data.endDate.getTime() - data.startDate.getTime()) / 86_400_000;
+    return days <= 365;
+  }
+  return true;
+}, { message: 'Date range cannot exceed 365 days' });
+
+function defaultDateRange(startDate?: Date, endDate?: Date) {
+  const end = endDate ?? new Date();
+  const start = startDate ?? new Date(end.getTime() - 30 * 86_400_000);
+  return { start, end };
+}
+
 /**
  * tRPC router for analytics and metrics.
  */
@@ -26,46 +43,24 @@ export const analyticsRouter = router({
    */
   getCostSummary: protectedProcedure
     .input(
-      z.object({
-        startDate: z.date().optional(),
-        endDate: z.date().optional(),
+      dateRangeInput.and(z.object({
         blockId: z.string().uuid().optional(),
-      })
+      }))
     )
     .query(async ({ ctx, input }) => {
+      const { start, end } = defaultDateRange(input.startDate, input.endDate);
+
       // Build where conditions
       const conditions = [
         eq(blocks.workspaceId, ctx.workspace.id),
         notDeleted(blocks),
+        gte(blockExecutions.createdAt, start),
+        lte(blockExecutions.createdAt, end),
       ];
 
       if (input.blockId) {
         conditions.push(eq(blockExecutions.blockId, input.blockId));
       }
-
-      if (input.startDate) {
-        conditions.push(gte(blockExecutions.createdAt, input.startDate));
-      }
-
-      if (input.endDate) {
-        conditions.push(lte(blockExecutions.createdAt, input.endDate));
-      }
-
-      // Get total cost from block executions
-      const totalResult = await ctx.db
-        .select({
-          totalInputTokens: sql<number>`COALESCE(SUM(${blockExecutions.tokensInput}), 0)::int`,
-          totalOutputTokens: sql<number>`COALESCE(SUM(${blockExecutions.tokensOutput}), 0)::int`,
-        })
-        .from(blockExecutions)
-        .innerJoin(blocks, eq(blockExecutions.blockId, blocks.id))
-        .where(
-          and(
-            ...conditions,
-            isNotNull(blockExecutions.model),
-            isNotNull(blockExecutions.tokensInput)
-          )
-        );
 
       // Get cost by block
       const costByBlockResult = await ctx.db
@@ -153,30 +148,24 @@ export const analyticsRouter = router({
    */
   getLatencyMetrics: protectedProcedure
     .input(
-      z.object({
-        startDate: z.date().optional(),
-        endDate: z.date().optional(),
+      dateRangeInput.and(z.object({
         blockId: z.string().uuid().optional(),
-      })
+      }))
     )
     .query(async ({ ctx, input }) => {
+      const { start, end } = defaultDateRange(input.startDate, input.endDate);
+
       // Build where conditions
       const conditions = [
         eq(blocks.workspaceId, ctx.workspace.id),
         notDeleted(blocks),
         isNotNull(blockExecutions.durationMs),
+        gte(blockExecutions.createdAt, start),
+        lte(blockExecutions.createdAt, end),
       ];
 
       if (input.blockId) {
         conditions.push(eq(blockExecutions.blockId, input.blockId));
-      }
-
-      if (input.startDate) {
-        conditions.push(gte(blockExecutions.createdAt, input.startDate));
-      }
-
-      if (input.endDate) {
-        conditions.push(lte(blockExecutions.createdAt, input.endDate));
       }
 
       // Get overall percentiles
@@ -239,7 +228,10 @@ export const analyticsRouter = router({
         startDate: z.date(),
         endDate: z.date(),
         granularity: z.enum(['day', 'week', 'month']).default('day'),
-      })
+      }).refine(data => {
+        const days = (data.endDate.getTime() - data.startDate.getTime()) / 86_400_000;
+        return days <= 365;
+      }, { message: 'Date range cannot exceed 365 days' })
     )
     .query(async ({ ctx, input }) => {
       const conditions = [
@@ -441,7 +433,7 @@ export const analyticsRouter = router({
         .innerJoin(blocks, eq(decisions.blockId, blocks.id))
         .where(and(...conditions))
         .orderBy(desc(decisions.createdAt))
-        .limit(10000); // Limit to prevent extremely large exports
+        .limit(5000); // Limit to prevent extremely large exports
 
       // Transform to JSONL format
       const jsonlLines: TrainingDataItem[] = exportData.map((item) => {

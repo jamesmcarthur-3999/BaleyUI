@@ -23,19 +23,54 @@ const isCsrfExempt = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
+  // Add request ID for tracing (use existing header or generate new one)
+  const requestId = request.headers.get('x-request-id') ?? globalThis.crypto.randomUUID();
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-request-id', requestId);
+
   // CSRF protection: validate Origin for mutation requests
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method) && !isCsrfExempt(request)) {
     const origin = request.headers.get('origin');
+    const referer = request.headers.get('referer');
     const host = request.headers.get('host');
+
     if (origin && host) {
       try {
         const originHost = new URL(origin).host;
         if (originHost !== host) {
-          return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+          return NextResponse.json(
+            { error: 'Forbidden', requestId },
+            { status: 403, headers: { 'x-request-id': requestId } }
+          );
         }
       } catch {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        return NextResponse.json(
+          { error: 'Forbidden', requestId },
+          { status: 403, headers: { 'x-request-id': requestId } }
+        );
       }
+    } else if (referer && host) {
+      // Fallback: check Referer header when Origin is absent
+      try {
+        const refererHost = new URL(referer).host;
+        if (refererHost !== host) {
+          return NextResponse.json(
+            { error: 'Forbidden', requestId },
+            { status: 403, headers: { 'x-request-id': requestId } }
+          );
+        }
+      } catch {
+        return NextResponse.json(
+          { error: 'Forbidden', requestId },
+          { status: 403, headers: { 'x-request-id': requestId } }
+        );
+      }
+    } else if (host) {
+      // Neither Origin nor Referer present — block mutation
+      return NextResponse.json(
+        { error: 'Forbidden', requestId },
+        { status: 403, headers: { 'x-request-id': requestId } }
+      );
     }
   }
 
@@ -45,13 +80,24 @@ export default clerkMiddleware(async (auth, request) => {
     const authHeader = request.headers.get('authorization');
     if (authHeader?.startsWith('Bearer bui_')) {
       // API key present - skip Clerk auth, let route handler validate
-      return;
+      const apiKeyResponse = NextResponse.next({
+        request: { headers: requestHeaders },
+      });
+      apiKeyResponse.headers.set('x-request-id', requestId);
+      return apiKeyResponse;
     }
   }
 
   if (!isPublicRoute(request)) {
     await auth.protect();
   }
+
+  // Propagate request ID to response headers
+  const response = NextResponse.next({
+    request: { headers: requestHeaders },
+  });
+  response.headers.set('x-request-id', requestId);
+  return response;
 });
 
 export const config = {

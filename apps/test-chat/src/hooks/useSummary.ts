@@ -114,6 +114,7 @@ Summary:`
     if (shouldTrigger) {
       summarize()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, autoTriggerAfter])
 
   // Cleanup on unmount

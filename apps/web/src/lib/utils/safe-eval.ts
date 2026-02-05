@@ -610,10 +610,8 @@ function evaluate(node: ASTNode, context: Record<string, unknown>): unknown {
         case '%':
           return (left as number) % (right as number);
         case '==':
-          // eslint-disable-next-line eqeqeq
           return left == right;
         case '!=':
-          // eslint-disable-next-line eqeqeq
           return left != right;
         case '===':
           return left === right;
@@ -811,10 +809,8 @@ export function evaluateFieldCondition(
     case '!==':
       return fieldValue !== value;
     case '==':
-      // eslint-disable-next-line eqeqeq
       return fieldValue == value;
     case '!=':
-      // eslint-disable-next-line eqeqeq
       return fieldValue != value;
     case '>':
       return (fieldValue as number) > (value as number);

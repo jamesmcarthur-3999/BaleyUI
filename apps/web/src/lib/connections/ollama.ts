@@ -115,7 +115,7 @@ export async function deleteOllamaModel(
 export async function getOllamaModelInfo(
   baseUrl: string,
   modelName: string
-): Promise<any> {
+): Promise<unknown> {
   try {
     const url = `${baseUrl}/api/show`;
     const response = await fetch(url, {

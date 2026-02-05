@@ -165,9 +165,10 @@ export class BaleyUI {
         throw new NotFoundError('Resource', 'unknown');
       case 400:
         throw new ValidationError(message, errorData.details);
-      case 429:
+      case 429: {
         const retryAfter = response.headers.get('Retry-After');
         throw new RateLimitError(retryAfter ? parseInt(retryAfter, 10) : undefined);
+      }
       default:
         throw new BaleyUIError(message, response.status, 'api_error', errorData.details);
     }

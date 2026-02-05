@@ -1,6 +1,6 @@
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -13,7 +13,6 @@ import { ROUTES } from '@/lib/routes';
 
 export default function BlockTestPage() {
   const params = useParams();
-  const router = useRouter();
   const { toast } = useToast();
   const blockId = params.id as string;
   const [activeTab, setActiveTab] = useState('chat');
@@ -31,14 +30,14 @@ export default function BlockTestPage() {
     });
   };
 
-  const handleComplete = (result: unknown) => {
+  const handleComplete = (_result: unknown) => {
     toast({
       title: 'Execution Complete',
       description: 'Block execution finished successfully',
     });
   };
 
-  const handleReplayTest = (input: unknown) => {
+  const handleReplayTest = (_input: unknown) => {
     setActiveTab('single');
     // TODO: Set the input in SingleTest component
     toast({

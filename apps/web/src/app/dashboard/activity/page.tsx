@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { trpc } from '@/lib/trpc/client';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -10,10 +9,6 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { ROUTES } from '@/lib/routes';
 import {
   Activity,
-  CheckCircle2,
-  XCircle,
-  Play,
-  Clock,
   ArrowRight,
 } from 'lucide-react';
 
@@ -42,21 +37,6 @@ export default function ActivityPage() {
     if (seconds < 60) return `${seconds}s`;
     const minutes = Math.floor(seconds / 60);
     return `${minutes}m ${seconds % 60}s`;
-  };
-
-  const StatusIcon = ({ status }: { status: string }) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle2 className="h-4 w-4 text-green-500" />;
-      case 'failed':
-        return <XCircle className="h-4 w-4 text-red-500" />;
-      case 'running':
-        return <Play className="h-4 w-4 text-blue-500 animate-pulse" />;
-      case 'cancelled':
-        return <XCircle className="h-4 w-4 text-muted-foreground" />;
-      default:
-        return <Clock className="h-4 w-4 text-muted-foreground" />;
-    }
   };
 
   return (

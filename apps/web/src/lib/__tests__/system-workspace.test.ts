@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { getOrCreateSystemWorkspace, SYSTEM_WORKSPACE_SLUG } from '../system-workspace';
 
 // Mock the database

@@ -61,7 +61,7 @@ export default function DecisionsPage() {
   // Get total count from the first page
   const totalCount = data?.pages[0]?.totalCount || 0;
 
-  const handleDecisionSelect = (decision: any) => {
+  const handleDecisionSelect = (decision: { id: string }) => {
     setSelectedDecisionId(decision.id);
   };
 

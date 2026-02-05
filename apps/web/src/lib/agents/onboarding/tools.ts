@@ -4,7 +4,6 @@
  * Implementations for the onboarding agent's capabilities.
  */
 
-import { z } from 'zod';
 import { onboardingSteps } from './definition';
 
 // ============================================================================

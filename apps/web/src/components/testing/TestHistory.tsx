@@ -34,7 +34,7 @@ interface TestHistoryProps {
 }
 
 export function TestHistory({
-  blockId,
+  blockId: _blockId,
   className,
   onReplay,
   onViewDetails,

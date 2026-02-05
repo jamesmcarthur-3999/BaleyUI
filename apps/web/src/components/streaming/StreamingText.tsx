@@ -31,7 +31,6 @@ export function StreamingText({
     }
 
     // If streaming, only append new characters
-    const previousLength = previousTextRef.current.length;
     if (text.startsWith(previousTextRef.current)) {
       setDisplayText(text);
     } else {

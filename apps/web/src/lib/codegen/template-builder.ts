@@ -87,10 +87,6 @@ function isExactMatchAst(ast: ConditionAst): ast is ExactMatchConditionAst {
   return ast.type === 'exact_match' || ('value' in ast && !('operator' in ast && ast.operator));
 }
 
-function isCompoundAst(ast: ConditionAst): ast is CompoundConditionAst {
-  return ast.type === 'compound' || 'conditions' in ast;
-}
-
 /**
  * Convert a pattern to a JavaScript condition string.
  */

@@ -23,9 +23,6 @@ import type { NodeExecutor, CompiledNode, NodeExecutorContext } from './index';
 import type { FunctionBlockNodeData } from '@/lib/baleybots/types';
 import { withRetry } from '../retry';
 import { ExecutionError, ErrorCode } from '../errors';
-import { createLogger } from '@/lib/logger';
-
-const logger = createLogger('function-block');
 
 // Try to load isolated-vm dynamically - may not be available on all platforms
 let ivm: typeof import('isolated-vm') | null = null;

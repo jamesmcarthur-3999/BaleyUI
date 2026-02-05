@@ -5,7 +5,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Edit, Trash2, Copy, Play } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { cn } from '@/lib/utils';
 import { ROUTES } from '@/lib/routes';
 
 interface FlowNode {
@@ -61,8 +60,16 @@ export function FlowCard({ flow, onDelete, onDuplicate, onRun }: FlowCardProps) 
 
   return (
     <Card
-      className="cursor-pointer transition-all hover:shadow-md"
+      className="cursor-pointer transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
       onClick={handleCardClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleCardClick();
+        }
+      }}
+      tabIndex={0}
+      role="button"
     >
       <CardHeader>
         <div className="flex items-start justify-between">

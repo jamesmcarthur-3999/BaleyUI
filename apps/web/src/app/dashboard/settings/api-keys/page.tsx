@@ -124,7 +124,7 @@ export default function ApiKeysPage() {
         description: 'API key has been copied to your clipboard.',
       });
       setTimeout(() => setKeyToCopy(''), 2000);
-    } catch (error) {
+    } catch {
       toast({
         title: 'Failed to Copy',
         description: 'Could not copy to clipboard.',

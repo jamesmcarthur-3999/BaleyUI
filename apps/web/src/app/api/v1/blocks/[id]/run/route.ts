@@ -21,6 +21,7 @@ import {
 } from '@baleyui/db';
 import { validateApiKey, hasPermission } from '@/lib/api/validate-api-key';
 import { createLogger } from '@/lib/logger';
+import { apiErrors, createErrorResponse } from '@/lib/api/error-response';
 import { Baleybot } from '@baleybots/core';
 import { openai, anthropic, ollama } from '@baleybots/core/providers';
 import type { ModelConfig, BaleybotStreamEvent } from '@baleybots/core';
@@ -62,61 +63,62 @@ function getModelConfig(
   }
 }
 
+// Try to load isolated-vm dynamically
+let ivm: typeof import('isolated-vm') | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  ivm = require('isolated-vm');
+} catch {
+  // isolated-vm not available
+}
+
+const ISOLATE_MEMORY_LIMIT = 128;
+const EXECUTION_TIMEOUT_MS = 5000;
+
 /**
- * Execute a function block's JavaScript code in a sandboxed environment
+ * Execute a function block's JavaScript code in a sandboxed V8 isolate
  */
 async function executeFunctionBlock(
   code: string,
   input: unknown
 ): Promise<unknown> {
-  const TIMEOUT_MS = 5000;
+  if (!ivm) {
+    throw new Error(
+      'Function block execution unavailable: isolated-vm is not installed'
+    );
+  }
 
-  return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      reject(new Error('Code execution timed out (5s limit)'));
-    }, TIMEOUT_MS);
+  const isolate = new ivm.Isolate({ memoryLimit: ISOLATE_MEMORY_LIMIT });
 
-    try {
-      const AsyncFunction = Object.getPrototypeOf(
-        async function () {}
-      ).constructor;
+  try {
+    const context = await isolate.createContext();
+    const jail = context.global;
 
-      const wrappedCode = `
-        "use strict";
-        ${code}
+    await jail.set('global', jail.derefInto());
+    await jail.set('__input__', new ivm.ExternalCopy(input).copyInto());
 
-        if (typeof module !== 'undefined' && module.exports && typeof module.exports === 'function') {
-          return await module.exports(input);
-        }
-        if (typeof processInput === 'function') {
-          return await processInput(input);
-        }
-        if (typeof execute === 'function') {
-          return await execute(input);
-        }
-        return input;
-      `;
+    const wrappedCode = `
+      "use strict";
+      const input = __input__;
+      ${code}
 
-      const fn = new AsyncFunction('input', wrappedCode);
+      if (typeof module !== 'undefined' && module.exports && typeof module.exports === 'function') {
+        module.exports(input);
+      } else if (typeof processInput === 'function') {
+        processInput(input);
+      } else if (typeof execute === 'function') {
+        execute(input);
+      } else {
+        input;
+      }
+    `;
 
-      fn(input)
-        .then((result: unknown) => {
-          clearTimeout(timeoutId);
-          resolve(result);
-        })
-        .catch((error: Error) => {
-          clearTimeout(timeoutId);
-          reject(new Error(`Code execution failed: ${error.message}`));
-        });
-    } catch (error) {
-      clearTimeout(timeoutId);
-      reject(
-        new Error(
-          `Code execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-        )
-      );
-    }
-  });
+    const script = await isolate.compileScript(wrappedCode);
+    const result = await script.run(context, { timeout: EXECUTION_TIMEOUT_MS });
+    return result;
+  } finally {
+    isolate.dispose();
+  }
 }
 
 export async function POST(
@@ -125,6 +127,7 @@ export async function POST(
 ) {
   let executionId: string | null = null;
   let eventIndex = 0;
+  const requestId = request.headers.get('x-request-id') ?? undefined;
 
   try {
     // Validate API key
@@ -133,10 +136,7 @@ export async function POST(
 
     // Check execute permission
     if (!hasPermission(validation, 'execute')) {
-      return NextResponse.json(
-        { error: 'Insufficient permissions. Required: execute or admin' },
-        { status: 403 }
-      );
+      return apiErrors.forbidden('Insufficient permissions. Required: execute or admin');
     }
 
     // Get block ID from params
@@ -156,7 +156,7 @@ export async function POST(
     });
 
     if (!block) {
-      return NextResponse.json({ error: 'Block not found' }, { status: 404 });
+      return apiErrors.notFound('Block');
     }
 
     // Create a new block execution record
@@ -173,10 +173,7 @@ export async function POST(
       .returning();
 
     if (!execution) {
-      return NextResponse.json(
-        { error: 'Failed to create execution' },
-        { status: 500 }
-      );
+      return createErrorResponse(500, null, { message: 'Failed to create execution', requestId });
     }
 
     executionId = execution.id;
@@ -307,17 +304,9 @@ export async function POST(
     }
 
     if (error instanceof Error && error.message.includes('API key')) {
-      return NextResponse.json({ error: error.message }, { status: 401 });
+      return apiErrors.unauthorized(error.message);
     }
 
-    const isDev = process.env.NODE_ENV === 'development';
-    return NextResponse.json(
-      {
-        error: 'Failed to run block',
-        ...(isDev ? { details: error instanceof Error ? error.message : 'Unknown error' } : {}),
-        executionId,
-      },
-      { status: 500 }
-    );
+    return apiErrors.internal(error, { requestId });
   }
 }

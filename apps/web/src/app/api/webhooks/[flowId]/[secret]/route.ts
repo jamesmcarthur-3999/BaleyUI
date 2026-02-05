@@ -12,6 +12,7 @@ import { db, flows, webhookLogs, eq, and, notDeleted } from '@baleyui/db';
 import { FlowExecutor } from '@/lib/execution';
 import { checkApiRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { createLogger } from '@/lib/logger';
+import { apiErrors, createErrorResponse } from '@/lib/api/error-response';
 
 const log = createLogger('flow-webhook');
 
@@ -66,7 +67,6 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ flowId: string; secret: string }> }
 ) {
-  const startTime = Date.now();
   const { flowId, secret } = await params;
 
   // Extract request data
@@ -76,13 +76,13 @@ export async function POST(
 
   // Rate limiting: 60 requests per minute per IP
   const rateLimitKey = `webhook:flow:${ipAddress || 'unknown'}`;
-  const rateLimitResult = checkApiRateLimit(rateLimitKey, RATE_LIMITS.webhookPerMinute);
+  const rateLimitResult = await checkApiRateLimit(rateLimitKey, RATE_LIMITS.webhookPerMinute);
 
   if (rateLimitResult.limited) {
     // Log rate limited attempt
     await db.insert(webhookLogs).values({
       flowId,
-      webhookSecret: secret,
+      webhookSecret: secret.slice(0, 8),
       method,
       headers: {},
       body: {},
@@ -143,7 +143,7 @@ export async function POST(
       // Log failed attempt
       await db.insert(webhookLogs).values({
         flowId,
-        webhookSecret: secret,
+        webhookSecret: secret.slice(0, 8),
         method,
         headers,
         body: body as Record<string, unknown>,
@@ -155,10 +155,7 @@ export async function POST(
         userAgent,
       });
 
-      return NextResponse.json(
-        { error: 'Flow not found' },
-        { status: 404 }
-      );
+      return apiErrors.notFound('Flow');
     }
 
     // Verify webhook secret
@@ -177,7 +174,7 @@ export async function POST(
       // Log invalid secret attempt
       await db.insert(webhookLogs).values({
         flowId,
-        webhookSecret: secret,
+        webhookSecret: secret.slice(0, 8),
         method,
         headers,
         body: body as Record<string, unknown>,
@@ -189,10 +186,7 @@ export async function POST(
         userAgent,
       });
 
-      return NextResponse.json(
-        { error: 'Invalid webhook secret' },
-        { status: 401 }
-      );
+      return apiErrors.unauthorized('Invalid webhook secret');
     }
 
     // Check if flow is enabled
@@ -200,7 +194,7 @@ export async function POST(
       // Log failed attempt
       await db.insert(webhookLogs).values({
         flowId,
-        webhookSecret: secret,
+        webhookSecret: secret.slice(0, 8),
         method,
         headers,
         body: body as Record<string, unknown>,
@@ -212,10 +206,7 @@ export async function POST(
         userAgent,
       });
 
-      return NextResponse.json(
-        { error: 'Flow is disabled' },
-        { status: 400 }
-      );
+      return apiErrors.badRequest('Flow is disabled');
     }
 
     // Start flow execution
@@ -224,7 +215,7 @@ export async function POST(
       input: body,
       triggeredBy: {
         type: 'webhook',
-        webhookSecret: secret,
+        webhookSecret: secret.slice(0, 8),
         ipAddress,
         userAgent,
       },
@@ -233,7 +224,7 @@ export async function POST(
     // Log successful invocation
     await db.insert(webhookLogs).values({
       flowId,
-      webhookSecret: secret,
+      webhookSecret: secret.slice(0, 8),
       method,
       headers,
       body: body as Record<string, unknown>,
@@ -270,7 +261,7 @@ export async function POST(
       .insert(webhookLogs)
       .values({
         flowId,
-        webhookSecret: secret,
+        webhookSecret: secret.slice(0, 8),
         method,
         headers,
         body: body as Record<string, unknown>,
@@ -307,13 +298,6 @@ export async function POST(
       statusCode = 403;
     }
 
-    return NextResponse.json(
-      {
-        error: clientError,
-        requestId, // Include for support/debugging
-        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
-      },
-      { status: statusCode }
-    );
+    return createErrorResponse(statusCode, error, { message: clientError, requestId });
   }
 }

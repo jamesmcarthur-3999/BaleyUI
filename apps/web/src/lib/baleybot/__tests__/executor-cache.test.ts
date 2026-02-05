@@ -5,7 +5,7 @@
  * parsed ASTs to avoid repeated parsing of the same BAL code.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { balParseCache } from '../executor';
 
 describe('BAL Parse Cache (PERF-008)', () => {

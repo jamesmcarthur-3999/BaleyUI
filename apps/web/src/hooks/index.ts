@@ -29,4 +29,6 @@ export * from './useHistory';
 
 // Accessibility hooks
 export * from './useGridNavigation';
-// Note: useFocusTrap is already exported from useKeyboardNavigation
+export * from './useFocusTrap';
+// Note: useAccessibleFocusTrap (options-based, uses accessibility lib) is exported from useKeyboardNavigation
+// useFocusTrap (boolean-based, manual Tab handling) is exported from useFocusTrap

@@ -153,7 +153,7 @@ export function useVariableVirtualList({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(400);
-  const [measuredHeights, setMeasuredHeights] = useState<Map<number, number>>(new Map());
+  const [measuredHeights] = useState<Map<number, number>>(new Map());
 
   // Get height for an item (measured or estimated)
   const getHeight = (index: number): number => {

@@ -5,7 +5,6 @@
  * like web search, URL fetching, inter-BB communication, notifications, and memory.
  */
 
-import type { RuntimeToolDefinition } from '../../executor';
 
 // ============================================================================
 // TOOL SCHEMAS (JSON Schema format for AI tool calling)
@@ -203,6 +202,33 @@ export const CREATE_TOOL_SCHEMA = {
   required: ['name', 'description', 'implementation'],
 } as const;
 
+export const SHARED_STORAGE_SCHEMA = {
+  type: 'object',
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['write', 'read', 'delete', 'list'],
+      description: 'Storage operation to perform',
+    },
+    key: {
+      type: 'string',
+      description: 'Storage key (required for write, read, delete)',
+    },
+    value: {
+      description: 'Value to store (required for write action)',
+    },
+    ttl_seconds: {
+      type: 'number',
+      description: 'Time-to-live in seconds (optional, for write action)',
+    },
+    prefix: {
+      type: 'string',
+      description: 'Key prefix filter (optional, for list action)',
+    },
+  },
+  required: ['action'],
+} as const;
+
 // ============================================================================
 // TOOL METADATA
 // ============================================================================
@@ -293,6 +319,15 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
     dangerLevel: 'moderate',
     approvalRequired: true,
     capabilities: ['execute'],
+  },
+  {
+    name: 'shared_storage',
+    description: 'Read and write workspace-scoped shared data. Other BaleyBots in the same workspace can access this data, enabling cross-BB async communication.',
+    inputSchema: SHARED_STORAGE_SCHEMA,
+    category: 'storage',
+    dangerLevel: 'safe',
+    approvalRequired: false,
+    capabilities: ['read', 'write', 'delete'],
   },
 ];
 

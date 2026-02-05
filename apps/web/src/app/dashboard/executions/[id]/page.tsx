@@ -16,6 +16,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { ArrowLeft, Loader2, XCircle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import type { FlowNodeType } from '@/lib/baleybots/types';
+import type { FlowExecutionStatus } from '@/lib/execution/types';
 import { ROUTES } from '@/lib/routes';
 import { Breadcrumbs } from '@/components/ui/breadcrumbs';
 
@@ -176,7 +177,7 @@ export default function ExecutionPage({ params }: ExecutionPageProps) {
         executionId={execution.id}
         nodes={nodes}
         initialExecution={{
-          status: execution.status as any,
+          status: execution.status as FlowExecutionStatus,
           output: execution.output as unknown,
           error: typeof execution.error === 'string' ? execution.error : undefined,
           startedAt: execution.startedAt ?? undefined,
