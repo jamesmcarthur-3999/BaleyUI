@@ -51,6 +51,7 @@ describe('creator-bot', () => {
           availableTools: [],
           existingBaleybots: [],
           workspacePolicies: null,
+          connections: [],
         },
       },
       'Create a bot that searches the web'
@@ -75,6 +76,7 @@ describe('creator-bot', () => {
           availableTools: [],
           existingBaleybots: [],
           workspacePolicies: null,
+          connections: [],
         },
       },
       'Create a bot'

@@ -7,6 +7,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, flowExecutions, flows, eq } from '@baleyui/db';
 import { validateApiKey, hasPermission } from '@/lib/api/validate-api-key';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api/v1/executions');
 
 export async function GET(
   request: NextRequest,
@@ -67,7 +70,7 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error('Failed to get execution:', error);
+    logger.error('Failed to get execution', error);
 
     if (error instanceof Error && error.message.includes('API key')) {
       return NextResponse.json(
@@ -76,10 +79,11 @@ export async function GET(
       );
     }
 
+    const isDev = process.env.NODE_ENV === 'development';
     return NextResponse.json(
       {
         error: 'Failed to get execution',
-        details: error instanceof Error ? error.message : 'Unknown error',
+        ...(isDev ? { details: error instanceof Error ? error.message : 'Unknown error' } : {}),
       },
       { status: 500 }
     );

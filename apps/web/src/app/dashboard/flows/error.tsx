@@ -2,7 +2,10 @@
 
 import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, RefreshCw, Workflow } from 'lucide-react';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('flows-error');
 
 export default function FlowsError({
   error,
@@ -12,17 +15,32 @@ export default function FlowsError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error('Flows error:', error);
+    // Log error with context for debugging
+    logger.error('Flows page error', {
+      message: error.message,
+      digest: error.digest,
+      stack: error.stack,
+    });
   }, [error]);
 
   return (
     <div className="flex-1 flex items-center justify-center p-8">
       <div className="max-w-md w-full text-center">
-        <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-        <h2 className="text-xl font-semibold mb-2">Something went wrong</h2>
-        <p className="text-muted-foreground mb-6">
-          {error.message || 'An unexpected error occurred.'}
+        <div className="flex justify-center mb-4">
+          <div className="relative">
+            <Workflow className="h-12 w-12 text-muted-foreground" />
+            <AlertCircle className="h-5 w-5 text-destructive absolute -bottom-1 -right-1" />
+          </div>
+        </div>
+        <h2 className="text-xl font-semibold mb-2">Flows Error</h2>
+        <p className="text-muted-foreground mb-4">
+          {error.message || 'Failed to load flows.'}
         </p>
+        {error.digest && (
+          <p className="text-xs text-muted-foreground mb-4 font-mono">
+            Error ID: {error.digest}
+          </p>
+        )}
         <Button onClick={reset}>
           <RefreshCw className="h-4 w-4 mr-2" />
           Try again

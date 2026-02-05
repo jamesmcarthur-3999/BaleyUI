@@ -7,6 +7,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, blocks, eq, and, notDeleted } from '@baleyui/db';
 import { validateApiKey, hasPermission } from '@/lib/api/validate-api-key';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api/v1/blocks');
 
 export async function GET(request: NextRequest) {
   try {
@@ -53,7 +56,7 @@ export async function GET(request: NextRequest) {
       count: blocksInfo.length,
     });
   } catch (error) {
-    console.error('Failed to list blocks:', error);
+    logger.error('Failed to list blocks', error);
 
     if (error instanceof Error && error.message.includes('API key')) {
       return NextResponse.json(
@@ -62,10 +65,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const isDev = process.env.NODE_ENV === 'development';
     return NextResponse.json(
       {
         error: 'Failed to list blocks',
-        details: error instanceof Error ? error.message : 'Unknown error',
+        ...(isDev ? { details: error instanceof Error ? error.message : 'Unknown error' } : {}),
       },
       { status: 500 }
     );

@@ -54,7 +54,7 @@ ${schemaCode}
 
 export const ${blockName} = Deterministic.create({
   name: '${blockName}-generated',
-  processFn: (input: any) => {
+  processFn: (input: Record<string, unknown>) => {
 ${patternBlocks}
     // No pattern matched - return null to trigger AI fallback
     return null;

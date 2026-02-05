@@ -7,6 +7,11 @@
 import type { NodeExecutor, CompiledNode, NodeExecutorContext } from './index';
 import type { SinkNodeData } from '@/lib/baleybots/types';
 import { createSignatureHeader } from '@/lib/api/webhook-signature';
+import { createLogger, extractErrorMessage } from '@/lib/logger';
+import { createDatabaseExecutor } from '@/lib/baleybot/tools/connection-derived/database-executor';
+import type { DatabaseConnectionConfig } from '@/lib/connections/providers';
+
+const logger = createLogger('sink-executor');
 
 export const sinkExecutor: NodeExecutor = {
   type: 'sink',
@@ -28,17 +33,70 @@ export const sinkExecutor: NodeExecutor = {
           output: input,
         };
 
-      case 'database':
-        // Database sink - would store to configured database
-        // In production, would use the connection from config
-        console.log('[Sink] Database output:', input);
-        return {
-          __sinkResult: true,
-          sinkType: 'database',
-          completedAt: new Date().toISOString(),
-          stored: true,
-          output: input,
-        };
+      case 'database': {
+        // Database sink - store data to configured database connection
+        const dbConfig = data.config as Record<string, unknown> | undefined;
+        const connectionType = dbConfig?.connectionType as 'postgres' | 'mysql' | undefined;
+        const tableName = dbConfig?.tableName as string | undefined;
+
+        if (!connectionType || !dbConfig?.connectionConfig || !tableName) {
+          logger.warn('Database sink missing configuration', {
+            hasConnectionType: !!connectionType,
+            hasConfig: !!dbConfig?.connectionConfig,
+            hasTable: !!tableName,
+          });
+          return {
+            __sinkResult: true,
+            sinkType: 'database',
+            completedAt: new Date().toISOString(),
+            stored: false,
+            error: 'Database sink not configured: missing connectionType, connectionConfig, or tableName',
+            output: input,
+          };
+        }
+
+        let executor;
+        try {
+          executor = createDatabaseExecutor(
+            connectionType,
+            dbConfig.connectionConfig as DatabaseConnectionConfig,
+            { timeout: 30000, maxRows: 1 }
+          );
+
+          // Build parameterized INSERT from input data
+          const inputData = typeof input === 'object' && input !== null
+            ? input as Record<string, unknown>
+            : { value: input };
+          const columns = Object.keys(inputData);
+          const placeholders = columns.map((_, i) => `$${i + 1}`);
+          const values = Object.values(inputData);
+
+          const insertSQL = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
+          await executor.queryWithParams(insertSQL, values);
+
+          return {
+            __sinkResult: true,
+            sinkType: 'database',
+            completedAt: new Date().toISOString(),
+            stored: true,
+            output: input,
+          };
+        } catch (error: unknown) {
+          logger.error('Database sink write failed', error);
+          return {
+            __sinkResult: true,
+            sinkType: 'database',
+            completedAt: new Date().toISOString(),
+            stored: false,
+            error: extractErrorMessage(error),
+            output: input,
+          };
+        } finally {
+          if (executor) {
+            await executor.close().catch(() => {});
+          }
+        }
+      }
 
       case 'webhook':
         // Webhook sink - POST to configured URL with signature
@@ -80,14 +138,14 @@ export const sinkExecutor: NodeExecutor = {
             statusCode: response.status,
             output: input,
           };
-        } catch (error) {
-          console.error('[Sink] Webhook delivery failed:', error);
+        } catch (error: unknown) {
+          logger.error('Webhook delivery failed', error);
           return {
             __sinkResult: true,
             sinkType: 'webhook',
             completedAt: new Date().toISOString(),
             delivered: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
+            error: extractErrorMessage(error),
             output: input,
           };
         }
@@ -95,7 +153,7 @@ export const sinkExecutor: NodeExecutor = {
       case 'notification':
         // Notification sink - would send notification
         // In production, would use notification service
-        console.log('[Sink] Notification:', input);
+        logger.debug('Notification', { input });
         return {
           __sinkResult: true,
           sinkType: 'notification',

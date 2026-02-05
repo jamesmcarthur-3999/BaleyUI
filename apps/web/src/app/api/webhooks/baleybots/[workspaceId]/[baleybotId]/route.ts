@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import {
   db,
   baleybots,
@@ -20,6 +21,11 @@ import {
   notDeleted,
 } from '@baleyui/db';
 import { executeBALCode } from '@baleyui/sdk';
+import { createLogger } from '@/lib/logger';
+import { getWorkspaceAICredentials } from '@/lib/baleybot/services';
+import { checkApiRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+
+const log = createLogger('baleybot-webhook');
 
 // ============================================================================
 // TYPES
@@ -30,6 +36,8 @@ interface WebhookResponse {
   executionId?: string;
   message?: string;
   error?: string;
+  requestId?: string;
+  details?: string;
 }
 
 // ============================================================================
@@ -48,16 +56,30 @@ function getClientIp(request: NextRequest): string | undefined {
 }
 
 /**
- * Generate a random webhook secret
+ * Generate a cryptographically secure webhook secret
  * Note: This is a local helper, not exported (Next.js route files should only export route handlers)
  */
 function generateWebhookSecret(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let secret = 'whk_';
-  for (let i = 0; i < 32; i++) {
-    secret += chars.charAt(Math.floor(Math.random() * chars.length));
+  return 'whk_' + crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * Timing-safe comparison of webhook secrets to prevent timing attacks
+ */
+function verifyWebhookSecret(expected: string, provided: string | null): boolean {
+  if (!provided || !expected) {
+    return false;
   }
-  return secret;
+  // Convert to buffers for timing-safe comparison
+  const expectedBuffer = Buffer.from(expected, 'utf-8');
+  const providedBuffer = Buffer.from(provided, 'utf-8');
+  // If lengths differ, we still need to do a comparison to avoid timing leak
+  if (expectedBuffer.length !== providedBuffer.length) {
+    // Compare against expected to maintain constant time
+    crypto.timingSafeEqual(expectedBuffer, expectedBuffer);
+    return false;
+  }
+  return crypto.timingSafeEqual(expectedBuffer, providedBuffer);
 }
 
 // ============================================================================
@@ -75,6 +97,26 @@ export async function POST(
   const userAgent = request.headers.get('user-agent') || undefined;
   const ipAddress = getClientIp(request);
   const webhookSecret = request.headers.get('x-webhook-secret');
+
+  // Rate limiting: 60 requests per minute per IP
+  const rateLimitKey = `webhook:baleybot:${ipAddress || 'unknown'}`;
+  const rateLimitResult = checkApiRateLimit(rateLimitKey, RATE_LIMITS.webhookPerMinute);
+
+  if (rateLimitResult.limited) {
+    log.warn('Rate limit exceeded for BaleyBot webhook', { ipAddress, baleybotId });
+    return NextResponse.json(
+      { success: false, error: `Rate limit exceeded. Retry after ${rateLimitResult.retryAfter} seconds.` },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(rateLimitResult.retryAfter),
+          'X-RateLimit-Limit': String(RATE_LIMITS.webhookPerMinute.maxRequests),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(Math.ceil(rateLimitResult.resetAt / 1000)),
+        },
+      }
+    );
+  }
 
   // Parse request body
   let body: unknown;
@@ -99,7 +141,7 @@ export async function POST(
     });
 
     if (!workspace) {
-      console.warn(`[webhook] Workspace not found: ${workspaceId}`);
+      log.warn('Workspace not found', { workspaceId });
       return NextResponse.json(
         { success: false, error: 'Workspace not found' },
         { status: 404 }
@@ -124,7 +166,7 @@ export async function POST(
     });
 
     if (!baleybot) {
-      console.warn(`[webhook] BaleyBot not found: ${baleybotId}`);
+      log.warn('BaleyBot not found', { baleybotId, workspaceId });
       return NextResponse.json(
         { success: false, error: 'BaleyBot not found' },
         { status: 404 }
@@ -133,18 +175,16 @@ export async function POST(
 
     // Check if webhook is enabled
     if (!baleybot.webhookEnabled) {
-      console.warn(`[webhook] Webhook not enabled for BB: ${baleybot.name}`);
+      log.warn('Webhook not enabled for BaleyBot', { baleybotId, baleybotName: baleybot.name });
       return NextResponse.json(
         { success: false, error: 'Webhook not enabled for this BaleyBot' },
         { status: 403 }
       );
     }
 
-    // Verify webhook secret
-    if (!baleybot.webhookSecret || baleybot.webhookSecret !== webhookSecret) {
-      console.warn(
-        `[webhook] Invalid secret for BB: ${baleybot.name} from IP: ${ipAddress}`
-      );
+    // Verify webhook secret with timing-safe comparison
+    if (!baleybot.webhookSecret || !verifyWebhookSecret(baleybot.webhookSecret, webhookSecret)) {
+      log.warn('Invalid webhook secret', { baleybotId, baleybotName: baleybot.name, ipAddress });
       return NextResponse.json(
         { success: false, error: 'Invalid webhook secret' },
         { status: 401 }
@@ -153,7 +193,7 @@ export async function POST(
 
     // Check if BB is in executable state
     if (baleybot.status !== 'active') {
-      console.warn(`[webhook] BB not active: ${baleybot.name} (status: ${baleybot.status})`);
+      log.warn('BaleyBot not active', { baleybotId, baleybotName: baleybot.name, status: baleybot.status });
       return NextResponse.json(
         {
           success: false,
@@ -163,9 +203,7 @@ export async function POST(
       );
     }
 
-    console.log(
-      `[webhook] Executing BB "${baleybot.name}" (${baleybot.id}) via webhook from ${ipAddress}`
-    );
+    log.info('Executing BaleyBot via webhook', { baleybotId, baleybotName: baleybot.name, ipAddress });
 
     // Create execution record
     const [execution] = await db
@@ -184,17 +222,18 @@ export async function POST(
       throw new Error('Failed to create execution record');
     }
 
-    // Get API key for execution
-    // In production, this would come from workspace connection settings
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('No API key configured for webhook execution');
+    // Get AI credentials from workspace connections
+    const credentials = await getWorkspaceAICredentials(workspaceId);
+    if (!credentials) {
+      throw new Error('No AI provider configured for this workspace. Please add an OpenAI or Anthropic connection in Settings.');
     }
 
-    // Execute the BaleyBot
+    // Execute the BaleyBot with the webhook payload as input
+    const inputStr = body ? JSON.stringify(body) : undefined;
     const result = await executeBALCode(baleybot.balCode, {
-      model: 'gpt-4o-mini',
-      apiKey,
+      input: inputStr,
+      model: credentials.model,
+      apiKey: credentials.apiKey,
       timeout: 55000, // 55 second timeout (leaving margin for response)
     });
 
@@ -219,9 +258,7 @@ export async function POST(
       })
       .where(eq(baleybots.id, baleybot.id));
 
-    console.log(
-      `[webhook] BB "${baleybot.name}" completed successfully in ${durationMs}ms`
-    );
+    log.info('BaleyBot execution completed', { baleybotId, baleybotName: baleybot.name, durationMs, executionId: execution.id });
 
     return NextResponse.json({
       success: true,
@@ -230,15 +267,46 @@ export async function POST(
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`[webhook] BB execution failed:`, errorMessage);
+    const requestId = crypto.randomUUID();
+
+    // Log with full context for debugging
+    log.error('BaleyBot webhook execution failed', {
+      requestId,
+      baleybotId,
+      workspaceId,
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      ipAddress,
+      userAgent,
+      endpoint: `/api/webhooks/baleybots/${workspaceId}/${baleybotId}`,
+    });
+
+    // Determine specific error type for client response
+    let clientError = 'Failed to execute BaleyBot';
+    let statusCode = 500;
+
+    if (errorMessage.includes('API key') || errorMessage.includes('No AI provider')) {
+      clientError = 'BaleyBot execution failed: AI provider not configured';
+    } else if (errorMessage.includes('timeout') || errorMessage.includes('Timeout')) {
+      clientError = 'BaleyBot execution timed out';
+      statusCode = 504;
+    } else if (errorMessage.includes('rate limit') || errorMessage.includes('Rate limit')) {
+      clientError = 'BaleyBot execution rate limited by AI provider';
+      statusCode = 429;
+    } else if (errorMessage.includes('parse') || errorMessage.includes('Parse') || errorMessage.includes('BAL')) {
+      clientError = 'Invalid BAL code in BaleyBot';
+    } else if (errorMessage.includes('execution record')) {
+      clientError = 'Failed to create execution record';
+    }
 
     return NextResponse.json(
       {
         success: false,
-        error: 'Failed to execute BaleyBot',
-        message: errorMessage,
+        error: clientError,
+        requestId, // Include for support/debugging
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
       },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }

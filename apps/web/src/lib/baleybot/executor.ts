@@ -6,7 +6,7 @@
  */
 
 import { parse, tokenize, buildZodSchema } from '@baleybots/tools';
-import type { OutputSchemaNode } from '@baleybots/tools';
+import type { OutputSchemaNode, ProgramNode } from '@baleybots/tools';
 import type {
   BaleybotStreamEvent,
   ToolDefinition as CoreToolDefinition,
@@ -28,6 +28,90 @@ import type {
   WorkspacePolicies,
   SchemaValidationResult,
 } from './types';
+
+// ============================================================================
+// PERF-008: BAL PARSING CACHE
+// ============================================================================
+
+interface CachedBALParse {
+  ast: ProgramNode;
+  timestamp: number;
+}
+
+/**
+ * Simple in-memory cache for parsed BAL ASTs.
+ * Uses a hash of the BAL code as the key, with a TTL to prevent stale entries.
+ */
+class BALParseCache {
+  private cache = new Map<string, CachedBALParse>();
+  private readonly maxSize = 100;
+  private readonly ttlMs = 5 * 60 * 1000; // 5 minutes
+
+  private hash(balCode: string): string {
+    // Simple hash using string content for correctness
+    let hash = 0;
+    for (let i = 0; i < balCode.length; i++) {
+      const char = balCode.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return `${balCode.length}_${hash}`;
+  }
+
+  get(balCode: string): ProgramNode | null {
+    const key = this.hash(balCode);
+    const cached = this.cache.get(key);
+
+    if (!cached) return null;
+
+    // Check if entry has expired
+    if (Date.now() - cached.timestamp > this.ttlMs) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    return cached.ast;
+  }
+
+  set(balCode: string, ast: ProgramNode): void {
+    const key = this.hash(balCode);
+
+    // Evict oldest entries if cache is full
+    if (this.cache.size >= this.maxSize) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) {
+        this.cache.delete(oldestKey);
+      }
+    }
+
+    this.cache.set(key, { ast, timestamp: Date.now() });
+  }
+
+  /**
+   * Parse BAL code with caching
+   */
+  parse(balCode: string): ProgramNode {
+    const cached = this.get(balCode);
+    if (cached) return cached;
+
+    const tokens = tokenize(balCode);
+    const ast = parse(tokens, balCode);
+    this.set(balCode, ast);
+    return ast;
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+}
+
+// Singleton cache instance
+const balParseCache = new BALParseCache();
+
+/**
+ * Export for testing and cache management
+ */
+export { balParseCache };
 
 // ============================================================================
 // TYPES
@@ -52,6 +136,8 @@ export interface RuntimeToolDefinition {
 export interface ExecutorContext {
   /** Workspace ID */
   workspaceId: string;
+  /** BaleyBot ID (for trigger processing after completion) */
+  baleybotId?: string;
   /** Available tools for the workspace (with actual functions) */
   availableTools: Map<string, RuntimeToolDefinition>;
   /** Workspace policies for tool governance */
@@ -121,8 +207,8 @@ function mapStatus(resultStatus: string): ExecutionStatus {
 
 function getEntityGoals(balCode: string): Map<string, string> {
   try {
-    const tokens = tokenize(balCode);
-    const ast = parse(tokens, balCode);
+    // PERF-008: Use cached parsing
+    const ast = balParseCache.parse(balCode);
     const goals = new Map<string, string>();
     for (const [name, entity] of ast.entities.entries()) {
       goals.set(name, entity.goal);
@@ -140,8 +226,8 @@ function getEntityGoals(balCode: string): Map<string, string> {
  */
 function getOutputSchema(balCode: string): OutputSchemaNode | null {
   try {
-    const tokens = tokenize(balCode);
-    const ast = parse(tokens, balCode);
+    // PERF-008: Use cached parsing
+    const ast = balParseCache.parse(balCode);
 
     // If there's a root composition, find the last entity in execution order
     if (ast.root) {
@@ -225,7 +311,7 @@ function validateOutput(
         code: issue.code,
       })),
     };
-  } catch (err) {
+  } catch (err: unknown) {
     logger.warn('Schema validation error', {
       error: err instanceof Error ? err.message : 'Unknown error',
     });
@@ -236,10 +322,10 @@ function validateOutput(
 
 type ProviderType = 'openai' | 'anthropic' | 'ollama';
 
-function getPreferredProvider(balCode: string): ProviderType | null {
+export function getPreferredProvider(balCode: string): ProviderType | null {
   try {
-    const tokens = tokenize(balCode);
-    const ast = parse(tokens, balCode);
+    // PERF-008: Use cached parsing
+    const ast = balParseCache.parse(balCode);
     const providers = new Set<ProviderType>();
 
     for (const entity of ast.entities.values()) {
@@ -254,6 +340,27 @@ function getPreferredProvider(balCode: string): ProviderType | null {
     return providers.size === 1 ? (Array.from(providers)[0] ?? null) : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Extract the model string from BAL code.
+ * Returns the first entity's model or default.
+ */
+export function getPreferredModel(balCode: string): string {
+  try {
+    const ast = balParseCache.parse(balCode);
+
+    // Get the first entity's model
+    for (const entity of ast.entities.values()) {
+      if (entity.model && typeof entity.model === 'string') {
+        return entity.model;
+      }
+    }
+
+    return 'openai:gpt-4o-mini'; // Default fallback
+  } catch {
+    return 'openai:gpt-4o-mini';
   }
 }
 
@@ -295,6 +402,13 @@ async function resolveProviderConfig(
   workspaceId: string,
   preferredProvider: ProviderType | null
 ): Promise<ProviderConfig | undefined> {
+  logger.debug('Resolving provider config', {
+    workspaceId,
+    preferredProvider,
+    hasAnthropicEnvKey: !!process.env.ANTHROPIC_API_KEY,
+    hasOpenAIEnvKey: !!process.env.OPENAI_API_KEY,
+  });
+
   const allConnections = await db.query.connections.findMany({
     where: and(
       eq(connections.workspaceId, workspaceId),
@@ -303,25 +417,61 @@ async function resolveProviderConfig(
     ),
   });
 
-  if (allConnections.length === 0) {
-    return undefined;
+  logger.debug('Found database connections', {
+    count: allConnections.length,
+    types: allConnections.map((c) => c.type),
+  });
+
+  // First try to find a database connection
+  if (allConnections.length > 0) {
+    const candidates = preferredProvider
+      ? allConnections.filter((conn) => conn.type === preferredProvider)
+      : allConnections;
+
+    const connected = candidates.filter((conn) => conn.status === 'connected');
+
+    const selected =
+      connected.find((conn) => conn.isDefault) ??
+      connected[0] ??
+      candidates.find((conn) => conn.isDefault) ??
+      candidates[0];
+
+    if (selected) {
+      logger.debug('Using database connection', { type: selected.type, id: selected.id });
+      return buildProviderConfig(selected);
+    }
   }
 
-  const candidates = preferredProvider
-    ? allConnections.filter((conn) => conn.type === preferredProvider)
-    : allConnections;
+  // Fallback to environment variables (essential for internal baleybots and dev)
+  // First try the preferred provider's key
+  if (preferredProvider === 'anthropic' && process.env.ANTHROPIC_API_KEY) {
+    logger.debug('Using ANTHROPIC_API_KEY from environment');
+    return { apiKey: process.env.ANTHROPIC_API_KEY };
+  }
+  if (preferredProvider === 'openai' && process.env.OPENAI_API_KEY) {
+    logger.debug('Using OPENAI_API_KEY from environment');
+    return { apiKey: process.env.OPENAI_API_KEY };
+  }
 
-  const connected = candidates.filter((conn) => conn.status === 'connected');
+  // If preferred provider's key isn't available, fall back to any available key
+  // This is critical for internal baleybots that specify a model but the key isn't configured
+  if (process.env.ANTHROPIC_API_KEY) {
+    if (preferredProvider && preferredProvider !== 'anthropic') {
+      logger.warn(`Preferred provider ${preferredProvider} key not found, falling back to Anthropic`);
+    }
+    logger.debug('Using ANTHROPIC_API_KEY from environment (fallback)');
+    return { apiKey: process.env.ANTHROPIC_API_KEY };
+  }
+  if (process.env.OPENAI_API_KEY) {
+    if (preferredProvider && preferredProvider !== 'openai') {
+      logger.warn(`Preferred provider ${preferredProvider} key not found, falling back to OpenAI`);
+    }
+    logger.debug('Using OPENAI_API_KEY from environment (fallback)');
+    return { apiKey: process.env.OPENAI_API_KEY };
+  }
 
-  const selected =
-    connected.find((conn) => conn.isDefault) ??
-    connected[0] ??
-    candidates.find((conn) => conn.isDefault) ??
-    candidates[0];
-
-  if (!selected) return undefined;
-
-  return buildProviderConfig(selected);
+  logger.warn('No provider config found - no API keys available', { workspaceId, preferredProvider });
+  return undefined;
 }
 
 // ============================================================================
@@ -348,22 +498,61 @@ export async function executeBaleybot(
   const entityGoals = getEntityGoals(balCode);
   const preferredProvider = getPreferredProvider(balCode);
   let providerConfig: ProviderConfig | undefined;
+  let actualProvider: ProviderType | null = preferredProvider;
   try {
     providerConfig = await resolveProviderConfig(ctx.workspaceId, preferredProvider);
-  } catch (err) {
+
+    // Detect which provider we're actually using based on what key is available
+    // This is needed to override the model string if we fell back to a different provider
+    if (providerConfig?.apiKey) {
+      if (preferredProvider === 'anthropic' && !process.env.ANTHROPIC_API_KEY && process.env.OPENAI_API_KEY) {
+        actualProvider = 'openai';
+      } else if (preferredProvider === 'openai' && !process.env.OPENAI_API_KEY && process.env.ANTHROPIC_API_KEY) {
+        actualProvider = 'anthropic';
+      }
+    }
+  } catch (err: unknown) {
     logger.warn('Failed to resolve provider config', {
       workspaceId: ctx.workspaceId,
       error: err instanceof Error ? err.message : 'Unknown error',
     });
   }
 
+  // Get the model from BAL code, but override if we had to fall back to a different provider
+  let model = getPreferredModel(balCode);
+  if (actualProvider && actualProvider !== preferredProvider) {
+    // Model string needs to match the actual provider we're using
+    if (actualProvider === 'openai') {
+      model = 'openai:gpt-4o'; // Fall back to capable OpenAI model
+      logger.info('Model override: falling back to OpenAI', {
+        originalModel: getPreferredModel(balCode),
+        newModel: model,
+      });
+    } else if (actualProvider === 'anthropic') {
+      model = 'anthropic:claude-sonnet-4-20250514';
+      logger.info('Model override: falling back to Anthropic', {
+        originalModel: getPreferredModel(balCode),
+        newModel: model,
+      });
+    }
+  }
+
+  logger.info('Executing BAL with provider config', {
+    executionId,
+    model,
+    preferredProvider,
+    actualProvider,
+    hasProviderConfig: !!providerConfig,
+    hasApiKey: !!providerConfig?.apiKey,
+  });
+
   try {
-    // Note: Using type assertion as the internal SDK interface supports more options
-    // than the public BALExecutionOptions type exposes. This should be fixed by
-    // extending the SDK's public interface to support these options.
+    // Note: Using type assertion because we pass extended options (onToolCallApproval)
+    // that the SDK's public BALExecutionOptions doesn't expose.
+    // input, model, providerConfig, and availableTools are all now properly typed.
     const executionOptions = {
-      input,
-      model: 'openai:gpt-4o-mini',
+      input, // Now properly typed - passed through to executeBAL
+      model,
       providerConfig,
       availableTools: buildAvailableTools(ctx.availableTools),
       onToolCallApproval: options?.onApprovalNeeded
@@ -418,9 +607,28 @@ export async function executeBaleybot(
     if (result.status === 'error' || result.status === 'timeout') {
       error = result.error ?? 'BAL execution failed';
     }
-  } catch (err) {
+  } catch (err: unknown) {
     status = 'failed';
     error = err instanceof Error ? err.message : 'Unknown error during execution';
+  }
+
+  // Fire BB completion triggers (non-blocking, failures don't affect result)
+  if (ctx.baleybotId) {
+    try {
+      const { processBBCompletion } = await import('./services/bb-completion-trigger-service');
+      await processBBCompletion({
+        sourceBaleybotId: ctx.baleybotId,
+        status: status === 'completed' ? 'completed' : 'failed',
+        output,
+        executionId,
+      });
+    } catch (triggerErr) {
+      logger.warn('BB completion trigger processing failed (non-fatal)', {
+        baleybotId: ctx.baleybotId,
+        executionId,
+        error: triggerErr instanceof Error ? triggerErr.message : 'Unknown error',
+      });
+    }
   }
 
   // Validate output against schema if execution completed successfully

@@ -10,6 +10,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { db, flowExecutions, blockExecutions, eq } from '@baleyui/db';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api/executions/status');
 
 export async function GET(
   req: Request,
@@ -130,7 +133,7 @@ export async function GET(
       tokensOutput: blockExec.tokensOutput,
     });
   } catch (error) {
-    console.error('Error getting execution status:', error);
+    logger.error('Error getting execution status', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

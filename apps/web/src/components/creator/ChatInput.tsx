@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
 import { Send, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { CreationStatus } from '@/lib/baleybot/creator-types';
@@ -118,12 +117,11 @@ export function ChatInput({
 
   return (
     <div className={cn('w-full', className)}>
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
+      <div
         className={cn(
           'relative flex items-end gap-2 rounded-2xl border-2 bg-background/80 backdrop-blur-sm transition-all duration-300',
+          // CSS fade-in animation
+          'animate-fade-in-up',
           // Responsive padding (Phase 4.5)
           'px-3 py-2.5 sm:px-4 sm:py-3',
           // Safe area for notched devices (Phase 4.5)
@@ -176,7 +174,7 @@ export function ChatInput({
             <Send className="h-5 w-5" aria-hidden="true" />
           )}
         </Button>
-      </motion.div>
+      </div>
 
       {/* Hint text - hidden on mobile for cleaner UI (Phase 4.5) */}
       <p id="chat-input-hint" className="mt-2 text-center text-xs text-muted-foreground/60 hidden sm:block">

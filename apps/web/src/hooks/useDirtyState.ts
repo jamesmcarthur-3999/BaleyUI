@@ -103,6 +103,11 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
   const [isDirty, setIsDirty] = useState(false);
   // Track if we've ever had meaningful content (not just initial empty state)
   const hasHadContentRef = useRef(false);
+  // Ref to current state for stable callbacks (avoids infinite re-renders)
+  const currentStateRef = useRef<CreatorDirtyState>(currentState);
+
+  // Keep currentStateRef in sync with the latest state
+  currentStateRef.current = currentState;
 
   // Check for changes when currentState updates
   useEffect(() => {
@@ -122,10 +127,11 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
   }, [currentState]);
 
   // Mark current state as clean (after save)
+  // Uses ref for stable identity - prevents infinite loops when used in effects
   const markClean = useCallback(() => {
-    savedStateRef.current = { ...currentState };
+    savedStateRef.current = { ...currentStateRef.current };
     setIsDirty(false);
-  }, [currentState]);
+  }, []);
 
   // Mark state as dirty manually (e.g., after AI modifies entities)
   const markDirty = useCallback(() => {
@@ -133,31 +139,33 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
   }, []);
 
   // Get human-readable list of what changed
+  // Uses ref for stable identity - prevents infinite loops when used in effects
   const getChanges = useCallback((): string[] => {
     const changes: string[] = [];
     const saved = savedStateRef.current;
+    const current = currentStateRef.current;
 
-    if (currentState.name !== saved.name) {
+    if (current.name !== saved.name) {
       changes.push('Name');
     }
-    if (currentState.description !== saved.description) {
+    if (current.description !== saved.description) {
       changes.push('Description');
     }
-    if (currentState.icon !== saved.icon) {
+    if (current.icon !== saved.icon) {
       changes.push('Icon');
     }
-    if (currentState.balCode !== saved.balCode) {
+    if (current.balCode !== saved.balCode) {
       changes.push('Code');
     }
-    if (!deepEqual(currentState.entities, saved.entities)) {
+    if (!deepEqual(current.entities, saved.entities)) {
       changes.push('Entities');
     }
-    if (!deepEqual(currentState.connections, saved.connections)) {
+    if (!deepEqual(current.connections, saved.connections)) {
       changes.push('Connections');
     }
 
     return changes;
-  }, [currentState]);
+  }, []);
 
   return {
     isDirty,

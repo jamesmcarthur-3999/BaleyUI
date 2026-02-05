@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Code, Loader2, CheckCircle, XCircle, Save, Copy, Check, Braces, Type, Download, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,6 +14,26 @@ import { cn } from '@/lib/utils';
 import { BalCodeHighlighter } from './BalCodeHighlighter';
 import type { ParserErrorLocation } from '@/lib/errors/creator-errors';
 import type { SchemaValidationResult } from '@/lib/baleybot/types';
+import { DashboardTemplate, ReportTemplate } from '@/components/outputs';
+import type { OutputData } from '@/lib/outputs/types';
+
+/**
+ * Detect if output is a structured OutputData object (has metrics, charts, tables, etc.)
+ */
+function isStructuredOutput(output: unknown): output is OutputData {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return false;
+  const obj = output as Record<string, unknown>;
+  return !!(obj.metrics || obj.charts || obj.tables || obj.text || obj.insights || obj.actions);
+}
+
+/**
+ * Check if structured output has chart/metric data (use dashboard layout) vs text-heavy (report layout)
+ */
+function hasChartOrMetric(data: OutputData): boolean {
+  const chartCount = data.charts ? Object.keys(data.charts).length : 0;
+  const metricCount = data.metrics ? Object.keys(data.metrics).length : 0;
+  return chartCount + metricCount > 0;
+}
 
 /**
  * Auto-save status type
@@ -201,11 +220,8 @@ export function ActionBar({
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-      className={cn('space-y-4', className)}
+    <div
+      className={cn('space-y-4 animate-fade-in-up', className)}
     >
       {/* Test Input Section - responsive layout (Phase 4.4) */}
       <div className="space-y-2">
@@ -371,71 +387,66 @@ export function ActionBar({
       </div>
 
       {/* Code Viewer */}
-      <AnimatePresence>
-        {showCode && (
-          <motion.div
-            id="bal-code-viewer"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="overflow-hidden"
-            role="region"
-            aria-label="Generated BAL code"
-          >
-            <div className="rounded-xl bg-muted/50 border overflow-hidden">
-              {/* Code header with copy button */}
-              <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
-                <span className="text-xs font-medium text-muted-foreground">BAL Code</span>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleCopy}
-                        disabled={!balCode}
-                        className="h-7 px-2 text-xs"
-                      >
-                        {copied ? (
-                          <>
-                            <Check className="h-3.5 w-3.5 mr-1 text-green-500" aria-hidden="true" />
-                            Copied!
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="h-3.5 w-3.5 mr-1" aria-hidden="true" />
-                            Copy
-                          </>
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{copied ? 'Copied to clipboard!' : 'Copy code to clipboard'}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              {/* Code content with syntax highlighting */}
-              <div className="p-4">
-                <BalCodeHighlighter code={balCode} showLineNumbers />
-              </div>
-            </div>
-          </motion.div>
+      <div
+        id="bal-code-viewer"
+        className={cn(
+          'grid transition-[grid-template-rows,opacity] duration-200 ease-in-out',
+          showCode ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
         )}
-      </AnimatePresence>
+        role="region"
+        aria-label="Generated BAL code"
+      >
+        <div className="overflow-hidden">
+          <div className="rounded-xl bg-muted/50 border overflow-hidden">
+            {/* Code header with copy button */}
+            <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+              <span className="text-xs font-medium text-muted-foreground">BAL Code</span>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleCopy}
+                      disabled={!balCode}
+                      className="h-7 px-2 text-xs"
+                    >
+                      {copied ? (
+                        <>
+                          <Check className="h-3.5 w-3.5 mr-1 text-green-500" aria-hidden="true" />
+                          Copied!
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3.5 w-3.5 mr-1" aria-hidden="true" />
+                          Copy
+                        </>
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{copied ? 'Copied to clipboard!' : 'Copy code to clipboard'}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            {/* Code content with syntax highlighting */}
+            <div className="p-4">
+              <BalCodeHighlighter code={balCode} showLineNumbers />
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Run Result Display (Phase 5.5: Handle large output) */}
-      <AnimatePresence>
-        {runResult && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="overflow-hidden"
-          >
-            {(() => {
+      <div
+        className={cn(
+          'grid transition-[grid-template-rows,opacity] duration-200 ease-in-out',
+          runResult ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+        )}
+      >
+        <div className="overflow-hidden">
+          {runResult && (() => {
               const outputData = runResult.success
                 ? truncateOutput(runResult.output)
                 : { display: runResult.error || 'Unknown error', full: runResult.error || 'Unknown error', isTruncated: false, totalLength: 0, totalLines: 0 };
@@ -538,6 +549,13 @@ export function ActionBar({
                             Line {runResult.parserLocation.line}, column {runResult.parserLocation.column}
                           </p>
                         </div>
+                      ) : runResult.success && isStructuredOutput(runResult.output) ? (
+                        <div className="mt-2 max-h-[500px] overflow-y-auto">
+                          {hasChartOrMetric(runResult.output as OutputData)
+                            ? <DashboardTemplate data={runResult.output as OutputData} className="text-foreground" />
+                            : <ReportTemplate data={runResult.output as OutputData} className="text-foreground" />
+                          }
+                        </div>
                       ) : (
                         <pre
                           className={cn(
@@ -623,9 +641,8 @@ export function ActionBar({
                 </div>
               );
             })()}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
+        </div>
+      </div>
+    </div>
   );
 }

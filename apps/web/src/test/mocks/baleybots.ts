@@ -25,7 +25,7 @@ export interface MockBaleybotConfig {
   streamDelay?: number;
   /** Simulate an error */
   error?: Error;
-  /** Done reason (default: 'end_turn') */
+  /** Done reason (default: 'turn_yielded') */
   doneReason?: DoneReason;
 }
 
@@ -143,8 +143,10 @@ export async function* createMockBaleybotStream(
   // 6. Done
   yield {
     type: 'done',
-    reason: config.doneReason ?? 'end_turn',
+    reason: config.doneReason ?? 'turn_yielded',
     agent_id: `mock-${config.name}`,
+    timestamp: Date.now(),
+    duration_ms: 0,
   };
 }
 

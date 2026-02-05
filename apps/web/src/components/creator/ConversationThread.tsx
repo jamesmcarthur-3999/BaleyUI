@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence, PanInfo } from 'framer-motion';
 import { ChevronUp, ChevronDown, User, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CreatorMessage } from '@/lib/baleybot/creator-types';
 
 // Swipe threshold for gesture detection (Phase 4.7)
 const SWIPE_THRESHOLD = 50;
+// Minimum swipe velocity (pixels/ms)
+const SWIPE_VELOCITY_THRESHOLD = 0.3;
 
 interface ConversationThreadProps {
   messages: CreatorMessage[];
@@ -55,6 +56,9 @@ export function ConversationThread({
     }
   }, [messages.length, isCollapsed]);
 
+  // Touch gesture handling refs (Phase 4.7)
+  const touchStartRef = useRef<{ y: number; time: number } | null>(null);
+
   // Swipe gesture handling (Phase 4.7)
   const handleSwipe = (direction: 'up' | 'down') => {
     if (direction === 'down' && !isCollapsed) {
@@ -64,16 +68,32 @@ export function ConversationThread({
     }
   };
 
-  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    const { velocity, offset } = info;
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    if (!touch) return;
+    touchStartRef.current = { y: touch.clientY, time: Date.now() };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+
+    const deltaY = touch.clientY - touchStartRef.current.y;
+    const deltaTime = Date.now() - touchStartRef.current.time;
+    const velocity = Math.abs(deltaY) / deltaTime;
+
     // Detect swipe based on velocity and offset
-    if (Math.abs(offset.y) > SWIPE_THRESHOLD || Math.abs(velocity.y) > 300) {
-      if (offset.y > 0 || velocity.y > 0) {
+    if (Math.abs(deltaY) > SWIPE_THRESHOLD || velocity > SWIPE_VELOCITY_THRESHOLD) {
+      if (deltaY > 0) {
         handleSwipe('down');
       } else {
         handleSwipe('up');
       }
     }
+
+    touchStartRef.current = null;
   };
 
   if (messages.length === 0) {
@@ -83,12 +103,10 @@ export function ConversationThread({
   return (
     <div className={cn('rounded-xl border bg-background/50 touch-pan-x', className)}>
       {/* Header with collapse toggle and swipe gesture (Phase 4.7) */}
-      <motion.button
+      <button
         onClick={() => setIsCollapsed(!isCollapsed)}
-        drag="y"
-        dragConstraints={{ top: 0, bottom: 0 }}
-        dragElastic={0.1}
-        onDragEnd={handleDragEnd}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
         className={cn(
           'w-full flex items-center justify-between px-4 py-2.5',
           'text-sm font-medium text-muted-foreground',
@@ -118,35 +136,32 @@ export function ConversationThread({
             <ChevronUp className="h-4 w-4" aria-hidden="true" />
           )}
         </span>
-      </motion.button>
+      </button>
 
       {/* Messages container */}
-      <AnimatePresence initial={false}>
-        {!isCollapsed && (
-          <motion.div
-            id="conversation-thread"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="overflow-hidden"
-          >
-            <div
-              ref={scrollRef}
-              className="overflow-y-auto px-4 py-3 space-y-3"
-              style={{ maxHeight }}
-            >
-              {messages.map((message, index) => (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  isLatest={index === messages.length - 1}
-                />
-              ))}
-            </div>
-          </motion.div>
+      <div
+        id="conversation-thread"
+        className={cn(
+          'grid transition-[grid-template-rows,opacity] duration-200 ease-in-out',
+          isCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
         )}
-      </AnimatePresence>
+      >
+        <div className="overflow-hidden">
+          <div
+            ref={scrollRef}
+            className="overflow-y-auto px-4 py-3 space-y-3"
+            style={{ maxHeight }}
+          >
+            {messages.map((message, index) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                isLatest={index === messages.length - 1}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -160,13 +175,11 @@ function MessageBubble({ message, isLatest }: MessageBubbleProps) {
   const isUser = message.role === 'user';
 
   return (
-    <motion.div
-      initial={isLatest ? { opacity: 0, y: 10 } : false}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
+    <div
       className={cn(
         'flex items-start gap-2',
-        isUser ? 'flex-row-reverse' : 'flex-row'
+        isUser ? 'flex-row-reverse' : 'flex-row',
+        isLatest && 'animate-fade-in-up'
       )}
     >
       {/* Avatar */}
@@ -206,7 +219,7 @@ function MessageBubble({ message, isLatest }: MessageBubbleProps) {
           {formatTime(message.timestamp)}
         </time>
       </div>
-    </motion.div>
+    </div>
   );
 }
 

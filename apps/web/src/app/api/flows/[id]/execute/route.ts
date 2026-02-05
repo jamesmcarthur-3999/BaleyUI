@@ -10,6 +10,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, flows, eq, and, notDeleted } from '@baleyui/db';
 import { getCurrentAuth } from '@/lib/auth';
 import { FlowExecutor } from '@/lib/execution';
+import { createLogger, extractErrorMessage } from '@/lib/logger';
+
+const logger = createLogger('api/flows/execute');
 
 export async function POST(
   request: NextRequest,
@@ -66,7 +69,7 @@ export async function POST(
       message: 'Flow execution started successfully',
     });
   } catch (error) {
-    console.error('Failed to start flow execution:', error);
+    logger.error('Failed to start flow execution', error);
 
     if (error instanceof Error && error.message === 'Not authenticated') {
       return NextResponse.json(
@@ -82,10 +85,11 @@ export async function POST(
       );
     }
 
+    const isDev = process.env.NODE_ENV === 'development';
     return NextResponse.json(
       {
         error: 'Failed to start execution',
-        details: error instanceof Error ? error.message : 'Unknown error',
+        ...(isDev ? { details: extractErrorMessage(error) } : {}),
       },
       { status: 500 }
     );

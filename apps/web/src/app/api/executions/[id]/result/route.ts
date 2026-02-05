@@ -1,6 +1,9 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { db, eq, isNull, and } from '@baleyui/db';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api/executions/result');
 
 export async function GET(
   req: Request,
@@ -75,7 +78,7 @@ export async function GET(
       reasoning: execution.reasoning,
     });
   } catch (error) {
-    console.error('Error getting execution result:', error);
+    logger.error('Error getting execution result', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

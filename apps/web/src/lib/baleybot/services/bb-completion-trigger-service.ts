@@ -20,6 +20,9 @@ import {
   notDeleted,
 } from '@baleyui/db';
 import { executeBALCode } from '@baleyui/sdk';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('bb_trigger');
 
 // ============================================================================
 // TYPES
@@ -211,8 +214,8 @@ async function executeTriggeredBB(
       throw new Error('Failed to create execution record');
     }
 
-    console.log(
-      `[bb_trigger] Executing triggered BB "${targetBB.name}" (${targetBB.id}) from trigger ${trigger.id}`
+    log.info(
+      `Executing triggered BB "${targetBB.name}" (${targetBB.id}) from trigger ${trigger.id}`
     );
 
     // Get API key for execution
@@ -223,8 +226,10 @@ async function executeTriggeredBB(
 
     const startTime = Date.now();
 
-    // Execute the BaleyBot
+    // Execute the BaleyBot with the computed input
+    const inputStr = JSON.stringify(input);
     const result = await executeBALCode(targetBB.balCode, {
+      input: inputStr,
       model: 'gpt-4o-mini',
       apiKey,
       timeout: 55000,
@@ -243,8 +248,8 @@ async function executeTriggeredBB(
       })
       .where(eq(baleybotExecutions.id, execution.id));
 
-    console.log(
-      `[bb_trigger] Triggered BB "${targetBB.name}" completed successfully in ${durationMs}ms`
+    log.info(
+      `Triggered BB "${targetBB.name}" completed successfully in ${durationMs}ms`
     );
 
     return {
@@ -255,7 +260,7 @@ async function executeTriggeredBB(
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`[bb_trigger] Triggered BB execution failed:`, errorMessage);
+    log.error(` Triggered BB execution failed:`, errorMessage);
 
     return {
       triggerId: trigger.id,
@@ -273,15 +278,15 @@ async function executeTriggeredBB(
 export async function processBBCompletion(
   event: CompletionEvent
 ): Promise<TriggerResult[]> {
-  console.log(
-    `[bb_trigger] Processing completion for BB ${event.sourceBaleybotId}, status: ${event.status}`
+  log.info(
+    `Processing completion for BB ${event.sourceBaleybotId}, status: ${event.status}`
   );
 
   // Get all triggers for this source BB
   const triggers = await getTriggersForSource(event.sourceBaleybotId);
 
   if (triggers.length === 0) {
-    console.log(`[bb_trigger] No triggers configured for BB ${event.sourceBaleybotId}`);
+    log.info(` No triggers configured for BB ${event.sourceBaleybotId}`);
     return [];
   }
 
@@ -291,8 +296,8 @@ export async function processBBCompletion(
   for (const trigger of triggers) {
     // Check if this trigger should fire
     if (!shouldTriggerFire(trigger, event.status)) {
-      console.log(
-        `[bb_trigger] Skipping trigger ${trigger.id} (type: ${trigger.triggerType}, status: ${event.status})`
+      log.debug(
+        `Skipping trigger ${trigger.id} (type: ${trigger.triggerType}, status: ${event.status})`
       );
       continue;
     }
@@ -305,8 +310,8 @@ export async function processBBCompletion(
     results.push(result);
   }
 
-  console.log(
-    `[bb_trigger] Processed ${results.length} triggers for BB ${event.sourceBaleybotId}`
+  log.info(
+    `Processed ${results.length} triggers for BB ${event.sourceBaleybotId}`
   );
 
   return results;
@@ -344,8 +349,8 @@ export async function createTrigger(
     throw new Error('Failed to create trigger');
   }
 
-  console.log(
-    `[bb_trigger] Created trigger ${trigger.id}: ${sourceBaleybotId} -> ${targetBaleybotId} (${config.triggerType})`
+  log.info(
+    `Created trigger ${trigger.id}: ${sourceBaleybotId} -> ${targetBaleybotId} (${config.triggerType})`
   );
 
   return trigger.id;
@@ -360,7 +365,7 @@ export async function disableTrigger(triggerId: string): Promise<void> {
     .set({ enabled: false, updatedAt: new Date() })
     .where(eq(baleybotTriggers.id, triggerId));
 
-  console.log(`[bb_trigger] Disabled trigger ${triggerId}`);
+  log.info(` Disabled trigger ${triggerId}`);
 }
 
 /**
@@ -372,7 +377,7 @@ export async function enableTrigger(triggerId: string): Promise<void> {
     .set({ enabled: true, updatedAt: new Date() })
     .where(eq(baleybotTriggers.id, triggerId));
 
-  console.log(`[bb_trigger] Enabled trigger ${triggerId}`);
+  log.info(` Enabled trigger ${triggerId}`);
 }
 
 /**
@@ -381,5 +386,5 @@ export async function enableTrigger(triggerId: string): Promise<void> {
 export async function deleteTrigger(triggerId: string): Promise<void> {
   await db.delete(baleybotTriggers).where(eq(baleybotTriggers.id, triggerId));
 
-  console.log(`[bb_trigger] Deleted trigger ${triggerId}`);
+  log.info(` Deleted trigger ${triggerId}`);
 }

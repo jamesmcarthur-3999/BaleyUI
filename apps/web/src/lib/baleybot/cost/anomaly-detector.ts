@@ -22,6 +22,9 @@ import {
   desc,
   sql,
 } from '@baleyui/db';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('anomaly-detector');
 
 // ============================================================================
 // TYPES
@@ -400,9 +403,11 @@ export async function createAlert(
     })
     .returning({ id: baleybotAlerts.id });
 
-  console.log(
-    `[anomaly-detector] Created ${anomaly.severity} alert for BB ${anomaly.baleybotId}: ${anomaly.message}`
-  );
+  log.info(`Created ${anomaly.severity} alert for BB ${anomaly.baleybotId}`, {
+    baleybotId: anomaly.baleybotId,
+    severity: anomaly.severity,
+    message: anomaly.message,
+  });
 
   return alert!.id;
 }

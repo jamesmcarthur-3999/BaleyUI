@@ -10,12 +10,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { type StoredEvent } from '@/lib/events/event-store';
+import { RECONNECTION } from '@/lib/constants';
 
 interface UseBuilderEventsOptions {
   workspaceId: string;
   onEvent?: (event: StoredEvent) => void;
   enabled?: boolean;
 }
+
+// Circular buffer limit to prevent memory issues
+const MAX_EVENTS = 200;
 
 interface UseBuilderEventsResult {
   events: StoredEvent[];
@@ -33,6 +37,10 @@ export function useBuilderEvents({
   const [events, setEvents] = useState<StoredEvent[]>([]);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Use refs for values that change frequently to avoid tearing down the connection
+  const lastSequenceRef = useRef(0);
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
 
   useEffect(() => {
     if (!enabled || !workspaceId) return;
@@ -43,7 +51,7 @@ export function useBuilderEvents({
         eventSourceRef.current.close();
       }
 
-      const url = `/api/events/${workspaceId}?lastSequence=${lastSequence}`;
+      const url = `/api/events/${workspaceId}?lastSequence=${lastSequenceRef.current}`;
       const eventSource = new EventSource(url);
 
       eventSource.onopen = () => {
@@ -53,9 +61,16 @@ export function useBuilderEvents({
       eventSource.onmessage = (e) => {
         try {
           const event: StoredEvent = JSON.parse(e.data);
-          setEvents((prev) => [...prev, event]);
+          // Add event with circular buffer limit
+          setEvents((prev) => {
+            const combined = [...prev, event];
+            return combined.length > MAX_EVENTS
+              ? combined.slice(-MAX_EVENTS)
+              : combined;
+          });
+          lastSequenceRef.current = event.sequenceNumber;
           setLastSequence(event.sequenceNumber);
-          onEvent?.(event);
+          onEventRef.current?.(event);
         } catch (err) {
           console.error('Failed to parse event:', err);
         }
@@ -65,7 +80,7 @@ export function useBuilderEvents({
         setIsConnected(false);
         eventSource.close();
         // Reconnect after delay
-        reconnectTimeoutRef.current = setTimeout(connect, 2000);
+        reconnectTimeoutRef.current = setTimeout(connect, RECONNECTION.DEFAULT_DELAY_MS);
       };
 
       eventSourceRef.current = eventSource;
@@ -79,7 +94,7 @@ export function useBuilderEvents({
       }
       eventSourceRef.current?.close();
     };
-  }, [workspaceId, enabled, lastSequence, onEvent]);
+  }, [workspaceId, enabled]);
 
   return {
     events,

@@ -7,6 +7,8 @@ import {
   and,
   desc,
   isNull,
+  sql,
+  updateWithLock,
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 
@@ -62,6 +64,7 @@ export const policiesRouter = router({
   update: protectedProcedure
     .input(
       z.object({
+        version: z.number().int().min(0),
         allowedTools: z.array(z.string()).nullable().optional(),
         forbiddenTools: z.array(z.string()).nullable().optional(),
         requiresApprovalTools: z.array(z.string()).nullable().optional(),
@@ -78,10 +81,8 @@ export const policiesRouter = router({
       });
 
       if (existing) {
-        // Update existing policies
-        const updateData: Record<string, unknown> = {
-          updatedAt: new Date(),
-        };
+        // Update existing policies with optimistic locking
+        const updateData: Record<string, unknown> = {};
 
         if (input.allowedTools !== undefined) updateData.allowedTools = input.allowedTools;
         if (input.forbiddenTools !== undefined) updateData.forbiddenTools = input.forbiddenTools;
@@ -95,11 +96,7 @@ export const policiesRouter = router({
           updateData.maxAutoFiresBeforeReview = input.maxAutoFiresBeforeReview;
         if (input.learningManual !== undefined) updateData.learningManual = input.learningManual;
 
-        const [updated] = await ctx.db
-          .update(workspacePolicies)
-          .set(updateData)
-          .where(eq(workspacePolicies.id, existing.id))
-          .returning();
+        const updated = await updateWithLock(workspacePolicies, existing.id, input.version, updateData);
 
         return updated;
       } else {
@@ -345,17 +342,21 @@ export const policiesRouter = router({
         });
       }
 
-      const newTimesUsed = (existing.timesUsed ?? 0) + 1;
-
-      // Auto-upgrade to trusted after 10 uses
-      const shouldUpgrade =
-        existing.trustLevel === 'provisional' && newTimesUsed >= 10;
-
+      // Use atomic SQL increment and conditional trust level upgrade
+      // This prevents race conditions when multiple executions happen concurrently
       const [updated] = await ctx.db
         .update(approvalPatterns)
         .set({
-          timesUsed: newTimesUsed,
-          trustLevel: shouldUpgrade ? 'trusted' : existing.trustLevel,
+          // Atomic increment of timesUsed
+          timesUsed: sql`COALESCE(${approvalPatterns.timesUsed}, 0) + 1`,
+          // Auto-upgrade to trusted after 10 uses (when provisional)
+          // CASE: if provisional AND new count >= 10, upgrade to 'trusted'
+          trustLevel: sql`CASE
+            WHEN ${approvalPatterns.trustLevel} = 'provisional'
+              AND COALESCE(${approvalPatterns.timesUsed}, 0) + 1 >= 10
+            THEN 'trusted'
+            ELSE ${approvalPatterns.trustLevel}
+          END`,
           updatedAt: new Date(),
         })
         .where(eq(approvalPatterns.id, input.id))

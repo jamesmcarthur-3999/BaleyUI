@@ -2,6 +2,22 @@ import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import type { WebhookEvent } from '@clerk/nextjs/server';
 import { db, workspaces } from '@baleyui/db';
+import { createLogger } from '@/lib/logger';
+import { requireEnv } from '@/lib/env';
+import { checkApiRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+
+const log = createLogger('clerk-webhook');
+
+/**
+ * Extract client IP from request headers
+ */
+function getClientIp(headerPayload: Headers): string | undefined {
+  return (
+    headerPayload.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    headerPayload.get('x-real-ip') ||
+    undefined
+  );
+}
 
 export async function POST(req: Request) {
   // Get the headers
@@ -9,6 +25,28 @@ export async function POST(req: Request) {
   const svix_id = headerPayload.get('svix-id');
   const svix_timestamp = headerPayload.get('svix-timestamp');
   const svix_signature = headerPayload.get('svix-signature');
+
+  // Rate limiting: 60 requests per minute per IP
+  const ipAddress = getClientIp(headerPayload);
+  const rateLimitKey = `webhook:clerk:${ipAddress || 'unknown'}`;
+  const rateLimitResult = checkApiRateLimit(rateLimitKey, RATE_LIMITS.webhookPerMinute);
+
+  if (rateLimitResult.limited) {
+    log.warn('Rate limit exceeded for Clerk webhook', { ipAddress });
+    return new Response(
+      JSON.stringify({ error: `Rate limit exceeded. Retry after ${rateLimitResult.retryAfter} seconds.` }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': String(rateLimitResult.retryAfter),
+          'X-RateLimit-Limit': String(RATE_LIMITS.webhookPerMinute.maxRequests),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(Math.ceil(rateLimitResult.resetAt / 1000)),
+        },
+      }
+    );
+  }
 
   // If there are no headers, error out
   if (!svix_id || !svix_timestamp || !svix_signature) {
@@ -22,7 +60,8 @@ export async function POST(req: Request) {
   const body = JSON.stringify(payload);
 
   // Create a new Svix instance with your secret.
-  const wh = new Webhook(process.env.CLERK_WEBHOOK_SECRET!);
+  const webhookSecret = requireEnv('CLERK_WEBHOOK_SECRET', 'Clerk webhook verification');
+  const wh = new Webhook(webhookSecret);
 
   let evt: WebhookEvent;
 
@@ -34,7 +73,7 @@ export async function POST(req: Request) {
       'svix-signature': svix_signature,
     }) as WebhookEvent;
   } catch (err) {
-    console.error('Error verifying webhook:', err);
+    log.error('Error verifying webhook', err);
     return new Response('Error verifying webhook', {
       status: 400,
     });
@@ -67,9 +106,9 @@ export async function POST(req: Request) {
         ownerId: id,
       });
 
-      console.log(`Created workspace for user ${id}`);
+      log.info(`Created workspace for user ${id}`);
     } catch (error) {
-      console.error('Error creating workspace:', error);
+      log.error('Error creating workspace', error);
       // Don't fail the webhook - Clerk might retry
       // The workspace can be created lazily if needed
     }

@@ -23,8 +23,25 @@ export interface BALExecutionOptions {
   /** Model to use for execution (default: gpt-4o-mini) */
   model?: string;
 
-  /** API key for the model provider */
+  /** API key for the model provider (shorthand - prefer providerConfig) */
   apiKey?: string;
+
+  /**
+   * Full provider configuration including API key, base URL, headers.
+   * Takes precedence over apiKey when both are provided.
+   */
+  providerConfig?: {
+    apiKey?: string;
+    baseUrl?: string;
+    headers?: Record<string, string>;
+  };
+
+  /**
+   * Runtime input to pass to the BAL execution.
+   * This overrides any `run("...")` statement in the BAL code.
+   * Essential for executing BaleyBots where the input comes from the caller.
+   */
+  input?: string;
 
   /** Enable web search tool */
   enableWebSearch?: boolean;
@@ -43,6 +60,18 @@ export interface BALExecutionOptions {
 
   /** Abort signal for cancellation */
   signal?: AbortSignal;
+
+  /**
+   * Custom tools to make available during execution.
+   * These are merged with built-in tools (web_search, sequential_think).
+   * Each tool must have: name, description, inputSchema (JSON Schema), function.
+   */
+  availableTools?: Record<string, {
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+    function: (args: Record<string, unknown>) => Promise<unknown>;
+  }>;
 }
 
 export type BALExecutionEvent =
@@ -91,6 +120,20 @@ function getAvailableTools(options: BALExecutionOptions): Record<string, ZodTool
   // Sequential thinking tool
   if (options.enableSequentialThinking) {
     tools.sequential_think = sequentialThinkTool as ZodToolDefinition;
+  }
+
+  // Merge custom tools from options
+  // Custom tools have: name, description, inputSchema, function
+  if (options.availableTools) {
+    for (const [toolName, tool] of Object.entries(options.availableTools)) {
+      // Convert to ToolDefinition format expected by @baleybots/tools
+      tools[toolName] = {
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        function: tool.function,
+      } as ToolDefinition;
+    }
   }
 
   return tools;
@@ -205,16 +248,9 @@ export async function executeBALCode(
       structure: compiled.structure,
     });
 
-    // Check if there's nothing to execute
-    if (!compiled.structure) {
-      return {
-        status: 'success',
-        result: { message: 'No pipeline to execute', entities: compiled.entities },
-        entities: compiled.entities,
-        structure: compiled.structure,
-        duration: Date.now() - startTime,
-      };
-    }
+    // Note: Even if compiled.structure is null, executeBAL now handles
+    // single-entity BAL by auto-executing that entity. We no longer return
+    // early here - let executeBAL handle the execution logic.
 
     // Check for cancellation
     if (abortController.signal.aborted) {
@@ -228,15 +264,20 @@ export async function executeBALCode(
       };
     }
 
-    // Build config with API key
+    // Build config with provider configuration and input
+    // Prefer providerConfig over apiKey when both are provided
+    const resolvedProviderConfig = options.providerConfig
+      ?? (options.apiKey ? { apiKey: options.apiKey } : undefined);
+
     const config: BALConfig = {
       model: options.model || 'gpt-4o-mini',
-      providerConfig: options.apiKey ? { apiKey: options.apiKey } : undefined,
+      providerConfig: resolvedProviderConfig,
       availableTools: getAvailableTools(options),
+      input: options.input, // Forward runtime input to executeBAL
     };
 
-    // Emit started event
-    onEvent?.({ type: 'started', input: compiled.runInput });
+    // Emit started event (show runtime input if provided, else runInput from BAL code)
+    onEvent?.({ type: 'started', input: options.input || compiled.runInput });
 
     // Execute
     const result = await executeBAL(code, config);
@@ -334,16 +375,9 @@ export async function* streamBALExecution(
       structure: compiled.structure,
     };
 
-    if (!compiled.structure) {
-      yield { type: 'completed', result: { message: 'No pipeline to execute' } };
-      return {
-        status: 'success',
-        result: { message: 'No pipeline to execute', entities: compiled.entities },
-        entities: compiled.entities,
-        structure: compiled.structure,
-        duration: Date.now() - startTime,
-      };
-    }
+    // Note: Even if compiled.structure is null, executeBAL now handles
+    // single-entity BAL by auto-executing that entity. We no longer return
+    // early here - let executeBAL handle the execution logic.
 
     // Check cancellation/timeout
     if (signal?.aborted || timedOut) {
@@ -354,13 +388,19 @@ export async function* streamBALExecution(
       };
     }
 
-    yield { type: 'started', input: compiled.runInput };
+    // Emit started event (show runtime input if provided, else runInput from BAL code)
+    yield { type: 'started', input: options.input || compiled.runInput };
 
-    // Execute
+    // Execute with forwarded input
+    // Prefer providerConfig over apiKey when both are provided
+    const resolvedProviderConfig = options.providerConfig
+      ?? (options.apiKey ? { apiKey: options.apiKey } : undefined);
+
     const config: BALConfig = {
       model: options.model || 'gpt-4o-mini',
-      providerConfig: options.apiKey ? { apiKey: options.apiKey } : undefined,
+      providerConfig: resolvedProviderConfig,
       availableTools: getAvailableTools(options),
+      input: options.input, // Forward runtime input to executeBAL
     };
 
     const result = await executeBAL(code, config);

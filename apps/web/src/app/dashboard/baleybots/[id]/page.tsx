@@ -6,6 +6,9 @@ import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
 import { Canvas, ChatInput, ActionBar, ConversationThread, ExecutionHistory, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError } from '@/components/creator';
 import { BalCodeEditor, SchemaBuilder, balToSchemaFields, schemaFieldsToBAL } from '@/components/baleybot';
+import { VisualEditor } from '@/components/visual-editor/VisualEditor';
+import { TriggerConfig } from '@/components/baleybots/TriggerConfig';
+import type { TriggerConfig as TriggerConfigType } from '@/lib/baleybot/types';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { ConflictAction } from '@/components/creator';
 import { Button } from '@/components/ui/button';
@@ -26,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, Save, Loader2, ChevronDown, ChevronUp, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, ListTree } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, ChevronDown, ChevronUp, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, ListTree, Zap } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } from '@/hooks';
@@ -129,11 +132,14 @@ export default function BaleybotPage() {
   const [showFullDescription, setShowFullDescription] = useState(false);
 
   // View mode state (Phase 2 - Editor & Schema integration)
-  type ViewMode = 'visual' | 'code' | 'schema';
+  type ViewMode = 'visual' | 'code' | 'schema' | 'triggers';
   const [viewMode, setViewMode] = useState<ViewMode>('visual');
 
   // Output schema state (extracted from BAL code when switching to schema view)
   const [outputSchema, setOutputSchema] = useState<Record<string, string>>({});
+
+  // Trigger config state
+  const [triggerConfig, setTriggerConfig] = useState<TriggerConfigType | undefined>(undefined);
 
   // Save conflict state (Phase 5.4)
   const [showConflictDialog, setShowConflictDialog] = useState(false);
@@ -214,6 +220,11 @@ export default function BaleybotPage() {
 
   // Combined loading check: loading, fetching, or state not yet initialized from fetched data
   const isFullyLoaded = isNew || (!isLoadingBaleybot && !isFetchingBaleybot && isStateInitialized && existingBaleybot);
+
+  // Fetch available BBs for trigger config source selector
+  const { data: availableBaleybots } = trpc.baleybots.list.useQuery(undefined, {
+    enabled: viewMode === 'triggers',
+  });
 
   // Mutations
   const creatorMutation = trpc.baleybots.sendCreatorMessage.useMutation();
@@ -351,10 +362,10 @@ export default function BaleybotPage() {
 
   /**
    * Handle saving the BaleyBot
-   * Returns true if save was successful
+   * Returns the saved BaleyBot ID if successful, null if failed
    */
-  const handleSave = async (): Promise<boolean> => {
-    if (!balCode || !name) return false;
+  const handleSave = async (): Promise<string | null> => {
+    if (!balCode || !name) return null;
 
     setIsSaving(true);
 
@@ -389,14 +400,14 @@ export default function BaleybotPage() {
       // Mark state as clean after successful save
       markClean();
 
-      return true;
+      return result.id;
     } catch (error) {
       console.error('Save failed:', error);
 
       // Check for save conflict (Phase 5.4)
       if (isSaveConflictError(error)) {
         setShowConflictDialog(true);
-        return false;
+        return null;
       }
 
       // Add user-friendly error message to conversation
@@ -410,7 +421,7 @@ export default function BaleybotPage() {
       setMessages((prev) => [...prev, errorMessage]);
       setStatus('error');
 
-      return false;
+      return null;
     } finally {
       setIsSaving(false);
     }
@@ -473,8 +484,8 @@ export default function BaleybotPage() {
       // 1. Auto-save if not saved yet (with visual indicator - Phase 1.7)
       if (!baleybotIdToRun) {
         setAutoSaveStatus('saving');
-        const saved = await handleSave();
-        if (!saved) {
+        const newId = await handleSave();
+        if (!newId) {
           setRunResult({
             success: false,
             output: null,
@@ -483,7 +494,7 @@ export default function BaleybotPage() {
           setAutoSaveStatus('idle');
           return;
         }
-        baleybotIdToRun = savedBaleybotId;
+        baleybotIdToRun = newId;
         setAutoSaveStatus('saved');
         // Clear "saved" indicator after 2 seconds
         setTimeout(() => setAutoSaveStatus('idle'), 2000);
@@ -589,18 +600,41 @@ export default function BaleybotPage() {
 
   /**
    * Handle output schema changes from the schema builder
-   * This updates the BAL code to include the new schema
+   * Converts schema fields back to BAL and updates the code
    */
   const handleSchemaChange = (newSchema: Record<string, string>) => {
     setOutputSchema(newSchema);
 
-    // Update BAL code with new schema
-    // For now, this is a simple approach - in a full implementation,
-    // we would parse the BAL code and update just the output section
-    // This is a placeholder that can be enhanced later
-    if (Object.keys(newSchema).length > 0) {
-      // Log the schema change for debugging
-      console.log('Schema updated:', newSchema);
+    // Update BAL code with the new output schema
+    if (balCode && Object.keys(newSchema).length > 0) {
+      // Find and replace the "output" section in the BAL code
+      // The BAL output section looks like: "output": { "field": "type", ... }
+      const outputJson = JSON.stringify(newSchema, null, 2);
+      const outputRegex = /"output"\s*:\s*\{[^}]*\}/;
+
+      let updatedCode: string;
+      if (outputRegex.test(balCode)) {
+        // Replace existing output section
+        updatedCode = balCode.replace(outputRegex, `"output": ${outputJson}`);
+      } else {
+        // Insert output before the closing brace of the first entity
+        const lastBraceIdx = balCode.lastIndexOf('}');
+        if (lastBraceIdx > 0) {
+          const beforeBrace = balCode.slice(0, lastBraceIdx);
+          const needsComma = beforeBrace.trimEnd().endsWith('"') || beforeBrace.trimEnd().endsWith(']') || beforeBrace.trimEnd().endsWith('}');
+          updatedCode = `${beforeBrace}${needsComma ? ',' : ''}\n  "output": ${outputJson}\n${balCode.slice(lastBraceIdx)}`;
+        } else {
+          updatedCode = balCode;
+        }
+      }
+
+      if (updatedCode !== balCode) {
+        setBalCode(updatedCode);
+        pushHistory(
+          { entities, connections, balCode: updatedCode, name, icon },
+          'Schema edit'
+        );
+      }
     }
   };
 
@@ -1001,6 +1035,10 @@ export default function BaleybotPage() {
                   <ListTree className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">Schema</span>
                 </TabsTrigger>
+                <TabsTrigger value="triggers" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
+                  <Zap className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Triggers</span>
+                </TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -1014,12 +1052,12 @@ export default function BaleybotPage() {
                 </div>
               }
             >
-              {/* Visual Canvas View */}
+              {/* Visual Editor View */}
               {viewMode === 'visual' && (
-                <Canvas
-                  entities={entities}
-                  connections={connections}
-                  status={status}
+                <VisualEditor
+                  balCode={balCode}
+                  onChange={handleCodeChange}
+                  readOnly={status === 'building' || status === 'running'}
                   className="h-full"
                 />
               )}
@@ -1044,6 +1082,21 @@ export default function BaleybotPage() {
                     value={outputSchema}
                     onChange={handleSchemaChange}
                     readOnly={status === 'building' || status === 'running'}
+                  />
+                </div>
+              )}
+
+              {/* Triggers View */}
+              {viewMode === 'triggers' && (
+                <div className="h-full overflow-auto bg-background rounded-lg border p-4">
+                  <TriggerConfig
+                    value={triggerConfig}
+                    onChange={setTriggerConfig}
+                    availableBaleybots={
+                      availableBaleybots
+                        ?.filter((bb) => bb.id !== savedBaleybotId)
+                        .map((bb) => ({ id: bb.id, name: bb.name })) ?? []
+                    }
                   />
                 </div>
               )}

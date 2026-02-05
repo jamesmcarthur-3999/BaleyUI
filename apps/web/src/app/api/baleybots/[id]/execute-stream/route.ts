@@ -5,6 +5,10 @@
  *
  * Server-Sent Events stream for real-time BaleyBot execution.
  * Uses the SDK's streamBALExecution to execute BAL code and stream events.
+ *
+ * Authentication: Supports both Clerk session auth and API key auth.
+ * - Session auth: Automatically from cookies
+ * - API key auth: Authorization: Bearer bui_live_xxx or bui_test_xxx
  */
 
 import { auth } from '@clerk/nextjs/server';
@@ -13,6 +17,8 @@ import {
   db,
   baleybots,
   baleybotExecutions,
+  workspacePolicies,
+  workspaces,
   eq,
   and,
   notDeleted,
@@ -25,11 +31,59 @@ import {
 } from '@baleyui/sdk';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { createLogger } from '@/lib/logger';
+import {
+  getBuiltInRuntimeTools,
+  configureWebSearch,
+} from '@/lib/baleybot/tools/built-in/implementations';
+import { initializeBuiltInToolServices } from '@/lib/baleybot/services';
+import { getPreferredModel } from '@/lib/baleybot/executor';
+import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
+import { validateApiKey } from '@/lib/api/validate-api-key';
+import { processBBCompletion } from '@/lib/baleybot/services/bb-completion-trigger-service';
 
 const log = createLogger('baleybot-stream');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+/**
+ * Authenticate request via session or API key
+ * Returns workspace info on success
+ */
+async function authenticateRequest(req: NextRequest): Promise<{
+  workspaceId: string;
+  userId: string | null;
+  authMethod: 'session' | 'api_key';
+} | null> {
+  // Try session auth first
+  const { userId } = await auth();
+  if (userId) {
+    const workspace = await db.query.workspaces.findFirst({
+      where: (ws, { eq, and, isNull }) =>
+        and(eq(ws.ownerId, userId), isNull(ws.deletedAt)),
+    });
+    if (workspace) {
+      return { workspaceId: workspace.id, userId, authMethod: 'session' };
+    }
+  }
+
+  // Try API key auth
+  const authHeader = req.headers.get('authorization');
+  if (authHeader) {
+    try {
+      const validation = await validateApiKey(authHeader);
+      return {
+        workspaceId: validation.workspaceId,
+        userId: null,
+        authMethod: 'api_key',
+      };
+    } catch {
+      // Invalid API key, fall through to unauthorized
+    }
+  }
+
+  return null;
+}
 
 /**
  * POST handler - executes a BaleyBot and streams events via SSE
@@ -39,27 +93,21 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Authenticate the request
-    const { userId } = await auth();
-    if (!userId) {
+    // Authenticate the request (session or API key)
+    const authResult = await authenticateRequest(req);
+    if (!authResult) {
       return new Response('Unauthorized', { status: 401 });
     }
 
+    const { workspaceId, userId, authMethod } = authResult;
     const { id: baleybotId } = await params;
 
-    // Get the user's workspace
-    const workspace = await db.query.workspaces.findFirst({
-      where: (ws, { eq, and, isNull }) =>
-        and(eq(ws.ownerId, userId), isNull(ws.deletedAt)),
-    });
-
-    if (!workspace) {
-      return new Response('No workspace found', { status: 404 });
-    }
-
-    // Rate limit: 10 executions per minute per user per workspace
+    // Rate limit: 10 executions per minute per workspace
+    const rateLimitKey = userId
+      ? `execute:${workspaceId}:${userId}`
+      : `execute:${workspaceId}:api`;
     try {
-      checkRateLimit(`execute:${workspace.id}:${userId}`, RATE_LIMITS.execute);
+      checkRateLimit(rateLimitKey, RATE_LIMITS.execute);
     } catch {
       return new Response('Rate limit exceeded', { status: 429 });
     }
@@ -68,7 +116,7 @@ export async function POST(
     const baleybot = await db.query.baleybots.findFirst({
       where: and(
         eq(baleybots.id, baleybotId),
-        eq(baleybots.workspaceId, workspace.id),
+        eq(baleybots.workspaceId, workspaceId),
         notDeleted(baleybots)
       ),
     });
@@ -101,7 +149,8 @@ export async function POST(
     log.info('Starting streaming execution', {
       baleybotId,
       triggeredBy,
-      workspaceId: workspace.id,
+      workspaceId,
+      authMethod,
     });
 
     // Create execution record
@@ -159,16 +208,70 @@ export async function POST(
             .set({ status: 'running', startedAt: new Date() })
             .where(eq(baleybotExecutions.id, execution.id));
 
-          // Get API key from environment
-          const apiKey =
-            process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+          // Get the model from the BAL code first to select the correct API key
+          const model = getPreferredModel(baleybot.balCode);
 
-          // Stream execution
+          // Get API key based on model provider
+          let apiKey: string | undefined;
+          if (model.startsWith('anthropic:')) {
+            apiKey = process.env.ANTHROPIC_API_KEY;
+          } else if (model.startsWith('openai:') || model.startsWith('gpt-')) {
+            apiKey = process.env.OPENAI_API_KEY;
+          } else {
+            // Default to OpenAI for backwards compatibility
+            apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+          }
+
+          // Configure web search if Tavily key is available
+          if (process.env.TAVILY_API_KEY) {
+            configureWebSearch(process.env.TAVILY_API_KEY);
+          }
+
+          // Initialize built-in tool services (spawn, notify, schedule, memory)
+          initializeBuiltInToolServices();
+
+          // Build tool context for this execution
+          const toolCtx: BuiltInToolContext = {
+            workspaceId,
+            baleybotId,
+            executionId: execution.id,
+            userId: userId ?? 'api_key_user',
+          };
+
+          // Get built-in runtime tools with implementations
+          const runtimeTools = getBuiltInRuntimeTools(toolCtx);
+
+          // Convert to format expected by SDK
+          const availableTools: Record<string, {
+            name: string;
+            description: string;
+            inputSchema: Record<string, unknown>;
+            function: (args: Record<string, unknown>) => Promise<unknown>;
+          }> = {};
+
+          for (const [name, tool] of runtimeTools.entries()) {
+            availableTools[name] = {
+              name: tool.name,
+              description: tool.description,
+              inputSchema: tool.inputSchema,
+              function: tool.function,
+            };
+          }
+
+          log.info('Loaded tools for execution', {
+            executionId: execution.id,
+            tools: Object.keys(availableTools),
+            model,
+          });
+
+          // Stream execution with tools
           const generator = streamBALExecution(baleybot.balCode, {
-            model: 'gpt-4o-mini',
+            model,
             apiKey,
             timeout: 60000,
             signal: req.signal,
+            input: typeof input === 'string' ? input : input ? JSON.stringify(input) : undefined,
+            availableTools,
           });
 
           // Iterate through the generator, collecting events
@@ -236,6 +339,21 @@ export async function POST(
             durationMs: duration,
           });
 
+          // Process downstream BB triggers (async, don't block stream completion)
+          if (finalStatus === 'completed' || finalStatus === 'failed') {
+            processBBCompletion({
+              sourceBaleybotId: baleybotId,
+              executionId: execution.id,
+              status: finalStatus === 'completed' ? 'completed' : 'failed',
+              output,
+            }).catch((triggerErr) => {
+              log.error('Failed to process BB completion triggers', {
+                executionId: execution.id,
+                error: triggerErr instanceof Error ? triggerErr.message : String(triggerErr),
+              });
+            });
+          }
+
           // Send done event
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
@@ -260,6 +378,19 @@ export async function POST(
               durationMs: duration,
             })
             .where(eq(baleybotExecutions.id, execution.id));
+
+          // Process downstream BB triggers for failure (async, don't block)
+          processBBCompletion({
+            sourceBaleybotId: baleybotId,
+            executionId: execution.id,
+            status: 'failed',
+            output: undefined,
+          }).catch((triggerErr) => {
+            log.error('Failed to process BB completion triggers', {
+              executionId: execution.id,
+              error: triggerErr instanceof Error ? triggerErr.message : String(triggerErr),
+            });
+          });
 
           // Send error event
           sendEvent({ type: 'error', error: errorMessage });
@@ -294,12 +425,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Authenticate the request
-    const { userId } = await auth();
-    if (!userId) {
+    // Authenticate the request (session or API key)
+    const authResult = await authenticateRequest(req);
+    if (!authResult) {
       return new Response('Unauthorized', { status: 401 });
     }
 
+    const { workspaceId } = authResult;
     const { id: baleybotId } = await params;
     const executionId = req.nextUrl.searchParams.get('executionId');
 
@@ -309,21 +441,11 @@ export async function GET(
       });
     }
 
-    // Get the user's workspace
-    const workspace = await db.query.workspaces.findFirst({
-      where: (ws, { eq, and, isNull }) =>
-        and(eq(ws.ownerId, userId), isNull(ws.deletedAt)),
-    });
-
-    if (!workspace) {
-      return new Response('No workspace found', { status: 404 });
-    }
-
     // Get the BaleyBot
     const baleybot = await db.query.baleybots.findFirst({
       where: and(
         eq(baleybots.id, baleybotId),
-        eq(baleybots.workspaceId, workspace.id),
+        eq(baleybots.workspaceId, workspaceId),
         notDeleted(baleybots)
       ),
     });

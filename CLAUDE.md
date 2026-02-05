@@ -50,10 +50,19 @@ await withTransaction(async (tx) => {
 ```
 
 ### BaleyBot Streaming Events
-Use exact field names from the @baleybots/core package:
-- `text_delta` event: use `content` (NOT `delta`)
-- Tool events: use `id` (NOT `toolCallId`)
-- `done` event: use `reason` (NOT `result`)
+Types are re-exported from `@/lib/streaming/types/events` (source: @baleybots/core).
+
+**Key event field names:**
+- `text_delta`: `{ type, content }`
+- `tool_call_stream_start`: `{ type, id, toolName }`
+- `tool_call_arguments_delta`: `{ type, id, argumentsDelta }`
+- `tool_call_stream_complete`: `{ type, id, toolName, arguments }`
+- `tool_execution_start`: `{ type, id, toolName, arguments }`
+- `tool_execution_output`: `{ type, id, toolName, result, error? }`
+- `tool_execution_stream`: `{ type, toolName, nestedEvent, childBotName?, toolCallId? }`
+- `done`: `{ type, reason, agent_id, parent_agent_id?, timestamp, duration_ms, ... }`
+
+**DoneReason values:** `turn_yielded`, `out_of_iterations`, `max_tokens_reached`, `error`, `interrupted`, `no_applicable_tools`, `max_depth_reached`, `graceful_shutdown`
 
 ### Streaming UI Performance
 - Use RAF batching + direct DOM manipulation
@@ -72,7 +81,7 @@ Use exact field names from the @baleybots/core package:
 | Connection Tools | `apps/web/src/lib/baleybot/tools/connection-derived/` |
 | Services | `apps/web/src/lib/baleybot/services/` |
 | Internal BaleyBots | `apps/web/src/lib/baleybot/internal-baleybots.ts` |
-| Stream Events | `apps/web/src/lib/streaming/types/events.ts` |
+| Stream Events | `apps/web/src/lib/streaming/types/events.ts` (re-exports from @baleybots/core) |
 | Connections | `apps/web/src/lib/connections/` |
 
 ## Built-in Tools Reference

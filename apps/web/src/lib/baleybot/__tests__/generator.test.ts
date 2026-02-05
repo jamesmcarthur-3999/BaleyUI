@@ -37,6 +37,7 @@ describe('generator', () => {
         availableTools: [],
         existingBaleybots: [],
         workspacePolicies: null,
+        connections: [],
       },
       'Create a bot that helps with tasks'
     );
@@ -59,6 +60,7 @@ describe('generator', () => {
         availableTools: [],
         existingBaleybots: [],
         workspacePolicies: null,
+        connections: [],
       },
       'Create a bot'
     );

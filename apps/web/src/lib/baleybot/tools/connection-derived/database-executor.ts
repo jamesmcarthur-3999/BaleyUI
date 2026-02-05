@@ -7,6 +7,9 @@
 
 import postgres from 'postgres';
 import type { DatabaseConnectionConfig } from '@/lib/connections/providers';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('database-executor');
 
 // ============================================================================
 // SQL INJECTION PROTECTION
@@ -231,7 +234,7 @@ export function createPostgresExecutor(
 
         // Limit results
         if (Array.isArray(result) && result.length > maxRows) {
-          console.warn(`Query returned ${result.length} rows, limiting to ${maxRows}`);
+          logger.warn(`Query returned ${result.length} rows, limiting to ${maxRows}`);
           return result.slice(0, maxRows);
         }
 
@@ -248,6 +251,14 @@ export function createPostgresExecutor(
     ): Promise<T[]> {
       if (!sql) {
         throw new Error('Database connection not initialized');
+      }
+
+      // Validate query structure (allow SELECT + DML for parameterized queries)
+      const validation = validateSQLQuery(sqlQuery);
+      if (!validation.safe) {
+        throw new Error(
+          `Potentially unsafe SQL detected: ${validation.reason}`
+        );
       }
 
       try {
@@ -403,7 +414,7 @@ export async function closeAllConnections(): Promise<void> {
         await sql.end();
         connectionPools.delete(key);
       } catch (error) {
-        console.error(`Error closing connection ${key}:`, error);
+        logger.error(`Error closing connection ${key}`, error);
       }
     }
   );

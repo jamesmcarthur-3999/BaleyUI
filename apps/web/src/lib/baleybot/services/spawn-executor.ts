@@ -16,6 +16,7 @@ import type { BuiltInToolContext, SpawnBaleybotResult } from '../tools/built-in'
 import { executeBaleybot, type ExecutorContext, type RuntimeToolDefinition } from '../executor';
 import { getBuiltInRuntimeTools } from '../tools/built-in/implementations';
 import type { WorkspacePolicies as FullWorkspacePolicies } from '../types';
+import { createLogger } from '@/lib/logger';
 
 // ============================================================================
 // WORKSPACE POLICIES
@@ -134,6 +135,8 @@ interface SpawnContext extends BuiltInToolContext {
 // ============================================================================
 
 const DEFAULT_MAX_SPAWN_DEPTH = 5; // Maximum nesting level
+
+const log = createLogger('spawn-executor');
 
 // ============================================================================
 // IMPLEMENTATION
@@ -298,11 +301,12 @@ export function createSpawnBaleybotExecutor(options?: {
       }
     }
 
-    console.log(
-      `[spawn_baleybot] Executing BB "${targetBB.name}" (${targetBB.id}) ` +
-        `at depth ${currentDepth} with input:`,
-      input
-    );
+    log.info(`Executing BB "${targetBB.name}" (${targetBB.id}) at depth ${currentDepth}`, {
+      baleybotId: targetBB.id,
+      baleybotName: targetBB.name,
+      depth: currentDepth,
+      input,
+    });
 
     // Create execution record
     const executionId = await createExecutionRecord(

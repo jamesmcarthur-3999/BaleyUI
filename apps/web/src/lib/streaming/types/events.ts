@@ -1,164 +1,113 @@
 /**
  * Streaming Event Types
  *
- * These types mirror the BaleyBots stream event schema.
- * When BaleyBots updates, we update these to match.
+ * Re-exports from @baleybots/core - the single source of truth.
+ * BaleyUI-specific wrapper types are defined here.
  */
 
-// ============================================================================
-// Core Event Types (from BaleyBots)
-// ============================================================================
+// Re-export all event types from @baleybots/core
+export type { BaleybotStreamEvent, DoneReason, DoneEvent } from '@baleybots/core';
 
-export interface TextDeltaEvent {
-  type: 'text_delta';
-  content: string;
-}
-
-export interface StructuredOutputDeltaEvent {
-  type: 'structured_output_delta';
-  content: string;
-}
-
-export interface ToolCallStreamStartEvent {
-  type: 'tool_call_stream_start';
-  id: string;
-  toolName: string;
-}
-
-export interface ToolCallArgumentsDeltaEvent {
-  type: 'tool_call_arguments_delta';
-  id: string;
-  argumentsDelta: string;
-}
-
-export interface ToolCallStreamCompleteEvent {
-  type: 'tool_call_stream_complete';
-  id: string;
-  toolName: string;
-  arguments: unknown;
-}
-
-export interface ToolExecutionStartEvent {
-  type: 'tool_execution_start';
-  id: string;
-  toolName: string;
-  arguments: unknown;
-}
-
-export interface ToolExecutionOutputEvent {
-  type: 'tool_execution_output';
-  id: string;
-  toolName: string;
-  result: unknown;
-  error?: string;
-}
-
-export interface ToolExecutionStreamEvent {
-  type: 'tool_execution_stream';
-  toolName: string;
-  toolCallId: string;
-  childBotName?: string;
-  nestedEvent: BaleybotStreamEvent;
-}
-
-export interface ToolValidationErrorEvent {
-  type: 'tool_validation_error';
-  toolName: string;
-  validationErrors: unknown;
-  receivedArguments: unknown;
-}
-
-export interface ReasoningEvent {
-  type: 'reasoning';
-  content: string;
-}
-
-export interface StreamErrorEvent {
-  type: 'error';
-  error: Error | { message: string; code?: string };
-}
-
-export type DoneReason =
-  | 'yield'
-  | 'out_of_iterations'
-  | 'max_tokens_reached'
-  | 'error'
-  | 'interrupted'
-  | 'end_turn'
-  | 'tool_use'
-  | 'stop_sequence';
-
-export interface DoneEvent {
-  type: 'done';
-  reason: DoneReason;
-  agent_id: string;
-  parent_agent_id?: string;
-}
-
-// ============================================================================
-// Union Type
-// ============================================================================
-
-export type BaleybotStreamEvent =
-  | TextDeltaEvent
-  | StructuredOutputDeltaEvent
-  | ToolCallStreamStartEvent
-  | ToolCallArgumentsDeltaEvent
-  | ToolCallStreamCompleteEvent
-  | ToolExecutionStartEvent
-  | ToolExecutionOutputEvent
-  | ToolExecutionStreamEvent
-  | ToolValidationErrorEvent
-  | ReasoningEvent
-  | StreamErrorEvent
-  | DoneEvent;
+// Import for type guards
+import type { BaleybotStreamEvent } from '@baleybots/core';
 
 // ============================================================================
 // Type Guards
 // ============================================================================
 
-export function isTextDelta(event: BaleybotStreamEvent): event is TextDeltaEvent {
+export function isTextDelta(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'text_delta' }> {
   return event.type === 'text_delta';
 }
 
-export function isToolCallStart(event: BaleybotStreamEvent): event is ToolCallStreamStartEvent {
+export function isToolCallStart(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'tool_call_stream_start' }> {
   return event.type === 'tool_call_stream_start';
 }
 
-export function isToolCallArgsDelta(event: BaleybotStreamEvent): event is ToolCallArgumentsDeltaEvent {
+export function isToolCallArgsDelta(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'tool_call_arguments_delta' }> {
   return event.type === 'tool_call_arguments_delta';
 }
 
-export function isToolCallComplete(event: BaleybotStreamEvent): event is ToolCallStreamCompleteEvent {
+export function isToolCallComplete(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'tool_call_stream_complete' }> {
   return event.type === 'tool_call_stream_complete';
 }
 
-export function isToolExecStart(event: BaleybotStreamEvent): event is ToolExecutionStartEvent {
+export function isToolExecStart(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'tool_execution_start' }> {
   return event.type === 'tool_execution_start';
 }
 
-export function isToolExecOutput(event: BaleybotStreamEvent): event is ToolExecutionOutputEvent {
+export function isToolExecOutput(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'tool_execution_output' }> {
   return event.type === 'tool_execution_output';
 }
 
-export function isToolExecStream(event: BaleybotStreamEvent): event is ToolExecutionStreamEvent {
+export function isToolExecStream(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'tool_execution_stream' }> {
   return event.type === 'tool_execution_stream';
 }
 
-export function isReasoning(event: BaleybotStreamEvent): event is ReasoningEvent {
+// NEW type guards for events that were missing from old BaleyUI
+export function isToolCallStreamDelta(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'tool_call_stream_delta' }> {
+  return event.type === 'tool_call_stream_delta';
+}
+
+export function isToolCallStreamOutput(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'tool_call_stream_output' }> {
+  return event.type === 'tool_call_stream_output';
+}
+
+export function isToolCallStreamError(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'tool_call_stream_error' }> {
+  return event.type === 'tool_call_stream_error';
+}
+
+export function isStructuredOutputDelta(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'structured_output_delta' }> {
+  return event.type === 'structured_output_delta';
+}
+
+export function isReasoning(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'reasoning' }> {
   return event.type === 'reasoning';
 }
 
-export function isError(event: BaleybotStreamEvent): event is StreamErrorEvent {
+export function isToolValidationError(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'tool_validation_error' }> {
+  return event.type === 'tool_validation_error';
+}
+
+export function isError(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'error' }> {
   return event.type === 'error';
 }
 
-export function isDone(event: BaleybotStreamEvent): event is DoneEvent {
+export function isDone(
+  event: BaleybotStreamEvent
+): event is Extract<BaleybotStreamEvent, { type: 'done' }> {
   return event.type === 'done';
 }
 
 // ============================================================================
-// Server Event Wrapper (what our API returns)
+// Server Event Wrapper (BaleyUI-specific)
 // ============================================================================
 
 export interface ServerStreamEvent {

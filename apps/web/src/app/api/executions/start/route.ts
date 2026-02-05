@@ -2,6 +2,9 @@ import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { db, blockExecutions, blocks, eq, isNull, and } from '@baleyui/db';
 import { z } from 'zod';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api/executions/start');
 
 const startExecutionSchema = z.object({
   blockId: z.string().uuid(),
@@ -84,7 +87,7 @@ export async function POST(req: Request) {
       executionId: execution.id,
     });
   } catch (error) {
-    console.error('Error starting execution:', error);
+    logger.error('Error starting execution', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

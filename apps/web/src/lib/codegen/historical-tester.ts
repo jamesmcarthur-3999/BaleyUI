@@ -2,6 +2,7 @@
  * Historical tester for validating generated code against past decisions.
  */
 
+import type { Database } from '@baleyui/db';
 import { HistoricalTestResult } from './types';
 import { evaluateSafeExpression, isSafeExpression } from '../utils/safe-eval';
 
@@ -11,7 +12,7 @@ import { evaluateSafeExpression, isSafeExpression } from '../utils/safe-eval';
 export async function testGeneratedCode(
   blockId: string,
   generatedCode: string,
-  db: any
+  db: Database
 ): Promise<HistoricalTestResult> {
   // Import decisions table
   const { decisions, blocks, eq, and } = await import('@baleyui/db');
@@ -93,7 +94,7 @@ export async function testGeneratedCode(
  * This function parses simple generated code patterns and creates a safe evaluator.
  * For complex generated code, consider using a proper sandboxed runtime.
  */
-function createTestFunction(generatedCode: string): (input: any) => any {
+function createTestFunction(generatedCode: string): (input: unknown) => unknown {
   // Extract the processFn from the generated code
   const processFnMatch = generatedCode.match(/processFn:\s*\((input:[^)]*)\)\s*=>\s*{([\s\S]*?)},\s*schema:/);
 
@@ -119,7 +120,7 @@ function createTestFunction(generatedCode: string): (input: any) => any {
   }
 
   // Return a function that safely evaluates the expression
-  return (input: any): any => {
+  return (input: unknown): unknown => {
     try {
       return evaluateSafeExpression(expression, { input });
     } catch (error) {

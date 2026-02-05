@@ -6,9 +6,14 @@
  * Accepts external webhook requests to trigger flow execution.
  */
 
+import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { db, flows, webhookLogs, eq, and, notDeleted } from '@baleyui/db';
 import { FlowExecutor } from '@/lib/execution';
+import { checkApiRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('flow-webhook');
 
 /**
  * Webhook trigger shape
@@ -69,6 +74,42 @@ export async function POST(
   const ipAddress = getClientIp(request);
   const method = request.method;
 
+  // Rate limiting: 60 requests per minute per IP
+  const rateLimitKey = `webhook:flow:${ipAddress || 'unknown'}`;
+  const rateLimitResult = checkApiRateLimit(rateLimitKey, RATE_LIMITS.webhookPerMinute);
+
+  if (rateLimitResult.limited) {
+    // Log rate limited attempt
+    await db.insert(webhookLogs).values({
+      flowId,
+      webhookSecret: secret,
+      method,
+      headers: {},
+      body: {},
+      query: {},
+      status: 'failed',
+      statusCode: 429,
+      error: 'Rate limit exceeded',
+      ipAddress,
+      userAgent,
+    }).catch(() => {
+      // Ignore logging errors for rate limited requests
+    });
+
+    return NextResponse.json(
+      { error: `Rate limit exceeded. Retry after ${rateLimitResult.retryAfter} seconds.` },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(rateLimitResult.retryAfter),
+          'X-RateLimit-Limit': String(RATE_LIMITS.webhookPerMinute.maxRequests),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(Math.ceil(rateLimitResult.resetAt / 1000)),
+        },
+      }
+    );
+  }
+
   // Parse request body
   let body: unknown;
   try {
@@ -123,7 +164,16 @@ export async function POST(
     // Verify webhook secret
     const expectedSecret = getWebhookSecret(flow.triggers);
 
-    if (!expectedSecret || expectedSecret !== secret) {
+    // Use timing-safe comparison to prevent timing attacks
+    const secretsMatch = expectedSecret
+      ? (() => {
+          const expected = Buffer.from(expectedSecret, 'utf-8');
+          const provided = Buffer.from(secret, 'utf-8');
+          return expected.length === provided.length && crypto.timingSafeEqual(expected, provided);
+        })()
+      : false;
+
+    if (!secretsMatch) {
       // Log invalid secret attempt
       await db.insert(webhookLogs).values({
         flowId,
@@ -201,9 +251,21 @@ export async function POST(
       message: 'Flow execution started successfully',
     });
   } catch (error) {
-    console.error('Webhook execution error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const requestId = crypto.randomUUID();
 
-    // Log error
+    // Log with full context using structured logger
+    log.error('Flow webhook execution failed', {
+      requestId,
+      flowId,
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      ipAddress,
+      userAgent,
+      endpoint: `/api/webhooks/${flowId}/${secret.slice(0, 8)}...`,
+    });
+
+    // Log to database
     await db
       .insert(webhookLogs)
       .values({
@@ -215,20 +277,43 @@ export async function POST(
         query,
         status: 'failed',
         statusCode: 500,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
         ipAddress,
         userAgent,
       })
       .catch((logError) => {
-        console.error('Failed to log webhook error:', logError);
+        log.error('Failed to log webhook error to database', {
+          requestId,
+          flowId,
+          logError: logError instanceof Error ? logError.message : String(logError),
+        });
       });
+
+    // Determine specific error type for client response
+    let clientError = 'Failed to execute flow';
+    let statusCode = 500;
+
+    if (errorMessage.includes('timeout') || errorMessage.includes('Timeout')) {
+      clientError = 'Flow execution timed out';
+      statusCode = 504;
+    } else if (errorMessage.includes('rate limit') || errorMessage.includes('Rate limit')) {
+      clientError = 'Flow execution rate limited';
+      statusCode = 429;
+    } else if (errorMessage.includes('not found') || errorMessage.includes('Not found')) {
+      clientError = 'Required resource not found';
+      statusCode = 404;
+    } else if (errorMessage.includes('permission') || errorMessage.includes('unauthorized')) {
+      clientError = 'Permission denied for flow execution';
+      statusCode = 403;
+    }
 
     return NextResponse.json(
       {
-        error: 'Failed to execute flow',
-        details: error instanceof Error ? error.message : 'Unknown error',
+        error: clientError,
+        requestId, // Include for support/debugging
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
       },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }

@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 
+const KEY_VERSION_PREFIX = 'v1:';
+
 /**
  * Get the encryption key from environment variables.
  * The key must be 32 bytes (64 hex characters) for AES-256.
@@ -22,6 +24,16 @@ function getEncryptionKey(): Buffer {
     );
   }
 
+  return Buffer.from(key, 'hex');
+}
+
+/**
+ * Get the previous encryption key for rotation support.
+ * Returns null if ENCRYPTION_KEY_PREVIOUS is not set.
+ */
+function getPreviousEncryptionKey(): Buffer | null {
+  const key = process.env.ENCRYPTION_KEY_PREVIOUS;
+  if (!key || key.length !== 64) return null;
   return Buffer.from(key, 'hex');
 }
 
@@ -60,8 +72,8 @@ export function encrypt(plaintext: string): string {
   // Get the authentication tag
   const authTag = cipher.getAuthTag();
 
-  // Return in format: iv:authTag:encrypted (all hex encoded)
-  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
+  // Return versioned format: v1:iv:authTag:encrypted (all hex encoded)
+  return `${KEY_VERSION_PREFIX}${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
 }
 
 /**
@@ -81,10 +93,14 @@ export function encrypt(plaintext: string): string {
  * ```
  */
 export function decrypt(ciphertext: string): string {
-  const key = getEncryptionKey();
+  // Handle versioned format: v1:iv:authTag:encrypted
+  let payload = ciphertext;
+  if (ciphertext.startsWith(KEY_VERSION_PREFIX)) {
+    payload = ciphertext.slice(KEY_VERSION_PREFIX.length);
+  }
 
   // Parse the format: iv:authTag:encrypted
-  const parts = ciphertext.split(':');
+  const parts = payload.split(':');
   if (parts.length !== 3) {
     throw new Error(
       'Invalid ciphertext format. Expected "iv:authTag:encrypted"'
@@ -94,20 +110,33 @@ export function decrypt(ciphertext: string): string {
   const ivHex = parts[0]!;
   const authTagHex = parts[1]!;
   const encryptedHex = parts[2]!;
-
-  // Convert from hex
   const iv = Buffer.from(ivHex, 'hex');
   const authTag = Buffer.from(authTagHex, 'hex');
 
-  // Create decipher
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(authTag);
-
-  // Decrypt
-  let decrypted: string = decipher.update(encryptedHex, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-
-  return decrypted;
+  // Try current key first
+  try {
+    const key = getEncryptionKey();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+    let decrypted: string = decipher.update(encryptedHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (currentKeyError) {
+    // Try previous key for rotation support
+    const previousKey = getPreviousEncryptionKey();
+    if (previousKey) {
+      try {
+        const decipher = crypto.createDecipheriv('aes-256-gcm', previousKey, iv);
+        decipher.setAuthTag(authTag);
+        let decrypted: string = decipher.update(encryptedHex, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted;
+      } catch {
+        // Both keys failed
+      }
+    }
+    throw currentKeyError;
+  }
 }
 
 /**
@@ -126,7 +155,13 @@ export function decrypt(ciphertext: string): string {
  * ```
  */
 export function isEncrypted(value: string): boolean {
-  const parts = value.split(':');
+  // Handle versioned format: v1:iv:authTag:encrypted
+  let payload = value;
+  if (value.startsWith(KEY_VERSION_PREFIX)) {
+    payload = value.slice(KEY_VERSION_PREFIX.length);
+  }
+
+  const parts = payload.split(':');
   if (parts.length !== 3) return false;
 
   // Check if all parts are valid hex strings

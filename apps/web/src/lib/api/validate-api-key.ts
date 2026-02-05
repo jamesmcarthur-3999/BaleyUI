@@ -6,6 +6,9 @@
 
 import { db, apiKeys, eq, and, isNull, gt, or } from '@baleyui/db';
 import { createHash } from 'crypto';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api/validate-api-key');
 
 export interface ApiKeyValidationResult {
   workspaceId: string;
@@ -72,7 +75,7 @@ export async function validateApiKey(
     .execute()
     .catch((err) => {
       // Log error but don't fail the request
-      console.error('Failed to update lastUsedAt for API key:', err);
+      logger.error('Failed to update lastUsedAt for API key', err);
     });
 
   return {

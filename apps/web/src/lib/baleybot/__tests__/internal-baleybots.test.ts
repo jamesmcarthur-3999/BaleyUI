@@ -46,8 +46,8 @@ describe('internal-baleybots', () => {
   describe('INTERNAL_BALEYBOTS', () => {
     it('defines creator_bot', () => {
       expect(INTERNAL_BALEYBOTS.creator_bot).toBeDefined();
-      expect(INTERNAL_BALEYBOTS.creator_bot.name).toBe('creator_bot');
-      expect(INTERNAL_BALEYBOTS.creator_bot.balCode).toContain('creator_bot');
+      expect(INTERNAL_BALEYBOTS.creator_bot!.name).toBe('creator_bot');
+      expect(INTERNAL_BALEYBOTS.creator_bot!.balCode).toContain('creator_bot');
     });
 
     it('defines all internal bots', () => {

@@ -99,7 +99,7 @@ export const apiKeysRouter = router({
           keySuffix,
           permissions: input.permissions,
           expiresAt: input.expiresAt,
-          createdBy: ctx.userId,
+          createdBy: ctx.userId ?? 'system:api-key',
           createdAt: new Date(),
           updatedAt: new Date(),
         })

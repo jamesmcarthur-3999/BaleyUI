@@ -3,6 +3,9 @@
  */
 
 import { OllamaModelsResponse, OllamaModel } from './providers';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('ollama');
 
 /**
  * List all available models in the local Ollama instance.
@@ -19,7 +22,7 @@ export async function listOllamaModels(baseUrl: string): Promise<OllamaModel[]> 
     const data: OllamaModelsResponse = await response.json();
     return data.models || [];
   } catch (error) {
-    console.error('Failed to list Ollama models:', error);
+    logger.error('Failed to list Ollama models', error);
     throw error;
   }
 }
@@ -75,7 +78,7 @@ export async function pullOllamaModel(
       }
     }
   } catch (error) {
-    console.error('Failed to pull Ollama model:', error);
+    logger.error('Failed to pull Ollama model', error);
     throw error;
   }
 }
@@ -101,7 +104,7 @@ export async function deleteOllamaModel(
       throw new Error(`Failed to delete model: ${response.statusText}`);
     }
   } catch (error) {
-    console.error('Failed to delete Ollama model:', error);
+    logger.error('Failed to delete Ollama model', error);
     throw error;
   }
 }
@@ -129,7 +132,7 @@ export async function getOllamaModelInfo(
 
     return await response.json();
   } catch (error) {
-    console.error('Failed to get Ollama model info:', error);
+    logger.error('Failed to get Ollama model info', error);
     throw error;
   }
 }

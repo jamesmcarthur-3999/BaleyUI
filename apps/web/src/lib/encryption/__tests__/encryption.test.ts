@@ -59,32 +59,40 @@ describe('encrypt/decrypt', () => {
     }
   });
 
-  test('uses correct format: iv:authTag:encrypted', () => {
+  test('uses correct format: v1:iv:authTag:encrypted', () => {
     const plaintext = 'test';
     const encrypted = encrypt(plaintext);
 
-    const parts = encrypted.split(':');
-    expect(parts.length).toBe(3);
+    // Should start with version prefix
+    expect(encrypted.startsWith('v1:')).toBe(true);
 
-    // All parts should be hex strings
+    const parts = encrypted.split(':');
+    expect(parts.length).toBe(4); // v1, iv, authTag, encrypted
+
+    // All data parts should be hex strings (skip version prefix)
     const hexRegex = /^[0-9a-f]+$/i;
-    expect(hexRegex.test(parts[0]!)).toBe(true); // IV
-    expect(hexRegex.test(parts[1]!)).toBe(true); // Auth tag
-    expect(hexRegex.test(parts[2]!)).toBe(true); // Encrypted data
+    expect(parts[0]).toBe('v1'); // Version prefix
+    expect(hexRegex.test(parts[1]!)).toBe(true); // IV
+    expect(hexRegex.test(parts[2]!)).toBe(true); // Auth tag
+    expect(hexRegex.test(parts[3]!)).toBe(true); // Encrypted data
 
     // IV should be 12 bytes = 24 hex chars (standard for GCM)
-    expect(parts[0]!.length).toBe(24);
+    expect(parts[1]!.length).toBe(24);
 
     // Auth tag should be 16 bytes = 32 hex chars
-    expect(parts[1]!.length).toBe(32);
+    expect(parts[2]!.length).toBe(32);
   });
 
   test('throws on tampered ciphertext', () => {
     const plaintext = 'sk-1234567890abcdef';
     const encrypted = encrypt(plaintext);
 
-    // Tamper with the last character
-    const tampered = encrypted.slice(0, -1) + '0';
+    // Tamper with the encrypted data portion (last part after iv:authTag:)
+    // GCM mode will fail authentication when ciphertext is modified
+    const parts = encrypted.split(':');
+    // Flip a bit in the encrypted data to cause auth failure
+    const tamperedData = parts[2]!.slice(0, 10) + 'ff' + parts[2]!.slice(12);
+    const tampered = `${parts[0]}:${parts[1]}:${tamperedData}`;
 
     expect(() => decrypt(tampered)).toThrow();
   });
@@ -93,9 +101,10 @@ describe('encrypt/decrypt', () => {
     const plaintext = 'sk-1234567890abcdef';
     const encrypted = encrypt(plaintext);
 
-    // Tamper with the auth tag (middle part)
+    // Tamper with the auth tag by flipping multiple bits
+    // Replace first 4 characters of auth tag with completely different values
     const parts = encrypted.split(':');
-    const tamperedTag = parts[1]!.slice(0, -1) + '0';
+    const tamperedTag = 'ffff' + parts[1]!.slice(4);
     const tampered = `${parts[0]}:${tamperedTag}:${parts[2]}`;
 
     expect(() => decrypt(tampered)).toThrow();

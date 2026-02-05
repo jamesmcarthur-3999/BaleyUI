@@ -1,12 +1,21 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { connections, eq, and, notDeleted, softDelete } from '@baleyui/db';
+import { connections, eq, and, notDeleted, softDelete, updateWithLock, OptimisticLockError } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { encrypt, decrypt } from '@/lib/encryption';
 import { testConnection } from '@/lib/connections/test';
 import { listOllamaModels } from '@/lib/connections/ollama';
 import type { ConnectionConfig, PartialUpdateData } from '@/lib/types';
 import { createLogger } from '@/lib/logger';
+import {
+  withErrorHandling,
+  throwNotFound,
+  throwBadRequest,
+  nameSchema,
+  uuidSchema,
+  versionSchema,
+  urlSchema,
+} from '../helpers';
 
 const log = createLogger('connections-router');
 
@@ -39,8 +48,9 @@ function decryptObject<T extends ConnectionConfig>(
       try {
         (result as Record<string, unknown>)[field as string] = decrypt(result[field] as string);
       } catch (error) {
-        // If decryption fails, leave as is (might not be encrypted)
+        // Return placeholder instead of encrypted value to prevent leaking ciphertext
         log.warn(`Failed to decrypt field ${String(field)}`, { error });
+        (result as Record<string, unknown>)[field as string] = '[DECRYPTION_FAILED]';
       }
     }
   }
@@ -51,53 +61,82 @@ function decryptObject<T extends ConnectionConfig>(
  * tRPC router for managing AI provider connections.
  */
 
+/**
+ * API-001: Stricter connection config validation
+ */
 const connectionConfigSchema = z.object({
-  apiKey: z.string().optional(),
-  baseUrl: z.string().optional(),
-  organization: z.string().optional(),
+  apiKey: z.string().min(10, 'API key is too short').max(500, 'API key is too long').optional(),
+  baseUrl: urlSchema,
+  organization: z.string().max(255).optional(),
 });
 
 export const connectionsRouter = router({
   /**
    * List all connections for the workspace.
+   * API-003: Add pagination support
+   * API-004: Return only necessary fields for list view
    */
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const allConnections = await ctx.db.query.connections.findMany({
-      where: and(
-        eq(connections.workspaceId, ctx.workspace.id),
-        notDeleted(connections)
-      ),
-      orderBy: (connections, { desc }) => [desc(connections.createdAt)],
-    });
+  list: protectedProcedure
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(100).optional().default(50),
+        cursor: uuidSchema.optional(),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      // API-004: Select only fields needed for list display
+      // Note: availableModels is included as it's needed for model selection dropdowns
+      const allConnections = await ctx.db.query.connections.findMany({
+        where: and(
+          eq(connections.workspaceId, ctx.workspace.id),
+          notDeleted(connections)
+        ),
+        columns: {
+          id: true,
+          type: true,
+          name: true,
+          config: true, // Needed for masking apiKey
+          isDefault: true,
+          status: true,
+          lastCheckedAt: true,
+          availableModels: true, // Needed for model selection
+          createdAt: true,
+          updatedAt: true,
+          version: true,
+        },
+        orderBy: (connections, { desc }) => [desc(connections.createdAt)],
+        limit: input?.limit ?? 50,
+      });
 
-    // Decrypt API keys for display (masked)
-    return allConnections.map((conn) => {
-      const config = conn.config as ConnectionConfig;
+      // Decrypt API keys for display (masked)
+      return allConnections.map((conn) => {
+        const config = conn.config as ConnectionConfig;
 
-      // Return masked API key for security
-      if (config.apiKey) {
-        const decryptedKey = decrypt(config.apiKey);
-        const maskedKey = decryptedKey.slice(0, 8) + '...' + decryptedKey.slice(-4);
+        // Return masked API key for security
+        if (config.apiKey) {
+          const decryptedKey = decrypt(config.apiKey);
+          const maskedKey = decryptedKey.slice(0, 8) + '...' + decryptedKey.slice(-4);
 
-        return {
-          ...conn,
-          config: {
-            ...config,
-            apiKey: maskedKey,
-            _hasApiKey: true,
-          },
-        };
-      }
+          return {
+            ...conn,
+            config: {
+              ...config,
+              apiKey: maskedKey,
+              _hasApiKey: true,
+            },
+          };
+        }
 
-      return conn;
-    });
-  }),
+        return conn;
+      });
+    }),
 
   /**
    * Get a single connection by ID.
+   * API-001: Use standardized UUID schema
    */
   get: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: uuidSchema }))
     .query(async ({ ctx, input }) => {
       const connection = await ctx.db.query.connections.findFirst({
         where: and(
@@ -108,10 +147,7 @@ export const connectionsRouter = router({
       });
 
       if (!connection) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Connection not found',
-        });
+        throwNotFound('Connection');
       }
 
       // Decrypt sensitive fields for editing
@@ -126,12 +162,13 @@ export const connectionsRouter = router({
 
   /**
    * Create a new connection.
+   * API-001: Use standardized name schema
    */
   create: protectedProcedure
     .input(
       z.object({
         type: z.enum(['openai', 'anthropic', 'ollama', 'postgres', 'mysql']),
-        name: z.string().min(1).max(255),
+        name: nameSchema,
         config: connectionConfigSchema,
       })
     )
@@ -169,12 +206,15 @@ export const connectionsRouter = router({
 
   /**
    * Update a connection.
+   * API-001: Stricter input validation
+   * API-002: Use shared error handling
    */
   update: protectedProcedure
     .input(
       z.object({
-        id: z.string().uuid(),
-        name: z.string().min(1).max(255).optional(),
+        id: uuidSchema,
+        version: versionSchema,
+        name: nameSchema.optional(),
         config: connectionConfigSchema.optional(),
       })
     )
@@ -186,20 +226,15 @@ export const connectionsRouter = router({
           eq(connections.workspaceId, ctx.workspace.id),
           notDeleted(connections)
         ),
+        columns: { id: true },
       });
 
       if (!existing) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Connection not found',
-        });
+        throwNotFound('Connection');
       }
 
-      // Prepare update data
-      const updateData: PartialUpdateData = {
-        updatedAt: new Date(),
-        version: existing.version + 1,
-      };
+      // Prepare update data (version increment handled by updateWithLock)
+      const updateData: Partial<Record<string, unknown>> = {};
 
       if (input.name) {
         updateData.name = input.name;
@@ -211,20 +246,19 @@ export const connectionsRouter = router({
         updateData.config = encryptedConfig;
       }
 
-      const [updated] = await ctx.db
-        .update(connections)
-        .set(updateData)
-        .where(eq(connections.id, input.id))
-        .returning();
-
-      return updated;
+      // API-002: Use shared error handling helper
+      return await withErrorHandling(
+        () => updateWithLock(connections, input.id, input.version, updateData),
+        'Connection'
+      );
     }),
 
   /**
    * Delete a connection (soft delete).
+   * API-001: Use standardized UUID schema
    */
   delete: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: uuidSchema }))
     .mutation(async ({ ctx, input }) => {
       // Verify connection exists and belongs to workspace
       const existing = await ctx.db.query.connections.findFirst({
@@ -233,36 +267,28 @@ export const connectionsRouter = router({
           eq(connections.workspaceId, ctx.workspace.id),
           notDeleted(connections)
         ),
+        columns: { id: true },
       });
 
       if (!existing) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Connection not found',
-        });
+        throwNotFound('Connection');
       }
 
-      // Soft delete
-      const [deleted] = await ctx.db
-        .update(connections)
-        .set({
-          deletedAt: new Date(),
-          deletedBy: ctx.userId,
-          updatedAt: new Date(),
-        })
-        .where(eq(connections.id, input.id))
-        .returning();
+      // Soft delete - API key auth has null userId, use fallback for audit trail
+      const deleted = await softDelete(connections, input.id, ctx.userId ?? 'system:api-key');
 
       return deleted;
     }),
 
   /**
    * Test a connection by calling the provider's API.
+   * API-001: Use standardized UUID schema
+   * API-002: Use shared error helpers
    */
   test: protectedProcedure
     .input(
       z.object({
-        id: z.string().uuid().optional(),
+        id: uuidSchema.optional(),
         type: z.enum(['openai', 'anthropic', 'ollama', 'postgres', 'mysql']).optional(),
         config: connectionConfigSchema.optional(),
       })
@@ -282,10 +308,7 @@ export const connectionsRouter = router({
         });
 
         if (!connection) {
-          throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'Connection not found',
-          });
+          throwNotFound('Connection');
         }
 
         type = connection.type;
@@ -295,10 +318,7 @@ export const connectionsRouter = router({
         type = input.type;
         config = input.config;
       } else {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Either id or type and config must be provided',
-        });
+        throwBadRequest('Either id or type and config must be provided');
       }
 
       // Test the connection
@@ -313,7 +333,7 @@ export const connectionsRouter = router({
             lastCheckedAt: new Date(),
             updatedAt: new Date(),
           })
-          .where(eq(connections.id, input.id));
+          .where(and(eq(connections.id, input.id), notDeleted(connections)));
 
         // For Ollama, also update available models
         if (type === 'ollama' && result.success) {
@@ -325,9 +345,9 @@ export const connectionsRouter = router({
                 availableModels: models,
                 updatedAt: new Date(),
               })
-              .where(eq(connections.id, input.id));
+              .where(and(eq(connections.id, input.id), notDeleted(connections)));
           } catch (error) {
-            console.error('Failed to fetch Ollama models:', error);
+            log.error('Failed to fetch Ollama models', { error });
           }
         }
       }
@@ -337,39 +357,39 @@ export const connectionsRouter = router({
 
   /**
    * Set a connection as the default for its provider type.
+   * API-001: Use standardized UUID schema
    */
   setDefault: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: uuidSchema }))
     .mutation(async ({ ctx, input }) => {
       return await ctx.db.transaction(async (tx) => {
-        // First, unset all defaults in workspace
+        // First, unset all defaults in workspace (only non-deleted connections)
         await tx
           .update(connections)
           .set({ isDefault: false, updatedAt: new Date() })
           .where(
             and(
               eq(connections.workspaceId, ctx.workspace.id),
-              eq(connections.isDefault, true)
+              eq(connections.isDefault, true),
+              notDeleted(connections)
             )
           );
 
-        // Then set the new default
+        // Then set the new default (only if connection is not deleted)
         const [updated] = await tx
           .update(connections)
           .set({ isDefault: true, updatedAt: new Date() })
           .where(
             and(
               eq(connections.id, input.id),
-              eq(connections.workspaceId, ctx.workspace.id)
+              eq(connections.workspaceId, ctx.workspace.id),
+              notDeleted(connections)
             )
           )
           .returning();
 
         if (!updated) {
-          throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'Connection not found',
-          });
+          throwNotFound('Connection');
         }
 
         return updated;
@@ -378,9 +398,11 @@ export const connectionsRouter = router({
 
   /**
    * Refresh Ollama models for a connection.
+   * API-001: Use standardized UUID schema
+   * API-002: Use shared error helpers
    */
   refreshOllamaModels: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: uuidSchema }))
     .mutation(async ({ ctx, input }) => {
       const connection = await ctx.db.query.connections.findFirst({
         where: and(
@@ -391,17 +413,11 @@ export const connectionsRouter = router({
       });
 
       if (!connection) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Connection not found',
-        });
+        throwNotFound('Connection');
       }
 
       if (connection.type !== 'ollama') {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'This endpoint is only for Ollama connections',
-        });
+        throwBadRequest('This endpoint is only for Ollama connections');
       }
 
       const config = decryptObject(connection.config as ConnectionConfig, ['apiKey']);
@@ -414,7 +430,7 @@ export const connectionsRouter = router({
           lastCheckedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(connections.id, input.id))
+        .where(and(eq(connections.id, input.id), notDeleted(connections)))
         .returning();
 
       return updated;

@@ -5,6 +5,10 @@
  * Used in hybrid mode to determine if code can handle the input or if AI fallback is needed.
  */
 
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('pattern-matcher');
+
 export interface PatternMatchResult {
   canHandle: boolean;
   matchedPattern?: string;
@@ -61,9 +65,9 @@ export async function canHandleWithCode(
       canHandle: false,
       confidence: 0,
     };
-  } catch (error) {
+  } catch (error: unknown) {
     // On error, be conservative and fall back to AI
-    console.error('Pattern matching error:', error);
+    logger.error('Pattern matching error', error);
     return {
       canHandle: false,
       confidence: 0,

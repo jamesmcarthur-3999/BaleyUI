@@ -8,13 +8,26 @@ import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { ROUTES } from '@/lib/routes';
 
+interface FlowNode {
+  id: string;
+  type?: string;
+  data?: Record<string, unknown>;
+  position?: { x: number; y: number };
+}
+
+interface FlowEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
 interface Flow {
   id: string;
   name: string;
   description: string | null;
   enabled: boolean;
-  nodes: any[];
-  edges: any[];
+  nodes: FlowNode[];
+  edges: FlowEdge[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,9 +36,10 @@ interface FlowCardProps {
   flow: Flow;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
+  onRun?: (id: string) => void;
 }
 
-export function FlowCard({ flow, onDelete, onDuplicate }: FlowCardProps) {
+export function FlowCard({ flow, onDelete, onDuplicate, onRun }: FlowCardProps) {
   const router = useRouter();
 
   const handleCardClick = () => {
@@ -110,9 +124,9 @@ export function FlowCard({ flow, onDelete, onDuplicate }: FlowCardProps) {
               size="sm"
               onClick={(e) => {
                 e.stopPropagation();
-                // TODO: Implement run flow
-                console.log('Run flow:', flow.id);
+                onRun?.(flow.id);
               }}
+              disabled={!onRun}
             >
               <Play className="h-4 w-4 mr-1" />
               Run

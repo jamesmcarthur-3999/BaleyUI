@@ -76,6 +76,7 @@ const blockTypeConfig = {
 
 export function BlockPalette({ blocks, className }: BlockPaletteProps) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
 
   const onDragStart = (
     event: React.DragEvent,
@@ -84,6 +85,7 @@ export function BlockPalette({ blocks, className }: BlockPaletteProps) {
     blockName: string,
     blockData?: any
   ) => {
+    setDraggedItemId(blockId);
     event.dataTransfer.setData(
       'application/reactflow',
       JSON.stringify({
@@ -94,6 +96,25 @@ export function BlockPalette({ blocks, className }: BlockPaletteProps) {
       })
     );
     event.dataTransfer.effectAllowed = 'move';
+  };
+
+  const onDragEnd = () => {
+    setDraggedItemId(null);
+  };
+
+  const handleKeyDown = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+    type: string,
+    id: string,
+    name: string,
+    additionalData?: any
+  ) => {
+    // Allow keyboard users to "pick up" the item for drag simulation
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      // Toggle the grabbed state for screen reader feedback
+      setDraggedItemId(draggedItemId === id ? null : id);
+    }
   };
 
   const filteredBlocks = blocks.filter((block) =>
@@ -122,22 +143,35 @@ export function BlockPalette({ blocks, className }: BlockPaletteProps) {
   ) => {
     const config = blockTypeConfig[type];
     const Icon = config.icon;
+    const isGrabbed = draggedItemId === id;
 
     return (
       <div
         key={id}
+        role="button"
+        tabIndex={0}
         draggable
+        aria-label={`${name} ${type} block${description ? `. ${description}` : ''}. Drag to add to flow.`}
+        aria-grabbed={isGrabbed}
+        aria-describedby={`${id}-instructions`}
         onDragStart={(e) => onDragStart(e, type, id, name, additionalData)}
+        onDragEnd={onDragEnd}
+        onKeyDown={(e) => handleKeyDown(e, type, id, name, additionalData)}
         className={cn(
           'flex items-start gap-3 p-3 rounded-md border-2 border-border',
           'cursor-grab active:cursor-grabbing',
           'transition-all hover:shadow-md hover:border-opacity-100',
-          'bg-card'
+          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+          'bg-card',
+          isGrabbed && 'ring-2 ring-primary'
         )}
         style={{
           borderColor: `${config.color}40`,
         }}
       >
+        <span id={`${id}-instructions`} className="sr-only">
+          Press Enter or Space to toggle selection for drag and drop
+        </span>
         <Icon className="h-4 w-4 mt-0.5 flex-shrink-0" style={{ color: config.color }} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">

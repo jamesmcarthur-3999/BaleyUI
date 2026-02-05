@@ -13,7 +13,11 @@
 
 import { Parser } from 'expr-eval';
 import type { NodeExecutor, CompiledNode, NodeExecutorContext } from './index';
+import { executeNode } from './index';
 import type { LoopNodeData, LoopCondition } from '@/lib/baleybots/types';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('loop-executor');
 
 // Create a parser instance with limited operators (no function calls)
 const expressionParser = new Parser({
@@ -92,8 +96,8 @@ function evaluateCondition(
       const context = { data: flattenedData, iteration };
       const result = parsedExpr.evaluate(context as Parameters<typeof parsedExpr.evaluate>[0]);
       return Boolean(result);
-    } catch (error) {
-      console.warn(`Failed to evaluate loop condition expression: ${condition.expression}`, error);
+    } catch (error: unknown) {
+      logger.warn(`Failed to evaluate loop condition expression: ${condition.expression}`, { error });
       return false;
     }
   }
@@ -112,7 +116,7 @@ export const loopExecutor: NodeExecutor = {
     const data = node.data as LoopNodeData;
     const maxIterations = data.maxIterations || 10;
 
-    const currentData = input;
+    let currentData = input;
     let iteration = 0;
     const iterationResults: unknown[] = [];
 
@@ -130,20 +134,34 @@ export const loopExecutor: NodeExecutor = {
         break;
       }
 
+      // Execute body node if configured
+      let bodyOutput: unknown = currentData;
+      if (data.bodyNodeId) {
+        const bodyNode = context.nodeResults.get(data.bodyNodeId);
+        // Look up the body node in compiled nodes and execute it
+        const bodyCompiledNode: CompiledNode = {
+          nodeId: data.bodyNodeId,
+          type: (bodyNode as CompiledNode)?.type ?? 'function-block',
+          data: (bodyNode as CompiledNode)?.data ?? {},
+          incomingEdges: [],
+          outgoingEdges: [],
+        };
+
+        // If the body node is available in context as a compiled node, use it directly
+        // Otherwise, execute via the registry
+        bodyOutput = await executeNode(bodyCompiledNode, currentData, context);
+      }
+
       // Store iteration result
       iterationResults.push({
         iteration,
         input: currentData,
-        // In a full implementation, this would execute the body node
-        output: currentData,
+        output: bodyOutput,
       });
 
-      // For now, just pass through the data
-      // In a full implementation, this would execute the bodyNodeId
+      // Use body node output as input for next iteration
+      currentData = bodyOutput;
       iteration++;
-
-      // Simple example: if the condition never changes, we'd loop forever
-      // In practice, the body node would modify currentData
     }
 
     return {

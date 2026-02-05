@@ -139,6 +139,9 @@ export function useExecutionStream(
     onError,
   } = options;
 
+  // Constants
+  const MAX_EVENTS = 500; // Circular buffer limit to prevent memory issues
+
   // State
   const [events, setEvents] = useState<ServerStreamEvent[]>([]);
   const [status, setStatus] = useState<UseExecutionStreamResult['status']>('idle');
@@ -204,8 +207,14 @@ export function useExecutionStream(
           // Update last event index
           lastEventIndexRef.current += parsedEvents.length;
 
-          // Add events to state
-          setEvents((prev) => [...prev, ...parsedEvents]);
+          // Add events to state with circular buffer limit
+          setEvents((prev) => {
+            const combined = [...prev, ...parsedEvents];
+            // Keep only the most recent MAX_EVENTS to prevent memory growth
+            return combined.length > MAX_EVENTS
+              ? combined.slice(-MAX_EVENTS)
+              : combined;
+          });
         }
       });
 

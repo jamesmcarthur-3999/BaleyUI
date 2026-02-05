@@ -10,6 +10,9 @@
  */
 
 import { CircuitBreakerError, type ErrorContext } from './errors';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('circuit-breaker');
 
 export enum CircuitState {
   CLOSED = 'CLOSED',     // Normal operation
@@ -50,6 +53,7 @@ class CircuitBreaker {
   private successes = 0;
   private openedAt?: number;
   private lastFailureTime?: number;
+  private lastCleanedAt = 0;
 
   constructor(
     public readonly name: string,
@@ -155,7 +159,7 @@ class CircuitBreaker {
    * Open the circuit (stop allowing requests)
    */
   private open(): void {
-    console.warn(`[CircuitBreaker] Opening circuit for ${this.name}`, {
+    logger.warn(`Opening circuit for ${this.name}`, {
       failureCount: this.failures.length,
       threshold: this.config.failureThreshold,
     });
@@ -169,7 +173,7 @@ class CircuitBreaker {
    * Half-open the circuit (test if service recovered)
    */
   private halfOpen(): void {
-    console.info(`[CircuitBreaker] Half-opening circuit for ${this.name}`);
+    logger.info(`Half-opening circuit for ${this.name}`);
     this.state = CircuitState.HALF_OPEN;
     this.successes = 0;
   }
@@ -179,7 +183,7 @@ class CircuitBreaker {
    */
   private close(): void {
     if (this.state !== CircuitState.CLOSED) {
-      console.info(`[CircuitBreaker] Closing circuit for ${this.name}`);
+      logger.info(`Closing circuit for ${this.name}`);
     }
     this.state = CircuitState.CLOSED;
     this.failures = [];
@@ -188,12 +192,18 @@ class CircuitBreaker {
   }
 
   /**
-   * Remove failures outside the time window
+   * Remove failures outside the time window.
+   * Throttled to run at most once per second for performance.
    */
   private cleanOldFailures(): void {
     const now = Date.now();
+    if (now - this.lastCleanedAt < 1000) return;
+    this.lastCleanedAt = now;
     const cutoff = now - this.config.failureWindowMs;
-    this.failures = this.failures.filter((f) => f.timestamp > cutoff);
+    // In-place removal: failures are sorted by timestamp, so find cutoff index
+    let i = 0;
+    while (i < this.failures.length && this.failures[i]!.timestamp <= cutoff) i++;
+    if (i > 0) this.failures.splice(0, i);
   }
 }
 
@@ -295,7 +305,7 @@ export async function withCircuitBreaker<T>(
     const result = await fn();
     breaker.recordSuccess();
     return result;
-  } catch (error) {
+  } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
     breaker.recordFailure(errorMessage);

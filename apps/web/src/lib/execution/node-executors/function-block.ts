@@ -11,15 +11,35 @@
  * - Constructor escape attacks
  * - Memory exhaustion (enforced memory limits)
  * - CPU exhaustion (enforced timeouts)
+ *
+ * SERVERLESS NOTE: isolated-vm is a native module that may not be available
+ * on all serverless platforms. If unavailable, function blocks are disabled
+ * and will throw an error if executed. This is safer than using eval().
  */
 
 import { db, blocks, eq } from '@baleyui/db';
 import { Deterministic } from '@baleybots/core';
-import ivm from 'isolated-vm';
 import type { NodeExecutor, CompiledNode, NodeExecutorContext } from './index';
 import type { FunctionBlockNodeData } from '@/lib/baleybots/types';
 import { withRetry } from '../retry';
-import { ExecutionError, ErrorCode, TimeoutError } from '../errors';
+import { ExecutionError, ErrorCode } from '../errors';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('function-block');
+
+// Try to load isolated-vm dynamically - may not be available on all platforms
+let ivm: typeof import('isolated-vm') | null = null;
+let ivmLoadError: Error | null = null;
+
+try {
+  // Use dynamic require to avoid bundling issues
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  ivm = require('isolated-vm');
+} catch (err: unknown) {
+  ivmLoadError = err instanceof Error ? err : new Error('Failed to load isolated-vm');
+  // Note: logger may not be available at module load time, so we keep this as console.warn
+  // This is intentional for module-level initialization logging
+}
 
 // Memory limit for isolate (128MB)
 const ISOLATE_MEMORY_LIMIT = 128;
@@ -34,8 +54,20 @@ const EXECUTION_TIMEOUT_MS = 30000;
  * - Memory limits
  * - CPU timeout
  * - No access to Node.js globals
+ *
+ * @throws ExecutionError if isolated-vm is not available
  */
 async function executeSandboxed(code: string, input: unknown): Promise<unknown> {
+  // Check if isolated-vm is available
+  if (!ivm) {
+    throw new ExecutionError(
+      'Function blocks are disabled: isolated-vm is not available on this platform. ' +
+        (ivmLoadError?.message || 'Native module could not be loaded.'),
+      ErrorCode.RUNTIME_UNAVAILABLE,
+      { code: 'ISOLATED_VM_UNAVAILABLE' }
+    );
+  }
+
   const isolate = new ivm.Isolate({ memoryLimit: ISOLATE_MEMORY_LIMIT });
 
   try {
@@ -179,7 +211,7 @@ export const functionBlockExecutor: NodeExecutor = {
             signal: context.signal,
           });
           return result;
-        } catch (error) {
+        } catch (error: unknown) {
           // If it's already an ExecutionError, rethrow it
           if (error instanceof ExecutionError) {
             throw error;

@@ -67,21 +67,21 @@ describe('Baleybots Router Logic', () => {
       const result = await ctx.db.query.baleybots.findMany();
 
       expect(result).toHaveLength(2);
-      expect(result[0].name).toBe('Bot 1');
-      expect(result[1].name).toBe('Bot 2');
+      expect(result[0]!.name).toBe('Bot 1');
+      expect(result[1]!.name).toBe('Bot 2');
     });
 
     it('includes last execution for each baleybot', async () => {
       const mockExecution = createMockExecution({ id: 'exec-1' });
       const mockBaleybots = [
         { ...createMockBaleybot({ id: '1' }), executions: [mockExecution] },
-      ];
-      ctx.db.query.baleybots.findMany.mockResolvedValue(mockBaleybots);
+      ] as Array<MockBaleybot & { executions: typeof mockExecution[] }>;
+      ctx.db.query.baleybots.findMany.mockResolvedValue(mockBaleybots as unknown as MockBaleybot[]);
 
-      const result = await ctx.db.query.baleybots.findMany();
+      const result = await ctx.db.query.baleybots.findMany() as Array<MockBaleybot & { executions?: typeof mockExecution[] }>;
 
-      expect(result[0].executions).toHaveLength(1);
-      expect(result[0].executions[0].id).toBe('exec-1');
+      expect(result[0]!.executions).toHaveLength(1);
+      expect(result[0]!.executions![0]!.id).toBe('exec-1');
     });
 
     it('returns empty array when no baleybots exist', async () => {
@@ -99,7 +99,7 @@ describe('Baleybots Router Logic', () => {
       ctx.db.query.baleybots.findFirst.mockResolvedValue({
         ...mockBaleybot,
         executions: [],
-      });
+      } as MockBaleybot & { executions: unknown[] });
 
       const result = await ctx.db.query.baleybots.findFirst();
 
@@ -225,6 +225,9 @@ describe('Baleybots Router Logic', () => {
               where: vi.fn().mockResolvedValue(undefined),
             }),
           }),
+          delete: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue(undefined),
+          }),
           query: ctx.db.query,
         };
         return fn(tx);
@@ -255,7 +258,7 @@ describe('Baleybots Router Logic', () => {
 
       const executions = await ctx.db.query.baleybotExecutions.findMany();
       expect(executions).toHaveLength(2);
-      expect(executions[0].baleybotId).toBe('bb-1');
+      expect(executions[0]!.baleybotId).toBe('bb-1');
     });
 
     it('filters executions by status', async () => {
@@ -267,7 +270,7 @@ describe('Baleybots Router Logic', () => {
       const result = await ctx.db.query.baleybotExecutions.findMany();
 
       expect(result).toHaveLength(1);
-      expect(result[0].status).toBe('completed');
+      expect(result[0]!.status).toBe('completed');
     });
   });
 
@@ -345,8 +348,8 @@ describe('Baleybots Router Logic', () => {
       });
 
       expect(dependents).toHaveLength(2);
-      expect(dependents[0].id).toBe('bb-1');
-      expect(dependents[1].id).toBe('bb-3');
+      expect(dependents[0]!.id).toBe('bb-1');
+      expect(dependents[1]!.id).toBe('bb-3');
     });
   });
 
@@ -363,7 +366,7 @@ describe('Baleybots Router Logic', () => {
         const result = await ctx.db.query.approvalPatterns.findMany();
 
         expect(result).toHaveLength(2);
-        expect(result[0].tool).toBe('http_request');
+        expect(result[0]!.tool).toBe('http_request');
       });
 
       it('filters by tool name', async () => {
@@ -376,7 +379,7 @@ describe('Baleybots Router Logic', () => {
         const result = await ctx.db.query.approvalPatterns.findMany();
 
         expect(result).toHaveLength(1);
-        expect(result[0].tool).toBe('http_request');
+        expect(result[0]!.tool).toBe('http_request');
       });
 
       it('excludes revoked patterns by default', async () => {
@@ -387,7 +390,7 @@ describe('Baleybots Router Logic', () => {
         const result = await ctx.db.query.approvalPatterns.findMany();
 
         expect(result).toHaveLength(1);
-        expect(result[0].revokedAt).toBeNull();
+        expect(result[0]!.revokedAt).toBeNull();
       });
     });
 
@@ -460,14 +463,14 @@ describe('Baleybots Router Logic', () => {
     describe('sendCreatorMessage', () => {
       it('fetches workspace connections for context', async () => {
         const mockConnections = [
-          { id: 'conn-1', type: 'openai', name: 'OpenAI' },
+          { id: 'conn-1', type: 'openai' as const, name: 'OpenAI', workspaceId: 'ws-1', config: { apiKey: 'test' }, status: 'connected' as const, isDefault: true, version: 1, createdAt: new Date(), updatedAt: new Date(), availableModels: null, lastCheckedAt: null, deletedAt: null, deletedBy: null },
         ];
         ctx.db.query.connections.findMany.mockResolvedValue(mockConnections);
 
         const result = await ctx.db.query.connections.findMany();
 
         expect(result).toHaveLength(1);
-        expect(result[0].type).toBe('openai');
+        expect(result[0]!.type).toBe('openai');
       });
 
       it('fetches existing baleybots for context', async () => {
@@ -479,7 +482,7 @@ describe('Baleybots Router Logic', () => {
         const result = await ctx.db.query.baleybots.findMany();
 
         expect(result).toHaveLength(1);
-        expect(result[0].name).toBe('Existing Bot');
+        expect(result[0]!.name).toBe('Existing Bot');
       });
     });
 

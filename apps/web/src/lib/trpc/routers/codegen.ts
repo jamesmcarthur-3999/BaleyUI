@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
-import { patterns, blocks, decisions, eq, and, notDeleted } from '@baleyui/db';
+import { patterns, blocks, decisions, eq, and, notDeleted, inArray } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { generateCode, validateGeneratedCode, getPatternStats } from '@/lib/codegen/code-generator';
 import { testGeneratedCode } from '@/lib/codegen/historical-tester';
@@ -194,17 +194,31 @@ export const codegenRouter = router({
         .returning();
 
       // Optionally update patterns with the generated code reference
+      // Verify each patternId belongs to a block in this workspace before updating
       if (input.patternIds && input.patternIds.length > 0) {
+        const validPatterns = await ctx.db
+          .select({ id: patterns.id })
+          .from(patterns)
+          .innerJoin(blocks, eq(patterns.blockId, blocks.id))
+          .where(and(
+            inArray(patterns.id, input.patternIds),
+            eq(blocks.workspaceId, ctx.workspace.id)
+          ));
+
+        const validIds = new Set(validPatterns.map(p => p.id));
+
         await Promise.all(
-          input.patternIds.map(patternId =>
-            ctx.db
-              .update(patterns)
-              .set({
-                generatedCode: input.code,
-                updatedAt: new Date(),
-              })
-              .where(eq(patterns.id, patternId))
-          )
+          input.patternIds
+            .filter(patternId => validIds.has(patternId))
+            .map(patternId =>
+              ctx.db
+                .update(patterns)
+                .set({
+                  generatedCode: input.code,
+                  updatedAt: new Date(),
+                })
+                .where(eq(patterns.id, patternId))
+            )
         );
       }
 

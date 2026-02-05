@@ -81,7 +81,7 @@ function ListSkeleton({
       )}
     >
       {Array.from({ length: count }).map((_, index) => (
-        <SkeletonComponent key={index} />
+        <SkeletonComponent key={`skeleton-${variant}-${index}`} />
       ))}
     </div>
   );

@@ -12,8 +12,62 @@
 
 import { db, executionEvents, eq, gte, asc } from '@baleyui/db';
 import type { ExecutionEvent } from './types';
+import { createLogger, extractErrorMessage } from '@/lib/logger';
+
+const logger = createLogger('event-emitter');
 
 export type EventListener = (event: ExecutionEvent) => void;
+
+// ============================================================================
+// Type Conversion Utilities
+// ============================================================================
+
+/**
+ * Convert ExecutionEvent to a JSON-safe record for database storage.
+ * This ensures type safety when storing events in the database.
+ */
+function eventToRecord(event: ExecutionEvent): Record<string, unknown> {
+  // ExecutionEvent is a discriminated union with a `type` field
+  // We serialize it directly since all fields are JSON-compatible
+  return { ...event };
+}
+
+/**
+ * Validate and convert a database record back to an ExecutionEvent.
+ * Returns null if the record is invalid.
+ */
+function recordToEvent(record: unknown): ExecutionEvent | null {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+
+  const data = record as Record<string, unknown>;
+
+  // Validate required fields for all events
+  if (typeof data.type !== 'string' || typeof data.timestamp !== 'number') {
+    return null;
+  }
+
+  // Validate based on event type
+  const validTypes = [
+    'execution_start',
+    'execution_complete',
+    'execution_error',
+    'execution_cancelled',
+    'node_start',
+    'node_stream',
+    'node_complete',
+    'node_error',
+    'node_skipped',
+  ];
+
+  if (!validTypes.includes(data.type)) {
+    return null;
+  }
+
+  // The record has the expected structure; cast to ExecutionEvent
+  return data as unknown as ExecutionEvent;
+}
 
 // Retry configuration
 const MAX_PERSIST_ATTEMPTS = 3;
@@ -34,7 +88,7 @@ export class ExecutionEventEmitter {
    */
   async emit(event: ExecutionEvent): Promise<void> {
     if (this.isClosed) {
-      console.warn(`Attempted to emit event on closed emitter: ${this.executionId}`);
+      logger.warn(`Attempted to emit event on closed emitter: ${this.executionId}`);
       return;
     }
 
@@ -50,8 +104,8 @@ export class ExecutionEventEmitter {
     for (const listener of this.listeners) {
       try {
         listener(event);
-      } catch (error) {
-        console.error('Event listener error:', error);
+      } catch (error: unknown) {
+        logger.error('Event listener error', error);
       }
     }
   }
@@ -69,14 +123,13 @@ export class ExecutionEventEmitter {
           executionId: this.blockExecutionId!,
           index,
           eventType: event.type,
-          eventData: event as unknown as Record<string, unknown>,
-          createdAt: new Date(),
+          eventData: eventToRecord(event),
         });
         return;
-      } catch (error) {
+      } catch (error: unknown) {
         if (attempt === MAX_PERSIST_ATTEMPTS) {
-          console.error(
-            `Failed to persist event after ${MAX_PERSIST_ATTEMPTS} attempts:`,
+          logger.error(
+            `Failed to persist event after ${MAX_PERSIST_ATTEMPTS} attempts`,
             error
           );
           // Emit warning event to listeners about persistence failure
@@ -95,7 +148,7 @@ export class ExecutionEventEmitter {
    * Note: We don't emit this to listeners to avoid type conflicts with ExecutionEvent union
    */
   private emitWarning(message: string): void {
-    console.warn(`[ExecutionEventEmitter] ${message}`);
+    logger.warn(message);
   }
 
   /**
@@ -126,19 +179,17 @@ export class ExecutionEventEmitter {
 
       return events
         .map((e) => {
-          // Validate event data structure
-          if (!e.eventData || typeof e.eventData !== 'object') {
-            console.warn(`Invalid event data at index ${e.index}`);
-            return null;
+          // Validate and convert event data using type guard
+          const event = recordToEvent(e.eventData);
+          if (!event) {
+            logger.warn(`Invalid event data at index ${e.index}`);
           }
-          return e.eventData as unknown as ExecutionEvent;
+          return event;
         })
         .filter((e): e is ExecutionEvent => e !== null);
-    } catch (error) {
-      console.error('Failed to replay events:', error);
-      throw new Error(
-        `Event replay failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+    } catch (error: unknown) {
+      logger.error('Failed to replay events', error);
+      throw new Error(`Event replay failed: ${extractErrorMessage(error)}`);
     }
   }
 
@@ -212,8 +263,8 @@ export class FlowEventAggregator {
     for (const listener of this.listeners) {
       try {
         listener(event);
-      } catch (error) {
-        console.error('Flow event listener error:', error);
+      } catch (error: unknown) {
+        logger.error('Flow event listener error', error);
       }
     }
   }
@@ -231,14 +282,13 @@ export class FlowEventAggregator {
           executionId: this.flowExecutionId!,
           index,
           eventType: event.type,
-          eventData: event as unknown as Record<string, unknown>,
-          createdAt: new Date(),
+          eventData: eventToRecord(event),
         });
         return;
-      } catch (error) {
+      } catch (error: unknown) {
         if (attempt === MAX_PERSIST_ATTEMPTS) {
-          console.error(
-            `Failed to persist flow event after ${MAX_PERSIST_ATTEMPTS} attempts:`,
+          logger.error(
+            `Failed to persist flow event after ${MAX_PERSIST_ATTEMPTS} attempts`,
             error
           );
           // Don't throw - continue execution even if persistence fails
@@ -259,8 +309,8 @@ export class FlowEventAggregator {
     for (const listener of this.listeners) {
       try {
         listener(event);
-      } catch (error) {
-        console.error('Flow event listener error:', error);
+      } catch (error: unknown) {
+        logger.error('Flow event listener error', error);
       }
     }
   }

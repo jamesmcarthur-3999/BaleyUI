@@ -446,6 +446,86 @@
   }
 }
 
+/* Creator component animations (Framer Motion replacement) */
+@keyframes sparkle {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+  }
+  33% {
+    transform: scale(1.1) rotate(5deg);
+  }
+  66% {
+    transform: scale(1) rotate(-5deg);
+  }
+}
+
+@keyframes orb-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+}
+
+@keyframes orb-pulse-sm {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes orb-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px hsl(262 83% 58% / 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px hsl(262 83% 58% / 0.5);
+  }
+}
+
+@keyframes sparkle-burst {
+  0% {
+    transform: translate(-50%, -50%) translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) translate(var(--sparkle-x, 40px), var(--sparkle-y, 0)) scale(0.5);
+    opacity: 0;
+  }
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes loading-dot {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-down {
+  0% {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @layer utilities {
   .animate-fade-in {
     animation: fade-in 0.4s ease-out forwards;
@@ -484,6 +564,39 @@
 
   .animate-wiggle {
     animation: wiggle 0.5s ease-in-out;
+  }
+
+  /* Creator component animations (Framer Motion replacement) */
+  .animate-sparkle {
+    animation: sparkle 3s ease-in-out infinite;
+  }
+
+  .animate-orb-pulse {
+    animation: orb-pulse 1.5s ease-in-out infinite;
+  }
+
+  .animate-orb-pulse-sm {
+    animation: orb-pulse-sm 1.5s ease-in-out infinite;
+  }
+
+  .animate-orb-glow {
+    animation: orb-glow 1.5s ease-in-out infinite;
+  }
+
+  .animate-sparkle-burst {
+    animation: sparkle-burst 1s ease-out infinite;
+  }
+
+  .animate-skeleton-pulse {
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
+  }
+
+  .animate-loading-dot {
+    animation: loading-dot 1s ease-in-out infinite;
+  }
+
+  .animate-slide-down {
+    animation: slide-down 0.3s ease-out forwards;
   }
 
   /* Stagger delays for lists */

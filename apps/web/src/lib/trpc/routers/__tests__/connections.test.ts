@@ -57,8 +57,8 @@ describe('Connections Router Logic', () => {
       const result = await ctx.db.query.connections.findMany();
 
       expect(result).toHaveLength(2);
-      expect(result[0].name).toBe('OpenAI Connection');
-      expect(result[1].type).toBe('anthropic');
+      expect(result[0]!.name).toBe('OpenAI Connection');
+      expect(result[1]!.type).toBe('anthropic');
     });
 
     it('returns empty array when no connections exist', async () => {
@@ -323,6 +323,11 @@ describe('Connections Router Logic', () => {
       ctx.db.transaction.mockImplementation(async (fn) => {
         transactionCalled = true;
         const tx = {
+          insert: vi.fn().mockReturnValue({
+            values: vi.fn().mockReturnValue({
+              returning: vi.fn().mockResolvedValue([]),
+            }),
+          }),
           update: vi.fn().mockReturnValue({
             set: vi.fn().mockReturnValue({
               where: vi.fn().mockReturnValue({
@@ -332,6 +337,10 @@ describe('Connections Router Logic', () => {
               }),
             }),
           }),
+          delete: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue(undefined),
+          }),
+          query: ctx.db.query,
         };
         return fn(tx);
       });
@@ -453,8 +462,8 @@ describe('Connections Router Logic', () => {
       const result = await ctx.db.query.connections.findMany();
 
       // Simulate masking logic from the router
-      const config = result[0].config;
-      const decryptedKey = config.apiKey.replace('encrypted:', '');
+      const config = result[0]!.config;
+      const decryptedKey = config.apiKey!.replace('encrypted:', '');
       const maskedKey = decryptedKey.slice(0, 8) + '...' + decryptedKey.slice(-4);
 
       expect(maskedKey).toBe('sk-12345...ghij');
