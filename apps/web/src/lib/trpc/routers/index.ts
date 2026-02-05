@@ -12,6 +12,7 @@ import { apiKeysRouter } from './api-keys';
 import { baleybotsRouter } from './baleybots';
 import { policiesRouter } from './policies';
 import { toolsRouter } from './tools';
+import { triggersRouter } from './triggers';
 
 export const appRouter = router({
   workspaces: workspacesRouter,
@@ -27,6 +28,7 @@ export const appRouter = router({
   baleybots: baleybotsRouter,
   policies: policiesRouter,
   tools: toolsRouter,
+  triggers: triggersRouter,
 });
 
 export type AppRouter = typeof appRouter;
