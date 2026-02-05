@@ -1,3 +1,9 @@
+// TODO: STYLE-002 - This file is over 600 lines (~1094 lines). Consider splitting into:
+// - baleybots-queries.ts (list, getById, getByName queries)
+// - baleybots-mutations.ts (create, update, delete mutations)
+// - baleybots-execution.ts (execute, stream procedures)
+// - baleybots-schemas.ts (shared zod schemas)
+
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import {
@@ -13,16 +19,28 @@ import {
   softDelete,
   updateWithLock,
   sql,
+  inArray,
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { processCreatorMessage } from '@/lib/baleybot/creator-bot';
 import type { CreatorMessage } from '@/lib/baleybot/creator-types';
-import { getBuiltInToolDefinitions } from '@/lib/baleybot';
+import { getBuiltInToolDefinitions, getPreferredProvider } from '@/lib/baleybot';
 import { executeBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
-import { verifyNestedOwnership } from '../helpers';
+import {
+  verifyNestedOwnership,
+  withErrorHandling,
+  throwNotFound,
+  nameSchema,
+  descriptionSchema,
+  uuidSchema,
+  versionSchema,
+} from '../helpers';
 import { createLogger } from '@/lib/logger';
+import { getWorkspaceAICredentials, initializeBuiltInToolServices } from '@/lib/baleybot/services';
+import { getBuiltInRuntimeTools, configureWebSearch } from '@/lib/baleybot/tools/built-in/implementations';
+import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
 
 const log = createLogger('baleybots-router');
 
@@ -47,13 +65,14 @@ const triggerTypeSchema = z.enum(['manual', 'schedule', 'webhook', 'other_bb']);
 export const baleybotsRouter = router({
   /**
    * List all BaleyBots for the workspace.
+   * API-004: Return only necessary fields for list view
    */
   list: protectedProcedure
     .input(
       z.object({
         status: baleybotStatusSchema.optional(),
         limit: z.number().int().min(1).max(100).optional().default(50),
-        cursor: z.string().uuid().optional(),
+        cursor: uuidSchema.optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
@@ -66,14 +85,35 @@ export const baleybotsRouter = router({
         conditions.push(eq(baleybots.status, input.status));
       }
 
+      // API-004: Select only fields needed for list display
       const allBaleybots = await ctx.db.query.baleybots.findMany({
         where: and(...conditions),
+        columns: {
+          id: true,
+          name: true,
+          description: true,
+          icon: true,
+          status: true,
+          executionCount: true,
+          lastExecutedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          version: true,
+          // Exclude heavy fields: balCode, structure, entityNames, dependencies, conversationHistory
+        },
         orderBy: [desc(baleybots.createdAt)],
         limit: input?.limit ?? 50,
         with: {
           executions: {
             limit: 1,
             orderBy: [desc(baleybotExecutions.createdAt)],
+            columns: {
+              id: true,
+              status: true,
+              createdAt: true,
+              completedAt: true,
+              durationMs: true,
+            },
           },
         },
       });
@@ -117,32 +157,37 @@ export const baleybotsRouter = router({
 
   /**
    * Create a new BaleyBot from BAL code.
+   * API-001: Stricter input validation
    */
   create: protectedProcedure
     .input(
       z.object({
-        name: z.string().min(1).max(255),
-        description: z.string().optional(),
-        icon: z.string().max(100).optional(),
-        balCode: z.string().min(1),
+        name: nameSchema,
+        description: descriptionSchema,
+        icon: z.string().max(100).regex(/^[\p{Emoji}\w-]*$/u, 'Invalid icon format').optional(),
+        balCode: z.string().min(1, 'BAL code is required').max(100000, 'BAL code exceeds maximum size'),
         // Optional structure cache (computed by BAL generator)
         structure: z.record(z.string(), z.unknown()).optional(),
-        entityNames: z.array(z.string()).optional(),
-        dependencies: z.array(z.string().uuid()).optional(),
+        entityNames: z.array(z.string().min(1).max(255)).max(100).optional(),
+        dependencies: z.array(uuidSchema).max(50).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       // Verify any BB dependencies exist and belong to workspace
       if (input.dependencies && input.dependencies.length > 0) {
+        // PERF-002: Use inArray() filter at database level instead of loading all and filtering in JS
         const existingBBs = await ctx.db.query.baleybots.findMany({
           where: and(
             eq(baleybots.workspaceId, ctx.workspace.id),
-            notDeleted(baleybots)
+            notDeleted(baleybots),
+            inArray(baleybots.id, input.dependencies)
           ),
+          columns: { id: true },
         });
 
-        const existingIds = existingBBs.map((bb) => bb.id);
-        const invalidIds = input.dependencies.filter((id) => !existingIds.includes(id));
+        // PERF-004: Use Set.has() for O(1) lookup instead of Array.includes()
+        const existingIdSet = new Set(existingBBs.map((bb) => bb.id));
+        const invalidIds = input.dependencies.filter((id) => !existingIdSet.has(id));
 
         if (invalidIds.length > 0) {
           throw new TRPCError({
@@ -176,20 +221,21 @@ export const baleybotsRouter = router({
 
   /**
    * Update a BaleyBot with optimistic locking.
+   * API-001: Stricter input validation
    */
   update: protectedProcedure
     .input(
       z.object({
-        id: z.string().uuid(),
-        version: z.number().int(),
-        name: z.string().min(1).max(255).optional(),
-        description: z.string().optional(),
-        icon: z.string().max(100).optional(),
-        balCode: z.string().min(1).optional(),
+        id: uuidSchema,
+        version: versionSchema,
+        name: nameSchema.optional(),
+        description: descriptionSchema,
+        icon: z.string().max(100).regex(/^[\p{Emoji}\w-]*$/u, 'Invalid icon format').optional(),
+        balCode: z.string().min(1, 'BAL code is required').max(100000, 'BAL code exceeds maximum size').optional(),
         status: baleybotStatusSchema.optional(),
         structure: z.record(z.string(), z.unknown()).optional(),
-        entityNames: z.array(z.string()).optional(),
-        dependencies: z.array(z.string().uuid()).optional(),
+        entityNames: z.array(z.string().min(1).max(255)).max(100).optional(),
+        dependencies: z.array(uuidSchema).max(50).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -211,23 +257,30 @@ export const baleybotsRouter = router({
 
       // Verify any BB dependencies exist and belong to workspace
       if (input.dependencies && input.dependencies.length > 0) {
-        const existingBBs = await ctx.db.query.baleybots.findMany({
-          where: and(
-            eq(baleybots.workspaceId, ctx.workspace.id),
-            notDeleted(baleybots)
-          ),
-        });
+        // Filter out self-reference before querying
+        const depsToCheck = input.dependencies.filter((id) => id !== input.id);
 
-        const existingIds = existingBBs.map((bb) => bb.id);
-        const invalidIds = input.dependencies.filter(
-          (id) => !existingIds.includes(id) && id !== input.id
-        );
-
-        if (invalidIds.length > 0) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: `Invalid BaleyBot dependencies: ${invalidIds.join(', ')}`,
+        if (depsToCheck.length > 0) {
+          // PERF-002: Use inArray() filter at database level instead of loading all and filtering in JS
+          const existingBBs = await ctx.db.query.baleybots.findMany({
+            where: and(
+              eq(baleybots.workspaceId, ctx.workspace.id),
+              notDeleted(baleybots),
+              inArray(baleybots.id, depsToCheck)
+            ),
+            columns: { id: true },
           });
+
+          // PERF-004: Use Set.has() for O(1) lookup instead of Array.includes()
+          const existingIdSet = new Set(existingBBs.map((bb) => bb.id));
+          const invalidIds = depsToCheck.filter((id) => !existingIdSet.has(id));
+
+          if (invalidIds.length > 0) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: `Invalid BaleyBot dependencies: ${invalidIds.join(', ')}`,
+            });
+          }
         }
       }
 
@@ -243,26 +296,11 @@ export const baleybotsRouter = router({
       if (input.entityNames !== undefined) updateData.entityNames = input.entityNames;
       if (input.dependencies !== undefined) updateData.dependencies = input.dependencies;
 
-      try {
-        const updated = await updateWithLock(baleybots, input.id, input.version, updateData);
-        return updated;
-      } catch (error) {
-        // Handle optimistic lock error (version mismatch)
-        if (error instanceof Error && error.message.includes('version')) {
-          throw new TRPCError({
-            code: 'CONFLICT',
-            message: 'BaleyBot was modified by another user. Please refresh and try again.',
-          });
-        }
-        // Sanitize unexpected errors before sending to client
-        const message = isUserFacingError(error)
-          ? sanitizeErrorMessage(error)
-          : 'An internal error occurred';
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message,
-        });
-      }
+      // API-002: Use shared error handling helper
+      return await withErrorHandling(
+        () => updateWithLock(baleybots, input.id, input.version, updateData),
+        'BaleyBot'
+      );
     }),
 
   /**
@@ -436,23 +474,69 @@ export const baleybotsRouter = router({
             .set({ status: 'running', startedAt: new Date() })
             .where(eq(baleybotExecutions.id, execution.id));
 
-          // Get API key from environment and determine appropriate model
-          const openaiKey = process.env.OPENAI_API_KEY;
-          const anthropicKey = process.env.ANTHROPIC_API_KEY;
+          // Get preferred provider from BAL code (respects model specified in entities)
+          const preferredProvider = getPreferredProvider(baleybot.balCode);
 
-          // Determine provider and model based on available API key
-          const apiKey = openaiKey || anthropicKey;
-          const model = openaiKey
-            ? 'openai:gpt-4o-mini'
-            : anthropicKey
-              ? 'anthropic:claude-sonnet-4-20250514'
-              : 'openai:gpt-4o-mini'; // fallback
+          // Get AI credentials from workspace connections, matching the BAL code's provider
+          const credentials = await getWorkspaceAICredentials(ctx.workspace.id, preferredProvider);
+          if (!credentials) {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: preferredProvider
+                ? `No ${preferredProvider} provider configured for this workspace. Please add an ${preferredProvider === 'openai' ? 'OpenAI' : 'Anthropic'} connection in Settings.`
+                : 'No AI provider configured for this workspace. Please add an OpenAI or Anthropic connection in Settings.',
+            });
+          }
 
-          // Execute the BAL code
+          // Configure web search if Tavily key is available
+          if (process.env.TAVILY_API_KEY) {
+            configureWebSearch(process.env.TAVILY_API_KEY);
+          }
+
+          // Initialize built-in tool services (spawn, notify, schedule, memory)
+          initializeBuiltInToolServices();
+
+          // Build tool context for this execution
+          const toolCtx: BuiltInToolContext = {
+            workspaceId: ctx.workspace.id,
+            baleybotId: input.id,
+            executionId: execution.id,
+            userId: ctx.userId!,
+          };
+
+          // Get built-in runtime tools with implementations
+          const runtimeTools = getBuiltInRuntimeTools(toolCtx);
+
+          // Convert to format expected by SDK
+          const availableTools: Record<string, {
+            name: string;
+            description: string;
+            inputSchema: Record<string, unknown>;
+            function: (args: Record<string, unknown>) => Promise<unknown>;
+          }> = {};
+
+          for (const [name, tool] of runtimeTools.entries()) {
+            availableTools[name] = {
+              name: tool.name,
+              description: tool.description,
+              inputSchema: tool.inputSchema,
+              function: tool.function,
+            };
+          }
+
+          log.info('Loaded tools for execution', {
+            executionId: execution.id,
+            tools: Object.keys(availableTools),
+          });
+
+          // Execute the BAL code with the provided input and available tools
+          // Don't override model - let BAL code's model specification take precedence
+          const inputStr = input.input ? JSON.stringify(input.input) : undefined;
           const result = await executeBALCode(baleybot.balCode, {
-            model,
-            apiKey,
+            input: inputStr,
+            apiKey: credentials.apiKey,
             timeout: 60000, // 60 second timeout
+            availableTools,
           });
 
           const duration = Date.now() - startTime;
@@ -520,14 +604,15 @@ export const baleybotsRouter = router({
 
   /**
    * List executions for a BaleyBot.
+   * API-004: Return only necessary fields for list view
    */
   listExecutions: protectedProcedure
     .input(
       z.object({
-        baleybotId: z.string().uuid(),
+        baleybotId: uuidSchema,
         status: executionStatusSchema.optional(),
         limit: z.number().int().min(1).max(100).optional().default(20),
-        cursor: z.string().uuid().optional(),
+        cursor: uuidSchema.optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -538,13 +623,11 @@ export const baleybotsRouter = router({
           eq(baleybots.workspaceId, ctx.workspace.id),
           notDeleted(baleybots)
         ),
+        columns: { id: true }, // Only need to verify existence
       });
 
       if (!baleybot) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'BaleyBot not found',
-        });
+        throwNotFound('BaleyBot');
       }
 
       const conditions = [eq(baleybotExecutions.baleybotId, input.baleybotId)];
@@ -553,8 +636,21 @@ export const baleybotsRouter = router({
         conditions.push(eq(baleybotExecutions.status, input.status));
       }
 
+      // API-004: Select only fields needed for list display
       const executions = await ctx.db.query.baleybotExecutions.findMany({
         where: and(...conditions),
+        columns: {
+          id: true,
+          baleybotId: true,
+          status: true,
+          triggeredBy: true,
+          triggerSource: true,
+          startedAt: true,
+          completedAt: true,
+          durationMs: true,
+          createdAt: true,
+          // Exclude heavy fields: input, output, error, segments
+        },
         orderBy: [desc(baleybotExecutions.createdAt)],
         limit: input.limit,
       });
@@ -615,7 +711,6 @@ export const baleybotsRouter = router({
       const bbMap = new Map(workspaceBBs.map((bb) => [bb.id, bb]));
 
       // Get recent executions across all BBs
-      const { inArray } = await import('@baleyui/db');
       const executions = await ctx.db.query.baleybotExecutions.findMany({
         where: inArray(baleybotExecutions.baleybotId, bbIds),
         orderBy: [desc(baleybotExecutions.createdAt)],
@@ -991,10 +1086,13 @@ export const baleybotsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       if (input.baleybotId) {
+        // Capture the ID for use in closure (TypeScript narrowing)
+        const baleybotId = input.baleybotId;
+
         // Update existing BaleyBot
         const existing = await ctx.db.query.baleybots.findFirst({
           where: and(
-            eq(baleybots.id, input.baleybotId),
+            eq(baleybots.id, baleybotId),
             eq(baleybots.workspaceId, ctx.workspace.id),
             notDeleted(baleybots)
           ),
@@ -1017,8 +1115,9 @@ export const baleybotsRouter = router({
             }))
           : undefined;
 
-        try {
-          const updated = await updateWithLock(baleybots, input.baleybotId, existing.version, {
+        // API-002: Use shared error handling helper
+        return await withErrorHandling(
+          () => updateWithLock(baleybots, baleybotId, existing.version, {
             name: input.name,
             description: input.description,
             icon: input.icon,
@@ -1026,26 +1125,9 @@ export const baleybotsRouter = router({
             structure: input.structure,
             entityNames: input.entityNames,
             conversationHistory: truncatedHistory,
-          });
-
-          return updated;
-        } catch (error) {
-          // Handle optimistic lock error (version mismatch)
-          if (error instanceof Error && error.message.includes('version')) {
-            throw new TRPCError({
-              code: 'CONFLICT',
-              message: 'BaleyBot was modified by another user. Please refresh and try again.',
-            });
-          }
-          // Sanitize unexpected errors before sending to client
-          const message = isUserFacingError(error)
-            ? sanitizeErrorMessage(error)
-            : 'An internal error occurred';
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message,
-          });
-        }
+          }),
+          'BaleyBot'
+        );
       } else {
         // Truncate conversation history to last 50 messages
         const truncatedHistory = input.conversationHistory
