@@ -53,6 +53,7 @@ import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } f
 import { formatErrorWithAction, parseCreatorError } from '@/lib/errors/creator-errors';
 import { generateChangeSummary, formatChangeSummaryForChat } from '@/lib/baleybot/change-summary';
 import { safeParseDate } from '@/lib/utils/date';
+import { cn } from '@/lib/utils';
 import type {
   VisualEntity,
   Connection,
@@ -1030,7 +1031,7 @@ export default function BaleybotPage() {
 
       {/* Main content area with view tabs */}
       <div className="flex-1 relative overflow-hidden p-2 sm:p-4 md:p-6">
-        <div className="max-w-4xl mx-auto h-full flex flex-col">
+        <div className={cn("mx-auto h-full flex flex-col", viewMode === 'visual' ? 'max-w-6xl' : 'max-w-4xl')}>
           {/* View mode tabs */}
           <div className="flex items-center justify-between mb-3">
             <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)} className="w-auto">

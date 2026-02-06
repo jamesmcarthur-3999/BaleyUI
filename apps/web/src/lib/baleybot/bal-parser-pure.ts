@@ -11,10 +11,13 @@
  * - @baleyui/db (database)
  *
  * It CAN import from:
- * - @baleybots/tools (only tokenize/parse - pure lexer/parser)
+ * - @baleybots/tools baleybots-dsl-v2 sub-module (pure lexer/parser)
+ *   NOTE: Must use deep import to avoid barrel export that pulls in @baleybots/core
  */
 
-import { parse, tokenize } from '@baleybots/tools';
+// Use individual sub-path imports to avoid the DSL barrel (index.js) which imports @baleybots/core
+import { tokenize } from '@baleybots/tools/dsl/lexer';
+import { parse } from '@baleybots/tools/dsl/parser';
 
 // ============================================================================
 // TYPES (inlined to avoid importing from ./types which pulls @baleybots/core)

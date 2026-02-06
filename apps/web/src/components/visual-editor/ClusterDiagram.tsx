@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -100,12 +101,14 @@ export function ClusterDiagram({
   className,
   readOnly = false,
 }: ClusterDiagramProps) {
-  // Convert to React Flow format
-  const initialNodes = graph.nodes.map(toReactFlowNode);
-  const initialEdges = graph.edges.map(toReactFlowEdge);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+  // Sync React Flow state when graph prop changes
+  useEffect(() => {
+    setNodes(graph.nodes.map(toReactFlowNode));
+    setEdges(graph.edges.map(toReactFlowEdge));
+  }, [graph, setNodes, setEdges]);
 
   const handleNodeClick = (_event: React.MouseEvent, node: Node) => {
     onNodeClick?.(node.id);
@@ -120,7 +123,7 @@ export function ClusterDiagram({
           'text-muted-foreground text-sm',
           className
         )}
-        style={{ minHeight: 300 }}
+        style={{ minHeight: 400 }}
       >
         {parseErrors.length > 0 ? (
           <>
@@ -135,7 +138,7 @@ export function ClusterDiagram({
   }
 
   return (
-    <div className={cn('rounded-2xl border border-border overflow-hidden', className)}>
+    <div className={cn('rounded-2xl border border-border overflow-hidden', className)} style={{ minHeight: 400 }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
