@@ -140,6 +140,16 @@ export const baleybotsRouter = router({
         ),
         with: {
           executions: {
+            columns: {
+              id: true,
+              status: true,
+              error: true,
+              triggeredBy: true,
+              startedAt: true,
+              completedAt: true,
+              durationMs: true,
+              createdAt: true,
+            },
             limit: 10,
             orderBy: [desc(baleybotExecutions.createdAt)],
           },
@@ -706,7 +716,6 @@ export const baleybotsRouter = router({
           startedAt: baleybotExecutions.startedAt,
           completedAt: baleybotExecutions.completedAt,
           durationMs: baleybotExecutions.durationMs,
-          output: baleybotExecutions.output,
           error: baleybotExecutions.error,
           createdAt: baleybotExecutions.createdAt,
           baleybotName: baleybots.name,

@@ -22,7 +22,6 @@ interface Execution {
   startedAt: Date | null;
   completedAt: Date | null;
   durationMs: number | null;
-  output: unknown;
 }
 
 interface RecentActivityFeedProps {
@@ -73,24 +72,6 @@ export function RecentActivityFeed({
     }
   };
 
-  const getBriefResult = (execution: Execution): string | null => {
-    if (execution.status !== 'completed' || !execution.output) return null;
-
-    // Try to extract a brief summary from the output
-    const output = execution.output;
-    if (typeof output === 'string') {
-      return output.slice(0, 50) + (output.length > 50 ? '...' : '');
-    }
-    if (output && typeof output === 'object') {
-      const outputObj = output as Record<string, unknown>;
-      const summary = outputObj.summary || outputObj.result || outputObj.message;
-      if (typeof summary === 'string') {
-        return summary.slice(0, 50) + (summary.length > 50 ? '...' : '');
-      }
-    }
-    return null;
-  };
-
   return (
     <div className={`card-playful rounded-2xl overflow-hidden ${className}`}>
       <div className="p-6">
@@ -119,47 +100,37 @@ export function RecentActivityFeed({
           </div>
         ) : executions.length > 0 ? (
           <div className="space-y-2">
-            {executions.map((execution, index) => {
-              const briefResult = getBriefResult(execution);
-
-              return (
-                <Link
-                  key={execution.id}
-                  href={ROUTES.activity.execution(execution.id)}
-                  className={`flex items-center gap-4 rounded-xl p-3 hover:bg-primary/5 transition-colors duration-200 group animate-fade-in stagger-${Math.min(index + 1, 6)}`}
-                >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 text-xl shrink-0 transition-transform group-hover:scale-105">
-                    {execution.baleybotIcon || '🤖'}
+            {executions.map((execution, index) => (
+              <Link
+                key={execution.id}
+                href={ROUTES.activity.execution(execution.id)}
+                className={`flex items-center gap-4 rounded-xl p-3 hover:bg-primary/5 transition-colors duration-200 group animate-fade-in stagger-${Math.min(index + 1, 6)}`}
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 text-xl shrink-0 transition-transform group-hover:scale-105">
+                  {execution.baleybotIcon || '🤖'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="font-medium text-sm">
+                      {execution.baleybotName}
+                    </span>
+                    <StatusIcon status={execution.status} />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="font-medium text-sm">
-                        {execution.baleybotName}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {execution.startedAt && (
+                      <span>{formatTimeAgo(execution.startedAt)}</span>
+                    )}
+                    {execution.durationMs && (
+                      <span className="flex items-center gap-1">
+                        <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
+                        {formatDuration(execution.durationMs)}
                       </span>
-                      <StatusIcon status={execution.status} />
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      {execution.startedAt && (
-                        <span>{formatTimeAgo(execution.startedAt)}</span>
-                      )}
-                      {execution.durationMs && (
-                        <span className="flex items-center gap-1">
-                          <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
-                          {formatDuration(execution.durationMs)}
-                        </span>
-                      )}
-                      {briefResult && (
-                        <span className="truncate flex items-center gap-1">
-                          <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
-                          {briefResult}
-                        </span>
-                      )}
-                    </div>
+                    )}
                   </div>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground/50 transition-[color,transform] group-hover:text-primary group-hover:translate-x-1" />
-                </Link>
-              );
-            })}
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground/50 transition-[color,transform] group-hover:text-primary group-hover:translate-x-1" />
+              </Link>
+            ))}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-12 text-center">

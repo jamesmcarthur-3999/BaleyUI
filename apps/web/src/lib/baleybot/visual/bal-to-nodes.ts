@@ -8,7 +8,7 @@
 import { parseBalCode } from '../generator';
 import type { TriggerConfig } from '../types';
 export type { VisualNode, VisualEdge, VisualGraph } from './types';
-import type { VisualNode, VisualEdge, VisualGraph } from './types';
+import type { VisualNode, VisualEdge, VisualGraph, ParsedEntities } from './types';
 
 // ============================================================================
 // TRIGGER PARSING (moved inline after generator refactor)
@@ -76,7 +76,17 @@ export interface BalToVisualResult {
  * Convert BAL code to a visual graph representation
  */
 export function balToVisual(balCode: string): BalToVisualResult {
-  const { entities, chain, errors } = parseBalCode(balCode);
+  return balToVisualFromParsed(balCode, parseBalCode(balCode));
+}
+
+/**
+ * Convert BAL code to a visual graph using pre-parsed entities.
+ */
+export function balToVisualFromParsed(
+  balCode: string,
+  parsed: ParsedEntities
+): BalToVisualResult {
+  const { entities, chain, errors } = parsed;
 
   if (errors.length > 0 || entities.length === 0) {
     return { graph: { nodes: [], edges: [] }, errors };

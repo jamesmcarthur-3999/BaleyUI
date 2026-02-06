@@ -22,23 +22,16 @@ export function WorkspaceGuard({ children }: WorkspaceGuardProps) {
     staleTime: 60000, // Cache for 1 minute
   });
 
+  const shouldRedirect = !isLoading && data && !data.hasWorkspace;
+
   useEffect(() => {
-    if (!isLoading && data && !data.hasWorkspace) {
+    if (shouldRedirect) {
       router.push(ROUTES.onboarding);
     }
-  }, [data, isLoading, router]);
-
-  // Show loading while checking
-  if (isLoading) {
-    return (
-      <div className="h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  }, [router, shouldRedirect]);
 
   // If no workspace, don't render children (will redirect)
-  if (!data?.hasWorkspace) {
+  if (shouldRedirect) {
     return (
       <div className="h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -47,5 +40,17 @@ export function WorkspaceGuard({ children }: WorkspaceGuardProps) {
   }
 
   // Workspace exists, render children
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {isLoading && (
+        <div className="fixed inset-x-0 top-3 z-50 flex justify-center pointer-events-none">
+          <div className="flex items-center gap-2 rounded-full border border-border bg-background/90 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Checking workspace...
+          </div>
+        </div>
+      )}
+    </>
+  );
 }

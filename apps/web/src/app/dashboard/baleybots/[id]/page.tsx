@@ -6,12 +6,23 @@ import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
 import { ChatInput, ActionBar, ConversationThread, ExecutionHistory, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError } from '@/components/creator';
-import { BalCodeEditor, SchemaBuilder } from '@/components/baleybot';
+import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
 
 // Dynamic import to avoid bundling @baleybots/core server-only modules in client
 const VisualEditor = dynamic(
   () => import('@/components/visual-editor/VisualEditor').then(mod => ({ default: mod.VisualEditor })),
   { ssr: false }
+);
+const BalCodeEditor = dynamic(
+  () => import('@/components/baleybot/BalCodeEditor').then(mod => ({ default: mod.BalCodeEditor })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full flex items-center justify-center bg-muted/20 rounded-2xl">
+        <span className="text-sm text-muted-foreground">Loading editor...</span>
+      </div>
+    ),
+  }
 );
 import { TriggerConfig } from '@/components/baleybots/TriggerConfig';
 import type { TriggerConfig as TriggerConfigType } from '@/lib/baleybot/types';

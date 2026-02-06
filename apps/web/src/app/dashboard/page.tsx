@@ -101,7 +101,6 @@ export default function HomePage() {
         ? new Date(execution.completedAt)
         : null,
       durationMs: execution.durationMs,
-      output: execution.output,
     })) || [];
 
   return (

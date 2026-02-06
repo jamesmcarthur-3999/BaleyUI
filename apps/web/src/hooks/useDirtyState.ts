@@ -79,8 +79,22 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
       return;
     }
 
-    const dirty = !deepEqual(currentState, savedStateRef.current);
-    setIsDirty(dirty);
+    const saved = savedStateRef.current;
+    const basicDiff =
+      currentState.name !== saved.name ||
+      currentState.description !== saved.description ||
+      currentState.icon !== saved.icon ||
+      currentState.balCode !== saved.balCode;
+
+    const entitiesChanged =
+      currentState.entities !== saved.entities ||
+      currentState.entities.length !== saved.entities.length;
+
+    const connectionsChanged =
+      currentState.connections !== saved.connections ||
+      currentState.connections.length !== saved.connections.length;
+
+    setIsDirty(basicDiff || entitiesChanged || connectionsChanged);
   }, [currentState]);
 
   // Mark current state as clean (after save)
