@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { KeyboardShortcut } from '@/components/ui/kbd';
 import {
@@ -21,6 +22,8 @@ interface AppShellProps {
 function AppShell({ children }: AppShellProps) {
   const commandPalette = useCommandPalette();
   const { breadcrumbs } = useBreadcrumbs();
+  const pathname = usePathname();
+  const hideCompanion = pathname?.startsWith('/dashboard/baleybots/');
 
   return (
     <div className="flex h-screen">
@@ -103,10 +106,12 @@ function AppShell({ children }: AppShellProps) {
         <main className="flex-1 overflow-auto">{children}</main>
       </div>
 
-      {/* AI Companion */}
-      <CompanionContainer defaultMode="orb" position="bottom-right">
-        <ChatMode />
-      </CompanionContainer>
+      {/* AI Companion — hidden on baleybot pages to avoid competing with creator chat */}
+      {!hideCompanion && (
+        <CompanionContainer defaultMode="orb" position="bottom-right">
+          <ChatMode />
+        </CompanionContainer>
+      )}
 
       {/* Command Palette */}
       <CommandPalette

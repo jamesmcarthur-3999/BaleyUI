@@ -15,6 +15,8 @@ interface VisualEditorProps {
   onChange: (balCode: string) => void;
   readOnly?: boolean;
   className?: string;
+  /** Hide the internal Visual/Code/Split toolbar (when page-level tabs handle view switching) */
+  hideToolbar?: boolean;
 }
 
 type ViewMode = 'visual' | 'code' | 'split';
@@ -24,6 +26,7 @@ export function VisualEditor({
   onChange,
   readOnly = false,
   className,
+  hideToolbar = false,
 }: VisualEditorProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('visual');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -118,57 +121,59 @@ export function VisualEditor({
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card/50">
-        <div className="flex items-center gap-1 p-1 bg-muted rounded-lg">
-          <button
-            onClick={() => setViewMode('visual')}
-            className={cn(
-              'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors',
-              viewMode === 'visual'
-                ? 'bg-background shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
-            <LayoutGrid className="h-4 w-4" />
-            Visual
-          </button>
-          <button
-            onClick={() => setViewMode('code')}
-            className={cn(
-              'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors',
-              viewMode === 'code'
-                ? 'bg-background shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
-            <Code className="h-4 w-4" />
-            Code
-          </button>
-          <button
-            onClick={() => setViewMode('split')}
-            className={cn(
-              'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors',
-              viewMode === 'split'
-                ? 'bg-background shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
-            Split
-          </button>
-        </div>
+      {/* Toolbar — hidden when page-level tabs handle view switching */}
+      {!hideToolbar && (
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card/50">
+          <div className="flex items-center gap-1 p-1 bg-muted rounded-lg">
+            <button
+              onClick={() => setViewMode('visual')}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors',
+                viewMode === 'visual'
+                  ? 'bg-background shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <LayoutGrid className="h-4 w-4" />
+              Visual
+            </button>
+            <button
+              onClick={() => setViewMode('code')}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors',
+                viewMode === 'code'
+                  ? 'bg-background shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <Code className="h-4 w-4" />
+              Code
+            </button>
+            <button
+              onClick={() => setViewMode('split')}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors',
+                viewMode === 'split'
+                  ? 'bg-background shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              Split
+            </button>
+          </div>
 
-        <div className="flex items-center gap-2">
-          {isParsing && (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          )}
-          {selectedNode && viewMode !== 'code' && (
-            <span className="text-sm text-muted-foreground">
-              Editing: {formatNodeName(selectedNode.data.name)}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {isParsing && (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            )}
+            {selectedNode && viewMode !== 'code' && (
+              <span className="text-sm text-muted-foreground">
+                Editing: {formatNodeName(selectedNode.data.name)}
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">

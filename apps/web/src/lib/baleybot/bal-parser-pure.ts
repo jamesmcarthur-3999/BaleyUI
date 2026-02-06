@@ -187,7 +187,6 @@ function parseTriggerString(trigger: string): TriggerConfig | null {
 // ============================================================================
 
 const NODE_WIDTH = 280;
-const NODE_HEIGHT = 150;
 const HORIZONTAL_GAP = 100;
 
 function calculatePosition(

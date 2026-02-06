@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Play, Code, Loader2, CheckCircle, XCircle, Save, Copy, Check, Braces, Type, Download, AlertTriangle } from 'lucide-react';
+import { Play, Code, Loader2, CheckCircle, XCircle, Save, Braces, Type, Download, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -11,7 +11,6 @@ import {
 } from '@/components/ui/tooltip';
 import type { CreationStatus } from '@/lib/baleybot/creator-types';
 import { cn } from '@/lib/utils';
-import { BalCodeHighlighter } from './BalCodeHighlighter';
 import type { ParserErrorLocation } from '@/lib/errors/creator-errors';
 import type { SchemaValidationResult } from '@/lib/baleybot/types';
 import { DashboardTemplate, ReportTemplate } from '@/components/outputs';
@@ -129,7 +128,6 @@ function formatBytes(bytes: number): string {
 
 interface ActionBarProps {
   status: CreationStatus;
-  balCode: string;
   onRun: (input: string) => void;
   runResult?: RunResult;
   className?: string;
@@ -141,7 +139,6 @@ interface ActionBarProps {
 
 export function ActionBar({
   status,
-  balCode,
   onRun,
   runResult,
   className,
@@ -149,8 +146,6 @@ export function ActionBar({
   autoSaveStatus = 'idle',
 }: ActionBarProps) {
   const [testInput, setTestInput] = useState('');
-  const [showCode, setShowCode] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [inputMode, setInputMode] = useState<'simple' | 'json'>('simple');
   const [jsonError, setJsonError] = useState<string | null>(null);
 
@@ -190,20 +185,6 @@ export function ActionBar({
       validateJsonInput(testInput);
     } else {
       setJsonError(null);
-    }
-  };
-
-  /**
-   * Copy BAL code to clipboard
-   */
-  const handleCopy = async () => {
-    if (!balCode) return;
-    try {
-      await navigator.clipboard.writeText(balCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
     }
   };
 
@@ -368,74 +349,6 @@ export function ActionBar({
           </Tooltip>
         </TooltipProvider>
 
-        {/* Code Toggle Button - min 44px touch target (Phase 4.2), full width on mobile (Phase 4.4) */}
-        <Button
-          variant="outline"
-          onClick={() => setShowCode(!showCode)}
-          aria-expanded={showCode}
-          aria-controls="bal-code-viewer"
-          className={cn(
-            'rounded-xl px-4 min-h-11 h-auto',
-            'flex items-center justify-center gap-2',
-            'w-full sm:w-auto', // Full width on mobile (Phase 4.4)
-            showCode && 'bg-muted'
-          )}
-        >
-          <Code className="h-4 w-4" aria-hidden="true" />
-          {showCode ? 'Hide Code' : 'View Code'}
-        </Button>
-      </div>
-
-      {/* Code Viewer */}
-      <div
-        id="bal-code-viewer"
-        className={cn(
-          'grid transition-[grid-template-rows,opacity] duration-200 ease-in-out',
-          showCode ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
-        )}
-        role="region"
-        aria-label="Generated BAL code"
-      >
-        <div className="overflow-hidden">
-          <div className="rounded-xl bg-muted/50 border overflow-hidden">
-            {/* Code header with copy button */}
-            <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
-              <span className="text-xs font-medium text-muted-foreground">BAL Code</span>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleCopy}
-                      disabled={!balCode}
-                      className="h-7 px-2 text-xs"
-                    >
-                      {copied ? (
-                        <>
-                          <Check className="h-3.5 w-3.5 mr-1 text-green-500" aria-hidden="true" />
-                          Copied!
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="h-3.5 w-3.5 mr-1" aria-hidden="true" />
-                          Copy
-                        </>
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{copied ? 'Copied to clipboard!' : 'Copy code to clipboard'}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-            {/* Code content with syntax highlighting */}
-            <div className="p-4">
-              <BalCodeHighlighter code={balCode} showLineNumbers />
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Run Result Display (Phase 5.5: Handle large output) */}

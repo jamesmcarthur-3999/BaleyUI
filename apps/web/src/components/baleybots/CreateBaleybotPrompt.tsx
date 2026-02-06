@@ -45,9 +45,6 @@ export function CreateBaleybotPrompt({ className }: CreateBaleybotPromptProps) {
 
   return (
     <div className={`card-playful rounded-3xl overflow-hidden ${className}`}>
-      {/* Gradient accent bar */}
-      <div className="h-1 bg-gradient-to-r from-primary via-accent to-primary" />
-
       <div className="p-8">
         <div className="flex items-start gap-4 mb-6">
           <div className="icon-box w-14 h-14 shrink-0">

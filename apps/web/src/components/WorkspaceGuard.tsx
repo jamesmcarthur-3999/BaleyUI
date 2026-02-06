@@ -17,9 +17,10 @@ interface WorkspaceGuardProps {
 export function WorkspaceGuard({ children }: WorkspaceGuardProps) {
   const router = useRouter();
 
-  const { data, isLoading } = trpc.workspaces.checkWorkspace.useQuery(undefined, {
+  const { data, isLoading, isFetched } = trpc.workspaces.checkWorkspace.useQuery(undefined, {
     retry: false,
-    staleTime: 60000, // Cache for 1 minute
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: false,
   });
 
   const shouldRedirect = !isLoading && data && !data.hasWorkspace;
@@ -40,10 +41,11 @@ export function WorkspaceGuard({ children }: WorkspaceGuardProps) {
   }
 
   // Workspace exists, render children
+  // Skip loading overlay if workspace was already checked this session
   return (
     <>
       {children}
-      {isLoading && (
+      {isLoading && !isFetched && (
         <div className="fixed inset-x-0 top-3 z-50 flex justify-center pointer-events-none">
           <div className="flex items-center gap-2 rounded-full border border-border bg-background/90 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
             <Loader2 className="h-3 w-3 animate-spin" />

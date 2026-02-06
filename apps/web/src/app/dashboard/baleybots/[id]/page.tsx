@@ -62,6 +62,16 @@ import type {
 } from '@/lib/baleybot/creator-types';
 
 /**
+ * Example prompts shown on the /new welcome view
+ */
+const EXAMPLE_PROMPTS = [
+  { label: 'Summarize articles', prompt: 'Create a bot that summarizes news articles from URLs I give it' },
+  { label: 'Research assistant', prompt: 'Create a research assistant that can search the web and compile findings' },
+  { label: 'Data analyzer', prompt: 'Create a bot that analyzes CSV data and answers questions about it' },
+  { label: 'Email drafter', prompt: 'Create a bot that drafts professional emails based on bullet points' },
+];
+
+/**
  * Maximum length for BaleyBot names (Phase 5.1)
  */
 const MAX_NAME_LENGTH = 100;
@@ -318,6 +328,9 @@ export default function BaleybotPage() {
       setBalCode(result.balCode);
       setName(truncateName(result.name));
       setIcon(result.icon);
+      if (result.description) {
+        setDescription(result.description);
+      }
 
       // 7.5 Push to undo history (Phase 3.5)
       const truncatedName = truncateName(result.name);
@@ -346,16 +359,24 @@ export default function BaleybotPage() {
       // Build response message
       let responseContent = '';
       if (prevEntities.length === 0) {
-        // Initial creation
-        responseContent = `I've created "${result.name}" with ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}.`;
+        // Initial creation — use AI thinking for detailed response if available
+        if (result.thinking) {
+          responseContent = result.thinking;
+        } else {
+          // Fallback to a structured summary
+          const toolList = visualEntities.flatMap(e => e.tools).filter(Boolean);
+          responseContent = `I've created **${result.name}** with ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}.`;
+          if (toolList.length > 0) {
+            responseContent += ` Tools: ${toolList.join(', ')}.`;
+          }
+          responseContent += ' You can test it by typing a message below, or customize the code in the Code tab.';
+        }
       } else {
-        // Update - include change summary
+        // Update — include change summary
         responseContent = summaryText || `Updated "${result.name}".`;
-      }
-
-      // Add AI thinking if available
-      if (result.thinking) {
-        responseContent += ` ${result.thinking}`;
+        if (result.thinking) {
+          responseContent += ` ${result.thinking}`;
+        }
       }
 
       const assistantMessage: CreatorMessage = {
@@ -397,7 +418,7 @@ export default function BaleybotPage() {
       const result = await saveMutation.mutateAsync({
         baleybotId: savedBaleybotId ?? undefined,
         name,
-        description: description || messages[0]?.content,
+        description: description || undefined,
         icon: icon || undefined,
         balCode,
         conversationHistory: messages.map((m) => ({
@@ -1029,236 +1050,301 @@ export default function BaleybotPage() {
         )}
       </motion.header>
 
-      {/* Main content area with view tabs */}
+      {/* Main content area */}
       <div className="flex-1 relative overflow-hidden p-2 sm:p-4 md:p-6">
-        <div className={cn("mx-auto h-full flex flex-col", viewMode === 'visual' ? 'max-w-6xl' : 'max-w-4xl')}>
-          {/* View mode tabs */}
-          <div className="flex items-center justify-between mb-3">
-            <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)} className="w-auto">
-              <TabsList className="h-9 bg-muted/50">
-                <TabsTrigger value="visual" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
-                  <LayoutGrid className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Visual</span>
-                </TabsTrigger>
-                <TabsTrigger value="code" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
-                  <Code2 className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Code</span>
-                </TabsTrigger>
-                <TabsTrigger value="schema" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
-                  <ListTree className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Schema</span>
-                </TabsTrigger>
-                <TabsTrigger value="triggers" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
-                  <Zap className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Triggers</span>
-                </TabsTrigger>
-                <TabsTrigger value="analytics" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
-                  <BarChart3 className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Analytics</span>
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+        {status === 'empty' ? (
+          /* Welcome / creation view for new bots */
+          <div className="mx-auto max-w-2xl h-full flex flex-col items-center justify-center text-center px-4">
+            <div className="mb-8">
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">
+                What should your BaleyBot do?
+              </h2>
+              <p className="text-muted-foreground">
+                Describe what you want in plain language
+              </p>
+            </div>
+
+            {/* Chat input — centered for creation */}
+            <div className="w-full mb-6">
+              <ChatInput
+                status={status}
+                onSend={handleSendMessage}
+                disabled={creatorMutation.isPending || isSaving}
+              />
+            </div>
+
+            {/* Example prompt pills */}
+            <div className="flex flex-wrap justify-center gap-2">
+              {EXAMPLE_PROMPTS.map((ex) => (
+                <button
+                  key={ex.label}
+                  onClick={() => handleSendMessage(ex.prompt)}
+                  disabled={creatorMutation.isPending}
+                  className="rounded-full border border-border bg-background px-4 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+                >
+                  {ex.label}
+                </button>
+              ))}
+            </div>
           </div>
+        ) : (
+          /* Tabbed editor view for existing / in-progress bots */
+          <div className={cn("mx-auto h-full flex flex-col", viewMode === 'visual' ? 'max-w-6xl' : 'max-w-4xl')}>
+            {/* View mode tabs */}
+            <div className="flex items-center justify-between mb-3">
+              <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)} className="w-auto">
+                <TabsList className="h-9 bg-muted/50">
+                  <TabsTrigger value="visual" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Visual</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="code" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
+                    <Code2 className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Code</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="schema" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
+                    <ListTree className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Schema</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="triggers" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
+                    <Zap className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Triggers</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="analytics" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
+                    <BarChart3 className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Analytics</span>
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
 
-          {/* View content */}
-          <div className="flex-1 min-h-0">
-            <ErrorBoundary
-              fallback={
-                <div className="h-full flex items-center justify-center bg-muted/20 rounded-2xl">
-                  <p className="text-muted-foreground">Failed to render. Please refresh.</p>
-                </div>
-              }
-            >
-              {/* Visual Editor View */}
-              {viewMode === 'visual' && (
-                <VisualEditor
-                  balCode={balCode}
-                  onChange={handleCodeChange}
-                  readOnly={status === 'building' || status === 'running'}
-                  className="h-full"
-                />
-              )}
-
-              {/* Code Editor View */}
-              {viewMode === 'code' && (
-                <div className="h-full">
-                  <BalCodeEditor
-                    value={balCode}
+            {/* View content */}
+            <div className="flex-1 min-h-0">
+              <ErrorBoundary
+                fallback={
+                  <div className="h-full flex items-center justify-center bg-muted/20 rounded-2xl">
+                    <p className="text-muted-foreground">Failed to render. Please refresh.</p>
+                  </div>
+                }
+              >
+                {/* Visual Editor View */}
+                {viewMode === 'visual' && (
+                  <VisualEditor
+                    balCode={balCode}
                     onChange={handleCodeChange}
-                    height="100%"
+                    readOnly={status === 'building' || status === 'running'}
                     className="h-full"
-                    readOnly={status === 'building' || status === 'running'}
+                    hideToolbar
                   />
-                </div>
-              )}
+                )}
 
-              {/* Schema Builder View */}
-              {viewMode === 'schema' && (
-                <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                  <SchemaBuilder
-                    value={outputSchema}
-                    onChange={handleSchemaChange}
-                    readOnly={status === 'building' || status === 'running'}
-                  />
-                </div>
-              )}
+                {/* Code Editor View */}
+                {viewMode === 'code' && (
+                  <div className="h-full">
+                    <BalCodeEditor
+                      value={balCode}
+                      onChange={handleCodeChange}
+                      height="100%"
+                      className="h-full"
+                      readOnly={status === 'building' || status === 'running'}
+                    />
+                  </div>
+                )}
 
-              {/* Triggers View */}
-              {viewMode === 'triggers' && (
-                <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                  <TriggerConfig
-                    value={triggerConfig}
-                    onChange={setTriggerConfig}
-                    availableBaleybots={
-                      availableBaleybots
-                        ?.filter((bb) => bb.id !== savedBaleybotId)
-                        .map((bb) => ({ id: bb.id, name: bb.name })) ?? []
-                    }
-                  />
-                </div>
-              )}
-
-              {/* Analytics View */}
-              {viewMode === 'analytics' && (
-                <div className="h-full overflow-auto bg-background rounded-lg border p-4 space-y-6">
-                  {!savedBaleybotId ? (
-                    <p className="text-muted-foreground text-sm">Save this BaleyBot first to see analytics.</p>
-                  ) : isLoadingAnalytics ? (
-                    <div className="space-y-3">
-                      <Skeleton className="h-20 w-full" />
-                      <Skeleton className="h-40 w-full" />
-                      <Skeleton className="h-32 w-full" />
-                    </div>
-                  ) : analyticsData ? (
-                    <>
-                      {/* Stats row */}
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="rounded-lg border p-4 text-center">
-                          <p className="text-2xl font-bold">{analyticsData.total}</p>
-                          <p className="text-xs text-muted-foreground">Total Runs</p>
-                        </div>
-                        <div className="rounded-lg border p-4 text-center">
-                          <p className="text-2xl font-bold">{(analyticsData.successRate * 100).toFixed(1)}%</p>
-                          <p className="text-xs text-muted-foreground">Success Rate</p>
-                        </div>
-                        <div className="rounded-lg border p-4 text-center">
-                          <p className="text-2xl font-bold">{analyticsData.avgDurationMs > 1000 ? `${(analyticsData.avgDurationMs / 1000).toFixed(1)}s` : `${analyticsData.avgDurationMs}ms`}</p>
-                          <p className="text-xs text-muted-foreground">Avg Duration</p>
-                        </div>
+                {/* Schema Builder View */}
+                {viewMode === 'schema' && (
+                  <div className="h-full overflow-auto bg-background rounded-lg border p-4">
+                    {Object.keys(outputSchema).length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                        <ListTree className="h-10 w-10 text-muted-foreground/40 mb-4" />
+                        <h3 className="text-lg font-medium mb-2">Input/Output Schema</h3>
+                        <p className="text-sm text-muted-foreground max-w-md mb-4">
+                          Define the expected input and output format for your bot. This enables type-safe integrations and API usage.
+                        </p>
+                        <Button
+                          variant="outline"
+                          onClick={() => setOutputSchema({ result: 'string' })}
+                        >
+                          Add Schema
+                        </Button>
                       </div>
+                    ) : (
+                      <SchemaBuilder
+                        value={outputSchema}
+                        onChange={handleSchemaChange}
+                        readOnly={status === 'building' || status === 'running'}
+                      />
+                    )}
+                  </div>
+                )}
 
-                      {/* Additional stats */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="rounded-lg border p-4 text-center">
-                          <p className="text-xl font-bold">{analyticsData.totalTokens.toLocaleString()}</p>
-                          <p className="text-xs text-muted-foreground">Total Tokens</p>
-                        </div>
-                        <div className="rounded-lg border p-4 text-center">
-                          <p className="text-xl font-bold">{analyticsData.failures}</p>
-                          <p className="text-xs text-muted-foreground">Failures</p>
-                        </div>
+                {/* Triggers View */}
+                {viewMode === 'triggers' && (
+                  <div className="h-full overflow-auto bg-background rounded-lg border p-4">
+                    <TriggerConfig
+                      value={triggerConfig}
+                      onChange={setTriggerConfig}
+                      availableBaleybots={
+                        availableBaleybots
+                          ?.filter((bb) => bb.id !== savedBaleybotId)
+                          .map((bb) => ({ id: bb.id, name: bb.name })) ?? []
+                      }
+                    />
+                  </div>
+                )}
+
+                {/* Analytics View */}
+                {viewMode === 'analytics' && (
+                  <div className="h-full overflow-auto bg-background rounded-lg border p-4 space-y-6">
+                    {!savedBaleybotId ? (
+                      <p className="text-muted-foreground text-sm">Save this BaleyBot first to see analytics.</p>
+                    ) : isLoadingAnalytics ? (
+                      <div className="space-y-3">
+                        <Skeleton className="h-20 w-full" />
+                        <Skeleton className="h-40 w-full" />
+                        <Skeleton className="h-32 w-full" />
                       </div>
-
-                      {/* Daily trend */}
-                      {analyticsData.dailyTrend.length > 0 && (
-                        <div>
-                          <h3 className="text-sm font-medium mb-3">Daily Executions</h3>
-                          <div className="flex items-end gap-1 h-24">
-                            {analyticsData.dailyTrend.map((day) => {
-                              const maxCount = Math.max(...analyticsData.dailyTrend.map(d => d.count));
-                              const height = maxCount > 0 ? (day.count / maxCount) * 100 : 0;
-                              return (
-                                <div
-                                  key={day.date}
-                                  className="flex-1 min-w-0 group relative"
-                                >
-                                  <div
-                                    className="bg-primary/70 hover:bg-primary rounded-t transition-colors w-full"
-                                    style={{ height: `${Math.max(height, 4)}%` }}
-                                    title={`${day.date}: ${day.count} executions`}
-                                  />
-                                </div>
-                              );
-                            })}
+                    ) : analyticsData ? (
+                      <>
+                        {/* Empty state when all analytics are zero */}
+                        {analyticsData.total === 0 ? (
+                          <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                            <BarChart3 className="h-10 w-10 text-muted-foreground/40 mb-4" />
+                            <h3 className="text-lg font-medium mb-2">No activity yet</h3>
+                            <p className="text-sm text-muted-foreground max-w-md">
+                              Run your bot a few times to see analytics here.
+                            </p>
                           </div>
-                          <div className="flex justify-between mt-1">
-                            <span className="text-[10px] text-muted-foreground">{analyticsData.dailyTrend[0]?.date}</span>
-                            <span className="text-[10px] text-muted-foreground">{analyticsData.dailyTrend[analyticsData.dailyTrend.length - 1]?.date}</span>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Top errors */}
-                      {analyticsData.topErrors.length > 0 && (
-                        <div>
-                          <h3 className="text-sm font-medium mb-3">Recent Errors</h3>
-                          <div className="space-y-2">
-                            {analyticsData.topErrors.map((err, i) => (
-                              <div key={i} className="flex items-start justify-between gap-2 text-sm rounded-lg border border-destructive/20 bg-destructive/5 p-3">
-                                <p className="text-destructive text-xs break-all flex-1">{err.message}</p>
-                                <span className="text-muted-foreground text-xs shrink-0">{err.count}x</span>
+                        ) : (
+                          <>
+                            {/* Stats row */}
+                            <div className="grid grid-cols-3 gap-4">
+                              <div className="rounded-lg border p-4 text-center">
+                                <p className="text-2xl font-bold">{analyticsData.total}</p>
+                                <p className="text-xs text-muted-foreground">Total Runs</p>
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                              <div className="rounded-lg border p-4 text-center">
+                                <p className="text-2xl font-bold">{(analyticsData.successRate * 100).toFixed(1)}%</p>
+                                <p className="text-xs text-muted-foreground">Success Rate</p>
+                              </div>
+                              <div className="rounded-lg border p-4 text-center">
+                                <p className="text-2xl font-bold">{analyticsData.avgDurationMs > 1000 ? `${(analyticsData.avgDurationMs / 1000).toFixed(1)}s` : `${analyticsData.avgDurationMs}ms`}</p>
+                                <p className="text-xs text-muted-foreground">Avg Duration</p>
+                              </div>
+                            </div>
 
-                      {analyticsData.total === 0 && (
-                        <p className="text-muted-foreground text-sm text-center py-8">No executions in the last 30 days. Run this BaleyBot to see analytics.</p>
-                      )}
-                    </>
-                  ) : null}
-                </div>
-              )}
-            </ErrorBoundary>
+                            {/* Additional stats */}
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="rounded-lg border p-4 text-center">
+                                <p className="text-xl font-bold">{analyticsData.totalTokens.toLocaleString()}</p>
+                                <p className="text-xs text-muted-foreground">Total Tokens</p>
+                              </div>
+                              <div className="rounded-lg border p-4 text-center">
+                                <p className="text-xl font-bold">{analyticsData.failures}</p>
+                                <p className="text-xs text-muted-foreground">Failures</p>
+                              </div>
+                            </div>
+
+                            {/* Daily trend */}
+                            {analyticsData.dailyTrend.length > 0 && (
+                              <div>
+                                <h3 className="text-sm font-medium mb-3">Daily Executions</h3>
+                                <div className="flex items-end gap-1 h-24">
+                                  {analyticsData.dailyTrend.map((day) => {
+                                    const maxCount = Math.max(...analyticsData.dailyTrend.map(d => d.count));
+                                    const height = maxCount > 0 ? (day.count / maxCount) * 100 : 0;
+                                    return (
+                                      <div
+                                        key={day.date}
+                                        className="flex-1 min-w-0 group relative"
+                                      >
+                                        <div
+                                          className="bg-primary/70 hover:bg-primary rounded-t transition-colors w-full"
+                                          style={{ height: `${Math.max(height, 4)}%` }}
+                                          title={`${day.date}: ${day.count} executions`}
+                                        />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                                <div className="flex justify-between mt-1">
+                                  <span className="text-[10px] text-muted-foreground">{analyticsData.dailyTrend[0]?.date}</span>
+                                  <span className="text-[10px] text-muted-foreground">{analyticsData.dailyTrend[analyticsData.dailyTrend.length - 1]?.date}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Top errors */}
+                            {analyticsData.topErrors.length > 0 && (
+                              <div>
+                                <h3 className="text-sm font-medium mb-3">Recent Errors</h3>
+                                <div className="space-y-2">
+                                  {analyticsData.topErrors.map((err, i) => (
+                                    <div key={i} className="flex items-start justify-between gap-2 text-sm rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+                                      <p className="text-destructive text-xs break-all flex-1">{err.message}</p>
+                                      <span className="text-muted-foreground text-xs shrink-0">{err.count}x</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </>
+                    ) : null}
+                  </div>
+                )}
+              </ErrorBoundary>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Bottom controls - responsive padding (Phase 4.6, 4.8) */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.1 }}
-        className="border-t border-border/50 bg-background/80 backdrop-blur-sm px-2 sm:px-4 md:px-6 py-3 sm:py-4"
-      >
-        <div className="max-w-2xl md:max-w-3xl mx-auto space-y-4">
-          {/* Conversation thread (Phase 2.7) */}
-          <ConversationThread
-            messages={messages}
-            defaultCollapsed={messages.length > 3}
-            maxHeight="250px"
-          />
-
-          {/* Execution history (Phase 2.9) */}
-          {!isNew && existingBaleybot?.executions && existingBaleybot.executions.length > 0 && (
-            <ExecutionHistory
-              executions={existingBaleybot.executions}
-              defaultCollapsed={true}
-              onExecutionClick={(executionId) => {
-                router.push(ROUTES.activity.execution(executionId));
-              }}
+      {/* Bottom controls — hidden during welcome view (chat input is inline there) */}
+      {status !== 'empty' && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.1 }}
+          className="border-t border-border/50 bg-background/80 backdrop-blur-sm px-2 sm:px-4 md:px-6 py-3 sm:py-4"
+        >
+          <div className="max-w-2xl md:max-w-3xl mx-auto space-y-4">
+            {/* Conversation thread */}
+            <ConversationThread
+              messages={messages}
+              defaultCollapsed={messages.length > 3}
+              maxHeight="250px"
             />
-          )}
 
-          {/* Action bar (when ready) */}
-          <ActionBar
-            status={status}
-            balCode={balCode}
-            onRun={handleRun}
-            runResult={runResult}
-            isRunLocked={isRunLocked}
-            autoSaveStatus={autoSaveStatus}
-          />
+            {/* Execution history */}
+            {!isNew && existingBaleybot?.executions && existingBaleybot.executions.length > 0 && (
+              <ExecutionHistory
+                executions={existingBaleybot.executions}
+                defaultCollapsed={true}
+                onExecutionClick={(executionId) => {
+                  router.push(ROUTES.activity.execution(executionId));
+                }}
+              />
+            )}
 
-          {/* Chat input (always visible) */}
-          <ChatInput
-            status={status}
-            onSend={handleSendMessage}
-            disabled={creatorMutation.isPending || isSaving}
-          />
-        </div>
-      </motion.div>
+            {/* Action bar (when ready) */}
+            <ActionBar
+              status={status}
+              onRun={handleRun}
+              runResult={runResult}
+              isRunLocked={isRunLocked}
+              autoSaveStatus={autoSaveStatus}
+            />
+
+            {/* Chat input */}
+            <ChatInput
+              status={status}
+              onSend={handleSendMessage}
+              disabled={creatorMutation.isPending || isSaving}
+            />
+          </div>
+        </motion.div>
+      )}
 
       {/* Keyboard Shortcuts Dialog (Phase 3.8) */}
       <KeyboardShortcutsDialog open={isShortcutsOpen} onOpenChange={setShortcutsOpen} />

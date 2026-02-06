@@ -62,12 +62,21 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
   const hasHadContentRef = useRef(false);
   // Ref to current state for stable callbacks (avoids infinite re-renders)
   const currentStateRef = useRef<CreatorDirtyState>(currentState);
+  // Suppress the next dirty check after markClean() to prevent false-positive
+  // that occurs between data load and the first state comparison
+  const suppressNextCheckRef = useRef(false);
 
   // Keep currentStateRef in sync with the latest state
   currentStateRef.current = currentState;
 
   // Check for changes when currentState updates
   useEffect(() => {
+    // If markClean() was just called, skip this cycle to prevent false-positive
+    if (suppressNextCheckRef.current) {
+      suppressNextCheckRef.current = false;
+      return;
+    }
+
     // Track if we've ever had content
     if (currentState.balCode || currentState.entities.length > 0) {
       hasHadContentRef.current = true;
@@ -102,6 +111,7 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
   // arrays by consumers - without stable identity it causes infinite render loops
   const markClean = useCallback(() => {
     savedStateRef.current = { ...currentStateRef.current };
+    suppressNextCheckRef.current = true;
     setIsDirty(false);
   }, []);
 

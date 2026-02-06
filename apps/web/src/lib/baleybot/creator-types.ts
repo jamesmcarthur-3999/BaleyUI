@@ -214,6 +214,8 @@ export const creatorOutputSchema = z.object({
   balCode: z.string().min(1, 'BAL code is required'),
   /** Suggested name for the BaleyBot */
   name: z.string().min(1, 'Name is required').max(255),
+  /** Auto-generated description of what the bot does */
+  description: z.string().max(200).optional(),
   /** Suggested icon (emoji) */
   icon: z.string().min(1, 'Icon is required'),
   /** Creation status */

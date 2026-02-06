@@ -166,7 +166,7 @@ export function BaleybotCard({
           <div className="flex items-start gap-4">
             {/* Icon */}
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-accent/10 text-2xl shrink-0 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
-              {icon || '🤖'}
+              {icon?.trim() || '🤖'}
             </div>
 
             <div className="flex-1 min-w-0">

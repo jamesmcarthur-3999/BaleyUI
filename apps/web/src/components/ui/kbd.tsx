@@ -29,10 +29,11 @@ function Kbd({ children, className, ...props }: KbdProps) {
 Kbd.displayName = 'Kbd';
 
 /**
- * Hook to detect if user is on Mac
+ * Hook to detect if user is on Mac.
+ * Returns undefined during SSR/hydration to avoid flash.
  */
-function useIsMac() {
-  const [isMac, setIsMac] = React.useState(false);
+function useIsMac(): boolean | undefined {
+  const [isMac, setIsMac] = React.useState<boolean | undefined>(undefined);
 
   React.useEffect(() => {
     setIsMac(navigator.platform.toLowerCase().includes('mac'));
@@ -44,6 +45,7 @@ function useIsMac() {
 /**
  * Renders a keyboard shortcut with proper modifier for the OS.
  * Pass shortcut like "mod+k" and it renders ⌘K on Mac, Ctrl+K on Windows.
+ * Renders a fixed-width placeholder during SSR to prevent layout shift.
  */
 function KeyboardShortcut({
   shortcut,
@@ -54,7 +56,11 @@ function KeyboardShortcut({
 }) {
   const isMac = useIsMac();
 
-  // React 19 - no useMemo needed, compiler optimizes automatically
+  // During SSR/hydration, render an invisible placeholder to prevent flash
+  if (isMac === undefined) {
+    return <Kbd className={cn(className, 'invisible')}>{shortcut.replace(/mod\+/gi, '').toUpperCase()}</Kbd>;
+  }
+
   const formatted = shortcut
     .replace(/mod/gi, isMac ? '⌘' : 'Ctrl')
     .replace(/alt/gi, isMac ? '⌥' : 'Alt')

@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { trpc } from '@/lib/trpc/client';
 import { useToast } from '@/components/ui/use-toast';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -18,7 +17,7 @@ import {
 } from '@/components/ui/select';
 import { ROUTES } from '@/lib/routes';
 import { BaleybotCard, CreateBaleybotPrompt } from '@/components/baleybots';
-import { Bot, Plus, Search } from 'lucide-react';
+import { Bot, Search } from 'lucide-react';
 import { useGridNavigation } from '@/hooks/useGridNavigation';
 
 export default function BaleybotsListPage() {
@@ -94,19 +93,11 @@ export default function BaleybotsListPage() {
     <div className="container py-10">
       <div className="flex flex-col gap-8">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">BaleyBots</h1>
-            <p className="text-muted-foreground">
-              Manage all your intelligent BaleyBots
-            </p>
-          </div>
-          <Button asChild>
-            <Link href={ROUTES.baleybots.create}>
-              <Plus className="h-4 w-4 mr-2" />
-              New BaleyBot
-            </Link>
-          </Button>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">BaleyBots</h1>
+          <p className="text-muted-foreground">
+            Manage all your intelligent BaleyBots
+          </p>
         </div>
 
         {/* Search & Filter */}
@@ -178,15 +169,48 @@ export default function BaleybotsListPage() {
               </div>
             ))}
           </div>
+        ) : baleybots && baleybots.length === 0 ? (
+          /* Empty list — show getting started templates */
+          <div className="space-y-6">
+            <div className="text-center">
+              <Bot className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
+              <h2 className="text-xl font-semibold mb-1">Get started</h2>
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                BaleyBots are AI agents you build with plain language. They can search the web, process data, send notifications, and chain together.
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Link
+                href={`${ROUTES.baleybots.create}?prompt=${encodeURIComponent('Create a research assistant that can search the web and compile findings into a summary')}`}
+                className="rounded-xl border bg-background p-5 hover:border-primary/50 hover:shadow-sm transition-all group"
+              >
+                <span className="text-2xl block mb-2">🔍</span>
+                <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">Research Assistant</h3>
+                <p className="text-xs text-muted-foreground">Searches the web and compiles findings into concise summaries.</p>
+              </Link>
+              <Link
+                href={`${ROUTES.baleybots.create}?prompt=${encodeURIComponent('Create a bot that summarizes news articles from URLs I give it')}`}
+                className="rounded-xl border bg-background p-5 hover:border-primary/50 hover:shadow-sm transition-all group"
+              >
+                <span className="text-2xl block mb-2">📰</span>
+                <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">Article Summarizer</h3>
+                <p className="text-xs text-muted-foreground">Fetches and summarizes articles from any URL you provide.</p>
+              </Link>
+              <Link
+                href={`${ROUTES.baleybots.create}?prompt=${encodeURIComponent('Create a bot that drafts professional emails based on bullet points I give it')}`}
+                className="rounded-xl border bg-background p-5 hover:border-primary/50 hover:shadow-sm transition-all group"
+              >
+                <span className="text-2xl block mb-2">✉️</span>
+                <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">Email Drafter</h3>
+                <p className="text-xs text-muted-foreground">Turns rough bullet points into polished professional emails.</p>
+              </Link>
+            </div>
+          </div>
         ) : (
           <EmptyState
             icon={Bot}
-            title="No BaleyBots yet"
-            description="Create your first BaleyBot by describing what you need above."
-            action={{
-              label: 'Create BaleyBot',
-              href: ROUTES.baleybots.create,
-            }}
+            title="No matching BaleyBots"
+            description="Try adjusting your search or filters."
           />
         )}
       </div>
