@@ -16,11 +16,10 @@ BaleyUI is a visual development platform built on top of the [BaleyBots](https:/
 
 ## Current Development Status
 
-**Active Branch:** `feature/tool-ecosystem`
-
 | Phase | Status | Description |
 |-------|--------|-------------|
 | Phase 1-3 | Complete | Core BaleyBot execution, streaming, connections |
+| Audit Remediation | Complete | 4 sprints — security, performance, React 19, lint |
 | Phase 4 | In Progress | Tool ecosystem (built-in tools, triggers, analytics) |
 
 See [docs/plans/](./docs/plans/) for detailed implementation plans.
@@ -83,12 +82,14 @@ BaleyUI/
 ├── packages/
 │   ├── db/                       # @baleyui/db - Database schema & types
 │   ├── sdk/                      # @baleyui/sdk - JavaScript/TypeScript SDK
-│   ├── react/                    # @baleyui/react - React components
-│   └── python-sdk/               # Python SDK
+│   └── baleybots/                # BaleyBots framework (submodule)
 ├── docs/
-│   ├── plans/                    # Implementation plans (dated)
-│   ├── architecture/             # Architecture documentation
-│   └── archive/                  # Completed phase documentation
+│   ├── getting-started.md        # Quick-start guide
+│   ├── reference/                # BAL language, type system, events, design
+│   ├── guides/                   # Developer guide, testing
+│   ├── architecture/             # Streaming, performance, security
+│   ├── plans/                    # Active & design plans
+│   └── archive/                  # Completed plans & phase docs
 ├── PLAN.md                       # Project vision & architecture
 ├── CODING_GUIDELINES.md          # Development standards
 ├── AGENTS.md                     # Task assignments
@@ -99,11 +100,13 @@ BaleyUI/
 
 | Document | Description |
 |----------|-------------|
+| [Getting Started](./docs/getting-started.md) | Prerequisites to first BaleyBot |
+| [Documentation Hub](./docs/README.md) | Full docs index |
 | [Project Plan](./PLAN.md) | Vision, architecture, database schema |
 | [Coding Guidelines](./CODING_GUIDELINES.md) | React 19, Next.js 15 patterns |
 | [CLAUDE.md](./CLAUDE.md) | AI development context and skills |
-| [docs/plans/](./docs/plans/) | Implementation plans by date |
-| [docs/architecture/](./docs/architecture/) | Technical architecture docs |
+| [BAL Reference](./docs/reference/BAL_LANGUAGE_REFERENCE.md) | BAL syntax and semantics |
+| [Developer Guide](./docs/guides/DEVELOPER_GUIDE.md) | Contributing and development |
 
 ## Development
 

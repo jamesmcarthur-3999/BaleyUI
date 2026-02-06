@@ -661,4 +661,4 @@ chain {
 
 - [BAL Type System](./BAL_TYPE_SYSTEM.md) - Detailed type specification reference
 - [Built-in Tools Reference](../CLAUDE.md#built-in-tools-reference) - Complete tool documentation
-- [Developer Guide](./DEVELOPER_GUIDE.md) - Integration and API documentation
+- [Developer Guide](../guides/DEVELOPER_GUIDE.md) - Integration and API documentation

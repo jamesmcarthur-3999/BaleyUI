@@ -8,8 +8,6 @@ BaleyUI is a visual platform for building AI-powered workflows using BaleyBots. 
 
 ## Current Development Focus
 
-**Branch:** `feature/tool-ecosystem`
-
 **Active Work:** Implementing the complete tool ecosystem (35 tasks across 8 phases)
 - See: `docs/plans/2026-02-03-tool-ecosystem-complete-implementation.md`
 - Prompt: `docs/plans/execution-prompt.md`
@@ -184,5 +182,8 @@ pnpm lint              # ESLint
 | `PLAN.md` | Architecture, vision, database schema |
 | `CODING_GUIDELINES.md` | React 19, Next.js 15 patterns |
 | `AGENTS.md` | Task assignments |
+| `docs/getting-started.md` | Quick-start guide |
+| `docs/reference/` | BAL language, type system, events, design system |
+| `docs/guides/` | Developer guide, testing |
 | `docs/plans/` | Implementation plans |
 | `docs/architecture/` | Technical deep-dives |

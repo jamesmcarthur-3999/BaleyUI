@@ -3,7 +3,7 @@
 > Context and instructions for AI agents working on BaleyUI.
 
 **Current Phase**: Phase 4 - Tool Ecosystem
-**Status**: In Progress
+**Status**: In Progress (Audit Remediation complete — 4 sprints)
 **Active Plan**: `docs/plans/2026-02-03-tool-ecosystem-complete-implementation.md`
 
 ---
@@ -26,6 +26,7 @@ For new Claude Code sessions:
 | Phase 1 | ✅ Complete | Foundation (database, auth, tRPC, connections) |
 | Phase 2 | ✅ Complete | Composition (flows, triggers, streaming) |
 | Phase 3 | ✅ Complete | Testing & Observability |
+| Audit (Sprints 1-4) | ✅ Complete | Security, performance, React 19, lint remediation |
 | **Phase 4** | 🚧 **In Progress** | Tool Ecosystem (35 tasks across 8 sub-phases) |
 
 ---
@@ -85,6 +86,8 @@ The active implementation plan covers 35 tasks across 8 sub-phases:
 | Connection Tools | `apps/web/src/lib/baleybot/tools/connection-derived/` |
 | Services | `apps/web/src/lib/baleybot/services/` |
 | Stream Events | `apps/web/src/lib/streaming/types/events.ts` |
+| Testing Guide | `docs/guides/TESTING.md` |
+| Developer Guide | `docs/guides/DEVELOPER_GUIDE.md` |
 
 ---
 
@@ -108,6 +111,8 @@ pnpm db:studio    # Open Drizzle Studio
 - [CLAUDE.md](./CLAUDE.md) - AI development context
 - [docs/plans/](./docs/plans/) - Implementation plans
 - [docs/architecture/](./docs/architecture/) - Technical documentation
+- [docs/reference/](./docs/reference/) - BAL language, type system, events
+- [docs/guides/](./docs/guides/) - Developer guide, testing
 
 ---
 

@@ -419,4 +419,4 @@ analyzer {
 ## See Also
 
 - [BAL Language Reference](./BAL_LANGUAGE_REFERENCE.md) - Complete syntax reference
-- [Developer Guide](./DEVELOPER_GUIDE.md) - Integration documentation
+- [Developer Guide](../guides/DEVELOPER_GUIDE.md) - Integration documentation
