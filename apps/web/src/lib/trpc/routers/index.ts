@@ -16,6 +16,7 @@ import { triggersRouter } from './triggers';
 import { notificationsRouter } from './notifications';
 import { memoryRouter } from './memory';
 import { scheduledTasksRouter } from './scheduled-tasks';
+import { adminRouter } from './admin';
 
 export const appRouter = router({
   workspaces: workspacesRouter,
@@ -35,6 +36,7 @@ export const appRouter = router({
   notifications: notificationsRouter,
   memory: memoryRouter,
   scheduledTasks: scheduledTasksRouter,
+  admin: adminRouter,
 });
 
 export type AppRouter = typeof appRouter;

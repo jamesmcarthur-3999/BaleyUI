@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Play, Clock, Zap, AlertCircle, Pause, FileQuestion, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Play, Clock, Zap, AlertCircle, Pause, FileQuestion, MoreHorizontal, Trash2, Bot, Pencil } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -14,6 +14,7 @@ import {
 import { ROUTES } from '@/lib/routes';
 import { cn } from '@/lib/utils';
 
+import { Badge } from '@/components/ui/badge';
 import { TriggerBadge } from './TriggerConfig';
 
 import type { TriggerConfig } from '@/lib/baleybot/types';
@@ -28,6 +29,9 @@ interface BaleybotCardProps {
   executionCount: number;
   lastExecutedAt: Date | null;
   trigger?: TriggerConfig;
+  isInternal?: boolean;
+  adminEdited?: boolean;
+  href?: string;
   className?: string;
   onExecute?: (id: string) => void;
   onPause?: (id: string) => void;
@@ -68,6 +72,9 @@ export function BaleybotCard({
   executionCount,
   lastExecutedAt,
   trigger,
+  isInternal,
+  adminEdited,
+  href,
   className,
   onExecute,
   onPause,
@@ -92,7 +99,7 @@ export function BaleybotCard({
   };
 
   return (
-    <Link href={ROUTES.baleybots.detail(id)}>
+    <Link href={href ?? ROUTES.baleybots.detail(id)}>
       <div
         className={cn(
           'card-playful group relative cursor-pointer rounded-2xl overflow-hidden',
@@ -172,6 +179,18 @@ export function BaleybotCard({
                   <StatusIcon className="h-3 w-3" />
                   {config.label}
                 </span>
+                {isInternal && (
+                  <Badge variant="secondary" className="bg-violet-500/10 text-violet-600 border-violet-500/20 shrink-0">
+                    <Bot className="h-3 w-3 mr-1" />
+                    System
+                  </Badge>
+                )}
+                {adminEdited && (
+                  <Badge variant="outline" className="text-amber-600 border-amber-500/30 shrink-0">
+                    <Pencil className="h-3 w-3 mr-1" />
+                    Customized
+                  </Badge>
+                )}
                 {trigger && trigger.type !== 'manual' && (
                   <TriggerBadge trigger={trigger} />
                 )}

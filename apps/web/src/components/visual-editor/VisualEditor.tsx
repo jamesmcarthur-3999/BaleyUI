@@ -27,6 +27,7 @@ export function VisualEditor({
   const [viewMode, setViewMode] = useState<ViewMode>('visual');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [visualGraph, setVisualGraph] = useState<VisualGraph>({ nodes: [], edges: [] });
+  const [parseErrors, setParseErrors] = useState<string[]>([]);
   const [isParsing, setIsParsing] = useState(true);
   const parsedEntitiesRef = useRef<ParsedEntities | null>(null);
   const latestBalCodeRef = useRef(balCode);
@@ -37,12 +38,14 @@ export function VisualEditor({
 
     const timeoutId = setTimeout(async () => {
       setIsParsing(true);
-      const [graph, entities] = await Promise.all([
+
+      const [result, entities] = await Promise.all([
         parseBalToVisualGraph(balCode),
         parseBalEntities(balCode),
       ]);
       if (!cancelled && latestBalCodeRef.current === balCode) {
-        setVisualGraph(graph);
+        setVisualGraph(result.graph);
+        setParseErrors(result.errors);
         parsedEntitiesRef.current = entities;
         setIsParsing(false);
       }
@@ -144,6 +147,7 @@ export function VisualEditor({
           >
             <ClusterDiagram
               graph={visualGraph}
+              parseErrors={parseErrors}
               isParsing={isParsing}
               onNodeClick={handleNodeClick}
               readOnly={readOnly}

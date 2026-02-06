@@ -1,23 +1,44 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { trpc } from '@/lib/trpc/client';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ROUTES } from '@/lib/routes';
 import { BaleybotCard, CreateBaleybotPrompt } from '@/components/baleybots';
-import { Bot, Plus } from 'lucide-react';
+import { Bot, Plus, Search } from 'lucide-react';
 import { useGridNavigation } from '@/hooks/useGridNavigation';
 
 export default function BaleybotsListPage() {
   const router = useRouter();
   const { toast } = useToast();
   const utils = trpc.useUtils();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const { data: baleybots, isLoading } = trpc.baleybots.list.useQuery(undefined, { staleTime: 5 * 60 * 1000 });
-  const { containerRef, handleKeyDown } = useGridNavigation(baleybots?.length ?? 0, 3);
+
+  // Filter bots by search query and status
+  const filteredBots = baleybots?.filter((bb) => {
+    const matchesSearch = !searchQuery ||
+      bb.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (bb.description && bb.description.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesStatus = statusFilter === 'all' || bb.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const { containerRef, handleKeyDown } = useGridNavigation(filteredBots?.length ?? 0, 3);
 
   const activateMutation = trpc.baleybots.activate.useMutation({
     onSuccess: () => {
@@ -88,6 +109,31 @@ export default function BaleybotsListPage() {
           </Button>
         </div>
 
+        {/* Search & Filter */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search BaleyBots..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="paused">Paused</SelectItem>
+              <SelectItem value="error">Error</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         {/* Create Prompt */}
         <CreateBaleybotPrompt />
 
@@ -98,14 +144,14 @@ export default function BaleybotsListPage() {
               <Skeleton key={i} className="h-32" />
             ))}
           </div>
-        ) : baleybots && baleybots.length > 0 ? (
+        ) : filteredBots && filteredBots.length > 0 ? (
           <div
             ref={containerRef}
             role="grid"
             aria-label="BaleyBots list"
             className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
           >
-            {baleybots.map((bb, index) => (
+            {filteredBots.map((bb, index) => (
               <div
                 key={bb.id}
                 role="gridcell"

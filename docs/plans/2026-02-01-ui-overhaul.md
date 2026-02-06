@@ -8,7 +8,7 @@
 
 **Tech Stack:** React 19, TypeScript, Tailwind CSS, Radix UI primitives, class-variance-authority, Lucide icons
 
-**Reference:** `docs/design-system.md` for all design patterns and component specifications.
+**Reference:** `docs/reference/design-system.md` for all design patterns and component specifications.
 
 ---
 
@@ -2286,4 +2286,4 @@ git commit -m "polish(ui): complete UI overhaul
 - CommandPalette (enhanced)
 - BlockCard (inline actions)
 
-**Design System Reference:** `docs/design-system.md`
+**Design System Reference:** `docs/reference/design-system.md`

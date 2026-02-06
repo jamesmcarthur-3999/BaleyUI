@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Phase 4: Tool Ecosystem (In Progress)
 
-**Current Branch:** `feature/tool-ecosystem`
-
 Implementation of the complete BaleyBot tool ecosystem:
 - 35 tasks across 8 sub-phases
 - Built-in tools with full implementations
@@ -27,6 +25,25 @@ See: `docs/plans/2026-02-03-tool-ecosystem-complete-implementation.md`
 - Ephemeral agent service (`create_agent` tool implementation)
 - Ephemeral tool service (`create_tool` tool implementation)
 - Tool ecosystem implementation plan (35 tasks)
+
+---
+
+## [0.4.1] - 2026-02-05 - Audit Remediation & Cleanup
+
+### Fixed
+- **Sprint 1 — Critical Bugs**: Loop executor, transaction rollback, soft-delete filters, optimistic locking, userId null checks, timing-safe webhook comparison, database sink, codegen validation, audit context
+- **Sprint 2 — Security Hardening**: SQL injection fix, safe-eval replacement, streaming performance, reconnection fix, error sanitization, circuit breaker, SSE heartbeat, connections decryption, N+1 queries, unbounded query limits
+- **Sprint 3 — Infrastructure**: Trigger cycle detection, rate limiting, CSRF protection, cron auth, encryption versioning, BB completion triggers, shared storage, AI credentials fallback, database indexes, type exports
+- **Sprint 4 — React 19 & Polish**: Compiler verification, useCallback/useMemo removal, `any` to `unknown` migration, lint error/warning fixes, error boundaries, ESLint config, accessibility improvements, error response standardization, analytics wiring
+- CSS performance fixes: replaced `transition-all` with targeted properties, removed `backdrop-blur` GPU-heavy filters, optimized animations
+
+### Changed
+- Deleted unused packages (`packages/react/`, `packages/ui/`, `packages/python-sdk/`)
+- Removed root-level debug screenshots and stale artifacts (~6.3MB)
+- Removed stale git worktrees (`full-roadmap-impl`, `tool-ecosystem`)
+- Archived 12 completed implementation plans to `docs/archive/plans/`
+- Reorganized docs: new `docs/reference/`, `docs/guides/`, `docs/getting-started.md`
+- Updated README, AGENTS, CLAUDE, CHANGELOG with current project state
 
 ---
 
@@ -125,6 +142,7 @@ See: `docs/plans/2026-02-03-tool-ecosystem-complete-implementation.md`
 
 | Version | Date | Phase | Status |
 |---------|------|-------|--------|
+| 0.4.1 | 2026-02-05 | Audit Remediation | ✅ Complete |
 | 0.4.0 | 2026-02-02 | Phase 3 | ✅ Complete |
 | 0.3.0 | 2026-01-31 | Phase 2 | ✅ Complete |
 | 0.2.0 | 2026-01-28 | Phase 1 | ✅ Complete |

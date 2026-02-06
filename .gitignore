@@ -50,6 +50,9 @@ drizzle/meta/
 # Worktrees
 .worktrees/
 
+# Wrong package manager lockfile
+package-lock.json
+
 # Local databases
 *.db
 !packages/db/**/*.db

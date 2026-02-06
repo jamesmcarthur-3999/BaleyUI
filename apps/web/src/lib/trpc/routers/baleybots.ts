@@ -78,6 +78,7 @@ export const baleybotsRouter = router({
     .query(async ({ ctx, input }) => {
       const conditions = [
         eq(baleybots.workspaceId, ctx.workspace.id),
+        eq(baleybots.isInternal, false),
         notDeleted(baleybots),
       ];
 
@@ -706,6 +707,7 @@ export const baleybotsRouter = router({
           completedAt: baleybotExecutions.completedAt,
           durationMs: baleybotExecutions.durationMs,
           output: baleybotExecutions.output,
+          error: baleybotExecutions.error,
           createdAt: baleybotExecutions.createdAt,
           baleybotName: baleybots.name,
           baleybotIcon: baleybots.icon,

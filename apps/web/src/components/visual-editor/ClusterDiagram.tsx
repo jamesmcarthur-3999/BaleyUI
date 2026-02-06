@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 
 interface ClusterDiagramProps {
   graph: VisualGraph;
+  parseErrors?: string[];
   isParsing?: boolean;
   onNodeClick?: (nodeId: string) => void;
   onNodeChange?: (nodeId: string, data: Partial<VisualNode['data']>) => void;
@@ -92,6 +93,7 @@ function toReactFlowEdge(edge: VisualEdge): Edge {
 
 export function ClusterDiagram({
   graph,
+  parseErrors = [],
   isParsing: _isParsing,
   onNodeClick,
   onNodeChange: _onNodeChange,
@@ -109,18 +111,25 @@ export function ClusterDiagram({
     onNodeClick?.(node.id);
   };
 
-  // Empty state
+  // Empty state — show parse errors if available
   if (graph.nodes.length === 0) {
     return (
       <div
         className={cn(
-          'flex items-center justify-center rounded-2xl border border-dashed border-border bg-muted/30',
+          'flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-muted/30',
           'text-muted-foreground text-sm',
           className
         )}
         style={{ minHeight: 300 }}
       >
-        No entities found in BAL code
+        {parseErrors.length > 0 ? (
+          <>
+            <span className="text-destructive font-medium">Could not parse BAL code</span>
+            <span className="text-xs max-w-md text-center">{parseErrors[0]}</span>
+          </>
+        ) : (
+          'No entities found in BAL code'
+        )}
       </div>
     );
   }

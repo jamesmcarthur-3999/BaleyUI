@@ -1,20 +1,40 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { trpc } from '@/lib/trpc/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { EmptyState } from '@/components/ui/empty-state';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ROUTES } from '@/lib/routes';
 import {
   Activity,
   ArrowRight,
+  Search,
 } from 'lucide-react';
 
 export default function ActivityPage() {
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [botFilter, setBotFilter] = useState('');
   const { data: executions, isLoading } = trpc.baleybots.getRecentActivity.useQuery({
     limit: 50,
+  });
+
+  // Filter executions
+  const filteredExecutions = executions?.filter((exec) => {
+    const matchesStatus = statusFilter === 'all' || exec.status === statusFilter;
+    const matchesBot = !botFilter ||
+      (exec.baleybot?.name && exec.baleybot.name.toLowerCase().includes(botFilter.toLowerCase()));
+    return matchesStatus && matchesBot;
   });
 
   const formatTimeAgo = (date: Date) => {
@@ -50,6 +70,32 @@ export default function ActivityPage() {
           </p>
         </div>
 
+        {/* Filters */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Filter by bot name..."
+              value={botFilter}
+              onChange={(e) => setBotFilter(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="failed">Failed</SelectItem>
+              <SelectItem value="running">Running</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         {/* Activity List */}
         <Card>
           <CardHeader>
@@ -62,9 +108,9 @@ export default function ActivityPage() {
                   <Skeleton key={i} className="h-16 w-full" />
                 ))}
               </div>
-            ) : executions && executions.length > 0 ? (
+            ) : filteredExecutions && filteredExecutions.length > 0 ? (
               <div className="space-y-2">
-                {executions.map((execution) => (
+                {filteredExecutions.map((execution) => (
                   <Link
                     key={execution.id}
                     href={ROUTES.activity.execution(execution.id)}
@@ -102,6 +148,11 @@ export default function ActivityPage() {
                           </span>
                         )}
                       </div>
+                      {execution.status === 'failed' && execution.error && (
+                        <p className="text-xs text-destructive mt-1 truncate max-w-md">
+                          {String(execution.error).slice(0, 100)}
+                        </p>
+                      )}
                     </div>
                     <ArrowRight className="h-4 w-4 text-muted-foreground" />
                   </Link>
