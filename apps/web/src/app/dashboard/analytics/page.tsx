@@ -6,10 +6,8 @@ import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SimpleTrendChart } from '@/components/charts/SimpleTrendChart';
 import { trpc } from '@/lib/trpc/client';
-import { DollarSign, Zap, Activity, Download, ArrowRight } from 'lucide-react';
-import Link from 'next/link';
+import { DollarSign, Zap, Activity } from 'lucide-react';
 import { formatCost, formatDuration } from '@/lib/format';
-import { ROUTES } from '@/lib/routes';
 import { usePersistedDateRange } from '@/hooks';
 
 export default function AnalyticsPage() {
@@ -160,72 +158,6 @@ export default function AnalyticsPage() {
             )}
           </CardContent>
         </Card>
-
-        {/* Quick Links */}
-        <div className="grid gap-4 md:grid-cols-3">
-          {/* Cost Analysis */}
-          <Card className="hover:border-primary transition-colors cursor-pointer">
-            <Link href={ROUTES.analytics.costs}>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <DollarSign className="h-5 w-5" />
-                  Cost Analysis
-                </CardTitle>
-                <CardDescription>
-                  Detailed cost breakdown by block and model
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button variant="ghost" className="w-full gap-2">
-                  View Details
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </CardContent>
-            </Link>
-          </Card>
-
-          {/* Latency Metrics */}
-          <Card className="hover:border-primary transition-colors cursor-pointer">
-            <Link href={ROUTES.analytics.latency}>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Zap className="h-5 w-5" />
-                  Latency Metrics
-                </CardTitle>
-                <CardDescription>
-                  Performance analysis and percentiles
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button variant="ghost" className="w-full gap-2">
-                  View Details
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </CardContent>
-            </Link>
-          </Card>
-
-          {/* Export Training Data */}
-          <Card className="hover:border-primary transition-colors cursor-pointer">
-            <Link href={ROUTES.analytics.export}>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Download className="h-5 w-5" />
-                  Export Data
-                </CardTitle>
-                <CardDescription>
-                  Export decisions for training and fine-tuning
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button variant="ghost" className="w-full gap-2">
-                  Export
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </CardContent>
-            </Link>
-          </Card>
-        </div>
 
         {/* Top Blocks by Cost */}
         {costSummary && costSummary.costByBlock.length > 0 && (

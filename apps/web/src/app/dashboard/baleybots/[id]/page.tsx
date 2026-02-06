@@ -35,7 +35,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, ListTree, Zap } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, ListTree, Zap, BarChart3 } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } from '@/hooks';
@@ -138,7 +138,7 @@ export default function BaleybotPage() {
   const [showFullDescription, setShowFullDescription] = useState(false);
 
   // View mode state (Phase 2 - Editor & Schema integration)
-  type ViewMode = 'visual' | 'code' | 'schema' | 'triggers';
+  type ViewMode = 'visual' | 'code' | 'schema' | 'triggers' | 'analytics';
   const [viewMode, setViewMode] = useState<ViewMode>('visual');
 
   // Output schema state (extracted from BAL code when switching to schema view)
@@ -231,6 +231,12 @@ export default function BaleybotPage() {
   const { data: availableBaleybots } = trpc.baleybots.list.useQuery(undefined, {
     enabled: viewMode === 'triggers',
   });
+
+  // Fetch per-bot analytics (only when analytics tab is active and we have an ID)
+  const { data: analyticsData, isLoading: isLoadingAnalytics } = trpc.analytics.getBaleybotAnalytics.useQuery(
+    { baleybotId: savedBaleybotId! },
+    { enabled: viewMode === 'analytics' && !!savedBaleybotId },
+  );
 
   // Mutations
   const creatorMutation = trpc.baleybots.sendCreatorMessage.useMutation();
@@ -839,23 +845,12 @@ export default function BaleybotPage() {
           {/* Icon and name (Phase 5.1: Handle long names) */}
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
             <span className="text-xl sm:text-2xl shrink-0">{displayIcon}</span>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <h1
-                    className="text-base sm:text-lg font-semibold truncate max-w-[120px] sm:max-w-[200px] md:max-w-[300px] lg:max-w-[400px]"
-                    title={displayName}
-                  >
-                    {displayName}
-                  </h1>
-                </TooltipTrigger>
-                {displayName.length > 15 && (
-                  <TooltipContent side="bottom" className="max-w-xs">
-                    <p className="break-words">{displayName}</p>
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            </TooltipProvider>
+            <h1
+              className="text-base sm:text-lg font-semibold truncate max-w-[120px] sm:max-w-[200px] md:max-w-[300px] lg:max-w-[400px]"
+              title={displayName.length > 15 ? displayName : undefined}
+            >
+              {displayName}
+            </h1>
             {/* Unsaved indicator - shorter text on mobile (Phase 4.6) */}
             {isDirty && (
               <span className="text-amber-500 text-xs font-medium shrink-0" title="Unsaved changes">
@@ -1045,6 +1040,10 @@ export default function BaleybotPage() {
                   <Zap className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">Triggers</span>
                 </TabsTrigger>
+                <TabsTrigger value="analytics" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
+                  <BarChart3 className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Analytics</span>
+                </TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -1106,6 +1105,99 @@ export default function BaleybotPage() {
                   />
                 </div>
               )}
+
+              {/* Analytics View */}
+              {viewMode === 'analytics' && (
+                <div className="h-full overflow-auto bg-background rounded-lg border p-4 space-y-6">
+                  {!savedBaleybotId ? (
+                    <p className="text-muted-foreground text-sm">Save this BaleyBot first to see analytics.</p>
+                  ) : isLoadingAnalytics ? (
+                    <div className="space-y-3">
+                      <Skeleton className="h-20 w-full" />
+                      <Skeleton className="h-40 w-full" />
+                      <Skeleton className="h-32 w-full" />
+                    </div>
+                  ) : analyticsData ? (
+                    <>
+                      {/* Stats row */}
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="rounded-lg border p-4 text-center">
+                          <p className="text-2xl font-bold">{analyticsData.total}</p>
+                          <p className="text-xs text-muted-foreground">Total Runs</p>
+                        </div>
+                        <div className="rounded-lg border p-4 text-center">
+                          <p className="text-2xl font-bold">{(analyticsData.successRate * 100).toFixed(1)}%</p>
+                          <p className="text-xs text-muted-foreground">Success Rate</p>
+                        </div>
+                        <div className="rounded-lg border p-4 text-center">
+                          <p className="text-2xl font-bold">{analyticsData.avgDurationMs > 1000 ? `${(analyticsData.avgDurationMs / 1000).toFixed(1)}s` : `${analyticsData.avgDurationMs}ms`}</p>
+                          <p className="text-xs text-muted-foreground">Avg Duration</p>
+                        </div>
+                      </div>
+
+                      {/* Additional stats */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="rounded-lg border p-4 text-center">
+                          <p className="text-xl font-bold">{analyticsData.totalTokens.toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">Total Tokens</p>
+                        </div>
+                        <div className="rounded-lg border p-4 text-center">
+                          <p className="text-xl font-bold">{analyticsData.failures}</p>
+                          <p className="text-xs text-muted-foreground">Failures</p>
+                        </div>
+                      </div>
+
+                      {/* Daily trend */}
+                      {analyticsData.dailyTrend.length > 0 && (
+                        <div>
+                          <h3 className="text-sm font-medium mb-3">Daily Executions</h3>
+                          <div className="flex items-end gap-1 h-24">
+                            {analyticsData.dailyTrend.map((day) => {
+                              const maxCount = Math.max(...analyticsData.dailyTrend.map(d => d.count));
+                              const height = maxCount > 0 ? (day.count / maxCount) * 100 : 0;
+                              return (
+                                <div
+                                  key={day.date}
+                                  className="flex-1 min-w-0 group relative"
+                                >
+                                  <div
+                                    className="bg-primary/70 hover:bg-primary rounded-t transition-colors w-full"
+                                    style={{ height: `${Math.max(height, 4)}%` }}
+                                    title={`${day.date}: ${day.count} executions`}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="flex justify-between mt-1">
+                            <span className="text-[10px] text-muted-foreground">{analyticsData.dailyTrend[0]?.date}</span>
+                            <span className="text-[10px] text-muted-foreground">{analyticsData.dailyTrend[analyticsData.dailyTrend.length - 1]?.date}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Top errors */}
+                      {analyticsData.topErrors.length > 0 && (
+                        <div>
+                          <h3 className="text-sm font-medium mb-3">Recent Errors</h3>
+                          <div className="space-y-2">
+                            {analyticsData.topErrors.map((err, i) => (
+                              <div key={i} className="flex items-start justify-between gap-2 text-sm rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+                                <p className="text-destructive text-xs break-all flex-1">{err.message}</p>
+                                <span className="text-muted-foreground text-xs shrink-0">{err.count}x</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {analyticsData.total === 0 && (
+                        <p className="text-muted-foreground text-sm text-center py-8">No executions in the last 30 days. Run this BaleyBot to see analytics.</p>
+                      )}
+                    </>
+                  ) : null}
+                </div>
+              )}
             </ErrorBoundary>
           </div>
         </div>
@@ -1151,7 +1243,7 @@ export default function BaleybotPage() {
           <ChatInput
             status={status}
             onSend={handleSendMessage}
-            disabled={creatorMutation.isPending}
+            disabled={creatorMutation.isPending || isSaving}
           />
         </div>
       </motion.div>

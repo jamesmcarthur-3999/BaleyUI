@@ -3,6 +3,8 @@ import { router, protectedProcedure } from '../trpc';
 import {
   blockExecutions,
   blocks,
+  baleybotExecutions,
+  baleybots,
   decisions,
   eq,
   and,
@@ -463,6 +465,140 @@ export const analyticsRouter = router({
         rowCount: exportData.length,
         data: jsonlLines,
         preview: jsonlLines.slice(0, 3),
+      };
+    }),
+
+  /**
+   * Get per-bot analytics: execution counts, success rate, duration, tokens, daily trend, top errors.
+   */
+  getBaleybotAnalytics: protectedProcedure
+    .input(z.object({ baleybotId: z.string(), days: z.number().default(30) }))
+    .query(async ({ ctx, input }) => {
+      const since = new Date();
+      since.setDate(since.getDate() - input.days);
+
+      // Join through baleybots to verify workspace ownership
+      const executions = await ctx.db
+        .select({
+          id: baleybotExecutions.id,
+          status: baleybotExecutions.status,
+          durationMs: baleybotExecutions.durationMs,
+          tokenCount: baleybotExecutions.tokenCount,
+          error: baleybotExecutions.error,
+          startedAt: baleybotExecutions.startedAt,
+        })
+        .from(baleybotExecutions)
+        .innerJoin(baleybots, eq(baleybotExecutions.baleybotId, baleybots.id))
+        .where(
+          and(
+            eq(baleybotExecutions.baleybotId, input.baleybotId),
+            eq(baleybots.workspaceId, ctx.workspace.id),
+            notDeleted(baleybots),
+            gte(baleybotExecutions.createdAt, since),
+          )
+        )
+        .orderBy(desc(baleybotExecutions.startedAt));
+
+      const total = executions.length;
+      const successes = executions.filter(e => e.status === 'completed').length;
+      const failures = executions.filter(e => e.status === 'failed').length;
+      const avgDuration = total > 0 ? executions.reduce((s, e) => s + (e.durationMs || 0), 0) / total : 0;
+      const totalTokens = executions.reduce((s, e) => s + (e.tokenCount || 0), 0);
+
+      // Daily trend (last N days)
+      const dailyCounts: Record<string, number> = {};
+      executions.forEach(e => {
+        if (e.startedAt) {
+          const day = new Date(e.startedAt).toISOString().slice(0, 10);
+          dailyCounts[day] = (dailyCounts[day] || 0) + 1;
+        }
+      });
+
+      // Top errors
+      const errorCounts: Record<string, number> = {};
+      executions.filter(e => e.error).forEach(e => {
+        const msg = (e.error as string).slice(0, 100);
+        errorCounts[msg] = (errorCounts[msg] || 0) + 1;
+      });
+      const topErrors = Object.entries(errorCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([message, count]) => ({ message, count }));
+
+      return {
+        total,
+        successes,
+        failures,
+        successRate: total > 0 ? successes / total : 0,
+        avgDurationMs: Math.round(avgDuration),
+        totalTokens,
+        dailyTrend: Object.entries(dailyCounts)
+          .map(([date, count]) => ({ date, count }))
+          .sort((a, b) => a.date.localeCompare(b.date)),
+        topErrors,
+      };
+    }),
+
+  /**
+   * Get aggregate dashboard overview: total executions, success rate, avg duration, top bots, daily trend.
+   */
+  getDashboardOverview: protectedProcedure
+    .input(z.object({ days: z.number().default(30) }))
+    .query(async ({ ctx, input }) => {
+      const since = new Date();
+      since.setDate(since.getDate() - input.days);
+
+      // Join through baleybots to verify workspace ownership
+      const executions = await ctx.db
+        .select({
+          id: baleybotExecutions.id,
+          baleybotId: baleybotExecutions.baleybotId,
+          status: baleybotExecutions.status,
+          durationMs: baleybotExecutions.durationMs,
+          startedAt: baleybotExecutions.startedAt,
+        })
+        .from(baleybotExecutions)
+        .innerJoin(baleybots, eq(baleybotExecutions.baleybotId, baleybots.id))
+        .where(
+          and(
+            eq(baleybots.workspaceId, ctx.workspace.id),
+            notDeleted(baleybots),
+            gte(baleybotExecutions.createdAt, since),
+          )
+        )
+        .orderBy(desc(baleybotExecutions.startedAt));
+
+      const total = executions.length;
+      const successes = executions.filter(e => e.status === 'completed').length;
+      const avgDuration = total > 0 ? executions.reduce((s, e) => s + (e.durationMs || 0), 0) / total : 0;
+
+      // Top bots by execution count
+      const botCounts: Record<string, number> = {};
+      executions.forEach(e => {
+        if (e.baleybotId) botCounts[e.baleybotId] = (botCounts[e.baleybotId] || 0) + 1;
+      });
+      const topBots = Object.entries(botCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([baleybotId, count]) => ({ baleybotId, count }));
+
+      // Daily trend
+      const dailyCounts: Record<string, number> = {};
+      executions.forEach(e => {
+        if (e.startedAt) {
+          const day = new Date(e.startedAt).toISOString().slice(0, 10);
+          dailyCounts[day] = (dailyCounts[day] || 0) + 1;
+        }
+      });
+
+      return {
+        totalExecutions: total,
+        successRate: total > 0 ? successes / total : 0,
+        avgDurationMs: Math.round(avgDuration),
+        topBots,
+        dailyTrend: Object.entries(dailyCounts)
+          .map(([date, count]) => ({ date, count }))
+          .sort((a, b) => a.date.localeCompare(b.date)),
       };
     }),
 });

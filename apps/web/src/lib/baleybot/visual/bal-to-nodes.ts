@@ -64,13 +64,22 @@ const HORIZONTAL_GAP = 100;
 // ============================================================================
 
 /**
+ * Result of converting BAL code to a visual graph.
+ * Includes parse errors alongside partial/empty results.
+ */
+export interface BalToVisualResult {
+  graph: VisualGraph;
+  errors: string[];
+}
+
+/**
  * Convert BAL code to a visual graph representation
  */
-export function balToVisual(balCode: string): VisualGraph {
+export function balToVisual(balCode: string): BalToVisualResult {
   const { entities, chain, errors } = parseBalCode(balCode);
 
   if (errors.length > 0 || entities.length === 0) {
-    return { nodes: [], edges: [] };
+    return { graph: { nodes: [], edges: [] }, errors };
   }
 
   const nodes: VisualNode[] = [];
@@ -133,7 +142,7 @@ export function balToVisual(balCode: string): VisualGraph {
 
   edges.push(...parallelEdges, ...conditionalEdges);
 
-  return { nodes, edges };
+  return { graph: { nodes, edges }, errors: [] };
 }
 
 /**

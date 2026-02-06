@@ -128,6 +128,44 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
 });
 
 /**
+ * Admin procedure - requires authentication and admin user ID.
+ * Overrides workspace context with the system workspace.
+ */
+export const adminProcedure = authenticatedProcedure.use(async ({ ctx, next }) => {
+  const adminUserIds = (process.env.ADMIN_USER_IDS || '').split(',').map((id) => id.trim()).filter(Boolean);
+
+  if (!adminUserIds.includes(ctx.userId)) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'Admin access required',
+    });
+  }
+
+  // Resolve system workspace for admin operations
+  const { getOrCreateSystemWorkspace } = await import('@/lib/system-workspace');
+  const systemWorkspaceId = await getOrCreateSystemWorkspace();
+
+  const workspace = await ctx.db.query.workspaces.findFirst({
+    where: (ws, { eq: wsEq }) => wsEq(ws.id, systemWorkspaceId),
+  });
+
+  if (!workspace) {
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'System workspace not found',
+    });
+  }
+
+  return next({
+    ctx: {
+      ...ctx,
+      userId: ctx.userId,
+      workspace,
+    },
+  });
+});
+
+/**
  * Audited procedure - protected procedure with audit logging capability.
  * Use this for operations that should be logged for compliance/debugging.
  */

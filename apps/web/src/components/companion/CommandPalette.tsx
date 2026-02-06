@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -18,14 +19,16 @@ import {
   Sparkles,
   Settings,
   ArrowRight,
-  Clock,
   Plus,
   MessageCircle,
   Bot,
-  Workflow,
   Key,
   Plug,
   FileText,
+  Activity,
+  BarChart3,
+  Wrench,
+  Building,
 } from 'lucide-react';
 
 // ============================================================================
@@ -37,7 +40,7 @@ export interface Command {
   title: string;
   description?: string;
   icon?: typeof Sparkles;
-  category: 'quick' | 'recent' | 'agents' | 'flows' | 'settings' | 'help';
+  category: 'navigation' | 'quick' | 'baleybots' | 'settings' | 'help';
   shortcut?: string;
   action: () => void;
   keywords?: string[];
@@ -55,10 +58,9 @@ interface CommandPaletteProps {
 // ============================================================================
 
 const categoryConfig: Record<Command['category'], { label: string; icon: React.ReactNode }> = {
+  navigation: { label: 'Navigation', icon: <ArrowRight className="h-3.5 w-3.5" /> },
   quick: { label: 'Quick Actions', icon: <Sparkles className="h-3.5 w-3.5" /> },
-  recent: { label: 'Recent', icon: <Clock className="h-3.5 w-3.5" /> },
-  agents: { label: 'Agents', icon: <Bot className="h-3.5 w-3.5" /> },
-  flows: { label: 'Flows', icon: <Workflow className="h-3.5 w-3.5" /> },
+  baleybots: { label: 'BaleyBots', icon: <Bot className="h-3.5 w-3.5" /> },
   settings: { label: 'Settings', icon: <Settings className="h-3.5 w-3.5" /> },
   help: { label: 'Help', icon: <MessageCircle className="h-3.5 w-3.5" /> },
 };
@@ -143,85 +145,108 @@ export function CommandPalette({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch real data from tRPC
-  const { data: blocks } = trpc.blocks.list.useQuery(undefined, {
-    enabled: open,
-  });
-  const { data: flows } = trpc.flows.list.useQuery(undefined, {
+  // Fetch BaleyBots for search
+  const { data: baleybots } = trpc.baleybots.list.useQuery(undefined, {
     enabled: open,
   });
 
-  // Build commands dynamically (React 19 handles optimization automatically)
+  // Build commands dynamically
   const commands: Command[] = [
-    // Quick Actions
+    // Navigation (shown by default before typing)
     {
-      id: 'create-agent',
-      title: 'Create new agent',
-      description: 'Build a new AI agent from scratch',
-      icon: Plus,
-      category: 'quick',
-      shortcut: 'mod+n',
-      action: () => router.push(ROUTES.blocks.create),
-      keywords: ['agent', 'new', 'create', 'build', 'block'],
-    },
-    {
-      id: 'create-flow',
-      title: 'Create new flow',
-      description: 'Design a new workflow composition',
-      icon: Plus,
-      category: 'quick',
-      shortcut: 'mod+shift+n',
-      action: () => router.push(ROUTES.flows.create),
-      keywords: ['flow', 'workflow', 'new', 'create'],
-    },
-    // Agents (first 5 from blocks)
-    ...(blocks?.slice(0, 5).map((block) => ({
-      id: `agent-${block.id}`,
-      title: block.name,
-      description: block.description || `${block.type} block`,
+      id: 'nav-baleybots',
+      title: 'BaleyBots',
+      description: 'View and manage your BaleyBots',
       icon: Bot,
-      category: 'agents' as const,
-      action: () => router.push(ROUTES.blocks.detail(block.id)),
-      keywords: ['agent', 'block', block.type, block.name.toLowerCase()],
-    })) || []),
-    // Flows (first 5)
-    ...(flows?.slice(0, 5).map((flow) => ({
-      id: `flow-${flow.id}`,
-      title: flow.name,
-      description: flow.description || 'Workflow',
-      icon: Workflow,
-      category: 'flows' as const,
-      action: () => router.push(ROUTES.flows.detail(flow.id)),
-      keywords: ['flow', 'workflow', flow.name.toLowerCase()],
-    })) || []),
-    // Settings
-    {
-      id: 'settings',
-      title: 'Settings',
-      description: 'Configure preferences',
-      icon: Settings,
-      category: 'settings',
-      shortcut: 'mod+,',
-      action: () => router.push(ROUTES.settings.root),
-      keywords: ['settings', 'preferences', 'config'],
+      category: 'navigation',
+      action: () => router.push(ROUTES.baleybots.list),
+      keywords: ['baleybots', 'bots', 'agents'],
     },
     {
-      id: 'connections',
+      id: 'nav-activity',
+      title: 'Activity',
+      description: 'View execution history',
+      icon: Activity,
+      category: 'navigation',
+      action: () => router.push(ROUTES.activity.list),
+      keywords: ['activity', 'executions', 'history', 'runs'],
+    },
+    {
+      id: 'nav-connections',
       title: 'Connections',
       description: 'Manage AI provider connections',
       icon: Plug,
-      category: 'settings',
-      action: () => router.push(ROUTES.settings.connections),
-      keywords: ['connections', 'providers', 'api', 'openai', 'anthropic'],
+      category: 'navigation',
+      action: () => router.push(ROUTES.connections.list),
+      keywords: ['connections', 'providers', 'openai', 'anthropic', 'ollama'],
     },
     {
-      id: 'api-keys',
+      id: 'nav-tools',
+      title: 'Tools',
+      description: 'Browse the tool catalog',
+      icon: Wrench,
+      category: 'navigation',
+      action: () => router.push(ROUTES.tools.list),
+      keywords: ['tools', 'catalog', 'search', 'fetch'],
+    },
+    {
+      id: 'nav-analytics',
+      title: 'Analytics',
+      description: 'View usage and cost analytics',
+      icon: BarChart3,
+      category: 'navigation',
+      action: () => router.push(ROUTES.analytics.overview),
+      keywords: ['analytics', 'stats', 'usage', 'cost'],
+    },
+    {
+      id: 'nav-settings',
+      title: 'Settings',
+      description: 'Workspace settings',
+      icon: Settings,
+      category: 'navigation',
+      shortcut: 'mod+,',
+      action: () => router.push(ROUTES.settings.workspace),
+      keywords: ['settings', 'preferences', 'config', 'workspace'],
+    },
+    {
+      id: 'nav-api-keys',
       title: 'API Keys',
       description: 'Manage your API keys',
       icon: Key,
-      category: 'settings',
+      category: 'navigation',
       action: () => router.push(ROUTES.settings.apiKeys),
       keywords: ['api', 'keys', 'tokens', 'authentication'],
+    },
+    // Quick Actions
+    {
+      id: 'create-baleybot',
+      title: 'Create BaleyBot',
+      description: 'Build a new BaleyBot from scratch',
+      icon: Plus,
+      category: 'quick',
+      shortcut: 'mod+n',
+      action: () => router.push(ROUTES.baleybots.create),
+      keywords: ['baleybot', 'new', 'create', 'build', 'agent'],
+    },
+    // BaleyBots (first 5)
+    ...(baleybots?.slice(0, 5).map((bb) => ({
+      id: `bb-${bb.id}`,
+      title: bb.name,
+      description: bb.description || 'BaleyBot',
+      icon: Bot,
+      category: 'baleybots' as const,
+      action: () => router.push(ROUTES.baleybots.detail(bb.id)),
+      keywords: ['baleybot', bb.name.toLowerCase()],
+    })) || []),
+    // Settings
+    {
+      id: 'settings-workspace',
+      title: 'Workspace Settings',
+      description: 'Configure workspace preferences',
+      icon: Building,
+      category: 'settings',
+      action: () => router.push(ROUTES.settings.workspace),
+      keywords: ['workspace', 'settings', 'config'],
     },
     // Help
     {
@@ -242,7 +267,7 @@ export function CommandPalette({
         const searchText = `${cmd.title} ${cmd.description || ''} ${cmd.keywords?.join(' ') || ''}`.toLowerCase();
         return searchText.includes(query.toLowerCase());
       })
-    : commands.filter((cmd) => cmd.category === 'quick' || cmd.category === 'recent');
+    : commands.filter((cmd) => cmd.category === 'navigation' || cmd.category === 'quick');
 
   // Group by category
   const groupedCommands = filteredCommands.reduce(
@@ -292,7 +317,6 @@ export function CommandPalette({
           flatCommands[selectedIndex].action();
           onOpenChange(false);
         } else if (query.trim() && onAskAI) {
-          // Natural language passthrough when no commands match
           onAskAI(query.trim());
           onOpenChange(false);
         }
@@ -322,6 +346,7 @@ export function CommandPalette({
         )}
         onKeyDown={handleKeyDown}
       >
+        <DialogTitle className="sr-only">Command Palette</DialogTitle>
         {/* Search Input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b">
           <Search className="h-5 w-5 text-muted-foreground shrink-0" />

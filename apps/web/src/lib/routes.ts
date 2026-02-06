@@ -15,85 +15,44 @@ export const ROUTES = {
     execute: (id: string) => `/dashboard/baleybots/${id}/execute`,
   },
 
-  // Activity (executions, decisions, analytics combined)
+  // Activity (execution history)
   activity: {
     list: '/dashboard/activity',
     execution: (id: string) => `/dashboard/activity/executions/${id}`,
-    decisions: '/dashboard/activity/decisions',
-    analytics: '/dashboard/activity/analytics',
   },
 
-  // Legacy routes (kept for backwards compatibility during transition)
-  // TODO: Remove after migration complete
-
-  // Blocks
-  blocks: {
-    list: '/dashboard/blocks',
-    create: '/dashboard/blocks/new',
-    detail: (id: string) => `/dashboard/blocks/${id}`,
-    patterns: (id: string) => `/dashboard/blocks/${id}/patterns`,
-    test: (id: string) => `/dashboard/blocks/${id}/test`,
+  // Connections (AI providers & databases)
+  connections: {
+    list: '/dashboard/connections',
   },
 
-  // Flows
-  flows: {
-    list: '/dashboard/flows',
-    create: '/dashboard/flows/new',
-    detail: (id: string) => `/dashboard/flows/${id}`,
-  },
-
-  // Executions
-  executions: {
-    list: '/dashboard/executions',
-    detail: (id: string) => `/dashboard/executions/${id}`,
-  },
-
-  // Decisions
-  decisions: {
-    list: '/dashboard/decisions',
-    detail: (id: string) => `/dashboard/decisions/${id}`,
+  // Tools (tool catalog)
+  tools: {
+    list: '/dashboard/tools',
   },
 
   // Analytics
   analytics: {
     overview: '/dashboard/analytics',
-    costs: '/dashboard/analytics/costs',
-    latency: '/dashboard/analytics/latency',
-    export: '/dashboard/analytics/export',
   },
 
   // Settings
   settings: {
     root: '/dashboard/settings',
-    connections: '/dashboard/settings/connections',
-    apiKeys: '/dashboard/settings/api-keys',
     workspace: '/dashboard/settings/workspace',
-    policies: '/dashboard/settings/policies',
-    approvals: '/dashboard/settings/approvals',
+    apiKeys: '/dashboard/settings/api-keys',
+    // Alias: connections page is at /dashboard/connections, not under settings
+    connections: '/dashboard/connections',
   },
 
-  // Tools
-  tools: {
-    list: '/dashboard/tools',
+  // Admin (internal BaleyBots management)
+  admin: {
+    baleybots: '/dashboard/admin/baleybots',
+    baleybot: (id: string) => `/dashboard/admin/baleybots/${id}`,
   },
 
-  // Notifications
-  notifications: {
-    list: '/dashboard/notifications',
-  },
-
-  // Scheduled Tasks
-  scheduledTasks: {
-    list: '/dashboard/scheduled-tasks',
-  },
-
-  // Connections
-  connections: {
-    list: '/dashboard/connections',
-  },
-
-  // Companion
-  companion: '/dashboard/companion',
+  // Playground
+  playground: '/dashboard/playground',
 
   // Auth
   auth: {
@@ -128,7 +87,7 @@ export function withQuery(path: string, params: Record<string, string | number |
 export function isActiveRoute(currentPath: string, route: string): boolean {
   // Exact match
   if (currentPath === route) return true;
-  // Prefix match for nested routes (e.g., /dashboard/blocks/123 matches /dashboard/blocks)
+  // Prefix match for nested routes (e.g., /dashboard/baleybots/123 matches /dashboard/baleybots)
   if (route !== '/dashboard' && currentPath.startsWith(route)) return true;
   return false;
 }

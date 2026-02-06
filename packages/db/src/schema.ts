@@ -687,6 +687,9 @@ export const baleybots = pgTable(
     // Internal BaleyBots (system-managed, not user-created)
     isInternal: boolean('is_internal').default(false).notNull(),
 
+    // Admin-edited flag: if true, seeding will not overwrite this bot's BAL code
+    adminEdited: boolean('admin_edited').default(false).notNull(),
+
     // Webhook trigger (optional secret for HTTP triggers)
     webhookSecret: varchar('webhook_secret', { length: 100 }),
     webhookEnabled: boolean('webhook_enabled').default(false),

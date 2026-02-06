@@ -5,7 +5,7 @@
  * These are stored in the database with isInternal: true.
  */
 
-import { db, baleybots, baleybotExecutions, eq, notDeleted } from '@baleyui/db';
+import { db, baleybots, baleybotExecutions, connections, eq, and, notDeleted } from '@baleyui/db';
 import { getOrCreateSystemWorkspace } from '@/lib/system-workspace';
 import { executeBaleybot, type ExecutorContext } from './executor';
 import { createLogger } from '@/lib/logger';
@@ -34,13 +34,14 @@ export const INTERNAL_BALEYBOTS: Record<string, InternalBaleybotDef> = {
     icon: '🤖',
     balCode: `
 creator_bot {
-  "goal": "You are a BaleyBot Creator. Help users build AI automation bots through natural conversation. Analyze their request, design entities with appropriate tools, and generate valid BAL code.\\n\\nCRITICAL: You MUST return a JSON object with this EXACT structure:\\n{\\n  \\\"entities\\\": [{\\\"id\\\": \\\"unique-id\\\", \\\"name\\\": \\\"Entity Name\\\", \\\"icon\\\": \\\"emoji\\\", \\\"purpose\\\": \\\"What it does\\\", \\\"tools\\\": [\\\"tool1\\\", \\\"tool2\\\"]}],\\n  \\\"connections\\\": [{\\\"from\\\": \\\"entity-id-1\\\", \\\"to\\\": \\\"entity-id-2\\\", \\\"label\\\": \\\"optional label\\\"}],\\n  \\\"balCode\\\": \\\"the_entity_name {\\\\n  \\\\\\\"goal\\\\\\\": \\\\\\\"...\\\\\\\",\\\\n  \\\\\\\"model\\\\\\\": \\\\\\\"openai:gpt-4o\\\\\\\"\\\\n}\\\",\\n  \\\"name\\\": \\\"BaleyBot Name\\\",\\n  \\\"icon\\\": \\\"emoji\\\",\\n  \\\"status\\\": \\\"ready\\\"\\n}\\n\\nRules:\\n- entities array must contain objects with id, name, icon, purpose, tools (array of strings)\\n- connections array contains objects with from, to (entity IDs), and optional label\\n- balCode must be valid BAL syntax\\n- status must be exactly \\\"building\\\" or \\\"ready\\\"\\n- Use \\\"ready\\\" when the design is complete, \\\"building\\\" if still gathering requirements\\n\\n***CRITICAL MULTI-ENTITY RULE***:\\nWhen you create 2+ entities with connections between them, the balCode MUST include a composition block (chain, parallel, or if/else). The visual canvas shows entities and connections, but the balCode is what actually executes. Example for a research pipeline:\\n\\nresearcher { \\\"goal\\\": \\\"Research the topic\\\", \\\"model\\\": \\\"openai:gpt-4o\\\" }\\nsummarizer { \\\"goal\\\": \\\"Summarize findings\\\", \\\"model\\\": \\\"openai:gpt-4o\\\" }\\nchain { researcher summarizer }\\n\\nThe chain block makes the entities execute in sequence. Without it, only the first entity runs!",
+  "goal": "You are a BaleyBot Creator. Help users build AI automation bots through natural conversation. Analyze their request, design entities with appropriate tools, and generate valid BAL code.\\n\\nCRITICAL: You MUST return a JSON object with this EXACT structure:\\n{\\n  \\\"entities\\\": [{\\\"id\\\": \\\"unique-id\\\", \\\"name\\\": \\\"Entity Name\\\", \\\"icon\\\": \\\"emoji\\\", \\\"purpose\\\": \\\"What it does\\\", \\\"tools\\\": [\\\"tool1\\\", \\\"tool2\\\"]}],\\n  \\\"connections\\\": [{\\\"from\\\": \\\"entity-id-1\\\", \\\"to\\\": \\\"entity-id-2\\\", \\\"label\\\": \\\"optional label\\\"}],\\n  \\\"balCode\\\": \\\"the_entity_name {\\\\n  \\\\\\\"goal\\\\\\\": \\\\\\\"...\\\\\\\",\\\\n  \\\\\\\"model\\\\\\\": \\\\\\\"openai:gpt-4o\\\\\\\"\\\\n}\\\",\\n  \\\"name\\\": \\\"BaleyBot Name\\\",\\n  \\\"description\\\": \\\"A 1-2 sentence description of what this BaleyBot does\\\",\\n  \\\"icon\\\": \\\"emoji\\\",\\n  \\\"status\\\": \\\"ready\\\"\\n}\\n\\nRules:\\n- entities array must contain objects with id, name, icon, purpose, tools (array of strings)\\n- connections array contains objects with from, to (entity IDs), and optional label\\n- \\\"description\\\": A 1-2 sentence plain-language description of what this BaleyBot does. This should explain the bot's purpose to a user who hasn't seen the BAL code.\\n- balCode must be valid BAL syntax\\n- status must be exactly \\\"building\\\" or \\\"ready\\\"\\n- Use \\\"ready\\\" when the design is complete, \\\"building\\\" if still gathering requirements\\n\\n***CRITICAL MULTI-ENTITY RULE***:\\nWhen you create 2+ entities with connections between them, the balCode MUST include a composition block (chain, parallel, or if/else). The visual canvas shows entities and connections, but the balCode is what actually executes. Example for a research pipeline:\\n\\nresearcher { \\\"goal\\\": \\\"Research the topic\\\", \\\"model\\\": \\\"openai:gpt-4o\\\" }\\nsummarizer { \\\"goal\\\": \\\"Summarize findings\\\", \\\"model\\\": \\\"openai:gpt-4o\\\" }\\nchain { researcher summarizer }\\n\\nThe chain block makes the entities execute in sequence. Without it, only the first entity runs!\\n\\nIMPORTANT: Tool Selection Rules\\nWhen creating a single-entity BaleyBot, analyze the goal for implied capabilities and include matching tools:\\n- If the goal mentions \\\"remember\\\", \\\"store\\\", \\\"save data\\\", or \\\"persist\\\" → include \\\"store_memory\\\"\\n- If the goal mentions \\\"search\\\", \\\"look up\\\", \\\"find online\\\", or \\\"research\\\" → include \\\"web_search\\\"\\n- If the goal mentions \\\"fetch\\\", \\\"scrape\\\", \\\"download\\\", or \\\"read URL\\\" → include \\\"fetch_url\\\"\\n- If the goal mentions \\\"schedule\\\", \\\"later\\\", \\\"recurring\\\", or \\\"cron\\\" → include \\\"schedule_task\\\"\\n- If the goal mentions \\\"notify\\\", \\\"alert\\\", or \\\"send message\\\" → include \\\"send_notification\\\"\\n- Always validate: if the goal implies a capability, ensure the matching tool is in the \\\"tools\\\" array.\\n- For multi-entity clusters, apply the same rules to each entity's goal individually.",
   "model": "anthropic:claude-sonnet-4-20250514",
   "output": {
     "entities": "array<object { id: string, name: string, icon: string, purpose: string, tools: array<string> }>",
     "connections": "array<object { from: string, to: string, label: ?string }>",
     "balCode": "string",
     "name": "string",
+    "description": "string",
     "icon": "string",
     "status": "enum('building', 'ready')",
     "thinking": "?string"
@@ -184,6 +185,16 @@ export async function getInternalBaleybot(
     // Check if BAL code needs updating (definition changed)
     const expectedBalCode = def.balCode.trim();
     if (existing.balCode !== expectedBalCode) {
+      // If admin has edited this bot, respect their changes (DB wins)
+      if (existing.adminEdited) {
+        logger.info('Skipping BAL code update for admin-edited internal BaleyBot', { name, id: existing.id });
+        return {
+          id: existing.id,
+          name: existing.name,
+          balCode: existing.balCode,
+        };
+      }
+
       logger.info('Updating internal BaleyBot BAL code', { name, id: existing.id });
       await db
         .update(baleybots)
@@ -300,9 +311,31 @@ export async function executeInternalBaleybot(
       .set({ status: 'running', startedAt: new Date() })
       .where(eq(baleybotExecutions.id, execution.id));
 
+    // Fetch available AI connections for the workspace
+    const workspaceId = options.userWorkspaceId || systemWorkspaceId;
+    const availableConnections = await db.query.connections.findMany({
+      where: and(
+        eq(connections.workspaceId, workspaceId),
+        notDeleted(connections),
+      ),
+      columns: { type: true, name: true },
+    });
+
+    const aiProviders = availableConnections
+      .filter(c => ['openai', 'anthropic', 'ollama'].includes(c.type))
+      .map(c => c.type);
+
+    // Add AI provider context
+    const enrichedContext = [
+      options.context,
+      aiProviders.length > 0
+        ? `Available AI providers: ${aiProviders.join(', ')}. Default to the first available provider when choosing a model.`
+        : 'No AI providers connected. Use "anthropic:claude-sonnet-4-20250514" as default model.',
+    ].filter(Boolean).join('\n');
+
     // Build full input with context
-    const fullInput = options.context
-      ? `${options.context}\n\n${input}`
+    const fullInput = enrichedContext
+      ? `${enrichedContext}\n\n${input}`
       : input;
 
     // Execute through standard path
