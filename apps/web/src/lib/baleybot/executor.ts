@@ -10,15 +10,11 @@ import { parse, tokenize, buildZodSchema } from '@baleybots/tools';
 import type { OutputSchemaNode, ProgramNode } from '@baleybots/tools';
 import type {
   BaleybotStreamEvent,
-  ToolDefinition as CoreToolDefinition,
   ToolCall,
   ProviderConfig,
 } from '@baleybots/core';
 import { compileBALCode, executeBALCode } from '@baleyui/sdk';
 import type { BALExecutionOptions, BALExecutionEvent } from '@baleyui/sdk';
-import { db, connections, and, eq, inArray, notDeleted } from '@baleyui/db';
-import type { AIConnectionConfig } from '@/lib/connections/providers';
-import { decrypt } from '@/lib/encryption';
 import { createLogger } from '@/lib/logger';
 import type {
   ExecuteOptions,
@@ -29,6 +25,11 @@ import type {
   WorkspacePolicies,
   SchemaValidationResult,
 } from './types';
+import { buildAvailableTools } from './tools/core-tool-adapter';
+import {
+  resolveProviderConfig,
+  type AIProviderType,
+} from './services/ai-credentials-service';
 
 // ============================================================================
 // PERF-008: BAL PARSING CACHE
@@ -157,33 +158,6 @@ interface ControlStructure {
 // ============================================================================
 
 const logger = createLogger('baleybot-executor');
-
-function toCoreTool(tool: RuntimeToolDefinition): CoreToolDefinition {
-  // Build base tool definition
-  const coreTool: CoreToolDefinition = {
-    name: tool.name,
-    description: tool.description,
-    inputSchema: tool.inputSchema,
-    function: tool.function as (...args: unknown[]) => unknown,
-  };
-
-  // Add needsApproval if present (may not exist on all core versions)
-  if (tool.needsApproval !== undefined) {
-    (coreTool as unknown as Record<string, unknown>).needsApproval = tool.needsApproval;
-  }
-
-  return coreTool;
-}
-
-function buildAvailableTools(
-  availableTools: Map<string, RuntimeToolDefinition>
-): Record<string, CoreToolDefinition> {
-  const tools: Record<string, CoreToolDefinition> = {};
-  for (const tool of availableTools.values()) {
-    tools[tool.name] = toCoreTool(tool);
-  }
-  return tools;
-}
 
 function mapStatus(resultStatus: string): ExecutionStatus {
   switch (resultStatus) {
@@ -314,13 +288,13 @@ function validateOutput(
   }
 }
 
-type ProviderType = 'openai' | 'anthropic' | 'ollama';
+export type ProviderType = AIProviderType;
 
-export function getPreferredProvider(balCode: string): ProviderType | null {
+export function getPreferredProvider(balCode: string): AIProviderType | null {
   try {
     // PERF-008: Use cached parsing
     const ast = balParseCache.parse(balCode);
-    const providers = new Set<ProviderType>();
+    const providers = new Set<AIProviderType>();
 
     for (const entity of ast.entities.values()) {
       if (entity.model && typeof entity.model === 'string' && entity.model.includes(':')) {
@@ -358,116 +332,6 @@ export function getPreferredModel(balCode: string): string {
   }
 }
 
-function decryptMaybe(value?: string): string | undefined {
-  if (!value) return undefined;
-  try {
-    return decrypt(value);
-  } catch {
-    return value;
-  }
-}
-
-function buildProviderConfig(
-  connection: { type: string; config: unknown }
-): ProviderConfig | undefined {
-  const config = connection.config as AIConnectionConfig;
-  const apiKey = typeof config.apiKey === 'string' ? decryptMaybe(config.apiKey) : undefined;
-  const baseUrl = typeof config.baseUrl === 'string' ? config.baseUrl : undefined;
-
-  if (!apiKey && !baseUrl) {
-    return undefined;
-  }
-
-  const providerConfig: ProviderConfig = {
-    apiKey,
-    baseUrl,
-  };
-
-  if (connection.type === 'openai' && config.organization) {
-    providerConfig.headers = {
-      'OpenAI-Organization': config.organization,
-    };
-  }
-
-  return providerConfig;
-}
-
-async function resolveProviderConfig(
-  workspaceId: string,
-  preferredProvider: ProviderType | null
-): Promise<ProviderConfig | undefined> {
-  logger.debug('Resolving provider config', {
-    workspaceId,
-    preferredProvider,
-    hasAnthropicEnvKey: !!process.env.ANTHROPIC_API_KEY,
-    hasOpenAIEnvKey: !!process.env.OPENAI_API_KEY,
-  });
-
-  const allConnections = await db.query.connections.findMany({
-    where: and(
-      eq(connections.workspaceId, workspaceId),
-      inArray(connections.type, ['openai', 'anthropic', 'ollama']),
-      notDeleted(connections)
-    ),
-  });
-
-  logger.debug('Found database connections', {
-    count: allConnections.length,
-    types: allConnections.map((c) => c.type),
-  });
-
-  // First try to find a database connection
-  if (allConnections.length > 0) {
-    const candidates = preferredProvider
-      ? allConnections.filter((conn) => conn.type === preferredProvider)
-      : allConnections;
-
-    const connected = candidates.filter((conn) => conn.status === 'connected');
-
-    const selected =
-      connected.find((conn) => conn.isDefault) ??
-      connected[0] ??
-      candidates.find((conn) => conn.isDefault) ??
-      candidates[0];
-
-    if (selected) {
-      logger.debug('Using database connection', { type: selected.type, id: selected.id });
-      return buildProviderConfig(selected);
-    }
-  }
-
-  // Fallback to environment variables (essential for internal baleybots and dev)
-  // First try the preferred provider's key
-  if (preferredProvider === 'anthropic' && process.env.ANTHROPIC_API_KEY) {
-    logger.debug('Using ANTHROPIC_API_KEY from environment');
-    return { apiKey: process.env.ANTHROPIC_API_KEY };
-  }
-  if (preferredProvider === 'openai' && process.env.OPENAI_API_KEY) {
-    logger.debug('Using OPENAI_API_KEY from environment');
-    return { apiKey: process.env.OPENAI_API_KEY };
-  }
-
-  // If preferred provider's key isn't available, fall back to any available key
-  // This is critical for internal baleybots that specify a model but the key isn't configured
-  if (process.env.ANTHROPIC_API_KEY) {
-    if (preferredProvider && preferredProvider !== 'anthropic') {
-      logger.warn(`Preferred provider ${preferredProvider} key not found, falling back to Anthropic`);
-    }
-    logger.debug('Using ANTHROPIC_API_KEY from environment (fallback)');
-    return { apiKey: process.env.ANTHROPIC_API_KEY };
-  }
-  if (process.env.OPENAI_API_KEY) {
-    if (preferredProvider && preferredProvider !== 'openai') {
-      logger.warn(`Preferred provider ${preferredProvider} key not found, falling back to OpenAI`);
-    }
-    logger.debug('Using OPENAI_API_KEY from environment (fallback)');
-    return { apiKey: process.env.OPENAI_API_KEY };
-  }
-
-  logger.warn('No provider config found - no API keys available', { workspaceId, preferredProvider });
-  return undefined;
-}
-
 // ============================================================================
 // MAIN EXECUTOR
 // ============================================================================
@@ -492,7 +356,7 @@ export async function executeBaleybot(
   const entityGoals = getEntityGoals(balCode);
   const preferredProvider = getPreferredProvider(balCode);
   let providerConfig: ProviderConfig | undefined;
-  let actualProvider: ProviderType | null = preferredProvider;
+  let actualProvider: AIProviderType | null = preferredProvider;
   try {
     providerConfig = await resolveProviderConfig(ctx.workspaceId, preferredProvider);
 

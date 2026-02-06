@@ -33,10 +33,20 @@ export interface MockDb {
     connections: MockQueryBuilder<MockConnection>;
     workspaces: MockQueryBuilder<MockWorkspace>;
     approvalPatterns: MockQueryBuilder<MockApprovalPattern>;
+    apiKeys: MockQueryBuilder<MockApiKey>;
+    webhookLogs: MockQueryBuilder<MockWebhookLog>;
+    workspacePolicies: MockQueryBuilder<MockWorkspacePolicy>;
+    baleybotTriggers: MockQueryBuilder<MockBaleybotTrigger>;
+    notifications: MockQueryBuilder<MockNotification>;
+    baleybotMemory: MockQueryBuilder<MockMemoryEntry>;
+    scheduledTasks: MockQueryBuilder<MockScheduledTask>;
+    tools: MockQueryBuilder<MockTool>;
+    blocks: MockQueryBuilder<MockBlock>;
   };
   insert: Mock;
   update: Mock;
   delete: Mock;
+  select: Mock;
   transaction: Mock<(fn: (tx: MockTransaction) => Promise<unknown>) => Promise<unknown>>;
 }
 
@@ -47,6 +57,7 @@ export interface MockTransaction {
   insert: Mock;
   update: Mock;
   delete: Mock;
+  select: Mock;
   query: MockDb['query'];
 }
 
@@ -168,6 +179,64 @@ export interface MockWorkspace {
 }
 
 /**
+ * Mock API key entity.
+ */
+export interface MockApiKey {
+  id: string;
+  workspaceId: string;
+  name: string;
+  keyHash: string;
+  keyPrefix: string;
+  keySuffix: string;
+  permissions: string[];
+  lastUsedAt?: Date | null;
+  expiresAt?: Date | null;
+  revokedAt?: Date | null;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Mock webhook log entity.
+ */
+export interface MockWebhookLog {
+  id: string;
+  flowId: string;
+  status: 'success' | 'error';
+  method: string;
+  headers?: Record<string, string> | null;
+  body?: unknown;
+  responseStatus?: number | null;
+  error?: string | null;
+  executionId?: string | null;
+  createdAt: Date;
+  execution?: {
+    id: string;
+    status: string;
+    completedAt?: Date | null;
+  } | null;
+}
+
+/**
+ * Mock workspace policy entity.
+ */
+export interface MockWorkspacePolicy {
+  id: string;
+  workspaceId: string;
+  allowedTools?: string[] | null;
+  forbiddenTools?: string[] | null;
+  requiresApprovalTools?: string[] | null;
+  maxAutoApproveAmount?: number | null;
+  reapprovalIntervalDays: number;
+  maxAutoFiresBeforeReview: number;
+  learningManual?: string | null;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
  * Mock approval pattern entity.
  */
 export interface MockApprovalPattern {
@@ -189,6 +258,113 @@ export interface MockApprovalPattern {
 }
 
 /**
+ * Mock BaleyBot trigger entity.
+ */
+export interface MockBaleybotTrigger {
+  id: string;
+  workspaceId: string;
+  sourceBaleybotId: string;
+  targetBaleybotId: string;
+  triggerType: 'completion' | 'success' | 'failure';
+  inputMapping?: Record<string, string> | null;
+  staticInput?: Record<string, unknown> | null;
+  condition?: string | null;
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  sourceBaleybot?: { id: string; name: string };
+  targetBaleybot?: { id: string; name: string };
+}
+
+/**
+ * Mock notification entity.
+ */
+export interface MockNotification {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  title: string;
+  body?: string | null;
+  type: 'info' | 'success' | 'warning' | 'error';
+  source?: string | null;
+  sourceId?: string | null;
+  readAt?: Date | null;
+  createdAt: Date;
+}
+
+/**
+ * Mock memory entry entity.
+ */
+export interface MockMemoryEntry {
+  id: string;
+  workspaceId: string;
+  baleybotId: string;
+  key: string;
+  value: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Mock scheduled task entity.
+ */
+export interface MockScheduledTask {
+  id: string;
+  workspaceId: string;
+  baleybotId: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  input?: unknown;
+  runAt: Date;
+  executionId?: string | null;
+  error?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  baleybot?: { id: string; name: string; icon?: string | null };
+}
+
+/**
+ * Mock tool entity.
+ */
+export interface MockTool {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  code: string;
+  connectionId?: string | null;
+  isGenerated: boolean;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date | null;
+  deletedBy?: string | null;
+}
+
+/**
+ * Mock block entity.
+ */
+export interface MockBlock {
+  id: string;
+  workspaceId: string;
+  name: string;
+  type: string;
+  description?: string | null;
+  model?: string | null;
+  code?: string | null;
+  generatedCode?: string | null;
+  codeGeneratedAt?: Date | null;
+  codeAccuracy?: string | null;
+  inputSchema?: Record<string, unknown> | null;
+  outputSchema?: Record<string, unknown> | null;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date | null;
+  deletedBy?: string | null;
+}
+
+/**
  * Create a mock database instance for testing.
  * All query methods are pre-configured as Vitest mocks.
  */
@@ -204,6 +380,13 @@ export function createMockDb(): MockDb {
     mock.set = vi.fn().mockReturnValue(mock);
     mock.where = vi.fn().mockReturnValue(mock);
     mock.returning = vi.fn().mockResolvedValue([]);
+    mock.onConflictDoNothing = vi.fn().mockReturnValue(mock);
+    mock.from = vi.fn().mockReturnValue(mock);
+    mock.innerJoin = vi.fn().mockReturnValue(mock);
+    mock.leftJoin = vi.fn().mockReturnValue(mock);
+    mock.orderBy = vi.fn().mockReturnValue(mock);
+    mock.limit = vi.fn().mockReturnValue(mock);
+    mock.groupBy = vi.fn().mockReturnValue(mock);
     return mock;
   };
 
@@ -216,15 +399,26 @@ export function createMockDb(): MockDb {
       connections: createQueryBuilder<MockConnection>(),
       workspaces: createQueryBuilder<MockWorkspace>(),
       approvalPatterns: createQueryBuilder<MockApprovalPattern>(),
+      apiKeys: createQueryBuilder<MockApiKey>(),
+      webhookLogs: createQueryBuilder<MockWebhookLog>(),
+      workspacePolicies: createQueryBuilder<MockWorkspacePolicy>(),
+      baleybotTriggers: createQueryBuilder<MockBaleybotTrigger>(),
+      notifications: createQueryBuilder<MockNotification>(),
+      baleybotMemory: createQueryBuilder<MockMemoryEntry>(),
+      scheduledTasks: createQueryBuilder<MockScheduledTask>(),
+      tools: createQueryBuilder<MockTool>(),
+      blocks: createQueryBuilder<MockBlock>(),
     },
     insert: vi.fn().mockReturnValue(createChainableMock()),
     update: vi.fn().mockReturnValue(createChainableMock()),
     delete: vi.fn().mockReturnValue(createChainableMock()),
+    select: vi.fn().mockReturnValue(createChainableMock()),
     transaction: vi.fn(async (fn) => {
       const tx: MockTransaction = {
         insert: vi.fn().mockReturnValue(createChainableMock()),
         update: vi.fn().mockReturnValue(createChainableMock()),
         delete: vi.fn().mockReturnValue(createChainableMock()),
+        select: vi.fn().mockReturnValue(createChainableMock()),
         query: mockDb.query,
       };
       return fn(tx);
@@ -387,6 +581,218 @@ export function createMockApprovalPattern(overrides: Partial<MockApprovalPattern
     revokeReason: null,
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-01'),
+    ...overrides,
+  };
+}
+
+/**
+ * Create a mock API key entity for testing.
+ *
+ * @param overrides - Fields to override on the default mock.
+ * @returns A mock API key entity.
+ */
+export function createMockApiKey(overrides: Partial<MockApiKey> = {}): MockApiKey {
+  return {
+    id: 'test-api-key-id',
+    workspaceId: 'test-workspace-id',
+    name: 'Test API Key',
+    keyHash: 'abc123hash',
+    keyPrefix: 'bui_live_abc',
+    keySuffix: 'ef01',
+    permissions: ['read', 'execute'],
+    lastUsedAt: null,
+    expiresAt: null,
+    revokedAt: null,
+    createdBy: 'test-user-id',
+    createdAt: new Date('2025-01-01'),
+    updatedAt: new Date('2025-01-01'),
+    ...overrides,
+  };
+}
+
+/**
+ * Create a mock webhook log entity for testing.
+ *
+ * @param overrides - Fields to override on the default mock.
+ * @returns A mock webhook log entity.
+ */
+export function createMockWebhookLog(overrides: Partial<MockWebhookLog> = {}): MockWebhookLog {
+  return {
+    id: 'test-webhook-log-id',
+    flowId: 'test-flow-id',
+    status: 'success',
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: { test: true },
+    responseStatus: 200,
+    error: null,
+    executionId: 'test-execution-id',
+    createdAt: new Date('2025-01-01'),
+    execution: null,
+    ...overrides,
+  };
+}
+
+/**
+ * Create a mock workspace policy entity for testing.
+ *
+ * @param overrides - Fields to override on the default mock.
+ * @returns A mock workspace policy entity.
+ */
+export function createMockWorkspacePolicy(overrides: Partial<MockWorkspacePolicy> = {}): MockWorkspacePolicy {
+  return {
+    id: 'test-policy-id',
+    workspaceId: 'test-workspace-id',
+    allowedTools: null,
+    forbiddenTools: null,
+    requiresApprovalTools: null,
+    maxAutoApproveAmount: null,
+    reapprovalIntervalDays: 90,
+    maxAutoFiresBeforeReview: 100,
+    learningManual: null,
+    version: 1,
+    createdAt: new Date('2025-01-01'),
+    updatedAt: new Date('2025-01-01'),
+    ...overrides,
+  };
+}
+
+/**
+ * Create a mock BaleyBot trigger entity for testing.
+ *
+ * @param overrides - Fields to override on the default mock.
+ * @returns A mock trigger entity.
+ */
+export function createMockTrigger(overrides: Partial<MockBaleybotTrigger> = {}): MockBaleybotTrigger {
+  return {
+    id: 'test-trigger-id',
+    workspaceId: 'test-workspace-id',
+    sourceBaleybotId: 'source-bb-id',
+    targetBaleybotId: 'target-bb-id',
+    triggerType: 'completion',
+    inputMapping: null,
+    staticInput: null,
+    condition: null,
+    enabled: true,
+    createdAt: new Date('2025-01-01'),
+    updatedAt: new Date('2025-01-01'),
+    ...overrides,
+  };
+}
+
+/**
+ * Create a mock notification entity for testing.
+ *
+ * @param overrides - Fields to override on the default mock.
+ * @returns A mock notification entity.
+ */
+export function createMockNotification(overrides: Partial<MockNotification> = {}): MockNotification {
+  return {
+    id: 'test-notification-id',
+    workspaceId: 'test-workspace-id',
+    userId: 'test-user-id',
+    title: 'Test Notification',
+    body: 'Test notification body',
+    type: 'info',
+    source: null,
+    sourceId: null,
+    readAt: null,
+    createdAt: new Date('2025-01-01'),
+    ...overrides,
+  };
+}
+
+/**
+ * Create a mock memory entry entity for testing.
+ *
+ * @param overrides - Fields to override on the default mock.
+ * @returns A mock memory entry entity.
+ */
+export function createMockMemoryEntry(overrides: Partial<MockMemoryEntry> = {}): MockMemoryEntry {
+  return {
+    id: 'test-memory-id',
+    workspaceId: 'test-workspace-id',
+    baleybotId: 'test-baleybot-id',
+    key: 'test-key',
+    value: 'test-value',
+    createdAt: new Date('2025-01-01'),
+    updatedAt: new Date('2025-01-01'),
+    ...overrides,
+  };
+}
+
+/**
+ * Create a mock scheduled task entity for testing.
+ *
+ * @param overrides - Fields to override on the default mock.
+ * @returns A mock scheduled task entity.
+ */
+export function createMockScheduledTask(overrides: Partial<MockScheduledTask> = {}): MockScheduledTask {
+  return {
+    id: 'test-task-id',
+    workspaceId: 'test-workspace-id',
+    baleybotId: 'test-baleybot-id',
+    status: 'pending',
+    input: { message: 'scheduled input' },
+    runAt: new Date('2025-02-01'),
+    executionId: null,
+    error: null,
+    createdAt: new Date('2025-01-01'),
+    updatedAt: new Date('2025-01-01'),
+    ...overrides,
+  };
+}
+
+/**
+ * Create a mock tool entity for testing.
+ *
+ * @param overrides - Fields to override on the default mock.
+ * @returns A mock tool entity.
+ */
+export function createMockTool(overrides: Partial<MockTool> = {}): MockTool {
+  return {
+    id: 'test-tool-id',
+    workspaceId: 'test-workspace-id',
+    name: 'test_tool',
+    description: 'A test tool',
+    inputSchema: { type: 'object', properties: {} },
+    code: 'return { result: true };',
+    connectionId: null,
+    isGenerated: false,
+    version: 1,
+    createdAt: new Date('2025-01-01'),
+    updatedAt: new Date('2025-01-01'),
+    deletedAt: null,
+    deletedBy: null,
+    ...overrides,
+  };
+}
+
+/**
+ * Create a mock block entity for testing.
+ *
+ * @param overrides - Fields to override on the default mock.
+ * @returns A mock block entity.
+ */
+export function createMockBlock(overrides: Partial<MockBlock> = {}): MockBlock {
+  return {
+    id: 'test-block-id',
+    workspaceId: 'test-workspace-id',
+    name: 'Test Block',
+    type: 'decision',
+    description: 'A test block',
+    model: 'anthropic:claude-sonnet-4-20250514',
+    code: null,
+    generatedCode: null,
+    codeGeneratedAt: null,
+    codeAccuracy: null,
+    inputSchema: { type: 'object' },
+    outputSchema: { type: 'object' },
+    version: 1,
+    createdAt: new Date('2025-01-01'),
+    updatedAt: new Date('2025-01-01'),
+    deletedAt: null,
+    deletedBy: null,
     ...overrides,
   };
 }

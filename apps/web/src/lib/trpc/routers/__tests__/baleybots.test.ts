@@ -30,21 +30,9 @@ vi.mock('@/lib/rate-limit', () => ({
   },
 }));
 
-vi.mock('@baleyui/db', () => ({
-  baleybots: { id: 'id', workspaceId: 'workspaceId', status: 'status', createdAt: 'createdAt', executionCount: 'executionCount' },
-  baleybotExecutions: { id: 'id', baleybotId: 'baleybotId', status: 'status', createdAt: 'createdAt' },
-  approvalPatterns: { id: 'id', workspaceId: 'workspaceId', tool: 'tool', trustLevel: 'trustLevel', createdAt: 'createdAt', revokedAt: 'revokedAt', timesUsed: 'timesUsed' },
-  connections: { workspaceId: 'workspaceId' },
-  eq: vi.fn((a, b) => ({ _type: 'eq', a, b })),
-  and: vi.fn((...args) => ({ _type: 'and', args })),
-  desc: vi.fn((field) => ({ _type: 'desc', field })),
-  isNull: vi.fn((field) => ({ _type: 'isNull', field })),
-  inArray: vi.fn((field, values) => ({ _type: 'inArray', field, values })),
-  notDeleted: vi.fn(() => ({ _type: 'notDeleted' })),
-  softDelete: vi.fn().mockResolvedValue({ id: 'deleted-id' }),
-  updateWithLock: vi.fn().mockResolvedValue({ id: 'updated-id', version: 2 }),
-  sql: vi.fn(),
-}));
+import { createMockDbModule } from '../../__tests__/mock-db';
+
+vi.mock('@baleyui/db', () => createMockDbModule());
 
 describe('Baleybots Router Logic', () => {
   let ctx: MockContext;
@@ -228,6 +216,7 @@ describe('Baleybots Router Logic', () => {
           delete: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue(undefined),
           }),
+          select: vi.fn(),
           query: ctx.db.query,
         };
         return fn(tx);

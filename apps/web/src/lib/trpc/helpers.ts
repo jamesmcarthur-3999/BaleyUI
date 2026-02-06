@@ -38,14 +38,6 @@ export const descriptionSchema = z.string()
 export const uuidSchema = z.string().uuid('Invalid ID format');
 
 /**
- * Icon validation - emoji or icon name, max 100 chars
- */
-export const iconSchema = z.string()
-  .max(100, 'Icon must be 100 characters or less')
-  .regex(/^[\p{Emoji}\w-]+$/u, 'Invalid icon format')
-  .optional();
-
-/**
  * BAL code validation - non-empty, reasonable size limit
  */
 export const balCodeSchema = z.string()
@@ -58,22 +50,6 @@ export const balCodeSchema = z.string()
 export const versionSchema = z.number().int().min(0);
 
 /**
- * Tool name validation
- */
-export const toolNameSchema = z.string()
-  .min(1, 'Tool name is required')
-  .max(255, 'Tool name must be 255 characters or less')
-  .regex(/^[a-z][a-z0-9_]*$/, 'Tool name must start with a letter and contain only lowercase letters, numbers, and underscores');
-
-/**
- * API key validation pattern
- */
-export const apiKeySchema = z.string()
-  .min(10, 'API key is too short')
-  .max(500, 'API key is too long')
-  .optional();
-
-/**
  * URL validation with protocol check
  */
 export const urlSchema = z.string()
@@ -84,20 +60,6 @@ export const urlSchema = z.string()
 // =============================================================================
 // ERROR HANDLING HELPERS (API-002)
 // =============================================================================
-
-/**
- * Handle optimistic lock errors with consistent messaging
- */
-export function handleOptimisticLockError(error: unknown, resourceName: string = 'Resource'): never {
-  if (error instanceof OptimisticLockError ||
-      (error instanceof Error && error.message.includes('version'))) {
-    throw new TRPCError({
-      code: 'CONFLICT',
-      message: `${resourceName} was modified by another user. Please refresh and try again.`,
-    });
-  }
-  throw error;
-}
 
 /**
  * Wrap a mutation with standard error handling
@@ -153,16 +115,6 @@ export function throwNotFound(resourceName: string = 'Resource'): never {
 export function throwBadRequest(message: string): never {
   throw new TRPCError({
     code: 'BAD_REQUEST',
-    message,
-  });
-}
-
-/**
- * Throw a FORBIDDEN error for unauthorized access
- */
-export function throwForbidden(message: string = 'You do not have access to this resource'): never {
-  throw new TRPCError({
-    code: 'FORBIDDEN',
     message,
   });
 }

@@ -1,7 +1,7 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import { auth } from '@clerk/nextjs/server';
 import superjson from 'superjson';
-import { db } from '@baleyui/db';
+import { db, notDeleted } from '@baleyui/db';
 import { validateApiKey } from '@/lib/api/validate-api-key';
 
 /**
@@ -77,8 +77,8 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
   // API key auth - workspace comes from the API key validation
   if (ctx.authMethod === 'api_key' && ctx.workspaceId) {
     const workspace = await ctx.db.query.workspaces.findFirst({
-      where: (ws, { eq, and, isNull }) =>
-        and(eq(ws.id, ctx.workspaceId!), isNull(ws.deletedAt)),
+      where: (ws, { eq, and }) =>
+        and(eq(ws.id, ctx.workspaceId!), notDeleted(ws)),
     });
 
     if (!workspace) {
@@ -107,8 +107,8 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
 
   // Get the user's workspace using the schema from the same module
   const workspace = await ctx.db.query.workspaces.findFirst({
-    where: (ws, { eq, and, isNull }) =>
-      and(eq(ws.ownerId, ctx.userId!), isNull(ws.deletedAt)),
+    where: (ws, { eq, and }) =>
+      and(eq(ws.ownerId, ctx.userId!), notDeleted(ws)),
   });
 
   if (!workspace) {
@@ -146,7 +146,7 @@ export const adminProcedure = authenticatedProcedure.use(async ({ ctx, next }) =
   const systemWorkspaceId = await getOrCreateSystemWorkspace();
 
   const workspace = await ctx.db.query.workspaces.findFirst({
-    where: (ws, { eq: wsEq, isNull, and: wsAnd }) => wsAnd(wsEq(ws.id, systemWorkspaceId), isNull(ws.deletedAt)),
+    where: (ws, { eq: wsEq, and: wsAnd }) => wsAnd(wsEq(ws.id, systemWorkspaceId), notDeleted(ws)),
   });
 
   if (!workspace) {

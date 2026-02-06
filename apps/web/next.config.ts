@@ -1,8 +1,24 @@
 import type { NextConfig } from 'next';
+import { withSentryConfig } from '@sentry/nextjs';
 
 const nextConfig: NextConfig = {
   experimental: {
     reactCompiler: true,
+  },
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
+          { key: 'X-DNS-Prefetch-Control', value: 'on' },
+        ],
+      },
+    ];
   },
   // Only @baleyui/db needs transpilation — it ships TypeScript source (src/*.ts).
   // All @baleybots/* packages ship pre-built ESM (dist/esm/) and must NOT be here.
@@ -25,4 +41,11 @@ const nextConfig: NextConfig = {
   output: 'standalone',
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  // Suppress source map upload logs in CI
+  silent: true,
+  // Skip source map upload when no auth token is configured
+  sourcemaps: {
+    disable: true,
+  },
+});

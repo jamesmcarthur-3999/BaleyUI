@@ -9,12 +9,10 @@ import { router, protectedProcedure } from '../trpc';
 import {
   baleybots,
   baleybotExecutions,
-  approvalPatterns,
   connections,
   eq,
   and,
   desc,
-  isNull,
   notDeleted,
   softDelete,
   updateWithLock,
@@ -755,149 +753,8 @@ export const baleybotsRouter = router({
     }),
 
   // ===== Approval System Endpoints =====
-
-  /**
-   * List approval patterns for the workspace.
-   */
-  listApprovalPatterns: protectedProcedure
-    .input(
-      z.object({
-        tool: z.string().optional(),
-        trustLevel: z.enum(['provisional', 'trusted', 'permanent']).optional(),
-        includeRevoked: z.boolean().optional().default(false),
-        limit: z.number().int().min(1).max(100).optional().default(50),
-      }).optional()
-    )
-    .query(async ({ ctx, input }) => {
-      const conditions = [eq(approvalPatterns.workspaceId, ctx.workspace.id)];
-
-      if (input?.tool) {
-        conditions.push(eq(approvalPatterns.tool, input.tool));
-      }
-
-      if (input?.trustLevel) {
-        conditions.push(eq(approvalPatterns.trustLevel, input.trustLevel));
-      }
-
-      if (!input?.includeRevoked) {
-        conditions.push(isNull(approvalPatterns.revokedAt));
-      }
-
-      const patterns = await ctx.db.query.approvalPatterns.findMany({
-        where: and(...conditions),
-        orderBy: [desc(approvalPatterns.createdAt)],
-        limit: input?.limit ?? 50,
-      });
-
-      return patterns;
-    }),
-
-  /**
-   * Create a new approval pattern.
-   */
-  createApprovalPattern: protectedProcedure
-    .input(
-      z.object({
-        tool: z.string().min(1),
-        actionPattern: z.record(z.string(), z.unknown()),
-        entityGoalPattern: z.string().optional(),
-        trustLevel: z.enum(['provisional', 'trusted', 'permanent']).default('provisional'),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      // Calculate expiration for provisional patterns (24 hours)
-      const expiresAt =
-        input.trustLevel === 'provisional'
-          ? new Date(Date.now() + 24 * 60 * 60 * 1000)
-          : null;
-
-      const [pattern] = await ctx.db
-        .insert(approvalPatterns)
-        .values({
-          workspaceId: ctx.workspace.id,
-          tool: input.tool,
-          actionPattern: input.actionPattern,
-          entityGoalPattern: input.entityGoalPattern,
-          trustLevel: input.trustLevel,
-          approvedBy: ctx.userId,
-          approvedAt: new Date(),
-          expiresAt,
-        })
-        .returning();
-
-      return pattern;
-    }),
-
-  /**
-   * Revoke an approval pattern.
-   */
-  revokeApprovalPattern: protectedProcedure
-    .input(
-      z.object({
-        id: z.string().uuid(),
-        reason: z.string().optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      // Verify the pattern belongs to this workspace
-      const existing = await ctx.db.query.approvalPatterns.findFirst({
-        where: and(
-          eq(approvalPatterns.id, input.id),
-          eq(approvalPatterns.workspaceId, ctx.workspace.id)
-        ),
-      });
-
-      if (!existing) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Approval pattern not found',
-        });
-      }
-
-      const [updated] = await ctx.db
-        .update(approvalPatterns)
-        .set({
-          revokedAt: new Date(),
-          revokedBy: ctx.userId,
-          revokeReason: input.reason,
-        })
-        .where(eq(approvalPatterns.id, input.id))
-        .returning();
-
-      return updated;
-    }),
-
-  /**
-   * Increment usage count for an approval pattern.
-   */
-  incrementPatternUsage: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.db.query.approvalPatterns.findFirst({
-        where: and(
-          eq(approvalPatterns.id, input.id),
-          eq(approvalPatterns.workspaceId, ctx.workspace.id)
-        ),
-      });
-
-      if (!existing) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Approval pattern not found',
-        });
-      }
-
-      const [updated] = await ctx.db
-        .update(approvalPatterns)
-        .set({
-          timesUsed: sql`COALESCE(${approvalPatterns.timesUsed}, 0) + 1`,
-          updatedAt: new Date(),
-        })
-        .where(eq(approvalPatterns.id, input.id))
-        .returning();
-
-      return updated;
-    }),
+  // NOTE: listApprovalPatterns, createApprovalPattern, revokeApprovalPattern,
+  // and recordPatternUsage are on the policies router.
 
   /**
    * Handle approval decision for a pending tool call.

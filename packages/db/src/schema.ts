@@ -12,7 +12,7 @@ import {
   uniqueIndex,
   index,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 
 // ============================================================================
 // WORKSPACES
@@ -346,7 +346,7 @@ export const blockExecutions = pgTable(
     baleybotId: varchar('baleybot_id', { length: 100 }), // e.g., 'baleybot-1-a3f891'
     parentBaleybotId: varchar('parent_baleybot_id', { length: 100 }),
 
-    status: varchar('status', { length: 50 }).notNull(), // 'pending' | 'running' | 'complete' | 'failed' | 'cancelled' | 'stale'
+    status: varchar('status', { length: 50 }).notNull(), // 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'stale'
     input: jsonb('input'),
     output: jsonb('output'),
     error: text('error'),
@@ -771,6 +771,9 @@ export const baleybotExecutions = pgTable(
     triggeredBy: varchar('triggered_by', { length: 50 }), // 'manual', 'schedule', 'webhook', 'other_bb'
     triggerSource: varchar('trigger_source', { length: 255 }), // e.g., BB ID if triggered by another BB
 
+    // Idempotency key for webhook deduplication
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
+
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => [
@@ -779,6 +782,9 @@ export const baleybotExecutions = pgTable(
     index('baleybot_executions_created_idx').on(table.createdAt),
     index('baleybot_executions_baleybot_status_idx').on(table.baleybotId, table.status),
     index('bb_exec_bot_created_idx').on(table.baleybotId, table.createdAt),
+    uniqueIndex('bb_exec_idempotency_idx')
+      .on(table.baleybotId, table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} IS NOT NULL`),
   ]
 );
 

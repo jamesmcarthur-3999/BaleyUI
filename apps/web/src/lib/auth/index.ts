@@ -3,7 +3,7 @@
  */
 
 import { auth } from '@clerk/nextjs/server';
-import { db } from '@baleyui/db';
+import { db, notDeleted } from '@baleyui/db';
 
 export interface Workspace {
   id: string;
@@ -30,8 +30,8 @@ export async function getCurrentAuth(): Promise<AuthResult> {
   }
 
   const workspace = await db.query.workspaces.findFirst({
-    where: (ws, { eq, and, isNull }) =>
-      and(eq(ws.ownerId, userId), isNull(ws.deletedAt)),
+    where: (ws, { eq, and }) =>
+      and(eq(ws.ownerId, userId), notDeleted(ws)),
   });
 
   if (!workspace) {
@@ -77,11 +77,11 @@ export async function verifyWorkspaceOwnership(
   }
 
   const workspace = await db.query.workspaces.findFirst({
-    where: (ws, { eq, and, isNull }) =>
+    where: (ws, { eq, and }) =>
       and(
         eq(ws.id, workspaceId),
         eq(ws.ownerId, userId),
-        isNull(ws.deletedAt)
+        notDeleted(ws)
       ),
   });
 

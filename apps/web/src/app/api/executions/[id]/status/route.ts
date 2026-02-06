@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server';
 import { db, flowExecutions, blockExecutions, eq } from '@baleyui/db';
 import { createLogger } from '@/lib/logger';
 import { apiErrors } from '@/lib/api/error-response';
+import { getAuthenticatedWorkspace } from '@/lib/auth/workspace-lookup';
 
 const logger = createLogger('api/executions/status');
 
@@ -31,10 +32,7 @@ export async function GET(
     const { id: executionId } = await params;
 
     // Get the user's workspace
-    const workspace = await db.query.workspaces.findFirst({
-      where: (ws, { eq, and, isNull }) =>
-        and(eq(ws.ownerId, userId), isNull(ws.deletedAt)),
-    });
+    const workspace = await getAuthenticatedWorkspace(userId);
 
     if (!workspace) {
       return apiErrors.notFound('Workspace');

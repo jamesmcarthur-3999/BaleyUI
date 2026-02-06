@@ -212,7 +212,7 @@ export async function seedDemoWorkspace(ownerId: string = 'demo_user') {
       const blockExecId = generateUUID('gggggggg', i * 10 + j);
       blockExecutionIds.push(blockExecId);
 
-      const blockStatus = status === 'completed' ? 'complete' : status;
+      const blockStatus = status;
       const blockStarted = new Date(startedAt.getTime() + j * 200);
       const blockDuration = randomInt(200, 2000);
 
@@ -223,15 +223,15 @@ export async function seedDemoWorkspace(ownerId: string = 'demo_user') {
         baleybotId: `baleybot-${i}-${j}`,
         status: blockStatus,
         input: getBlockInput(blockId),
-        output: blockStatus === 'complete' ? getBlockOutput(blockId) : null,
+        output: blockStatus === 'completed' ? getBlockOutput(blockId) : null,
         error: blockStatus === 'failed' ? 'Simulated block error' : null,
         model: getBlockModel(blockId),
         tokensInput: randomInt(100, 500),
         tokensOutput: randomInt(50, 300),
         executionPath: 'ai',
         startedAt: blockStarted,
-        completedAt: blockStatus === 'complete' ? new Date(blockStarted.getTime() + blockDuration) : null,
-        durationMs: blockStatus === 'complete' ? blockDuration : null,
+        completedAt: blockStatus === 'completed' ? new Date(blockStarted.getTime() + blockDuration) : null,
+        durationMs: blockStatus === 'completed' ? blockDuration : null,
       });
 
       blockExecutionCount++;

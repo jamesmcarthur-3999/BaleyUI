@@ -12,7 +12,27 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // Auth setup project — runs first to create session state
+    {
+      name: 'setup',
+      testMatch: /auth\.setup\.ts/,
+    },
+    // Unauthenticated tests (homepage, redirects)
+    {
+      name: 'unauthenticated',
+      testMatch: /example\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Authenticated tests depend on setup
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'e2e/.auth/user.json',
+      },
+      dependencies: ['setup'],
+      testIgnore: /auth\.setup\.ts|example\.spec\.ts/,
+    },
   ],
   webServer: {
     command: 'pnpm dev',

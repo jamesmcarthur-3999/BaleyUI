@@ -109,6 +109,14 @@ const config: Config = {
           '0%': { backgroundColor: 'rgb(34 197 94 / 0.2)' },
           '100%': { backgroundColor: 'transparent' },
         },
+        'fade-slide-down': {
+          '0%': { opacity: '0', transform: 'translateY(-10px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        'fade-slide-up': {
+          '0%': { opacity: '0', transform: 'translateY(20px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
       },
       animation: {
         'slide-in-right': 'slide-in-from-right 200ms ease-out',
@@ -118,6 +126,8 @@ const config: Config = {
         'scale-in': 'scale-in 150ms ease-out',
         'scale-out': 'scale-out 150ms ease-in',
         'flash-green': 'flash-green 500ms ease-out',
+        'fade-slide-down': 'fade-slide-down 300ms ease-out',
+        'fade-slide-up': 'fade-slide-up 300ms ease-out 100ms both',
       },
     },
   },

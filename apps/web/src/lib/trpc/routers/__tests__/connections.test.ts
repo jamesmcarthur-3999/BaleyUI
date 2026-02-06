@@ -20,13 +20,9 @@ vi.mock('@/lib/connections/ollama', () => ({
   listOllamaModels: vi.fn().mockResolvedValue(['llama2', 'codellama']),
 }));
 
-vi.mock('@baleyui/db', () => ({
-  connections: { id: 'id', workspaceId: 'workspaceId', type: 'type', isDefault: 'isDefault', createdAt: 'createdAt' },
-  eq: vi.fn((a, b) => ({ _type: 'eq', a, b })),
-  and: vi.fn((...args) => ({ _type: 'and', args })),
-  notDeleted: vi.fn(() => ({ _type: 'notDeleted' })),
-  softDelete: vi.fn().mockResolvedValue({ id: 'deleted-id' }),
-}));
+import { createMockDbModule } from '../../__tests__/mock-db';
+
+vi.mock('@baleyui/db', () => createMockDbModule());
 
 describe('Connections Router Logic', () => {
   let ctx: MockContext;
@@ -340,6 +336,7 @@ describe('Connections Router Logic', () => {
           delete: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue(undefined),
           }),
+          select: vi.fn(),
           query: ctx.db.query,
         };
         return fn(tx);

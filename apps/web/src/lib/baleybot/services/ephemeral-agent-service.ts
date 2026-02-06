@@ -15,6 +15,7 @@
 import { Baleybot, type ToolDefinition as CoreToolDefinition } from '@baleybots/core';
 import type { BuiltInToolContext, CreateAgentResult } from '../tools/built-in';
 import type { RuntimeToolDefinition } from '../executor';
+import { toCoreTool } from '../tools/core-tool-adapter';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('ephemeral-agent');
@@ -53,26 +54,6 @@ export interface EphemeralAgentService {
 // ============================================================================
 // IMPLEMENTATION
 // ============================================================================
-
-/**
- * Convert a runtime tool definition to the format expected by @baleybots/core
- */
-function toCoreTool(tool: RuntimeToolDefinition): CoreToolDefinition {
-  // Build base tool definition
-  const coreTool: CoreToolDefinition = {
-    name: tool.name,
-    description: tool.description,
-    inputSchema: tool.inputSchema,
-    function: tool.function as (...args: unknown[]) => unknown,
-  };
-
-  // Add needsApproval if present (may not exist on all core versions)
-  if (tool.needsApproval !== undefined) {
-    (coreTool as unknown as Record<string, unknown>).needsApproval = tool.needsApproval;
-  }
-
-  return coreTool;
-}
 
 /**
  * Create an ephemeral agent service

@@ -13,7 +13,6 @@ import type {
   GenerateResult,
   GeneratedEntity,
   GenerationMessage,
-  BaleybotSummary,
 } from './types';
 import { buildToolCatalog, formatToolCatalogForAI, categorizeToolName } from './tool-catalog';
 
@@ -351,21 +350,4 @@ export function validateBalCode(balCode: string): {
     errors,
     warnings,
   };
-}
-
-/**
- * Format existing BaleyBots for the generator context
- */
-export function formatExistingBaleybots(
-  baleybots: Array<{ id: string; name: string; description: string | null }>
-): BaleybotSummary[] {
-  return baleybots.map((bb) => ({
-    id: bb.id,
-    name: bb.name,
-    description: bb.description,
-    icon: null,
-    status: 'active' as const,
-    executionCount: 0,
-    lastExecutedAt: null,
-  }));
 }

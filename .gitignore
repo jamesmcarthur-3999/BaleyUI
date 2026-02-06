@@ -34,6 +34,9 @@ yarn-error.log*
 # Testing
 coverage/
 .nyc_output/
+e2e/.auth/
+test-results/
+playwright-report/
 
 # TypeScript
 *.tsbuildinfo

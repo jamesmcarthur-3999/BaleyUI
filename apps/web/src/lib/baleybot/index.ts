@@ -81,7 +81,6 @@ export {
   generateBal,
   parseBalCode,
   validateBalCode,
-  formatExistingBaleybots,
 } from './generator';
 
 // Executor

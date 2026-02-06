@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { motion } from 'framer-motion';
 import { trpc } from '@/lib/trpc/client';
 import { ChatInput, ActionBar, ConversationThread, ExecutionHistory, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError } from '@/components/creator';
 import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
@@ -11,7 +10,14 @@ import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
 // Dynamic import to avoid bundling @baleybots/core server-only modules in client
 const VisualEditor = dynamic(
   () => import('@/components/visual-editor/VisualEditor').then(mod => ({ default: mod.VisualEditor })),
-  { ssr: false }
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full flex items-center justify-center bg-muted/20 rounded-2xl">
+        <span className="text-sm text-muted-foreground">Loading visual editor...</span>
+      </div>
+    ),
+  }
 );
 const BalCodeEditor = dynamic(
   () => import('@/components/baleybot/BalCodeEditor').then(mod => ({ default: mod.BalCodeEditor })),
@@ -862,12 +868,7 @@ export default function BaleybotPage() {
       />
 
       {/* Header - Adaptive layout (Phase 4.6) */}
-      <motion.header
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-        className="border-b border-border/50 bg-background/80 backdrop-blur-sm"
-      >
+      <header className="animate-fade-slide-down border-b border-border/50 bg-background/80 backdrop-blur-sm">
         {/* Main header row - responsive padding (Phase 4.6) */}
         <div className="flex items-center gap-2 sm:gap-3 max-w-6xl mx-auto w-full px-2 sm:px-4 py-2 sm:py-3">
           {/* Back button */}
@@ -1048,7 +1049,7 @@ export default function BaleybotPage() {
             )}
           </div>
         )}
-      </motion.header>
+      </header>
 
       {/* Main content area */}
       <div className="flex-1 relative overflow-hidden p-2 sm:p-4 md:p-6">
@@ -1302,12 +1303,7 @@ export default function BaleybotPage() {
 
       {/* Bottom controls — hidden during welcome view (chat input is inline there) */}
       {status !== 'empty' && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-          className="border-t border-border/50 bg-background/80 backdrop-blur-sm px-2 sm:px-4 md:px-6 py-3 sm:py-4"
-        >
+        <div className="animate-fade-slide-up border-t border-border/50 bg-background/80 backdrop-blur-sm px-2 sm:px-4 md:px-6 py-3 sm:py-4">
           <div className="max-w-2xl md:max-w-3xl mx-auto space-y-4">
             {/* Conversation thread */}
             <ConversationThread
@@ -1343,7 +1339,7 @@ export default function BaleybotPage() {
               disabled={creatorMutation.isPending || isSaving}
             />
           </div>
-        </motion.div>
+        </div>
       )}
 
       {/* Keyboard Shortcuts Dialog (Phase 3.8) */}

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure, authenticatedProcedure } from '../trpc';
-import { workspaces, workspacePolicies, eq, and, sql } from '@baleyui/db';
+import { workspaces, eq, and, sql, notDeleted } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 
 /**
@@ -21,8 +21,8 @@ export const workspacesRouter = router({
    */
   checkWorkspace: authenticatedProcedure.query(async ({ ctx }) => {
     const workspace = await ctx.db.query.workspaces.findFirst({
-      where: (ws, { eq, and, isNull }) =>
-        and(eq(ws.ownerId, ctx.userId!), isNull(ws.deletedAt)),
+      where: (ws, { eq, and }) =>
+        and(eq(ws.ownerId, ctx.userId!), notDeleted(ws)),
     });
 
     return {
@@ -44,8 +44,8 @@ export const workspacesRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Check if user already has a workspace
       const existing = await ctx.db.query.workspaces.findFirst({
-        where: (ws, { eq, and, isNull }) =>
-          and(eq(ws.ownerId, ctx.userId!), isNull(ws.deletedAt)),
+        where: (ws, { eq, and }) =>
+          and(eq(ws.ownerId, ctx.userId!), notDeleted(ws)),
       });
 
       if (existing) {
@@ -113,80 +113,6 @@ export const workspacesRouter = router({
       return updated;
     }),
 
-  /**
-   * Get workspace policy
-   */
-  getPolicy: protectedProcedure.query(async ({ ctx }) => {
-    const policy = await ctx.db.query.workspacePolicies.findFirst({
-      where: (p, { eq }) => eq(p.workspaceId, ctx.workspace.id),
-    });
-
-    return policy || null;
-  }),
-
-  /**
-   * Update workspace policy with optimistic locking
-   */
-  updatePolicy: protectedProcedure
-    .input(
-      z.object({
-        policy: z.object({
-          allowedTools: z.array(z.string()).optional(),
-          forbiddenTools: z.array(z.string()).optional(),
-          requiresApprovalTools: z.array(z.string()).optional(),
-          maxAutoApproveAmount: z.number().int().nullable().optional(),
-          reapprovalIntervalDays: z.number().int().min(1).optional(),
-          maxAutoFiresBeforeReview: z.number().int().min(1).optional(),
-          learningManual: z.string().nullable().optional(),
-        }),
-        version: z.number().int().positive(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      // Check if policy exists
-      const existingPolicy = await ctx.db.query.workspacePolicies.findFirst({
-        where: (p, { eq }) => eq(p.workspaceId, ctx.workspace.id),
-      });
-
-      if (!existingPolicy) {
-        // Create new policy if it doesn't exist
-        const [created] = await ctx.db
-          .insert(workspacePolicies)
-          .values({
-            workspaceId: ctx.workspace.id,
-            ...input.policy,
-            version: 1,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .returning();
-
-        return created;
-      }
-
-      // Update existing policy with optimistic locking
-      const [updated] = await ctx.db
-        .update(workspacePolicies)
-        .set({
-          ...input.policy,
-          version: sql`${workspacePolicies.version} + 1`,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(workspacePolicies.workspaceId, ctx.workspace.id),
-            eq(workspacePolicies.version, input.version)
-          )
-        )
-        .returning();
-
-      if (!updated) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Policy was modified by another user. Please refresh and try again.',
-        });
-      }
-
-      return updated;
-    }),
+  // NOTE: Workspace policy get/update operations are on the policies router
+  // (policies.get and policies.update)
 });

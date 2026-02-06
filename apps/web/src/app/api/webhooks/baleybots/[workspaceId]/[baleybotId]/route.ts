@@ -189,6 +189,32 @@ export async function POST(
 
     log.info('Executing BaleyBot via webhook', { baleybotId, baleybotName: baleybot.name, ipAddress });
 
+    // Check for idempotency key to deduplicate webhook deliveries
+    const idempotencyKey =
+      request.headers.get('x-idempotency-key') ||
+      request.headers.get('x-webhook-delivery-id') ||
+      null;
+
+    if (idempotencyKey) {
+      const existing = await db.query.baleybotExecutions.findFirst({
+        where: and(
+          eq(baleybotExecutions.baleybotId, baleybot.id),
+          eq(baleybotExecutions.idempotencyKey, idempotencyKey)
+        ),
+        columns: { id: true, status: true, output: true },
+      });
+
+      if (existing) {
+        log.info('Deduplicated webhook execution', { baleybotId, idempotencyKey, existingExecutionId: existing.id });
+        return NextResponse.json({
+          success: true,
+          executionId: existing.id,
+          deduplicated: true,
+          message: 'Execution already processed for this idempotency key',
+        });
+      }
+    }
+
     // Create execution record
     const [execution] = await db
       .insert(baleybotExecutions)
@@ -198,6 +224,7 @@ export async function POST(
         input: body as Record<string, unknown>,
         triggeredBy: 'webhook',
         triggerSource: ipAddress ?? 'unknown',
+        idempotencyKey,
         startedAt: new Date(),
       })
       .returning({ id: baleybotExecutions.id });

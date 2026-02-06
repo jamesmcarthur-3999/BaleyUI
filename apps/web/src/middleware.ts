@@ -6,6 +6,7 @@ const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/api/webhooks(.*)',
+  '/api/health',
 ]);
 
 // Routes that support API key authentication (in addition to session auth)
@@ -20,6 +21,7 @@ const isCsrfExempt = createRouteMatcher([
   '/api/webhooks(.*)',  // Secret-based auth
   '/api/v1(.*)',        // API key auth
   '/api/cron(.*)',      // Bearer token auth
+  '/api/health',        // Public health check
 ]);
 
 export default clerkMiddleware(async (auth, request) => {

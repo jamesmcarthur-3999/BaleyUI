@@ -14,6 +14,7 @@ export * from './use-persisted-date-range';
 // Performance hooks
 export * from './useVirtualList';
 export * from './useAutoSave';
+export * from './useDebounce';
 export * from './useOptimizedEvents';
 export * from './useBalWorker';
 
@@ -22,8 +23,6 @@ export * from './useKeyboardNavigation';
 
 // State management hooks
 export * from './useDirtyState';
-// Export specific hooks from useDebounce to avoid conflict with useAutoSave's useDebounce
-export { useDebouncedCallback, useThrottledCallback } from './useDebounce';
 export * from './useNavigationGuard';
 export * from './useHistory';
 

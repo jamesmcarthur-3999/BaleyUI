@@ -19,7 +19,7 @@ import {
   and,
   notDeleted,
 } from '@baleyui/db';
-import { executeBALCode } from '@baleyui/sdk';
+import { executeBaleybot, type ExecutorContext } from '../executor';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('bb_trigger');
@@ -155,7 +155,8 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
 }
 
 /**
- * Execute a triggered BaleyBot
+ * Execute a triggered BaleyBot using the standard executor path.
+ * This ensures proper provider resolution, tools, analytics, and alerts.
  */
 async function executeTriggeredBB(
   trigger: TriggerConfig,
@@ -165,7 +166,7 @@ async function executeTriggeredBB(
   let executionId: string | null = null;
 
   try {
-    // Get the target BB
+    // Get the target BB (also need workspaceId for executor context)
     const targetBB = await db.query.baleybots.findFirst({
       where: and(
         eq(baleybots.id, trigger.targetBaleybotId),
@@ -176,6 +177,7 @@ async function executeTriggeredBB(
         name: true,
         balCode: true,
         status: true,
+        workspaceId: true,
       },
     });
 
@@ -222,49 +224,50 @@ async function executeTriggeredBB(
       `Executing triggered BB "${targetBB.name}" (${targetBB.id}) from trigger ${trigger.id}`
     );
 
-    // Get API key for execution
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('No API key configured for triggered execution');
-    }
-
     const startTime = Date.now();
 
-    // Execute the BaleyBot with the computed input
+    // Execute through the standard executor path (handles provider resolution,
+    // tools, analytics, alerts, and self-healing)
+    const ctx: ExecutorContext = {
+      workspaceId: targetBB.workspaceId,
+      baleybotId: targetBB.id,
+      availableTools: new Map(),
+      workspacePolicies: null,
+      triggeredBy: 'other_bb',
+      triggerSource: `trigger:${trigger.id}`,
+    };
+
     const inputStr = JSON.stringify(input);
-    const result = await executeBALCode(targetBB.balCode, {
-      input: inputStr,
-      model: 'gpt-4o-mini',
-      apiKey,
-      timeout: 55000,
-    });
+    const result = await executeBaleybot(targetBB.balCode, inputStr, ctx);
 
     const durationMs = Date.now() - startTime;
 
-    // Update execution record with success
+    // Update execution record with result
     await db
       .update(baleybotExecutions)
       .set({
-        status: 'completed',
-        output: result as unknown as Record<string, unknown>,
+        status: result.status === 'completed' ? 'completed' : 'failed',
+        output: result.output as Record<string, unknown> | null,
+        error: result.error,
         completedAt: new Date(),
         durationMs,
       })
       .where(eq(baleybotExecutions.id, execution.id));
 
     log.info(
-      `Triggered BB "${targetBB.name}" completed successfully in ${durationMs}ms`
+      `Triggered BB "${targetBB.name}" completed with status ${result.status} in ${durationMs}ms`
     );
 
     return {
       triggerId: trigger.id,
       targetBaleybotId: trigger.targetBaleybotId,
       executionId: execution.id,
-      success: true,
+      success: result.status === 'completed',
+      error: result.error,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    log.error(` Triggered BB execution failed:`, errorMessage);
+    log.error('Triggered BB execution failed:', errorMessage);
 
     // Mark the execution as failed so it doesn't stay stuck in 'running'
     if (executionId) {

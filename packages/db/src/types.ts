@@ -92,10 +92,11 @@ export type ConnectionType =
 // Connection status
 export type ConnectionStatus = 'connected' | 'error' | 'unconfigured';
 
-// Execution status
+// Execution status (prefer 'completed'; 'complete' accepted for legacy block_executions data)
 export type ExecutionStatus =
   | 'pending'
   | 'running'
+  | 'completed'
   | 'complete'
   | 'failed'
   | 'cancelled'

@@ -10,23 +10,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-
-interface ConnectionFormValues {
-  name: string;
-  config: {
-    apiKey?: string;
-    baseUrl?: string;
-    organization?: string;
-    host?: string;
-    port?: number;
-    database?: string;
-    username?: string;
-    password?: string;
-    connectionUrl?: string;
-    ssl?: boolean;
-    schema?: string;
-  };
-}
+import type { ConnectionFormValues } from './types';
 
 interface OpenAIFormProps {
   form: UseFormReturn<ConnectionFormValues>;

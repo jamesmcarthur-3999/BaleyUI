@@ -1,9 +1,10 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
-import { db, blockExecutions } from '@baleyui/db';
+import { db, blockExecutions, notDeleted } from '@baleyui/db';
 import { z } from 'zod';
 import { createLogger } from '@/lib/logger';
 import { apiErrors, createErrorResponse } from '@/lib/api/error-response';
+import { getAuthenticatedWorkspace } from '@/lib/auth/workspace-lookup';
 
 const logger = createLogger('api/executions/start');
 
@@ -33,10 +34,7 @@ export async function POST(req: Request) {
     const { blockId, input } = parseResult.data;
 
     // Get the user's workspace
-    const workspace = await db.query.workspaces.findFirst({
-      where: (ws, { eq, and, isNull }) =>
-        and(eq(ws.ownerId, userId), isNull(ws.deletedAt)),
-    });
+    const workspace = await getAuthenticatedWorkspace(userId);
 
     if (!workspace) {
       return apiErrors.notFound('Workspace');
@@ -44,11 +42,11 @@ export async function POST(req: Request) {
 
     // Verify the block exists and belongs to the user's workspace
     const block = await db.query.blocks.findFirst({
-      where: (b, { eq, and, isNull }) =>
+      where: (b, { eq, and }) =>
         and(
           eq(b.id, blockId),
           eq(b.workspaceId, workspace.id),
-          isNull(b.deletedAt)
+          notDeleted(b)
         ),
     });
 

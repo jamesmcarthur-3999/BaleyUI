@@ -29,11 +29,11 @@ import {
 export default function ApprovalsSettingsPage() {
   const [patternToRevoke, setPatternToRevoke] = useState<string | null>(null);
 
-  const { data: patterns, isLoading, refetch } = trpc.baleybots.listApprovalPatterns.useQuery({
+  const { data: patterns, isLoading, refetch } = trpc.policies.listApprovalPatterns.useQuery({
     includeRevoked: false,
   });
 
-  const revokeMutation = trpc.baleybots.revokeApprovalPattern.useMutation({
+  const revokeMutation = trpc.policies.revokeApprovalPattern.useMutation({
     onSuccess: () => {
       refetch();
       setPatternToRevoke(null);

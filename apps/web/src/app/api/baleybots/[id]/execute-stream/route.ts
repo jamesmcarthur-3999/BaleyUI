@@ -13,6 +13,7 @@
 
 import { auth } from '@clerk/nextjs/server';
 import { NextRequest } from 'next/server';
+import { z } from 'zod';
 import {
   db,
   baleybots,
@@ -39,8 +40,15 @@ import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
 import { validateApiKey } from '@/lib/api/validate-api-key';
 import { processBBCompletion } from '@/lib/baleybot/services/bb-completion-trigger-service';
 import { apiErrors, createErrorResponse } from '@/lib/api/error-response';
+import { getAuthenticatedWorkspace } from '@/lib/auth/workspace-lookup';
 
 const log = createLogger('baleybot-stream');
+
+const executeStreamBodySchema = z.object({
+  input: z.unknown().optional(),
+  triggeredBy: z.enum(['manual', 'schedule', 'webhook', 'other_bb']).default('manual'),
+  triggerSource: z.string().optional(),
+}).strict();
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,10 +65,7 @@ async function authenticateRequest(req: NextRequest): Promise<{
   // Try session auth first
   const { userId } = await auth();
   if (userId) {
-    const workspace = await db.query.workspaces.findFirst({
-      where: (ws, { eq, and, isNull }) =>
-        and(eq(ws.ownerId, userId), isNull(ws.deletedAt)),
-    });
+    const workspace = await getAuthenticatedWorkspace(userId);
     if (workspace) {
       return { workspaceId: workspace.id, userId, authMethod: 'session' };
     }
@@ -131,17 +136,24 @@ export async function POST(
       return apiErrors.badRequest('Cannot execute BaleyBot in error state');
     }
 
-    // Parse request body for input
+    // Parse and validate request body
     let input: unknown;
     let triggeredBy: 'manual' | 'schedule' | 'webhook' | 'other_bb' = 'manual';
     let triggerSource: string | undefined;
 
     try {
-      const body = await req.json();
-      input = body.input;
-      triggeredBy = body.triggeredBy || 'manual';
-      triggerSource = body.triggerSource;
-    } catch {
+      const rawBody = await req.json();
+      const parsed = executeStreamBodySchema.parse(rawBody);
+      input = parsed.input;
+      triggeredBy = parsed.triggeredBy;
+      triggerSource = parsed.triggerSource;
+    } catch (parseErr) {
+      if (parseErr instanceof z.ZodError) {
+        return createErrorResponse(400, null, {
+          message: `Invalid request body: ${parseErr.issues.map((e: { message: string }) => e.message).join(', ')}`,
+          requestId,
+        });
+      }
       // Empty body is OK, input is optional
     }
 
