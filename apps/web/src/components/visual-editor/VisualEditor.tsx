@@ -5,7 +5,6 @@ import { Code, LayoutGrid, Loader2 } from 'lucide-react';
 import { ClusterDiagram } from './ClusterDiagram';
 import { NodeEditor } from './NodeEditor';
 import { parseBalToVisualGraph, parseBalEntities } from '@/app/dashboard/baleybots/[id]/actions';
-import { useBalWorker } from '@/hooks/useBalWorker';
 import { applyNodeChangeFromParsed } from '@/lib/baleybot/visual/visual-to-bal';
 import type { VisualGraph, ParsedEntities } from '@/lib/baleybot/visual/types';
 import { cn } from '@/lib/utils';
@@ -32,7 +31,6 @@ export function VisualEditor({
   const [isParsing, setIsParsing] = useState(true);
   const parsedEntitiesRef = useRef<ParsedEntities | null>(null);
   const latestBalCodeRef = useRef(balCode);
-  const balWorker = useBalWorker();
 
   useEffect(() => {
     let cancelled = false;
@@ -41,32 +39,15 @@ export function VisualEditor({
     const timeoutId = setTimeout(async () => {
       setIsParsing(true);
 
-      // Try worker first (off main thread), fall back to server actions
-      const workerResult = await balWorker.parseBalCode(balCode);
-
-      if (workerResult) {
-        // Worker succeeded -- use its result
-        if (!cancelled && latestBalCodeRef.current === balCode) {
-          setVisualGraph(workerResult.graph);
-          setParseErrors(workerResult.errors);
-          parsedEntitiesRef.current = {
-            entities: workerResult.entities,
-            errors: workerResult.errors,
-          };
-          setIsParsing(false);
-        }
-      } else {
-        // Worker unavailable -- fall back to server actions
-        const [result, entities] = await Promise.all([
-          parseBalToVisualGraph(balCode),
-          parseBalEntities(balCode),
-        ]);
-        if (!cancelled && latestBalCodeRef.current === balCode) {
-          setVisualGraph(result.graph);
-          setParseErrors(result.errors);
-          parsedEntitiesRef.current = entities;
-          setIsParsing(false);
-        }
+      const [result, entities] = await Promise.all([
+        parseBalToVisualGraph(balCode),
+        parseBalEntities(balCode),
+      ]);
+      if (!cancelled && latestBalCodeRef.current === balCode) {
+        setVisualGraph(result.graph);
+        setParseErrors(result.errors);
+        parsedEntitiesRef.current = entities;
+        setIsParsing(false);
       }
     }, 300);
 
@@ -74,7 +55,6 @@ export function VisualEditor({
       cancelled = true;
       clearTimeout(timeoutId);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [balCode]);
 
   const selectedNode = selectedNodeId

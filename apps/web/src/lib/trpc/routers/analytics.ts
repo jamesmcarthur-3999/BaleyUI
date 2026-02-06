@@ -472,7 +472,7 @@ export const analyticsRouter = router({
    * Get per-bot analytics: execution counts, success rate, duration, tokens, daily trend, top errors.
    */
   getBaleybotAnalytics: protectedProcedure
-    .input(z.object({ baleybotId: z.string(), days: z.number().default(30) }))
+    .input(z.object({ baleybotId: z.string().uuid(), days: z.number().min(1).max(365).default(30) }))
     .query(async ({ ctx, input }) => {
       const since = new Date();
       since.setDate(since.getDate() - input.days);
@@ -517,7 +517,7 @@ export const analyticsRouter = router({
       // Top errors
       const errorCounts: Record<string, number> = {};
       executions.filter(e => e.error).forEach(e => {
-        const msg = (e.error as string).slice(0, 100);
+        const msg = String(e.error).slice(0, 100);
         errorCounts[msg] = (errorCounts[msg] || 0) + 1;
       });
       const topErrors = Object.entries(errorCounts)
@@ -543,7 +543,7 @@ export const analyticsRouter = router({
    * Get aggregate dashboard overview: total executions, success rate, avg duration, top bots, daily trend.
    */
   getDashboardOverview: protectedProcedure
-    .input(z.object({ days: z.number().default(30) }))
+    .input(z.object({ days: z.number().min(1).max(365).default(30) }))
     .query(async ({ ctx, input }) => {
       const since = new Date();
       since.setDate(since.getDate() - input.days);

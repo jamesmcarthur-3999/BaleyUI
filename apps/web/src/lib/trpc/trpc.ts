@@ -146,7 +146,7 @@ export const adminProcedure = authenticatedProcedure.use(async ({ ctx, next }) =
   const systemWorkspaceId = await getOrCreateSystemWorkspace();
 
   const workspace = await ctx.db.query.workspaces.findFirst({
-    where: (ws, { eq: wsEq }) => wsEq(ws.id, systemWorkspaceId),
+    where: (ws, { eq: wsEq, isNull, and: wsAnd }) => wsAnd(wsEq(ws.id, systemWorkspaceId), isNull(ws.deletedAt)),
   });
 
   if (!workspace) {

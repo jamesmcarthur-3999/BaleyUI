@@ -28,7 +28,7 @@ export default function AdminError({
         <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
         <h2 className="text-xl font-semibold mb-2">Something went wrong</h2>
         <p className="text-muted-foreground mb-4">
-          {error.message || 'An unexpected error occurred in the admin panel.'}
+          An unexpected error occurred in the admin panel.
         </p>
         {error.digest && (
           <p className="text-xs text-muted-foreground mb-4 font-mono">

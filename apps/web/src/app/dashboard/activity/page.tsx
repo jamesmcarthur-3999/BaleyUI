@@ -150,7 +150,7 @@ export default function ActivityPage() {
                       </div>
                       {execution.status === 'failed' && execution.error && (
                         <p className="text-xs text-destructive mt-1 truncate max-w-md">
-                          {(execution.error as string).slice(0, 100)}
+                          {String(execution.error).slice(0, 100)}
                         </p>
                       )}
                     </div>
