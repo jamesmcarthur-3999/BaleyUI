@@ -697,6 +697,32 @@ export default function BaleybotPage() {
    */
   const handleCodeChange = (newCode: string) => {
     setBalCode(newCode);
+
+    // Re-parse code to sync entities with visual editor
+    try {
+      const parsed = parseBalCode(newCode);
+      if (parsed.entities.length > 0) {
+        const updatedEntities: VisualEntity[] = parsed.entities.map(
+          (entity, index) => {
+            // Preserve position from existing entity if it exists
+            const existing = entities.find(e => e.name === entity.name);
+            return {
+              id: existing?.id ?? `entity-${index}`,
+              name: entity.name,
+              icon: existing?.icon ?? '🤖',
+              purpose: (entity.config.goal as string) || existing?.purpose || '',
+              tools: (entity.config.tools as string[]) || [],
+              position: existing?.position ?? { x: 0, y: 0 },
+              status: 'stable' as const,
+            };
+          }
+        );
+        setEntities(updatedEntities);
+      }
+    } catch {
+      // Parse error is expected during editing — don't update entities
+    }
+
     // Push to history
     pushHistory(
       {
@@ -794,6 +820,14 @@ export default function BaleybotPage() {
     });
     setReadiness(newReadiness);
   }, [balCode, entities, testCases, triggerConfig, workspaceConnections, analyticsData]);
+
+  // Auto-switch to a visible tab if current tab becomes hidden
+  useEffect(() => {
+    const visibleTabs = getVisibleTabs(readiness);
+    if (!visibleTabs.includes(viewMode)) {
+      setViewMode('visual');
+    }
+  }, [readiness, viewMode]);
 
   // Connection analysis — re-runs when connections tab is opened and code changes
   const analyzeConnectionsMutation = trpc.baleybots.analyzeConnections.useMutation();
