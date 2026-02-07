@@ -17,7 +17,9 @@ export { InlineLoading, SkeletonBlock, NetworkStatus, useNetworkStatus, LoadingD
 export { SaveConflictDialog, isSaveConflictError } from './SaveConflictDialog';
 export type { ConflictAction } from './SaveConflictDialog';
 export { ReadinessChecklist } from './ReadinessDots';
-export { ConnectionsPanel } from './ConnectionsPanel';
+export { ConnectionsPanel, getToolReadinessStatus } from './ConnectionsPanel';
+export type { ToolReadinessInfo } from './ConnectionsPanel';
+export { InlineConnectionForm } from './InlineConnectionForm';
 export { TestPanel } from './TestPanel';
-export type { TestCase } from './TestPanel';
+export type { TestCase, InputType, TestFixture, StepExpectation } from './TestPanel';
 export { MonitorPanel } from './MonitorPanel';

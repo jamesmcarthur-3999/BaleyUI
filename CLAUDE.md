@@ -125,26 +125,29 @@ All internal BaleyBot executions are tracked in `baleybotExecutions`.
 ## BAL Syntax Reference
 
 ```bal
-# Single BaleyBot
+# Single BaleyBot with all properties
 assistant {
   "goal": "Help users with questions",
   "model": "anthropic:claude-sonnet-4-20250514",
   "tools": ["web_search", "fetch_url"],
-  "can_request": ["schedule_task"]
+  "can_request": ["schedule_task"],
+  "temperature": 0.7,
+  "reasoning": "high",
+  "stopWhen": "stepCount:10",
+  "retries": 2,
+  "maxTokens": 4096
 }
 
-# BB Cluster (multiple BBs)
-analyzer {
-  "goal": "Analyze data",
-  "trigger": "webhook"
-}
-
-reporter {
-  "goal": "Generate report",
-  "trigger": "bb_completion:analyzer"
-}
-
-chain { analyzer reporter }
+# Compositions
+chain { a b }                                    # Sequential
+parallel { a b }                                 # Concurrent
+if ("result.score > 0.8") { a } else { b }      # Conditional
+loop ("until": "result.done", "max": 5) { a }   # Iteration
+try ("retries": 3) { a } catch { b }            # Error handling
+route(classifier) { "type1": h1, "type2": h2 }  # Multi-way routing
+gate("result.needsReview") { reviewer }          # Conditional gate
+filter("item.score > 0.5") { enricher }          # Array filter
+processor("extract") { "result.data" }           # Data transform
 ```
 
 ## Testing

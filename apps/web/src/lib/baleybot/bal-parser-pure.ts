@@ -167,6 +167,12 @@ export function parseBalCode(balCode: string): ParseResult {
           tools: entity.tools ?? [],
           output: entity.output ? outputSchemaToRecord(entity.output as { fields: Array<{ name: string; fieldType: { kind: string } }> }) : undefined,
           history: entity.history,
+          temperature: entity.temperature,
+          reasoning: entity.reasoning,
+          stopWhen: entity.stopWhen,
+          retries: entity.retries,
+          needsApproval: entity.needsApproval,
+          maxTokens: entity.maxTokens,
         },
       });
     }

@@ -27,6 +27,7 @@ import type { CreatorMessage } from '@/lib/baleybot/creator-types';
 import { getBuiltInToolDefinitions, getPreferredProvider } from '@/lib/baleybot';
 import { executeBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
+import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import {
   verifyNestedOwnership,
@@ -40,6 +41,7 @@ import {
 import { createLogger } from '@/lib/logger';
 import { executeInternalBaleybot } from '@/lib/baleybot/internal-baleybots';
 import { getWorkspaceAICredentials, initializeBuiltInToolServices } from '@/lib/baleybot/services';
+import { sharedStorageService } from '@/lib/baleybot/services/shared-storage-service';
 import { configureWebSearch } from '@/lib/baleybot/tools/built-in/implementations';
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
 import { loadExecutionTools } from '@/lib/baleybot/services/execution-tools-loader';
@@ -51,11 +53,24 @@ const testGeneratorOutputSchema = z.object({
   tests: z.array(z.object({
     name: z.string(),
     level: z.enum(['unit', 'integration', 'e2e']),
-    input: z.string(),
+    input: z.union([z.string(), z.record(z.string(), z.unknown())]),
+    inputType: z.enum(['text', 'structured', 'fixture']).optional(),
     expectedOutput: z.string().optional(),
-    matchStrategy: z.enum(['exact', 'contains', 'semantic']).optional(),
+    matchStrategy: z.enum(['exact', 'contains', 'semantic', 'schema', 'structured']).optional(),
     description: z.string().optional(),
+    fixtures: z.array(z.object({
+      key: z.string(),
+      value: z.unknown(),
+      ttlSeconds: z.number().optional(),
+      description: z.string().optional(),
+    })).optional(),
+    expectedSteps: z.array(z.object({
+      entityName: z.string(),
+      expectation: z.string(),
+    })).optional(),
   })),
+  topology: z.string().optional(),
+  topologyDescription: z.string().optional(),
   strategy: z.string().optional(),
 });
 
@@ -70,6 +85,7 @@ const testResultsAnalyzerOutputSchema = z.object({
   overallStatus: z.enum(['passed', 'mixed', 'failed']),
   summary: z.string(),
   passRate: z.number().min(0).max(1),
+  topology: z.string().optional(),
   patterns: z.array(z.object({
     type: z.string(),
     description: z.string(),
@@ -81,6 +97,11 @@ const testResultsAnalyzerOutputSchema = z.object({
     title: z.string(),
     description: z.string(),
     impact: z.enum(['high', 'medium', 'low']),
+  })).optional(),
+  pipelineInsights: z.array(z.object({
+    entityName: z.string(),
+    likelyIssue: z.string().optional(),
+    suggestedFix: z.string().optional(),
   })).optional(),
   nextSteps: z.array(z.string()).optional(),
 });
@@ -1126,9 +1147,21 @@ export const baleybotsRouter = router({
         id: z.string(),
         name: z.string(),
         level: z.enum(['unit', 'integration', 'e2e']),
-        input: z.string(),
+        inputType: z.enum(['text', 'structured', 'fixture']).optional(),
+        input: z.union([z.string(), z.record(z.string(), z.unknown())]),
         expectedOutput: z.string().optional(),
-        matchStrategy: z.enum(['exact', 'contains', 'semantic']).optional(),
+        matchStrategy: z.enum(['exact', 'contains', 'semantic', 'schema', 'structured']).optional(),
+        description: z.string().optional(),
+        fixtures: z.array(z.object({
+          key: z.string(),
+          value: z.unknown(),
+          ttlSeconds: z.number().optional(),
+          description: z.string().optional(),
+        })).optional(),
+        expectedSteps: z.array(z.object({
+          entityName: z.string(),
+          expectation: z.string(),
+        })).optional(),
         status: z.enum(['pending', 'running', 'passed', 'failed']),
         actualOutput: z.string().optional(),
         error: z.string().optional(),
@@ -1155,6 +1188,29 @@ export const baleybotsRouter = router({
       });
 
       return { success: true };
+    }),
+
+  /**
+   * Pre-load test fixtures into shared storage before test execution.
+   */
+  preloadTestFixtures: protectedProcedure
+    .input(z.object({
+      fixtures: z.array(z.object({
+        key: z.string(),
+        value: z.unknown(),
+        ttlSeconds: z.number().optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      for (const fixture of input.fixtures) {
+        await sharedStorageService.write(
+          ctx.workspace.id,
+          fixture.key.startsWith('test_fixture:') ? fixture.key : `test_fixture:${fixture.key}`,
+          fixture.value,
+          { ttlSeconds: fixture.ttlSeconds ?? 300 },
+        );
+      }
+      return { success: true, fixturesLoaded: input.fixtures.length };
     }),
 
   /**
@@ -1272,27 +1328,68 @@ export const baleybotsRouter = router({
         RATE_LIMITS.generate,
       );
 
+      // Parse BAL code to extract topology info
+      const parsed = parseBalCode(input.balCode);
+      const hasChain = !!parsed.chain && parsed.chain.length > 1;
+      const entityCount = parsed.entities.length;
+      const topologyHint = entityCount <= 1 ? 'single' : hasChain ? 'chain' : 'multiple';
+
       const contextStr = [
         `Bot: ${baleybot.name}`,
-        `Entities: ${input.entities.map(e => `${e.name} (${e.tools.join(', ')})`).join('; ')}`,
+        `Topology: ${topologyHint} (${entityCount} entit${entityCount === 1 ? 'y' : 'ies'})`,
+        hasChain ? `Chain order: ${parsed.chain!.join(' → ')}` : '',
+        '',
+        'Entities:',
+        ...input.entities.map(e => {
+          const parsedEntity = parsed.entities.find(pe => pe.name === e.name);
+          const goal = parsedEntity?.config?.goal ?? e.purpose;
+          const output = parsedEntity?.config?.output ? `Output schema: ${JSON.stringify(parsedEntity.config.output)}` : '';
+          return `- ${e.name}: ${goal} [tools: ${e.tools.join(', ') || 'none'}]${output ? `\n  ${output}` : ''}`;
+        }),
         '',
         'BAL Code:',
         input.balCode,
-      ].join('\n');
+      ].filter(Boolean).join('\n');
 
-      const { output } = await executeInternalBaleybot(
-        'test_generator',
-        `Generate comprehensive tests for this BaleyBot:\n${contextStr}`,
-        {
-          userWorkspaceId: ctx.workspace.id,
-          triggeredBy: 'internal',
-        }
-      );
+      // Try test_orchestrator first (topology-aware), fall back to test_generator
+      let output: unknown;
+      let usedOrchestrator = false;
+      try {
+        const result = await executeInternalBaleybot(
+          'test_orchestrator',
+          `Design a comprehensive test suite for this BaleyBot:\n${contextStr}`,
+          {
+            userWorkspaceId: ctx.workspace.id,
+            triggeredBy: 'internal',
+          }
+        );
+        output = result.output;
+        usedOrchestrator = true;
+      } catch (orchestratorError) {
+        log.warn('test_orchestrator failed, falling back to test_generator', {
+          error: orchestratorError instanceof Error ? orchestratorError.message : String(orchestratorError),
+          baleybotId: input.baleybotId,
+        });
+        const result = await executeInternalBaleybot(
+          'test_generator',
+          `Generate comprehensive tests for this BaleyBot:\n${contextStr}`,
+          {
+            userWorkspaceId: ctx.workspace.id,
+            triggeredBy: 'internal',
+          }
+        );
+        output = result.output;
+      }
 
       try {
-        return testGeneratorOutputSchema.parse(output);
+        const parsed = testGeneratorOutputSchema.parse(output);
+        // If orchestrator was used, topology fields will be present; otherwise add hints
+        if (!usedOrchestrator && !parsed.topology) {
+          return { ...parsed, topology: topologyHint, topologyDescription: `${entityCount} entit${entityCount === 1 ? 'y' : 'ies'}${hasChain ? ` in chain: ${parsed.topology}` : ''}` };
+        }
+        return parsed;
       } catch {
-        log.error('test_generator returned malformed output', { output, baleybotId: input.baleybotId });
+        log.error('test generation returned malformed output', { output, baleybotId: input.baleybotId, usedOrchestrator });
         return { tests: [], strategy: 'Test generation returned unexpected format. Please try again.' };
       }
     }),
@@ -1358,11 +1455,15 @@ export const baleybotsRouter = router({
   validateTestOutput: protectedProcedure
     .input(z.object({
       testName: z.string(),
-      input: z.string(),
+      input: z.union([z.string(), z.record(z.string(), z.unknown())]),
       expectedOutput: z.string(),
       actualOutput: z.string(),
       botName: z.string(),
       botGoal: z.string().optional(),
+      expectedSteps: z.array(z.object({
+        entityName: z.string(),
+        expectation: z.string(),
+      })).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       await checkRateLimit(
@@ -1370,13 +1471,17 @@ export const baleybotsRouter = router({
         RATE_LIMITS.generate,
       );
 
+      const inputStr = typeof input.input === 'object' ? JSON.stringify(input.input) : input.input;
       const contextStr = [
         `Bot: ${input.botName}`,
         input.botGoal ? `Goal: ${input.botGoal}` : '',
         `Test: ${input.testName}`,
-        `Input: ${input.input}`,
+        `Input: ${inputStr}`,
         `Expected Output: ${input.expectedOutput}`,
         `Actual Output: ${input.actualOutput}`,
+        input.expectedSteps?.length
+          ? `Expected Steps:\n${input.expectedSteps.map(s => `  - ${s.entityName}: ${s.expectation}`).join('\n')}`
+          : '',
       ].filter(Boolean).join('\n');
 
       const { output } = await executeInternalBaleybot(
@@ -1404,17 +1509,24 @@ export const baleybotsRouter = router({
     .input(z.object({
       botName: z.string(),
       botGoal: z.string().optional(),
+      topology: z.string().optional(),
+      topologyDescription: z.string().optional(),
       testResults: z.array(z.object({
         id: z.string(),
         name: z.string(),
         level: z.enum(['unit', 'integration', 'e2e']),
-        input: z.string(),
+        input: z.union([z.string(), z.record(z.string(), z.unknown())]),
+        inputType: z.enum(['text', 'structured', 'fixture']).optional(),
         expectedOutput: z.string().optional(),
         actualOutput: z.string().optional(),
         status: z.enum(['pending', 'running', 'passed', 'failed']),
         error: z.string().optional(),
         failureCategory: z.string().optional(),
         durationMs: z.number().optional(),
+        expectedSteps: z.array(z.object({
+          entityName: z.string(),
+          expectation: z.string(),
+        })).optional(),
       })),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -1426,14 +1538,18 @@ export const baleybotsRouter = router({
       const contextStr = [
         `Bot: ${input.botName}`,
         input.botGoal ? `Goal: ${input.botGoal}` : '',
+        input.topology ? `Topology: ${input.topology}` : '',
+        input.topologyDescription ? `Topology Description: ${input.topologyDescription}` : '',
         '',
         'Test Results:',
         ...input.testResults.map(t => [
           `- ${t.name} (${t.level}): ${t.status}`,
+          t.inputType && t.inputType !== 'text' ? `  Input Type: ${t.inputType}` : '',
           t.error ? `  Error: ${t.error}` : '',
           t.actualOutput ? `  Output: ${t.actualOutput.slice(0, 200)}` : '',
           t.failureCategory ? `  Category: ${t.failureCategory}` : '',
           t.durationMs ? `  Duration: ${t.durationMs}ms` : '',
+          t.expectedSteps?.length ? `  Expected Steps: ${t.expectedSteps.map(s => `${s.entityName}: ${s.expectation}`).join('; ')}` : '',
         ].filter(Boolean).join('\n')),
       ].filter(Boolean).join('\n');
 

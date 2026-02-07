@@ -1,11 +1,14 @@
 // apps/web/src/components/creator/ConnectionsPanel.tsx
 'use client';
 
-import { Cable, CheckCircle2, AlertCircle, Plus, ExternalLink } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle2, AlertCircle, Plus, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getConnectionSummary, scanToolRequirements } from '@/lib/baleybot/tools/requirements-scanner';
+import { InlineConnectionForm } from './InlineConnectionForm';
+import { ROUTES } from '@/lib/routes';
 
 interface ConnectionData {
   id: string;
@@ -22,22 +25,97 @@ interface ConnectionsPanelProps {
   connections: ConnectionData[];
   /** Whether connections are loading */
   isLoading: boolean;
-  /** Callback to navigate to connections settings */
-  onManageConnections?: () => void;
+  /** Callback when a new connection is created inline */
+  onConnectionCreated?: () => void;
   className?: string;
 }
 
+// ============================================================================
+// TOOL READINESS
+// ============================================================================
+
+export interface ToolReadinessInfo {
+  status: 'ready' | 'needs-setup' | 'limited';
+  note: string;
+}
+
+/**
+ * Determine the readiness status of a tool based on its name and available connections.
+ */
+export function getToolReadinessStatus(
+  toolName: string,
+  connections: ConnectionData[]
+): ToolReadinessInfo {
+  // Built-in tools that always work
+  const alwaysReady: Record<string, string> = {
+    web_search: 'Works with or without Tavily API key',
+    fetch_url: 'No config needed',
+    spawn_baleybot: 'No config needed',
+    send_notification: 'Sends in-app notifications (see bell icon)',
+    schedule_task: 'Schedules via cron job',
+    store_memory: 'Persistent key-value storage',
+    shared_storage: 'Cross-BB shared data',
+    create_agent: 'Creates ephemeral agents',
+    create_tool: 'Creates ephemeral tools',
+  };
+
+  if (alwaysReady[toolName]) {
+    return { status: 'ready', note: alwaysReady[toolName] };
+  }
+
+  // Database tools require a connection
+  if (toolName.startsWith('query_postgres_') || toolName.startsWith('query_pg_')) {
+    const hasPostgres = connections.some(c => c.type === 'postgres' && c.status === 'connected');
+    return hasPostgres
+      ? { status: 'ready', note: 'Connected database' }
+      : { status: 'needs-setup', note: 'Requires PostgreSQL connection' };
+  }
+
+  if (toolName.startsWith('query_mysql_')) {
+    const hasMysql = connections.some(c => c.type === 'mysql' && c.status === 'connected');
+    return hasMysql
+      ? { status: 'ready', note: 'Connected database' }
+      : { status: 'needs-setup', note: 'Requires MySQL connection' };
+  }
+
+  // Unknown/custom tools — assume ready
+  return { status: 'ready', note: 'Custom tool' };
+}
+
+// ============================================================================
+// STATUS DOT
+// ============================================================================
+
+function StatusDot({ status }: { status: ToolReadinessInfo['status'] }) {
+  return (
+    <span
+      className={cn(
+        'w-2 h-2 rounded-full shrink-0',
+        status === 'ready' && 'bg-green-500',
+        status === 'needs-setup' && 'bg-amber-500',
+        status === 'limited' && 'bg-yellow-500'
+      )}
+    />
+  );
+}
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
+
 /**
  * ConnectionsPanel shows which connections the bot needs vs what's available.
- * Three sections: AI Provider, Required Connections, All Workspace Connections.
+ * Supports inline connection creation — never navigates away from the page.
  */
 export function ConnectionsPanel({
   tools,
   connections,
   isLoading,
-  onManageConnections,
+  onConnectionCreated,
   className,
 }: ConnectionsPanelProps) {
+  const [addFormType, setAddFormType] = useState<'ai' | 'database' | null>(null);
+
   const uniqueTools = [...new Set(tools)];
   const summary = getConnectionSummary(uniqueTools);
   const requirements = scanToolRequirements(uniqueTools);
@@ -61,6 +139,11 @@ export function ConnectionsPanel({
   });
 
   const allMet = hasAiProvider && requiredStatus.every(r => r.met);
+
+  function handleFormSuccess() {
+    setAddFormType(null);
+    onConnectionCreated?.();
+  }
 
   if (isLoading) {
     return (
@@ -120,13 +203,27 @@ export function ConnectionsPanel({
                 <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
                 <span className="text-sm text-muted-foreground">No AI provider connected</span>
               </div>
-              <Button size="sm" variant="outline" onClick={onManageConnections}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setAddFormType('ai')}
+              >
                 <Plus className="h-3.5 w-3.5 mr-1" />
                 Add
               </Button>
             </div>
           )}
         </div>
+        {/* Inline AI form */}
+        {addFormType === 'ai' && (
+          <div className="mt-3">
+            <InlineConnectionForm
+              mode="ai"
+              onSuccess={handleFormSuccess}
+              onCancel={() => setAddFormType(null)}
+            />
+          </div>
+        )}
       </div>
 
       {/* Tool-required connections */}
@@ -152,7 +249,11 @@ export function ConnectionsPanel({
                   {req.met ? (
                     <span className="text-xs text-green-600 dark:text-green-400">{req.connectionName}</span>
                   ) : (
-                    <Button size="sm" variant="outline" onClick={onManageConnections}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setAddFormType('database')}
+                    >
                       <Plus className="h-3.5 w-3.5 mr-1" />
                       Add
                     </Button>
@@ -161,34 +262,50 @@ export function ConnectionsPanel({
               </div>
             ))}
           </div>
+          {/* Inline database form */}
+          {addFormType === 'database' && (
+            <div className="mt-3">
+              <InlineConnectionForm
+                mode="database"
+                onSuccess={handleFormSuccess}
+                onCancel={() => setAddFormType(null)}
+              />
+            </div>
+          )}
         </div>
       )}
 
-      {/* All tools summary */}
+      {/* All tools summary with readiness status */}
       {requirements.length > 0 && (
         <div>
           <h3 className="text-sm font-medium mb-2">Tools Overview</h3>
           <div className="rounded-lg border border-border/50 divide-y divide-border/30">
-            {requirements.map((req) => (
-              <div key={req.toolName} className="flex items-center gap-2 px-3 py-2 text-sm">
-                <Cable className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <span className="font-mono text-xs">{req.toolName}</span>
-                <span className="text-xs text-muted-foreground ml-auto">
-                  {req.connectionType === 'none' ? 'built-in' : req.connectionType}
-                </span>
-              </div>
-            ))}
+            {requirements.map((req) => {
+              const readiness = getToolReadinessStatus(req.toolName, connections);
+              return (
+                <div key={req.toolName} className="flex items-center gap-2 px-3 py-2 text-sm">
+                  <StatusDot status={readiness.status} />
+                  <span className="font-mono text-xs">{req.toolName}</span>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {readiness.note}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Manage button */}
-      {onManageConnections && (
-        <Button variant="outline" className="w-full" onClick={onManageConnections}>
-          <ExternalLink className="h-4 w-4 mr-2" />
-          Manage Connections
-        </Button>
-      )}
+      {/* Subtle link to full connections page */}
+      <a
+        href={ROUTES.connections.list}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        View all connections
+        <ExternalLink className="h-3 w-3" />
+      </a>
     </div>
   );
 }

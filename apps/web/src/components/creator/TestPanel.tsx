@@ -7,12 +7,29 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import type { FailureCategory, MatchStrategy, RunAllProgress, TestRunSummary } from '@/hooks/useTestExecution';
 
+export type InputType = 'text' | 'structured' | 'fixture';
+
+export interface TestFixture {
+  key: string;
+  value: unknown;
+  ttlSeconds?: number;
+  description?: string;
+}
+
+export interface StepExpectation {
+  entityName: string;
+  expectation: string;
+}
 
 export interface TestCase {
   id: string;
   name: string;
   level: 'unit' | 'integration' | 'e2e';
-  input: string;
+  inputType?: InputType;
+  input: string | Record<string, unknown>;
+  fixtures?: TestFixture[];
+  expectedSteps?: StepExpectation[];
+  description?: string;
   expectedOutput?: string;
   status: 'pending' | 'running' | 'passed' | 'failed';
   actualOutput?: string;
@@ -24,6 +41,7 @@ export interface TestCase {
 
 interface TestPanelProps {
   testCases: TestCase[];
+  topology?: string;
   onRunTest: (testId: string) => void;
   onRunAll: () => void;
   onAddTest: (test: Omit<TestCase, 'id' | 'status'>) => void;
@@ -70,6 +88,8 @@ const STRATEGY_LABELS: Record<MatchStrategy, { label: string; className: string 
   exact: { label: 'exact', className: 'bg-blue-500/10 text-blue-600 dark:text-blue-400' },
   contains: { label: 'contains', className: 'bg-muted text-muted-foreground' },
   semantic: { label: 'semantic', className: 'bg-violet-500/10 text-violet-600 dark:text-violet-400' },
+  schema: { label: 'schema', className: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  structured: { label: 'structured', className: 'bg-teal-500/10 text-teal-600 dark:text-teal-400' },
 };
 
 function formatDuration(ms: number): string {
@@ -80,8 +100,17 @@ function formatDuration(ms: number): string {
 /**
  * TestPanel displays and manages test cases for the bot.
  */
+const TOPOLOGY_BADGES: Record<string, { label: string; className: string }> = {
+  single: { label: 'single', className: 'bg-blue-500/10 text-blue-600 dark:text-blue-400' },
+  chain: { label: 'chain', className: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  parallel: { label: 'parallel', className: 'bg-purple-500/10 text-purple-600 dark:text-purple-400' },
+  complex: { label: 'complex', className: 'bg-rose-500/10 text-rose-600 dark:text-rose-400' },
+  multiple: { label: 'multi', className: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+};
+
 export function TestPanel({
   testCases,
+  topology,
   onRunTest,
   onRunAll,
   onAddTest,
@@ -112,6 +141,7 @@ export function TestPanel({
   const [newTestName, setNewTestName] = useState('');
   const [newTestExpected, setNewTestExpected] = useState('');
   const [newTestMatchStrategy, setNewTestMatchStrategy] = useState<MatchStrategy>('contains');
+  const [newTestInputMode, setNewTestInputMode] = useState<'text' | 'json'>('text');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [editingTestId, setEditingTestId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -152,10 +182,25 @@ export function TestPanel({
 
   const handleAddTest = () => {
     if (!newTestName.trim() || !newTestInput.trim()) return;
+
+    let parsedInput: string | Record<string, unknown> = newTestInput.trim();
+    let inputType: InputType | undefined;
+
+    if (newTestInputMode === 'json') {
+      try {
+        parsedInput = JSON.parse(newTestInput.trim()) as Record<string, unknown>;
+        inputType = 'structured';
+      } catch {
+        // Invalid JSON — treat as text
+        inputType = 'text';
+      }
+    }
+
     onAddTest({
       name: newTestName.trim(),
       level: 'unit',
-      input: newTestInput.trim(),
+      inputType,
+      input: parsedInput,
       expectedOutput: newTestExpected.trim() || undefined,
       matchStrategy: newTestMatchStrategy !== 'contains' ? newTestMatchStrategy : undefined,
     });
@@ -163,6 +208,7 @@ export function TestPanel({
     setNewTestInput('');
     setNewTestExpected('');
     setNewTestMatchStrategy('contains');
+    setNewTestInputMode('text');
     setShowAdvanced(false);
     setShowAddForm(false);
   };
@@ -170,7 +216,7 @@ export function TestPanel({
   const startEditing = (test: TestCase) => {
     setEditingTestId(test.id);
     setEditName(test.name);
-    setEditInput(test.input);
+    setEditInput(typeof test.input === 'object' ? JSON.stringify(test.input, null, 2) : test.input);
     setEditExpected(test.expectedOutput ?? '');
   };
 
@@ -238,7 +284,14 @@ export function TestPanel({
             <FlaskConical className="h-4 w-4 text-muted-foreground" />
           )}
           <div>
-            <h3 className="text-sm font-medium leading-none">Test Suite</h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-sm font-medium leading-none">Test Suite</h3>
+              {topology && TOPOLOGY_BADGES[topology] && (
+                <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-medium', TOPOLOGY_BADGES[topology].className)}>
+                  {TOPOLOGY_BADGES[topology].label}
+                </span>
+              )}
+            </div>
             {testCases.length > 0 && (
               <p className="text-[11px] text-muted-foreground mt-0.5">
                 <span className="text-green-600 dark:text-green-400">{totalPassed}</span>
@@ -372,6 +425,25 @@ export function TestPanel({
                               Affects: {pattern.affectedTests.join(', ')}
                             </p>
                           )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Pipeline insights */}
+              {lastRunSummary.pipelineInsights && lastRunSummary.pipelineInsights.length > 0 && (
+                <div className="pt-2">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">Pipeline Insights</p>
+                  <div className="space-y-1.5">
+                    {lastRunSummary.pipelineInsights.map((insight, i) => (
+                      <div key={i} className="flex items-start gap-2 bg-background/50 rounded-md px-2 py-1.5">
+                        <Zap className="h-3 w-3 text-teal-500 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-medium font-mono text-teal-600 dark:text-teal-400">{insight.entityName}</span>
+                          {insight.likelyIssue && <p className="text-muted-foreground mt-0.5">{insight.likelyIssue}</p>}
+                          {insight.suggestedFix && <p className="text-foreground/80 mt-0.5">{insight.suggestedFix}</p>}
                         </div>
                       </div>
                     ))}
@@ -617,9 +689,56 @@ export function TestPanel({
                           <>
                             {/* Input */}
                             <div>
-                              <p className="text-muted-foreground font-medium mb-0.5">Input:</p>
-                              <pre className="bg-muted/50 rounded p-2 font-mono whitespace-pre-wrap text-[11px] leading-relaxed">{test.input}</pre>
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                <p className="text-muted-foreground font-medium">Input:</p>
+                                {test.inputType && test.inputType !== 'text' && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-teal-500/10 text-teal-600 dark:text-teal-400">
+                                    {test.inputType}
+                                  </span>
+                                )}
+                              </div>
+                              <pre className="bg-muted/50 rounded p-2 font-mono whitespace-pre-wrap text-[11px] leading-relaxed">
+                                {typeof test.input === 'object' ? JSON.stringify(test.input, null, 2) : test.input}
+                              </pre>
                             </div>
+
+                            {/* Description */}
+                            {test.description && (
+                              <p className="text-[11px] text-muted-foreground italic">{test.description}</p>
+                            )}
+
+                            {/* Step expectations for chain/pipeline tests */}
+                            {test.expectedSteps && test.expectedSteps.length > 0 && (
+                              <div>
+                                <p className="text-muted-foreground font-medium mb-1">Pipeline Steps:</p>
+                                <div className="flex items-center gap-1 flex-wrap text-[11px]">
+                                  {test.expectedSteps.map((step, i) => (
+                                    <span key={i} className="flex items-center gap-1">
+                                      {i > 0 && <span className="text-muted-foreground/50">&rarr;</span>}
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/50 border border-border/30">
+                                        <span className="font-medium text-foreground">{step.entityName}</span>
+                                        <span className="text-muted-foreground">{step.expectation}</span>
+                                      </span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Fixtures */}
+                            {test.fixtures && test.fixtures.length > 0 && (
+                              <div>
+                                <p className="text-muted-foreground font-medium mb-0.5">Fixtures ({test.fixtures.length}):</p>
+                                <div className="space-y-0.5 text-[11px]">
+                                  {test.fixtures.map((fixture, i) => (
+                                    <div key={i} className="flex items-center gap-2 px-2 py-1 bg-muted/30 rounded">
+                                      <span className="font-mono text-teal-600 dark:text-teal-400">{fixture.key}</span>
+                                      {fixture.description && <span className="text-muted-foreground">&mdash; {fixture.description}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
 
                             {/* Diff view for expected vs actual when both exist and test failed */}
                             {test.expectedOutput && test.actualOutput && test.status === 'failed' && test.failureCategory === 'output_mismatch' ? (
@@ -805,14 +924,52 @@ export function TestPanel({
             aria-label="Test name"
             className="w-full text-sm bg-muted/50 border border-border/50 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
-          <textarea
-            placeholder="Test input..."
-            value={newTestInput}
-            onChange={(e) => setNewTestInput(e.target.value)}
-            rows={2}
-            aria-label="Test input"
-            className="w-full text-sm bg-muted/50 border border-border/50 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
+
+          {/* Input mode toggle */}
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <label className="text-xs text-muted-foreground">Input</label>
+              <div className="flex rounded-md border border-border/50 overflow-hidden text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setNewTestInputMode('text')}
+                  className={cn(
+                    'px-2 py-0.5 transition-colors',
+                    newTestInputMode === 'text' ? 'bg-primary text-primary-foreground' : 'bg-muted/50 text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  Text
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewTestInputMode('json')}
+                  className={cn(
+                    'px-2 py-0.5 transition-colors border-l border-border/50',
+                    newTestInputMode === 'json' ? 'bg-primary text-primary-foreground' : 'bg-muted/50 text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  JSON
+                </button>
+              </div>
+            </div>
+            <textarea
+              placeholder={newTestInputMode === 'json' ? '{ "key": "value" }' : 'Test input...'}
+              value={newTestInput}
+              onChange={(e) => setNewTestInput(e.target.value)}
+              rows={newTestInputMode === 'json' ? 4 : 2}
+              aria-label="Test input"
+              className={cn(
+                'w-full text-sm bg-muted/50 border border-border/50 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20',
+                newTestInputMode === 'json' && 'font-mono text-[12px]',
+              )}
+            />
+            {newTestInputMode === 'json' && newTestInput.trim() && (() => {
+              try { JSON.parse(newTestInput); return null; } catch {
+                return <p className="text-[10px] text-red-500 mt-0.5">Invalid JSON</p>;
+              }
+            })()}
+          </div>
+
           <textarea
             placeholder="Expected output (optional)..."
             value={newTestExpected}
@@ -845,6 +1002,8 @@ export function TestPanel({
                   <option value="contains">Contains (default) - Substring + keyword match</option>
                   <option value="exact">Exact - JSON or string equality</option>
                   <option value="semantic">Semantic - Lenient concept matching</option>
+                  <option value="schema">Schema - Validate output keys + types</option>
+                  <option value="structured">Structured - Deep JSON comparison</option>
                 </select>
               </div>
             </div>

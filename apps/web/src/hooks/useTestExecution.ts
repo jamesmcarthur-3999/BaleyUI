@@ -27,7 +27,7 @@ export type FailureCategory =
   | 'rate_limited'
   | 'precondition_failed';
 
-export type MatchStrategy = 'exact' | 'contains' | 'semantic';
+export type MatchStrategy = 'exact' | 'contains' | 'semantic' | 'schema' | 'structured';
 
 interface WorkspaceConnection {
   id: string;
@@ -48,6 +48,7 @@ export interface TestRunSummary {
   overallStatus: 'passed' | 'mixed' | 'failed';
   summary: string;
   passRate: number;
+  topology?: string;
   patterns?: Array<{
     type: string;
     description: string;
@@ -59,6 +60,11 @@ export interface TestRunSummary {
     title: string;
     description: string;
     impact: 'high' | 'medium' | 'low';
+  }>;
+  pipelineInsights?: Array<{
+    entityName: string;
+    likelyIssue?: string;
+    suggestedFix?: string;
   }>;
   nextSteps?: string[];
 }
@@ -263,6 +269,58 @@ export function compareOutput(
       return matched.length >= concepts.length * 0.6;
     }
 
+    case 'schema': {
+      // Parse expected as key→type shape, validate actual has matching keys with correct types
+      try {
+        const expectedShape = JSON.parse(trimExpected) as Record<string, string>;
+        const actualObj = JSON.parse(trimActual) as Record<string, unknown>;
+
+        const typeCheckers: Record<string, (v: unknown) => boolean> = {
+          string: (v) => typeof v === 'string',
+          number: (v) => typeof v === 'number',
+          boolean: (v) => typeof v === 'boolean',
+          array: (v) => Array.isArray(v),
+          object: (v) => typeof v === 'object' && v !== null && !Array.isArray(v),
+        };
+
+        for (const [key, expectedType] of Object.entries(expectedShape)) {
+          if (!(key in actualObj)) return false;
+          const checker = typeCheckers[expectedType.toLowerCase()];
+          if (checker && !checker(actualObj[key])) return false;
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    case 'structured': {
+      // Deep JSON comparison — parse both, compare keys/values ignoring order, tolerant of extra keys
+      try {
+        const expectedObj = JSON.parse(trimExpected) as Record<string, unknown>;
+        const actualObj = JSON.parse(trimActual) as Record<string, unknown>;
+
+        const deepMatch = (exp: unknown, act: unknown): boolean => {
+          if (exp === act) return true;
+          if (typeof exp !== typeof act) return false;
+          if (Array.isArray(exp)) {
+            if (!Array.isArray(act) || act.length < exp.length) return false;
+            return exp.every((item, i) => deepMatch(item, (act as unknown[])[i]));
+          }
+          if (typeof exp === 'object' && exp !== null && act !== null) {
+            const expObj = exp as Record<string, unknown>;
+            const actObj = act as Record<string, unknown>;
+            return Object.keys(expObj).every(key => key in actObj && deepMatch(expObj[key], actObj[key]));
+          }
+          return false;
+        };
+
+        return deepMatch(expectedObj, actualObj);
+      } catch {
+        return false;
+      }
+    }
+
     default:
       return false;
   }
@@ -350,6 +408,7 @@ export function useTestExecution({
   const saveTestsMutation = trpc.baleybots.saveTestCases.useMutation();
   const validateMutation = trpc.baleybots.validateTestOutput.useMutation();
   const analyzeMutation = trpc.baleybots.analyzeTestResults.useMutation();
+  const preloadFixturesMutation = trpc.baleybots.preloadTestFixtures.useMutation();
 
   // Auto-save test cases when they change (debounced)
   useEffect(() => {
@@ -381,14 +440,16 @@ export function useTestExecution({
   ): Promise<{ passed: boolean; reasoning?: string }> => {
     if (!test.expectedOutput) return { passed: true };
 
+    const inputForValidation = typeof test.input === 'object' ? JSON.stringify(test.input) : test.input;
     try {
       const result = await validateMutation.mutateAsync({
         testName: test.name,
-        input: test.input,
+        input: inputForValidation,
         expectedOutput: test.expectedOutput,
         actualOutput,
         botName: botName || 'BaleyBot',
         botGoal: entities[0]?.purpose,
+        expectedSteps: test.expectedSteps,
       });
 
       return {
@@ -419,12 +480,14 @@ export function useTestExecution({
           name: t.name,
           level: t.level,
           input: t.input,
+          inputType: t.inputType,
           expectedOutput: t.expectedOutput,
           actualOutput: t.actualOutput,
           status: t.status,
           error: t.error,
           failureCategory: t.failureCategory,
           durationMs: t.durationMs,
+          expectedSteps: t.expectedSteps,
         })),
       });
 
@@ -559,18 +622,25 @@ export function useTestExecution({
         id: `test-${Date.now()}-${i}`,
         name: test.name,
         level: test.level,
+        inputType: (test as Record<string, unknown>).inputType as TestCase['inputType'],
         input: test.input,
         expectedOutput: test.expectedOutput,
         matchStrategy: (test as Record<string, unknown>).matchStrategy as MatchStrategy | undefined,
+        description: (test as Record<string, unknown>).description as string | undefined,
+        fixtures: (test as Record<string, unknown>).fixtures as TestCase['fixtures'],
+        expectedSteps: (test as Record<string, unknown>).expectedSteps as TestCase['expectedSteps'],
         status: 'pending' as const,
       }));
 
       setTestCases(prev => [...prev, ...generated]);
 
+      const topology = (result as Record<string, unknown>).topology as string | undefined;
+      const topologyLabel = topology ? ` [${topology}]` : '';
+
       onInjectMessage({
         id: `msg-${Date.now()}-tests`,
         role: 'assistant',
-        content: `Generated ${generated.length} tests. Strategy: ${result.strategy}`,
+        content: `Generated ${generated.length} tests${topologyLabel}. Strategy: ${result.strategy}`,
         timestamp: new Date(),
         metadata: {
           testPlan: {
@@ -579,10 +649,11 @@ export function useTestExecution({
               name: t.name,
               level: t.level,
               status: t.status,
-              input: t.input,
+              input: typeof t.input === 'object' ? JSON.stringify(t.input) : t.input,
               expectedOutput: t.expectedOutput,
             })),
             summary: result.strategy,
+            topology,
           },
         },
       });
@@ -645,6 +716,34 @@ export function useTestExecution({
     ));
 
     try {
+      // Pre-load fixtures if test has any
+      if (test.fixtures && test.fixtures.length > 0) {
+        try {
+          await preloadFixturesMutation.mutateAsync({
+            fixtures: test.fixtures.map(f => ({
+              key: f.key,
+              value: f.value,
+              ttlSeconds: f.ttlSeconds,
+            })),
+          });
+        } catch (fixtureError) {
+          const errorMsg = fixtureError instanceof Error ? fixtureError.message : 'Failed to load test fixtures';
+          setTestCases(prev => prev.map(t =>
+            t.id === testId
+              ? { ...t, status: 'failed' as const, error: errorMsg, failureCategory: 'precondition_failed' as const }
+              : t
+          ));
+          return;
+        }
+      }
+
+      // Determine execution input: structured JSON or plain text
+      const executionInput = test.inputType === 'structured' && typeof test.input === 'object'
+        ? test.input
+        : typeof test.input === 'object'
+          ? JSON.stringify(test.input)
+          : test.input;
+
       // Timeout after 60 seconds
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Test execution timed out after 60 seconds')), 60000)
@@ -653,7 +752,7 @@ export function useTestExecution({
       const execution = await Promise.race([
         executeMutation.mutateAsync({
           id: savedBaleybotId!,
-          input: test.input,
+          input: executionInput,
           triggeredBy: 'manual',
         }),
         timeoutPromise,

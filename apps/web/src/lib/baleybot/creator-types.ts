@@ -121,6 +121,7 @@ export interface MessageMetadata {
       error?: string;
     }>;
     summary?: string;
+    topology?: string;
   };
 
   /** Connection status indicators */

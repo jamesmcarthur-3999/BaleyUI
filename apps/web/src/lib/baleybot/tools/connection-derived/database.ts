@@ -208,6 +208,22 @@ export function detectQueryIntent(
 }
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+
+/**
+ * Sanitize a connection name into a safe tool-name segment.
+ * e.g. "My Production DB!" → "my_production_db"
+ */
+export function sanitizeConnectionName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
+// ============================================================================
 // TOOL GENERATOR
 // ============================================================================
 
@@ -220,7 +236,7 @@ export function generateDatabaseToolDefinition(
   const { connection } = config;
 
   return {
-    name: `database_${connection.connectionId.substring(0, 8)}`,
+    name: `query_${connection.type}_${sanitizeConnectionName(connection.connectionName)}`,
     description: `Query the "${connection.connectionName}" ${connection.type} database. ` +
       `Available tables: ${connection.schema.tables.map((t) => t.name).join(', ')}. ` +
       `Use natural language to describe what data you want to retrieve or modify.`,
@@ -286,7 +302,7 @@ export function generateDatabaseRuntimeTool(
   };
 
   return {
-    name: `database_${connection.connectionId.substring(0, 8)}`,
+    name: `query_${connection.type}_${sanitizeConnectionName(connection.connectionName)}`,
     description: `Query the "${connection.connectionName}" database`,
     inputSchema: DATABASE_TOOL_SCHEMA as Record<string, unknown>,
     function: toolFunction,

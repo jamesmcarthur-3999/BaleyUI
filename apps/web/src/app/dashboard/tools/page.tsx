@@ -810,7 +810,7 @@ function BuiltInToolCard({ tool }: { tool: BuiltInToolInfo }) {
 }
 
 function ConnectionToolCard({ connection }: { connection: { id: string; type: string; name: string; status: string | null } }) {
-  const toolName = `query_${connection.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+  const toolName = `query_${connection.type}_${connection.name.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')}`;
 
   return (
     <Card className="relative">

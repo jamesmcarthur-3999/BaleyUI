@@ -12,6 +12,7 @@ import {
   ChatMode,
 } from '@/components/companion';
 import { Toaster } from '@/components/ui/toaster';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { Sidebar } from './sidebar';
 import { useBreadcrumbs } from './breadcrumb-context';
 import { cn } from '@/lib/utils';
@@ -66,7 +67,7 @@ function AppShell({ children }: AppShellProps) {
               <div className="flex-1" />
             )}
 
-            {/* Command Palette Trigger */}
+            {/* Header actions */}
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -99,6 +100,7 @@ function AppShell({ children }: AppShellProps) {
                   <path d="m21 21-4.3-4.3" />
                 </svg>
               </Button>
+              <NotificationBell />
             </div>
           </div>
         </header>

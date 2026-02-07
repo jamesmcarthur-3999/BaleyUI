@@ -66,6 +66,15 @@ export const toolsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Guard against built-in tool name collisions
+      const { isBuiltInTool } = await import('@/lib/baleybot/tools/built-in');
+      if (isBuiltInTool(input.name)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `"${input.name}" is a reserved built-in tool name`,
+        });
+      }
+
       try {
         const [tool] = await ctx.db
           .insert(tools)
@@ -125,6 +134,17 @@ export const toolsRouter = router({
           code: 'NOT_FOUND',
           message: 'Tool not found',
         });
+      }
+
+      // Guard against built-in tool name collisions
+      if (updates.name) {
+        const { isBuiltInTool } = await import('@/lib/baleybot/tools/built-in');
+        if (isBuiltInTool(updates.name)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `"${updates.name}" is a reserved built-in tool name`,
+          });
+        }
       }
 
       // If updating name, check for conflicts

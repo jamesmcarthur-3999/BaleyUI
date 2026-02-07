@@ -292,6 +292,15 @@ export default function BaleybotPage() {
   const saveMutation = trpc.baleybots.saveFromSession.useMutation();
   const executeMutation = trpc.baleybots.execute.useMutation();
 
+  // Normalize workspace connections once for both ConnectionsPanel and useTestExecution
+  const normalizedConnections = workspaceConnections?.map(c => ({
+    id: c.id,
+    type: c.type,
+    name: c.name,
+    status: c.status ?? 'unconfigured',
+    isDefault: c.isDefault ?? false,
+  }));
+
   // =====================================================================
   // TEST EXECUTION HOOK
   // =====================================================================
@@ -324,13 +333,7 @@ export default function BaleybotPage() {
     balCode,
     botName: name,
     entities,
-    workspaceConnections: workspaceConnections?.map(c => ({
-      id: c.id,
-      type: c.type,
-      name: c.name,
-      status: c.status ?? 'unconfigured',
-      isDefault: c.isDefault ?? false,
-    })),
+    workspaceConnections: normalizedConnections,
     onInjectMessage: injectMessage,
     onNavigateToTab: navigateToTab,
   });
@@ -1834,15 +1837,9 @@ export default function BaleybotPage() {
                     <div className="h-full overflow-auto bg-background rounded-lg border p-4">
                       <ConnectionsPanel
                         tools={entities.flatMap(e => e.tools)}
-                        connections={(workspaceConnections ?? []).map(c => ({
-                          id: c.id,
-                          type: c.type,
-                          name: c.name,
-                          status: c.status ?? 'unconfigured',
-                          isDefault: c.isDefault ?? false,
-                        }))}
+                        connections={normalizedConnections ?? []}
                         isLoading={isLoadingConnections}
-                        onManageConnections={() => router.push(ROUTES.settings.connections)}
+                        onConnectionCreated={() => utils.connections.list.invalidate()}
                       />
                     </div>
                   )}
@@ -1852,6 +1849,7 @@ export default function BaleybotPage() {
                     <div className="h-full overflow-auto bg-background rounded-lg border p-4">
                       <TestPanel
                         testCases={testCases}
+                        topology={lastRunSummary?.topology}
                         onRunTest={handleRunTest}
                         onRunAll={handleRunAllTests}
                         onAddTest={handleAddTest}

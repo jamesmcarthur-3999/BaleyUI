@@ -18,6 +18,10 @@ export interface VisualNode {
     tools: string[];
     canRequest: string[];
     output?: Record<string, string>;
+    temperature?: number;
+    reasoning?: boolean | { effort?: 'low' | 'medium' | 'high' };
+    stopWhen?: string;
+    retries?: number;
   };
   position: { x: number; y: number };
 }
@@ -26,7 +30,7 @@ export interface VisualEdge {
   id: string;
   source: string;
   target: string;
-  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel' | 'spawn' | 'shared_data' | 'trigger';
+  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel' | 'spawn' | 'shared_data' | 'trigger' | 'try_catch' | 'route' | 'gate' | 'filter';
   label?: string;
   animated?: boolean;
 }
