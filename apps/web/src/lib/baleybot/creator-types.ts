@@ -82,6 +82,24 @@ export interface Connection {
 export type MessageRole = 'user' | 'assistant';
 
 /**
+ * Structured metadata attached to assistant messages for rich rendering
+ */
+export interface MessageMetadata {
+  /** Entities created or modified in this response */
+  entities?: Array<{
+    id: string;
+    name: string;
+    icon: string;
+    tools: string[];
+    isNew: boolean;
+  }>;
+  /** Whether this is an initial creation or an update */
+  isInitialCreation?: boolean;
+  /** Whether this message represents an error */
+  isError?: boolean;
+}
+
+/**
  * A message in the creation session chat history.
  * Used for the floating chat interface during bot creation.
  */
@@ -94,6 +112,10 @@ export interface CreatorMessage {
   content: string;
   /** When the message was sent */
   timestamp: Date;
+  /** AI reasoning/thought process (expandable) */
+  thinking?: string;
+  /** Rich metadata for visual rendering */
+  metadata?: MessageMetadata;
 }
 
 // ============================================================================
@@ -264,3 +286,7 @@ export function createSession(
     updatedAt: now,
   };
 }
+
+// Re-export readiness types for convenience
+export type { ReadinessState, ReadinessDimension, DimensionStatus, AdaptiveTab } from './readiness';
+export { computeReadiness, createInitialReadiness, countCompleted, getVisibleTabs } from './readiness';
