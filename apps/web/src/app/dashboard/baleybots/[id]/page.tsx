@@ -379,16 +379,56 @@ export default function BaleybotPage() {
         isNew: !prevEntityIds.has(e.id),
       }));
 
+      // Build rich metadata for the assistant message
+      const metadata: CreatorMessage['metadata'] = {
+        entities: entityMetadata,
+        isInitialCreation,
+      };
+
+      // Add connection status if bot uses tools requiring connections
+      const toolSummary = getConnectionSummary(visualEntities.flatMap(e => e.tools));
+      if (toolSummary.required.length > 0) {
+        const wsConns = workspaceConnections ?? [];
+        metadata.connectionStatus = {
+          connections: [
+            {
+              name: 'AI Provider',
+              type: 'ai',
+              status: wsConns.some(c => ['openai', 'anthropic', 'ollama'].includes(c.type) && c.status === 'connected')
+                ? 'connected' : 'missing',
+            },
+            ...toolSummary.required.map(req => ({
+              name: req.connectionType,
+              type: req.connectionType,
+              status: wsConns.some(c => c.type === req.connectionType && c.status === 'connected')
+                ? 'connected' as const : 'missing' as const,
+              requiredBy: req.tools,
+            })),
+          ],
+        };
+      }
+
+      // Add diagnostic for initial creation with next steps
+      if (isInitialCreation) {
+        metadata.diagnostic = {
+          level: 'success',
+          title: 'Bot Created',
+          details: `${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'} ready.`,
+          suggestions: [
+            'Switch to the Test tab to generate and run tests',
+            toolSummary.required.length > 0 ? 'Check the Connections tab to verify required connections' : undefined,
+            'Try editing the code in the Code tab',
+          ].filter((s): s is string => !!s),
+        };
+      }
+
       const assistantMessage: CreatorMessage = {
         id: `msg-${Date.now()}-assistant`,
         role: 'assistant',
         content: responseContent.trim(),
         timestamp: new Date(),
         thinking: result.thinking || undefined,
-        metadata: {
-          entities: entityMetadata,
-          isInitialCreation,
-        },
+        metadata,
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
