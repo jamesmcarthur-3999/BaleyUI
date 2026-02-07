@@ -1017,4 +1017,42 @@ export const baleybotsRouter = router({
         return baleybot;
       }
     }),
+
+  /**
+   * Save test cases as JSON on the baleybots row.
+   */
+  saveTestCases: protectedProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      testCases: z.array(z.object({
+        id: z.string(),
+        name: z.string(),
+        level: z.enum(['unit', 'integration', 'e2e']),
+        input: z.string(),
+        expectedOutput: z.string().optional(),
+        status: z.enum(['pending', 'running', 'passed', 'failed']),
+        actualOutput: z.string().optional(),
+        error: z.string().optional(),
+        durationMs: z.number().optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const baleybot = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.id),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots),
+        ),
+      });
+
+      if (!baleybot) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+
+      await ctx.db.update(baleybots)
+        .set({ testCasesJson: input.testCases, updatedAt: new Date() })
+        .where(eq(baleybots.id, input.id));
+
+      return { success: true };
+    }),
 });

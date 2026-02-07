@@ -716,6 +716,9 @@ export const baleybots = pgTable(
       }>
     >(),
 
+    /** Persisted test cases for the lifecycle test panel */
+    testCasesJson: jsonb('test_cases_json').$type<unknown[]>(),
+
     // Execution metrics
     executionCount: integer('execution_count').default(0),
     lastExecutedAt: timestamp('last_executed_at'),

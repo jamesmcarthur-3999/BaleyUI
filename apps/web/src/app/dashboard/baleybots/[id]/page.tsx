@@ -265,6 +265,7 @@ export default function BaleybotPage() {
   const creatorMutation = trpc.baleybots.sendCreatorMessage.useMutation();
   const saveMutation = trpc.baleybots.saveFromSession.useMutation();
   const executeMutation = trpc.baleybots.execute.useMutation();
+  const saveTestsMutation = trpc.baleybots.saveTestCases.useMutation();
 
   // =====================================================================
   // HANDLERS
@@ -685,6 +686,23 @@ export default function BaleybotPage() {
     setReadiness(newReadiness);
   }, [balCode, entities, testCases, triggerConfig, workspaceConnections]);
 
+  // Auto-save test cases when they change (debounced)
+  useEffect(() => {
+    if (!savedBaleybotId || testCases.length === 0) return;
+    const timeout = setTimeout(() => {
+      saveTestsMutation.mutate({
+        id: savedBaleybotId,
+        testCases: testCases.map(t => ({
+          ...t,
+          // Reset running status to pending on save (can't persist mid-run)
+          status: t.status === 'running' ? 'pending' : t.status,
+        })),
+      });
+    }, 2000);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testCases, savedBaleybotId]);
+
   // =====================================================================
   // TEST HANDLERS
   // =====================================================================
@@ -777,6 +795,11 @@ export default function BaleybotPage() {
           })
         );
         setEntities(visualEntities);
+      }
+
+      // Load persisted test cases
+      if (existingBaleybot.testCasesJson && Array.isArray(existingBaleybot.testCasesJson)) {
+        setTestCases(existingBaleybot.testCasesJson as TestCase[]);
       }
 
       // Load conversation history (Phase 2.6)
