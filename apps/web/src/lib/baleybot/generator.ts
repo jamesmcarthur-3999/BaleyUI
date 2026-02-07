@@ -5,9 +5,9 @@
  * Uses the internal bal_generator BaleyBot for AI-powered generation.
  */
 
-import { parse, tokenize } from '@baleybots/tools';
 import { z } from 'zod';
 import { executeInternalBaleybot } from './internal-baleybots';
+import { parseBalCode } from './bal-parser-pure';
 import type {
   GeneratorContext,
   GenerateResult,
@@ -253,104 +253,8 @@ function validateToolAssignments(
   });
 }
 
-function typeSpecToString(spec: { kind: string; [key: string]: unknown }): string {
-  switch (spec.kind) {
-    case 'string':
-      return 'string';
-    case 'number':
-      return 'number';
-    case 'boolean':
-      return 'boolean';
-    case 'array':
-      return 'array';
-    case 'object':
-      return 'object';
-    case 'optional': {
-      const inner = spec.inner as { kind: string; [key: string]: unknown } | undefined;
-      return inner ? `${typeSpecToString(inner)}?` : 'optional';
-    }
-    default:
-      return 'string';
-  }
-}
-
-function outputSchemaToRecord(output: { fields: Array<{ name: string; fieldType: { kind: string } }> }): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const field of output.fields) {
-    result[field.name] = typeSpecToString(field.fieldType as { kind: string; [key: string]: unknown });
-  }
-  return result;
-}
-
-/**
- * Extract execution structure from AST root expression.
- * Walks the expression tree to find entity names in order.
- */
-function extractPipelineFromAst(
-  node: { type: string; [key: string]: unknown } | null
-): { type: 'chain' | 'parallel' | 'single'; order: string[] } | null {
-  if (!node) return null;
-
-  const extractNames = (n: { type: string; [key: string]: unknown }): string[] => {
-    if (n.type === 'EntityRef' && typeof n.name === 'string') return [n.name];
-    if (n.type === 'EntityRefWithContext' && typeof n.name === 'string') return [n.name];
-    const body = n.body as Array<{ type: string; [key: string]: unknown }> | undefined;
-    if (body && Array.isArray(body)) return body.flatMap(extractNames);
-    // IfExpr — collect from both branches
-    const then = n.thenBranch as { type: string; [key: string]: unknown } | undefined;
-    const els = n.elseBranch as { type: string; [key: string]: unknown } | undefined;
-    return [...(then ? extractNames(then) : []), ...(els ? extractNames(els) : [])];
-  };
-
-  switch (node.type) {
-    case 'ChainExpr':
-      return { type: 'chain', order: extractNames(node) };
-    case 'ParallelExpr':
-      return { type: 'parallel', order: extractNames(node) };
-    default: {
-      const names = extractNames(node);
-      return names.length > 0 ? { type: 'single', order: names } : null;
-    }
-  }
-}
-
-/**
- * Parse BAL code and extract entity definitions
- */
-export function parseBalCode(balCode: string): {
-  entities: Array<{ name: string; config: Record<string, unknown> }>;
-  chain?: string[];
-  errors: string[];
-} {
-  const entities: Array<{ name: string; config: Record<string, unknown> }> = [];
-
-  try {
-    const tokens = tokenize(balCode);
-    const ast = parse(tokens, balCode);
-
-    for (const entity of ast.entities.values()) {
-      entities.push({
-        name: entity.name,
-        config: {
-          goal: entity.goal,
-          model: entity.model,
-          tools: entity.tools ?? [],
-          output: entity.output ? outputSchemaToRecord(entity.output as { fields: Array<{ name: string; fieldType: { kind: string } }> }) : undefined,
-          history: entity.history,
-        },
-      });
-    }
-
-    const pipeline = extractPipelineFromAst(ast.root as { type: string; [key: string]: unknown } | null);
-    return { entities, chain: pipeline?.order, errors: [] };
-  } catch (error) {
-    return {
-      entities: [],
-      chain: undefined,
-      errors: [error instanceof Error ? error.message : String(error)],
-    };
-  }
-}
+// parseBalCode is imported from ./bal-parser-pure (canonical implementation)
+export { parseBalCode } from './bal-parser-pure';
 
 /**
  * Validate BAL code structure

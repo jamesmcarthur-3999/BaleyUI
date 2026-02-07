@@ -6,7 +6,6 @@ import dynamic from 'next/dynamic';
 import { trpc } from '@/lib/trpc/client';
 import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ReadinessChecklist, ConnectionsPanel, TestPanel, MonitorPanel } from '@/components/creator';
 import type { TestCase } from '@/components/creator';
-import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
 
 // Dynamic import to avoid bundling @baleybots/core server-only modules in client
 const VisualEditor = dynamic(
@@ -53,7 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, ListTree, Zap, BarChart3, MessageSquare, PanelRight, Cable, FlaskConical, Activity } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, Zap, BarChart3, MessageSquare, PanelRight, Cable, FlaskConical, Activity } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory, useTestExecution } from '@/hooks';
@@ -156,9 +155,6 @@ export default function BaleybotPage() {
   // Mobile view toggle (chat vs editor)
   type MobileView = 'editor' | 'chat';
   const [mobileView, setMobileView] = useState<MobileView>('editor');
-
-  // Output schema state (extracted from BAL code when switching to schema view)
-  const [outputSchema, setOutputSchema] = useState<Record<string, string>>({});
 
   // Trigger config state
   const [triggerConfig, setTriggerConfig] = useState<TriggerConfigType | undefined>(undefined);
@@ -824,46 +820,6 @@ export default function BaleybotPage() {
       },
       'Code edit'
     );
-  };
-
-  /**
-   * Handle output schema changes from the schema builder
-   * Converts schema fields back to BAL and updates the code
-   */
-  const handleSchemaChange = (newSchema: Record<string, string>) => {
-    setOutputSchema(newSchema);
-
-    // Update BAL code with the new output schema
-    if (balCode && Object.keys(newSchema).length > 0) {
-      // Find and replace the "output" section in the BAL code
-      // The BAL output section looks like: "output": { "field": "type", ... }
-      const outputJson = JSON.stringify(newSchema, null, 2);
-      const outputRegex = /"output"\s*:\s*\{[^}]*\}/;
-
-      let updatedCode: string;
-      if (outputRegex.test(balCode)) {
-        // Replace existing output section
-        updatedCode = balCode.replace(outputRegex, `"output": ${outputJson}`);
-      } else {
-        // Insert output before the closing brace of the first entity
-        const lastBraceIdx = balCode.lastIndexOf('}');
-        if (lastBraceIdx > 0) {
-          const beforeBrace = balCode.slice(0, lastBraceIdx);
-          const needsComma = beforeBrace.trimEnd().endsWith('"') || beforeBrace.trimEnd().endsWith(']') || beforeBrace.trimEnd().endsWith('}');
-          updatedCode = `${beforeBrace}${needsComma ? ',' : ''}\n  "output": ${outputJson}\n${balCode.slice(lastBraceIdx)}`;
-        } else {
-          updatedCode = balCode;
-        }
-      }
-
-      if (updatedCode !== balCode) {
-        setBalCode(updatedCode);
-        pushHistory(
-          { entities, connections, balCode: updatedCode, name, icon },
-          'Schema edit'
-        );
-      }
-    }
   };
 
   // =====================================================================
@@ -1610,7 +1566,6 @@ export default function BaleybotPage() {
                       const tabConfig: Record<AdaptiveTab, { icon: React.ReactNode; label: string }> = {
                         visual: { icon: <LayoutGrid className="h-3.5 w-3.5" />, label: 'Visual' },
                         code: { icon: <Code2 className="h-3.5 w-3.5" />, label: 'Code' },
-                        schema: { icon: <ListTree className="h-3.5 w-3.5" />, label: 'Schema' },
                         connections: { icon: <Cable className="h-3.5 w-3.5" />, label: 'Connections' },
                         test: { icon: <FlaskConical className="h-3.5 w-3.5" />, label: 'Test' },
                         triggers: { icon: <Zap className="h-3.5 w-3.5" />, label: 'Triggers' },
@@ -1674,33 +1629,6 @@ export default function BaleybotPage() {
                         className="h-full"
                         readOnly={status === 'building' || status === 'running'}
                       />
-                    </div>
-                  )}
-
-                  {/* Schema Builder View */}
-                  {viewMode === 'schema' && (
-                    <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                      {Object.keys(outputSchema).length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-full text-center py-12">
-                          <ListTree className="h-10 w-10 text-muted-foreground/40 mb-4" />
-                          <h3 className="text-lg font-medium mb-2">Input/Output Schema</h3>
-                          <p className="text-sm text-muted-foreground max-w-md mb-4">
-                            Define the expected input and output format for your bot. This enables type-safe integrations and API usage.
-                          </p>
-                          <Button
-                            variant="outline"
-                            onClick={() => setOutputSchema({ result: 'string' })}
-                          >
-                            Add Schema
-                          </Button>
-                        </div>
-                      ) : (
-                        <SchemaBuilder
-                          value={outputSchema}
-                          onChange={handleSchemaChange}
-                          readOnly={status === 'building' || status === 'running'}
-                        />
-                      )}
                     </div>
                   )}
 

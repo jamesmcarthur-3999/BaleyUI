@@ -1,6 +1,6 @@
 'use server';
 
-import { tokenize, parse } from '@baleybots/tools';
+import { parseBalCode as parseBAL } from '@/lib/baleybot/bal-parser-pure';
 
 /**
  * Parse result with error information
@@ -14,24 +14,14 @@ export interface ParseResult {
 }
 
 /**
- * Server action to parse BAL code
- *
- * This runs on the server because @baleybots/tools has dependencies
- * that require Node.js (fs, net, etc.) through the @baleybots/core chain.
+ * Server action to parse BAL code.
+ * Uses the canonical parseBalCode from bal-parser-pure.
  */
 export async function parseBalCode(code: string): Promise<ParseResult> {
-  try {
-    const tokens = tokenize(code);
-    const ast = parse(tokens, code);
+  const { entities, chain, errors } = parseBAL(code);
 
-    return {
-      success: true,
-      entityCount: ast.entities.size,
-      hasComposition: ast.root !== null,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    // Try to extract line number from error message
+  if (errors.length > 0) {
+    const message = errors[0] || 'Unknown parse error';
     const lineMatch = message.match(/line (\d+)/i);
     const errorLine = lineMatch?.[1] ? parseInt(lineMatch[1], 10) : undefined;
 
@@ -41,4 +31,10 @@ export async function parseBalCode(code: string): Promise<ParseResult> {
       errorLine,
     };
   }
+
+  return {
+    success: true,
+    entityCount: entities.length,
+    hasComposition: chain !== undefined && chain.length > 1,
+  };
 }

@@ -176,7 +176,7 @@ describe('getVisibleTabs', () => {
     expect(tabs).toEqual(['visual', 'code']);
   });
 
-  it('shows schema when designed is in-progress', () => {
+  it('shows test when designed is in-progress', () => {
     const tabs = getVisibleTabs({
       designed: 'in-progress',
       connected: 'incomplete',
@@ -184,8 +184,8 @@ describe('getVisibleTabs', () => {
       activated: 'incomplete',
       monitored: 'incomplete',
     });
-    expect(tabs).toContain('schema');
     expect(tabs).toContain('test');
+    expect(tabs).not.toContain('schema');
   });
 
   it('shows connections when applicable and designed', () => {

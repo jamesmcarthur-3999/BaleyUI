@@ -97,7 +97,7 @@ export function countCompleted(state: ReadinessState): { completed: number; tota
   return { completed: completed.length, total: applicable.length };
 }
 
-export type AdaptiveTab = 'visual' | 'code' | 'schema' | 'connections' | 'test' | 'triggers' | 'analytics' | 'monitor';
+export type AdaptiveTab = 'visual' | 'code' | 'connections' | 'test' | 'triggers' | 'analytics' | 'monitor';
 
 export interface RecommendedAction {
   dimension: ReadinessDimension;
@@ -180,9 +180,6 @@ export function getRecommendedAction(state: ReadinessState): RecommendedAction |
 
 export function getVisibleTabs(readiness: ReadinessState): AdaptiveTab[] {
   const tabs: AdaptiveTab[] = ['visual', 'code'];
-  if (readiness.designed !== 'incomplete') {
-    tabs.push('schema');
-  }
   if (readiness.designed === 'complete' || readiness.designed === 'in-progress') {
     if (readiness.connected !== 'not-applicable') {
       tabs.push('connections');

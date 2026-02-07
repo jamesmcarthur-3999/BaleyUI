@@ -1,7 +1,7 @@
 'use server';
 
 import { balToVisual, balToVisualFromParsed, type BalToVisualResult } from '@/lib/baleybot/visual/bal-to-nodes';
-import { parseBalCode } from '@/lib/baleybot/generator';
+import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
 import type { ParsedEntities } from '@/lib/baleybot/visual/types';
 
 export async function parseBalToVisualGraph(balCode: string): Promise<BalToVisualResult> {

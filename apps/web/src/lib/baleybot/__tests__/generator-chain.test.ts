@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseBalCode } from '../generator';
+import { parseBalCode } from '../bal-parser-pure';
 
 describe('parseBalCode chain extraction', () => {
   it('returns undefined chain for single entity (no pipeline expression)', () => {

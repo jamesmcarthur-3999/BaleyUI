@@ -6,7 +6,7 @@
  */
 
 import dagre from 'dagre';
-import { parseBalCode } from '../generator';
+import { parseBalCode } from '../bal-parser-pure';
 import type { TriggerConfig } from '../types';
 export type { VisualNode, VisualEdge, VisualGraph } from './types';
 import type { VisualNode, VisualEdge, VisualGraph, ParsedEntities } from './types';
