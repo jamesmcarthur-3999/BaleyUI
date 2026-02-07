@@ -97,6 +97,67 @@ export interface MessageMetadata {
   isInitialCreation?: boolean;
   /** Whether this message represents an error */
   isError?: boolean;
+
+  // -- Rich Chat Components -------------------------------------------------
+
+  /** Interactive option cards for user choices */
+  options?: Array<{
+    id: string;
+    label: string;
+    description: string;
+    icon?: string;
+  }>;
+
+  /** Test plan card with test cases and results */
+  testPlan?: {
+    tests: Array<{
+      id: string;
+      name: string;
+      level: 'unit' | 'integration' | 'e2e';
+      status: 'pending' | 'running' | 'passed' | 'failed';
+      input?: string;
+      expectedOutput?: string;
+      actualOutput?: string;
+      error?: string;
+    }>;
+    summary?: string;
+  };
+
+  /** Connection status indicators */
+  connectionStatus?: {
+    connections: Array<{
+      name: string;
+      type: string;
+      status: 'connected' | 'missing' | 'error';
+      requiredBy?: string[];
+    }>;
+  };
+
+  /** Diagnostic card with warnings/suggestions */
+  diagnostic?: {
+    level: 'info' | 'warning' | 'error' | 'success';
+    title: string;
+    details?: string;
+    suggestions?: string[];
+  };
+
+  /** Code block with language and copy support */
+  codeBlock?: {
+    language: string;
+    code: string;
+    filename?: string;
+  };
+
+  /** Progress indicator for multi-step operations */
+  progress?: {
+    current: number;
+    total: number;
+    label: string;
+    steps?: Array<{
+      name: string;
+      status: 'pending' | 'running' | 'complete' | 'error';
+    }>;
+  };
 }
 
 /**
