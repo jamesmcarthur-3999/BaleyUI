@@ -38,8 +38,9 @@ export function ConnectionsPanel({
   onManageConnections,
   className,
 }: ConnectionsPanelProps) {
-  const summary = getConnectionSummary(tools);
-  const requirements = scanToolRequirements(tools);
+  const uniqueTools = [...new Set(tools)];
+  const summary = getConnectionSummary(uniqueTools);
+  const requirements = scanToolRequirements(uniqueTools);
 
   // Check if an AI provider is connected
   const aiProviders = connections.filter(c =>
