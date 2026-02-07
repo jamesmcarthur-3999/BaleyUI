@@ -1,7 +1,7 @@
 // apps/web/src/components/creator/MonitorPanel.tsx
 'use client';
 
-import { Activity, AlertTriangle, CheckCircle2, Clock, Pause, Play, TrendingUp } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, Pause, Play, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
