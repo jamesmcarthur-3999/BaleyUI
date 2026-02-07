@@ -347,22 +347,46 @@ function generateSpawnEdges(nodes: VisualNode[]): VisualEdge[] {
 function generateSharedDataEdges(nodes: VisualNode[]): VisualEdge[] {
   const edges: VisualEdge[] = [];
   const dataTools = ['store_memory', 'shared_storage'];
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      const a = nodes[i]!;
-      const b = nodes[j]!;
-      const shared = a.data.tools.filter(t => dataTools.includes(t) && b.data.tools.includes(t));
-      if (shared.length > 0) {
+
+  // Group nodes by shared tool
+  for (const tool of dataTools) {
+    const nodesWithTool = nodes.filter(n => n.data.tools.includes(tool));
+    if (nodesWithTool.length < 2) continue;
+
+    // If 3+ nodes share a tool, use star pattern from first node
+    // instead of full mesh (reduces edges from n*(n-1)/2 to n-1)
+    if (nodesWithTool.length >= 3) {
+      const hub = nodesWithTool[0]!;
+      for (let i = 1; i < nodesWithTool.length; i++) {
+        const spoke = nodesWithTool[i]!;
+        const edgeId = `shared-${hub.id}<->${spoke.id}-${tool}`;
+        if (!edges.some(e => e.id === edgeId)) {
+          edges.push({
+            id: edgeId,
+            source: hub.id,
+            target: spoke.id,
+            type: 'shared_data',
+            label: tool,
+          });
+        }
+      }
+    } else {
+      // Only 2 nodes — single edge
+      const a = nodesWithTool[0]!;
+      const b = nodesWithTool[1]!;
+      const edgeId = `shared-${a.id}<->${b.id}-${tool}`;
+      if (!edges.some(e => e.id === edgeId)) {
         edges.push({
-          id: `shared-${a.id}<->${b.id}`,
+          id: edgeId,
           source: a.id,
           target: b.id,
           type: 'shared_data',
-          label: shared.join(', '),
+          label: tool,
         });
       }
     }
   }
+
   return edges;
 }
 
@@ -478,7 +502,10 @@ function autoLayout(nodes: VisualNode[], edges: VisualEdge[]): VisualNode[] {
     const indexInGroup = group.indexOf(node.id);
     const totalInGroup = group.length;
     const yCenter = 100;
-    const ySpacing = NODE_HEIGHT + 40;
+    // Compact spacing when 4+ nodes in same rank
+    const ySpacing = totalInGroup >= 4
+      ? NODE_HEIGHT + 20  // 170px for dense groups
+      : NODE_HEIGHT + 40; // 190px for sparse groups
     const yOffset = (indexInGroup - (totalInGroup - 1) / 2) * ySpacing;
 
     return {

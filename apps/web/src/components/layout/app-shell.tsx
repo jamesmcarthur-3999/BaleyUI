@@ -14,6 +14,7 @@ import {
 import { Toaster } from '@/components/ui/toaster';
 import { Sidebar } from './sidebar';
 import { useBreadcrumbs } from './breadcrumb-context';
+import { cn } from '@/lib/utils';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -23,7 +24,7 @@ function AppShell({ children }: AppShellProps) {
   const commandPalette = useCommandPalette();
   const { breadcrumbs } = useBreadcrumbs();
   const pathname = usePathname();
-  const hideCompanion = pathname?.startsWith('/dashboard/baleybots/');
+  const isBaleybotDetail = pathname?.startsWith('/dashboard/baleybots/');
 
   return (
     <div className="flex h-screen">
@@ -32,8 +33,8 @@ function AppShell({ children }: AppShellProps) {
 
       {/* Main area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Simplified header — no logo (in sidebar), no user/theme (in sidebar footer) */}
-        <header className="sticky top-0 z-30 w-full border-b bg-background">
+        {/* Simplified header — hidden on baleybot detail pages which have their own header */}
+        <header className={cn("sticky top-0 z-30 w-full border-b bg-background", isBaleybotDetail && "hidden")}>
           <div className="flex h-14 items-center justify-between px-4 md:px-6">
             {/* Spacer for mobile hamburger */}
             <div className="w-10 md:hidden" />
@@ -107,7 +108,7 @@ function AppShell({ children }: AppShellProps) {
       </div>
 
       {/* AI Companion — hidden on baleybot pages to avoid competing with creator chat */}
-      {!hideCompanion && (
+      {!isBaleybotDetail && (
         <CompanionContainer defaultMode="orb" position="bottom-right">
           <ChatMode />
         </CompanionContainer>

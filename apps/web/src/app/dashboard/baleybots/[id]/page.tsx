@@ -703,11 +703,11 @@ export default function BaleybotPage() {
       const parsed = parseBalCode(newCode);
       if (parsed.entities.length > 0) {
         const updatedEntities: VisualEntity[] = parsed.entities.map(
-          (entity, index) => {
+          (entity) => {
             // Preserve position from existing entity if it exists
             const existing = entities.find(e => e.name === entity.name);
             return {
-              id: existing?.id ?? `entity-${index}`,
+              id: existing?.id ?? entity.name,
               name: entity.name,
               icon: existing?.icon ?? '🤖',
               purpose: (entity.config.goal as string) || existing?.purpose || '',
