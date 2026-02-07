@@ -20,6 +20,61 @@ import {
 } from './tools/catalog-service';
 
 // ============================================================================
+// OUTPUT RESOLUTION
+// ============================================================================
+
+/**
+ * Resolve the raw output from executeInternalBaleybot into a valid object
+ * that can be parsed by creatorOutputSchema.
+ *
+ * The SDK's buildZodSchema marks all output fields as optional, which causes
+ * models to sometimes return partial/malformed structured output. This handles:
+ * 1. Valid object output (pass through)
+ * 2. String output containing JSON (parse it)
+ * 3. String with markdown fences around JSON (extract and parse)
+ */
+function resolveCreatorOutput(output: unknown): unknown {
+  // Already an object with entities — pass through
+  if (output && typeof output === 'object' && !Array.isArray(output)) {
+    return output;
+  }
+
+  // String output — try to extract JSON
+  if (typeof output === 'string') {
+    const text = output.trim();
+
+    // Try direct JSON parse
+    try {
+      return JSON.parse(text);
+    } catch {
+      // Try extracting from markdown code fences
+      const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+      if (jsonMatch?.[1]) {
+        try {
+          return JSON.parse(jsonMatch[1].trim());
+        } catch {
+          // Fall through
+        }
+      }
+
+      // Try finding the first { ... } block
+      const braceStart = text.indexOf('{');
+      const braceEnd = text.lastIndexOf('}');
+      if (braceStart !== -1 && braceEnd > braceStart) {
+        try {
+          return JSON.parse(text.slice(braceStart, braceEnd + 1));
+        } catch {
+          // Fall through
+        }
+      }
+    }
+  }
+
+  // Return as-is and let creatorOutputSchema.parse() produce a clear error
+  return output;
+}
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
@@ -147,10 +202,13 @@ export async function processCreatorMessage(
     }
   );
 
-  // Validate and parse the result
-  const parsed = creatorOutputSchema.parse(output);
-
-  return parsed;
+  // The SDK's buildZodSchema marks all fields optional, so the model may
+  // return partial/malformed structured output. Handle multiple cases:
+  // 1. output is already a valid object (structured output worked)
+  // 2. output is a string containing JSON (model returned text)
+  // 3. output is partially valid (needs coercion)
+  const resolved = resolveCreatorOutput(output);
+  return creatorOutputSchema.parse(resolved);
 }
 
 // ============================================================================

@@ -176,6 +176,34 @@ ${existingBBsSection}
 }
 
 // ============================================================================
+// OUTPUT RESOLUTION
+// ============================================================================
+
+/**
+ * Resolve raw output from executeInternalBaleybot into a parseable object.
+ * Without a BAL output schema, the model returns text. Extract JSON from it.
+ */
+function resolveOutput(output: unknown): unknown {
+  if (output && typeof output === 'object' && !Array.isArray(output)) {
+    return output;
+  }
+  if (typeof output === 'string') {
+    const text = output.trim();
+    try { return JSON.parse(text); } catch { /* continue */ }
+    const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (jsonMatch?.[1]) {
+      try { return JSON.parse(jsonMatch[1].trim()); } catch { /* continue */ }
+    }
+    const braceStart = text.indexOf('{');
+    const braceEnd = text.lastIndexOf('}');
+    if (braceStart !== -1 && braceEnd > braceStart) {
+      try { return JSON.parse(text.slice(braceStart, braceEnd + 1)); } catch { /* continue */ }
+    }
+  }
+  return output;
+}
+
+// ============================================================================
 // GENERATOR SERVICE
 // ============================================================================
 
@@ -214,8 +242,9 @@ Please refine the BAL code based on this feedback.`;
     triggeredBy: 'internal',
   });
 
-  // Validate the result
-  const parsed = generateResultSchema.parse(output);
+  // Resolve output — may be text JSON when no BAL output schema is set
+  const resolved = resolveOutput(output);
+  const parsed = generateResultSchema.parse(resolved);
 
   // Validate tool assignments against policies
   const validatedEntities = validateToolAssignments(ctx, parsed.entities);
