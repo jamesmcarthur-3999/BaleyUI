@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { trpc } from '@/lib/trpc/client';
-import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ReadinessDots, ConnectionsPanel } from '@/components/creator';
+import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ReadinessDots, ConnectionsPanel, TestPanel } from '@/components/creator';
+import type { TestCase } from '@/components/creator';
 import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
 
 // Dynamic import to avoid bundling @baleybots/core server-only modules in client
@@ -182,8 +183,8 @@ export default function BaleybotPage() {
 
   // Readiness state
   const [readiness, setReadiness] = useState(createInitialReadiness());
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- setTestCases used in Phase 3 (TestPanel wiring)
-  const [testCases, setTestCases] = useState<Array<{ id: string; status: 'pending' | 'running' | 'passed' | 'failed' }>>([]);
+  const [testCases, setTestCases] = useState<TestCase[]>([]);
+  const [isGeneratingTests, setIsGeneratingTests] = useState(false);
 
   // Save conflict state (Phase 5.4)
   const [showConflictDialog, setShowConflictDialog] = useState(false);
@@ -750,6 +751,71 @@ export default function BaleybotPage() {
     });
     setReadiness(newReadiness);
   }, [balCode, entities, testCases, triggerConfig, workspaceConnections]);
+
+  // =====================================================================
+  // TEST HANDLERS
+  // =====================================================================
+
+  const handleGenerateTests = () => {
+    setIsGeneratingTests(true);
+    // Stub: Phase 4 will wire to test_generator internal BB
+    const generated: TestCase[] = entities.flatMap((entity, i) => [
+      {
+        id: `test-${Date.now()}-${i}-unit`,
+        name: `${entity.name}: basic input/output`,
+        level: 'unit' as const,
+        input: `Test input for ${entity.name}`,
+        status: 'pending' as const,
+      },
+    ]);
+    setTestCases(prev => [...prev, ...generated]);
+    setIsGeneratingTests(false);
+  };
+
+  const handleRunTest = async (testId: string) => {
+    setTestCases(prev => prev.map(t =>
+      t.id === testId ? { ...t, status: 'running' as const } : t
+    ));
+
+    try {
+      const test = testCases.find(t => t.id === testId);
+      if (!test || !savedBaleybotId) return;
+
+      const execution = await executeMutation.mutateAsync({
+        id: savedBaleybotId,
+        input: test.input,
+        triggeredBy: 'manual',
+      });
+
+      setTestCases(prev => prev.map(t =>
+        t.id === testId
+          ? {
+              ...t,
+              status: execution.status === 'completed' ? 'passed' as const : 'failed' as const,
+              actualOutput: JSON.stringify(execution.output, null, 2),
+              error: execution.error || undefined,
+              durationMs: execution.durationMs ?? undefined,
+            }
+          : t
+      ));
+    } catch (error: unknown) {
+      setTestCases(prev => prev.map(t =>
+        t.id === testId
+          ? { ...t, status: 'failed' as const, error: error instanceof Error ? error.message : 'Unknown error' }
+          : t
+      ));
+    }
+  };
+
+  const handleRunAllTests = async () => {
+    for (const test of testCases) {
+      await handleRunTest(test.id);
+    }
+  };
+
+  const handleAddTest = (test: Omit<TestCase, 'id' | 'status'>) => {
+    setTestCases(prev => [...prev, { ...test, id: `test-${Date.now()}`, status: 'pending' }]);
+  };
 
   // =====================================================================
   // EFFECTS
@@ -1423,16 +1489,17 @@ export default function BaleybotPage() {
                     </div>
                   )}
 
-                  {/* Test View (placeholder — Phase 3) */}
+                  {/* Test View */}
                   {viewMode === 'test' && (
                     <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                      <div className="flex flex-col items-center justify-center h-full text-center py-12">
-                        <FlaskConical className="h-10 w-10 text-muted-foreground/40 mb-4" />
-                        <h3 className="text-lg font-medium mb-2">Test Suite</h3>
-                        <p className="text-sm text-muted-foreground max-w-md">
-                          Generate and run tests to verify your bot works correctly.
-                        </p>
-                      </div>
+                      <TestPanel
+                        testCases={testCases}
+                        onRunTest={handleRunTest}
+                        onRunAll={handleRunAllTests}
+                        onAddTest={handleAddTest}
+                        onGenerateTests={handleGenerateTests}
+                        isGenerating={isGeneratingTests}
+                      />
                     </div>
                   )}
 
