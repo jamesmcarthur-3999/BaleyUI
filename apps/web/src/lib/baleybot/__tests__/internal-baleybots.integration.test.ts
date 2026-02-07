@@ -91,10 +91,14 @@ describe('internal-baleybots integration', () => {
       'nl_to_sql_postgres',
       'nl_to_sql_mysql',
       'web_search_fallback',
+      'connection_advisor',
+      'test_generator',
+      'deployment_advisor',
+      'integration_builder',
     ];
 
-    it('defines all 7 internal bots', () => {
-      expect(Object.keys(INTERNAL_BALEYBOTS).length).toBe(7);
+    it('defines all 11 internal bots', () => {
+      expect(Object.keys(INTERNAL_BALEYBOTS).length).toBe(11);
       for (const name of expectedBots) {
         expect(INTERNAL_BALEYBOTS[name]).toBeDefined();
       }
