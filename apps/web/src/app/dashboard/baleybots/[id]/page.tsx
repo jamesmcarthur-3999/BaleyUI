@@ -71,6 +71,7 @@ import type {
 } from '@/lib/baleybot/creator-types';
 import { computeReadiness, createInitialReadiness, getVisibleTabs } from '@/lib/baleybot/readiness';
 import { getConnectionSummary } from '@/lib/baleybot/tools/requirements-scanner';
+import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
 
 /**
  * Example prompts shown on the /new welcome view
@@ -328,6 +329,7 @@ export default function BaleybotPage() {
           role: m.role,
           content: m.content,
           timestamp: m.timestamp,
+          metadata: m.metadata as Record<string, unknown> | undefined,
         })),
       });
 
@@ -538,6 +540,7 @@ export default function BaleybotPage() {
           role: m.role,
           content: m.content,
           timestamp: m.timestamp,
+          metadata: m.metadata as Record<string, unknown> | undefined,
         })),
       });
 
@@ -1100,8 +1103,40 @@ export default function BaleybotPage() {
       setBalCode(existingBaleybot.balCode);
       setStatus('ready');
 
-      // If we have entityNames, create basic entities for display
-      if (existingBaleybot.entityNames && existingBaleybot.entityNames.length > 0) {
+      // Parse BAL code to extract entity details (tools, goal, model)
+      // This is much richer than just using entityNames which loses tool info
+      if (existingBaleybot.balCode) {
+        const parsed = parseBalCode(existingBaleybot.balCode);
+        if (parsed.entities.length > 0) {
+          const visualEntities: VisualEntity[] = parsed.entities.map(
+            (entity, index) => ({
+              id: `entity-${index}`,
+              name: entity.name,
+              icon: '🤖',
+              purpose: (entity.config.goal as string) || '',
+              tools: (entity.config.tools as string[]) || [],
+              position: { x: 0, y: 0 },
+              status: 'stable' as const,
+            })
+          );
+          setEntities(visualEntities);
+        } else if (existingBaleybot.entityNames && existingBaleybot.entityNames.length > 0) {
+          // Fallback: if parsing fails, use entityNames with empty tools
+          const visualEntities: VisualEntity[] = existingBaleybot.entityNames.map(
+            (entityName, index) => ({
+              id: `entity-${index}`,
+              name: entityName,
+              icon: '🤖',
+              purpose: '',
+              tools: [],
+              position: { x: 0, y: 0 },
+              status: 'stable' as const,
+            })
+          );
+          setEntities(visualEntities);
+        }
+      } else if (existingBaleybot.entityNames && existingBaleybot.entityNames.length > 0) {
+        // No BAL code available, use entityNames
         const visualEntities: VisualEntity[] = existingBaleybot.entityNames.map(
           (entityName, index) => ({
             id: `entity-${index}`,
@@ -1126,7 +1161,7 @@ export default function BaleybotPage() {
       // Load conversation history (Phase 2.6)
       if (existingBaleybot.conversationHistory && Array.isArray(existingBaleybot.conversationHistory)) {
         const loadedMessages: CreatorMessage[] = existingBaleybot.conversationHistory
-          .filter((msg): msg is { id: string; role: 'user' | 'assistant'; content: string; timestamp: string } =>
+          .filter((msg): msg is { id: string; role: 'user' | 'assistant'; content: string; timestamp: string; metadata?: Record<string, unknown> } =>
             msg && typeof msg.id === 'string' && typeof msg.content === 'string'
           )
           .map((msg) => ({
@@ -1134,6 +1169,7 @@ export default function BaleybotPage() {
             role: msg.role,
             content: msg.content,
             timestamp: safeParseDate(msg.timestamp),
+            metadata: msg.metadata as CreatorMessage['metadata'],
           }));
         setMessages(loadedMessages);
       }

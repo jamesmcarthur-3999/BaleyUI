@@ -867,6 +867,7 @@ export const baleybotsRouter = router({
               role: z.enum(['user', 'assistant']),
               content: z.string(),
               timestamp: z.coerce.date(),
+              metadata: z.record(z.string(), z.unknown()).optional(),
             })
           )
           .optional(),
@@ -928,6 +929,7 @@ export const baleybotsRouter = router({
           role: msg.role,
           content: msg.content,
           timestamp: msg.timestamp,
+          ...(msg.metadata ? { metadata: msg.metadata as CreatorMessage['metadata'] } : {}),
         })
       );
 
@@ -974,6 +976,7 @@ export const baleybotsRouter = router({
               role: z.enum(['user', 'assistant']),
               content: z.string(),
               timestamp: z.coerce.date(),
+              metadata: z.record(z.string(), z.unknown()).optional(),
             })
           )
           .optional(),
@@ -1007,6 +1010,7 @@ export const baleybotsRouter = router({
               role: msg.role,
               content: msg.content,
               timestamp: msg.timestamp.toISOString(),
+              ...(msg.metadata ? { metadata: msg.metadata } : {}),
             }))
           : undefined;
 
@@ -1031,6 +1035,7 @@ export const baleybotsRouter = router({
               role: msg.role,
               content: msg.content,
               timestamp: msg.timestamp.toISOString(),
+              ...(msg.metadata ? { metadata: msg.metadata } : {}),
             }))
           : undefined;
 

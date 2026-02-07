@@ -72,8 +72,12 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
   // Check for changes when currentState updates
   useEffect(() => {
     // If markClean() was just called, skip this cycle to prevent false-positive
+    // Also sync savedState to current state — markClean() may have captured
+    // pre-update state when called inside a batched effect (e.g., init effect
+    // sets state + calls markClean before React re-renders)
     if (suppressNextCheckRef.current) {
       suppressNextCheckRef.current = false;
+      savedStateRef.current = { ...currentState };
       return;
     }
 
