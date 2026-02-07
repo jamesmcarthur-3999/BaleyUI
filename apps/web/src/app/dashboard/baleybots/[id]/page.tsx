@@ -255,10 +255,10 @@ export default function BaleybotPage() {
     { limit: 50 },
   );
 
-  // Fetch per-bot analytics (only when analytics or monitor tab is active and we have an ID)
+  // Fetch per-bot analytics (for readiness computation and display)
   const { data: analyticsData, isLoading: isLoadingAnalytics } = trpc.analytics.getBaleybotAnalytics.useQuery(
     { baleybotId: savedBaleybotId! },
-    { enabled: (viewMode === 'analytics' || viewMode === 'monitor') && !!savedBaleybotId },
+    { enabled: !!savedBaleybotId },
   );
 
   // Mutations
@@ -681,10 +681,10 @@ export default function BaleybotPage() {
       testsPassed: testCases.length > 0 && testCases.every(t => t.status === 'passed'),
       hasTestRuns: testCases.filter(t => t.status !== 'pending').length,
       hasTrigger: !!triggerConfig,
-      hasMonitoring: false, // Task 7 will wire this
+      hasMonitoring: (analyticsData?.total ?? 0) >= 1,
     });
     setReadiness(newReadiness);
-  }, [balCode, entities, testCases, triggerConfig, workspaceConnections]);
+  }, [balCode, entities, testCases, triggerConfig, workspaceConnections, analyticsData]);
 
   // Auto-save test cases when they change (debounced)
   useEffect(() => {
