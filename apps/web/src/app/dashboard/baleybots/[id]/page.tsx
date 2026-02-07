@@ -834,13 +834,29 @@ export default function BaleybotPage() {
         triggeredBy: 'manual',
       });
 
+      const actualOutput = execution.output != null
+        ? (typeof execution.output === 'string' ? execution.output : JSON.stringify(execution.output, null, 2))
+        : undefined;
+
+      // Determine pass/fail
+      let testPassed = execution.status === 'completed';
+
+      // If there's an expected output, check if actual output contains it
+      if (testPassed && test.expectedOutput && actualOutput) {
+        const expected = test.expectedOutput.toLowerCase().trim();
+        const actual = actualOutput.toLowerCase();
+        testPassed = actual.includes(expected);
+      }
+
       setTestCases(prev => prev.map(t =>
         t.id === testId
           ? {
               ...t,
-              status: execution.status === 'completed' ? 'passed' as const : 'failed' as const,
-              actualOutput: JSON.stringify(execution.output, null, 2),
-              error: execution.error || undefined,
+              status: testPassed ? 'passed' as const : 'failed' as const,
+              actualOutput,
+              error: execution.error || (!testPassed && test.expectedOutput
+                ? `Output did not contain expected: "${test.expectedOutput}"`
+                : undefined),
               durationMs: execution.durationMs ?? undefined,
             }
           : t
