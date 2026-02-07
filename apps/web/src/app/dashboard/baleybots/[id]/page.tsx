@@ -94,26 +94,6 @@ function truncateName(name: string, maxLength: number = MAX_NAME_LENGTH): string
 }
 
 /**
- * Result from running a BaleyBot
- */
-interface RunResult {
-  success: boolean;
-  output: unknown;
-  error?: string;
-  /** Parser error location (if applicable) */
-  parserLocation?: {
-    line: number;
-    column: number;
-    sourceLine?: string;
-  };
-}
-
-/**
- * Auto-save status for visual feedback
- */
-type AutoSaveStatus = 'idle' | 'saving' | 'saved';
-
-/**
  * State snapshot for undo/redo history
  */
 interface HistoryState {
@@ -159,12 +139,10 @@ export default function BaleybotPage() {
   const [savedBaleybotId, setSavedBaleybotId] = useState<string | null>(isNew ? null : id);
 
   // Run state
-  const [runResult, setRunResult] = useState<RunResult | undefined>(undefined);
   const [isRunLocked, setIsRunLocked] = useState(false);
 
   // UI state
   const [isSaving, setIsSaving] = useState(false);
-  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle');
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [showFullDescription, setShowFullDescription] = useState(false);
 
@@ -312,9 +290,6 @@ export default function BaleybotPage() {
 
     // 2. Set status to 'building'
     setStatus('building');
-
-    // 3. Clear runResult
-    setRunResult(undefined);
 
     try {
       // 4. Call sendCreatorMessage mutation
@@ -557,76 +532,27 @@ export default function BaleybotPage() {
     let baleybotIdToRun = savedBaleybotId;
 
     try {
-      // 1. Auto-save if not saved yet (with visual indicator - Phase 1.7)
+      // 1. Auto-save if not saved yet
       if (!baleybotIdToRun) {
-        setAutoSaveStatus('saving');
         const newId = await handleSave();
-        if (!newId) {
-          setRunResult({
-            success: false,
-            output: null,
-            error: 'Failed to save BaleyBot before running',
-          });
-          setAutoSaveStatus('idle');
-          return;
-        }
+        if (!newId) return;
         baleybotIdToRun = newId;
-        setAutoSaveStatus('saved');
-        // Clear "saved" indicator after 2 seconds
-        setTimeout(() => setAutoSaveStatus('idle'), 2000);
       }
 
       // 2. Set status to 'running'
       setStatus('running');
 
-      // 3. Call execute mutation (Phase 2.1: Real execution)
-      const execution = await executeMutation.mutateAsync({
+      // 3. Execute the bot
+      await executeMutation.mutateAsync({
         id: baleybotIdToRun!,
         input: input || undefined,
         triggeredBy: 'manual',
       });
 
-      // 4. Set runResult based on execution status
-      if (execution.status === 'completed') {
-        setRunResult({
-          success: true,
-          output: execution.output,
-        });
-      } else if (execution.status === 'failed') {
-        setRunResult({
-          success: false,
-          output: null,
-          error: execution.error || 'Execution failed',
-        });
-      } else if (execution.status === 'cancelled') {
-        setRunResult({
-          success: false,
-          output: null,
-          error: 'Execution was cancelled',
-        });
-      } else {
-        // Pending or running - shouldn't happen but handle gracefully
-        setRunResult({
-          success: true,
-          output: execution,
-        });
-      }
-
-      // 5. Set status to 'ready'
+      // 4. Set status to 'ready'
       setStatus('ready');
     } catch (error) {
       console.error('Execution failed:', error);
-
-      // Set user-friendly error result
-      const parsed = parseCreatorError(error);
-      setRunResult({
-        success: false,
-        output: null,
-        error: `${parsed.title}: ${parsed.message}`,
-        parserLocation: parsed.parserLocation,
-      });
-
-      // Set status to 'error'
       setStatus('error');
     } finally {
       setIsRunLocked(false);
@@ -1248,10 +1174,6 @@ export default function BaleybotPage() {
                 isCreatorDisabled={status === 'building' || isSaving}
                 executions={!isNew && existingBaleybot?.executions ? existingBaleybot.executions : undefined}
                 onExecutionClick={(executionId) => router.push(ROUTES.activity.execution(executionId))}
-                onRun={handleRun}
-                runResult={runResult}
-                isRunLocked={isRunLocked}
-                autoSaveStatus={autoSaveStatus}
                 onViewAction={(action) => {
                   if (action === 'visual') { setViewMode('visual'); setMobileView('editor'); }
                   else if (action === 'code') { setViewMode('code'); setMobileView('editor'); }
@@ -1383,92 +1305,16 @@ export default function BaleybotPage() {
 
                   {/* Analytics View */}
                   {viewMode === 'analytics' && (
-                    <div className="h-full overflow-auto bg-background rounded-lg border p-4 space-y-6">
+                    <div className="h-full overflow-auto bg-background rounded-lg border p-4">
                       {!savedBaleybotId ? (
                         <p className="text-muted-foreground text-sm">Save this BaleyBot first to see analytics.</p>
-                      ) : isLoadingAnalytics ? (
-                        <div className="space-y-3">
-                          <Skeleton className="h-20 w-full" />
-                          <Skeleton className="h-40 w-full" />
-                          <Skeleton className="h-32 w-full" />
-                        </div>
-                      ) : analyticsData ? (
-                        <>
-                          {analyticsData.total === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-full text-center py-12">
-                              <BarChart3 className="h-10 w-10 text-muted-foreground/40 mb-4" />
-                              <h3 className="text-lg font-medium mb-2">No activity yet</h3>
-                              <p className="text-sm text-muted-foreground max-w-md">
-                                Run your bot a few times to see analytics here.
-                              </p>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="grid grid-cols-3 gap-4">
-                                <div className="rounded-lg border p-4 text-center">
-                                  <p className="text-2xl font-bold">{analyticsData.total}</p>
-                                  <p className="text-xs text-muted-foreground">Total Runs</p>
-                                </div>
-                                <div className="rounded-lg border p-4 text-center">
-                                  <p className="text-2xl font-bold">{(analyticsData.successRate * 100).toFixed(1)}%</p>
-                                  <p className="text-xs text-muted-foreground">Success Rate</p>
-                                </div>
-                                <div className="rounded-lg border p-4 text-center">
-                                  <p className="text-2xl font-bold">{analyticsData.avgDurationMs > 1000 ? `${(analyticsData.avgDurationMs / 1000).toFixed(1)}s` : `${analyticsData.avgDurationMs}ms`}</p>
-                                  <p className="text-xs text-muted-foreground">Avg Duration</p>
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="rounded-lg border p-4 text-center">
-                                  <p className="text-xl font-bold">{analyticsData.totalTokens.toLocaleString()}</p>
-                                  <p className="text-xs text-muted-foreground">Total Tokens</p>
-                                </div>
-                                <div className="rounded-lg border p-4 text-center">
-                                  <p className="text-xl font-bold">{analyticsData.failures}</p>
-                                  <p className="text-xs text-muted-foreground">Failures</p>
-                                </div>
-                              </div>
-                              {analyticsData.dailyTrend.length > 0 && (
-                                <div>
-                                  <h3 className="text-sm font-medium mb-3">Daily Executions</h3>
-                                  <div className="flex items-end gap-1 h-24">
-                                    {analyticsData.dailyTrend.map((day) => {
-                                      const maxCount = Math.max(...analyticsData.dailyTrend.map(d => d.count));
-                                      const height = maxCount > 0 ? (day.count / maxCount) * 100 : 0;
-                                      return (
-                                        <div key={day.date} className="flex-1 min-w-0 group relative">
-                                          <div
-                                            className="bg-primary/70 hover:bg-primary rounded-t transition-colors w-full"
-                                            style={{ height: `${Math.max(height, 4)}%` }}
-                                            title={`${day.date}: ${day.count} executions`}
-                                          />
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                  <div className="flex justify-between mt-1">
-                                    <span className="text-[10px] text-muted-foreground">{analyticsData.dailyTrend[0]?.date}</span>
-                                    <span className="text-[10px] text-muted-foreground">{analyticsData.dailyTrend[analyticsData.dailyTrend.length - 1]?.date}</span>
-                                  </div>
-                                </div>
-                              )}
-                              {analyticsData.topErrors.length > 0 && (
-                                <div>
-                                  <h3 className="text-sm font-medium mb-3">Recent Errors</h3>
-                                  <div className="space-y-2">
-                                    {analyticsData.topErrors.map((err, i) => (
-                                      <div key={i} className="flex items-start justify-between gap-2 text-sm rounded-lg border border-destructive/20 bg-destructive/5 p-3">
-                                        <p className="text-destructive text-xs break-all flex-1">{err.message}</p>
-                                        <span className="text-muted-foreground text-xs shrink-0">{err.count}x</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </>
-                      ) : null}
+                      ) : (
+                        <MonitorPanel
+                          analyticsData={analyticsData ?? null}
+                          isLoading={isLoadingAnalytics}
+                          hasTrigger={!!triggerConfig}
+                        />
+                      )}
                     </div>
                   )}
                   {/* Connections View */}

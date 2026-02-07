@@ -134,7 +134,7 @@ export function MonitorPanel({
             <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
             <h3 className="text-sm font-medium">Daily Activity</h3>
           </div>
-          <div className="flex items-end gap-1 h-20 px-1">
+          <div className="flex items-end gap-1 h-20 px-1" role="img" aria-label={`Daily activity chart showing ${analyticsData.dailyTrend.length} days of data`}>
             {analyticsData.dailyTrend.map((day) => {
               const maxCount = Math.max(...analyticsData.dailyTrend.map(d => d.count));
               const height = maxCount > 0 ? (day.count / maxCount) * 100 : 0;

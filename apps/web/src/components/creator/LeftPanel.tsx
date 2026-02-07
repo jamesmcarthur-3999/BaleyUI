@@ -2,7 +2,6 @@
 
 import { ConversationThread } from './ConversationThread';
 import type { ViewAction } from './ConversationThread';
-import { ActionBar } from './ActionBar';
 import { ChatInput } from './ChatInput';
 import { ExecutionHistory } from './ExecutionHistory';
 import type { CreatorMessage, CreationStatus } from '@/lib/baleybot/creator-types';
@@ -19,15 +18,6 @@ interface Execution {
   createdAt: Date | string;
 }
 
-interface RunResult {
-  success: boolean;
-  output: unknown;
-  error?: string;
-  parserLocation?: { line: number; column: number; sourceLine?: string };
-}
-
-type AutoSaveStatus = 'idle' | 'saving' | 'saved';
-
 interface LeftPanelProps {
   messages: CreatorMessage[];
   status: CreationStatus;
@@ -35,17 +25,14 @@ interface LeftPanelProps {
   isCreatorDisabled: boolean;
   executions?: Execution[];
   onExecutionClick?: (id: string) => void;
-  onRun: (input: string) => void;
-  runResult?: RunResult;
-  isRunLocked: boolean;
-  autoSaveStatus: AutoSaveStatus;
   onViewAction?: (action: ViewAction) => void;
   onOptionSelect?: (optionId: string) => void;
 }
 
 /**
  * Left panel for the two-column BaleyBot detail layout.
- * Contains conversation thread, execution history, run controls, and chat input.
+ * Contains conversation thread, execution history, and chat input.
+ * Testing is handled by the Test tab in the right panel.
  */
 export function LeftPanel({
   messages,
@@ -54,10 +41,6 @@ export function LeftPanel({
   isCreatorDisabled,
   executions,
   onExecutionClick,
-  onRun,
-  runResult,
-  isRunLocked,
-  autoSaveStatus,
   onViewAction,
   onOptionSelect,
 }: LeftPanelProps) {
@@ -83,17 +66,6 @@ export function LeftPanel({
           />
         </div>
       )}
-
-      {/* Action bar */}
-      <div className="shrink-0 border-t border-border/30 px-4 py-3">
-        <ActionBar
-          status={status}
-          onRun={onRun}
-          runResult={runResult}
-          isRunLocked={isRunLocked}
-          autoSaveStatus={autoSaveStatus}
-        />
-      </div>
 
       {/* Chat input */}
       <div className="shrink-0 border-t border-border/30 px-4 py-3">

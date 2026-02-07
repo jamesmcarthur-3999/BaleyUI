@@ -162,6 +162,8 @@ export function TestPanel({
                   <button
                     onClick={() => toggleExpanded(test.id)}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/30 transition-colors"
+                    aria-expanded={expandedTests.has(test.id)}
+                    aria-label={`${expandedTests.has(test.id) ? 'Collapse' : 'Expand'} test: ${test.name}`}
                   >
                     {expandedTests.has(test.id) ? (
                       <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -228,6 +230,7 @@ export function TestPanel({
             placeholder="Test name..."
             value={newTestName}
             onChange={(e) => setNewTestName(e.target.value)}
+            aria-label="Test name"
             className="w-full text-sm bg-muted/50 border border-border/50 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
           <textarea
@@ -235,6 +238,7 @@ export function TestPanel({
             value={newTestInput}
             onChange={(e) => setNewTestInput(e.target.value)}
             rows={2}
+            aria-label="Test input"
             className="w-full text-sm bg-muted/50 border border-border/50 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
           <textarea
@@ -242,6 +246,7 @@ export function TestPanel({
             value={newTestExpected}
             onChange={(e) => setNewTestExpected(e.target.value)}
             rows={2}
+            aria-label="Expected output"
             className="w-full text-sm bg-muted/50 border border-border/50 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
           <div className="flex gap-2 justify-end">
