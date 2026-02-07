@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { trpc } from '@/lib/trpc/client';
-import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ReadinessDots, ConnectionsPanel, TestPanel, MonitorPanel } from '@/components/creator';
+import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ReadinessChecklist, ConnectionsPanel, TestPanel, MonitorPanel } from '@/components/creator';
 import type { TestCase } from '@/components/creator';
 import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
 
@@ -69,7 +69,8 @@ import type {
   CreationProgress,
   AdaptiveTab,
 } from '@/lib/baleybot/creator-types';
-import { computeReadiness, createInitialReadiness, getVisibleTabs } from '@/lib/baleybot/readiness';
+import { computeReadiness, createInitialReadiness, getVisibleTabs, countCompleted, getRecommendedAction } from '@/lib/baleybot/readiness';
+import type { ReadinessDimension, ReadinessState } from '@/lib/baleybot/readiness';
 import { getConnectionSummary } from '@/lib/baleybot/tools/requirements-scanner';
 import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
 
@@ -164,6 +165,7 @@ export default function BaleybotPage() {
 
   // Readiness state
   const [readiness, setReadiness] = useState(createInitialReadiness());
+  const prevReadinessRef = useRef<ReadinessState | null>(null);
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [isGeneratingTests, setIsGeneratingTests] = useState(false);
 
@@ -448,18 +450,63 @@ export default function BaleybotPage() {
         };
       }
 
-      // Add diagnostic for initial creation with next steps
+      // Add diagnostic and interactive next-step options for initial creation
       if (isInitialCreation) {
         metadata.diagnostic = {
           level: 'success',
           title: 'Bot Created',
-          details: `${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'} ready.`,
-          suggestions: [
-            'Switch to the Test tab to generate and run tests',
-            toolSummary.required.length > 0 ? 'Check the Connections tab to verify required connections' : undefined,
-            'Try editing the code in the Code tab',
-          ].filter((s): s is string => !!s),
+          details: `${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'} designed and ready.`,
+          suggestions: [],
         };
+
+        // Compute post-creation readiness to determine next steps
+        const postCreationReadiness = computeReadiness({
+          hasBalCode: true,
+          hasEntities: true,
+          tools: visualEntities.flatMap(e => e.tools),
+          connectionsMet: false,
+          hasConnections: (workspaceConnections ?? []).length > 0,
+          testsPassed: false,
+          hasTestRuns: 0,
+          hasTrigger: false,
+          hasMonitoring: false,
+        });
+
+        const nextSteps: Array<{ id: string; label: string; description: string; icon: string }> = [];
+
+        nextSteps.push({
+          id: 'review-design',
+          label: 'Review Design',
+          description: 'Check the visual layout and entities',
+          icon: '👁️',
+        });
+
+        if (postCreationReadiness.connected === 'incomplete') {
+          nextSteps.push({
+            id: 'setup-connections',
+            label: 'Set Up Connections',
+            description: 'Connect AI provider and required services',
+            icon: '🔌',
+          });
+        }
+
+        nextSteps.push({
+          id: 'run-tests',
+          label: 'Generate Tests',
+          description: 'Auto-generate and run test cases',
+          icon: '🧪',
+        });
+
+        if (postCreationReadiness.activated === 'incomplete') {
+          nextSteps.push({
+            id: 'setup-triggers',
+            label: 'Set Up Triggers',
+            description: 'Configure automatic execution',
+            icon: '⚡',
+          });
+        }
+
+        metadata.options = nextSteps;
       }
 
       // Show BAL code inline in chat for initial creation
@@ -819,7 +866,48 @@ export default function BaleybotPage() {
       hasMonitoring: (analyticsData?.total ?? 0) >= 1,
     });
     setReadiness(newReadiness);
-  }, [balCode, entities, testCases, triggerConfig, workspaceConnections, analyticsData]);
+
+    // Detect dimension completions and inject follow-up guidance messages
+    if (prevReadinessRef.current && status === 'ready') {
+      const prev = prevReadinessRef.current;
+      const dimensionLabels: Record<ReadinessDimension, string> = {
+        designed: 'Design', connected: 'Connections', tested: 'Testing',
+        activated: 'Triggers', monitored: 'Monitoring',
+      };
+      const dims: ReadinessDimension[] = ['designed', 'connected', 'tested', 'activated', 'monitored'];
+
+      for (const dim of dims) {
+        if (prev[dim] !== 'complete' && newReadiness[dim] === 'complete') {
+          const { completed: c, total: t } = countCompleted(newReadiness);
+          const nextAction = getRecommendedAction(newReadiness);
+
+          let content = `**${dimensionLabels[dim]}** is complete! (${c}/${t})`;
+          if (nextAction) {
+            content += ` Next up: ${nextAction.label.toLowerCase()}.`;
+          } else if (c === t) {
+            content += ' Your bot is fully production-ready!';
+          }
+
+          const followUpMessage: CreatorMessage = {
+            id: `msg-${Date.now()}-readiness-${dim}`,
+            role: 'assistant',
+            content,
+            timestamp: new Date(),
+            metadata: nextAction ? {
+              options: [{
+                id: nextAction.optionId,
+                label: nextAction.label,
+                description: nextAction.description,
+              }],
+            } : undefined,
+          };
+          setMessages(prev => [...prev, followUpMessage]);
+          break; // Only one follow-up per render cycle
+        }
+      }
+    }
+    prevReadinessRef.current = newReadiness;
+  }, [balCode, entities, testCases, triggerConfig, workspaceConnections, analyticsData, status]);
 
   // Auto-switch to a visible tab if current tab becomes hidden
   useEffect(() => {
@@ -1112,6 +1200,42 @@ export default function BaleybotPage() {
   };
 
   const handleOptionSelect = (optionId: string) => {
+    // Readiness-guided option cards → navigate to tab + add guide message
+    const optionToTab: Record<string, AdaptiveTab> = {
+      'review-design': 'visual',
+      'setup-connections': 'connections',
+      'run-tests': 'test',
+      'setup-triggers': 'triggers',
+      'enable-monitoring': 'monitor',
+    };
+
+    const tabTarget = optionToTab[optionId];
+    if (tabTarget) {
+      setViewMode(tabTarget);
+      setMobileView('editor');
+
+      const guideMessages: Record<string, string> = {
+        'review-design': 'Take a look at the visual layout. You can drag nodes to rearrange, or switch to the **Code** tab to edit the BAL directly.',
+        'setup-connections': 'Check which connections your bot needs. Make sure an **AI provider** is connected, and set up any tool-specific connections.',
+        'run-tests': 'Click **Auto-generate** to create test cases from your bot\'s configuration, then run them to verify everything works.',
+        'setup-triggers': 'Choose how your bot should be triggered — on a schedule, via webhook, or when another bot completes.',
+        'enable-monitoring': 'Once your bot has run at least once, monitoring data will appear here.',
+      };
+
+      const guideText = guideMessages[optionId];
+      if (guideText) {
+        const guideMessage: CreatorMessage = {
+          id: `msg-${Date.now()}-guide`,
+          role: 'assistant',
+          content: guideText,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, guideMessage]);
+      }
+      return;
+    }
+
+    // Existing option handling
     if (optionId === 'retry') {
       const lastUserMsg = messages.filter(m => m.role === 'user').pop();
       if (lastUserMsg) handleSendMessage(lastUserMsg.content);
@@ -1639,7 +1763,7 @@ export default function BaleybotPage() {
                     })}
                   </TabsList>
                 </Tabs>
-                <ReadinessDots
+                <ReadinessChecklist
                   readiness={readiness}
                   onDotClick={(dim) => {
                     const tabMap: Record<string, AdaptiveTab> = {
@@ -1651,6 +1775,7 @@ export default function BaleybotPage() {
                     };
                     setViewMode(tabMap[dim] ?? 'visual');
                   }}
+                  onActionClick={(optionId) => handleOptionSelect(optionId)}
                   className="ml-3"
                 />
               </div>

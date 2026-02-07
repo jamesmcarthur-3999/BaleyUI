@@ -16,7 +16,7 @@ export { KeyboardShortcutsDialog, useKeyboardShortcutsDialog } from './KeyboardS
 export { InlineLoading, SkeletonBlock, NetworkStatus, useNetworkStatus, LoadingDots, RetryingIndicator } from './LoadingStates';
 export { SaveConflictDialog, isSaveConflictError } from './SaveConflictDialog';
 export type { ConflictAction } from './SaveConflictDialog';
-export { ReadinessDots } from './ReadinessDots';
+export { ReadinessChecklist } from './ReadinessDots';
 export { ConnectionsPanel } from './ConnectionsPanel';
 export { TestPanel } from './TestPanel';
 export type { TestCase } from './TestPanel';

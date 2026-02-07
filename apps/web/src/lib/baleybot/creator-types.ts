@@ -360,5 +360,5 @@ export function createSession(
 }
 
 // Re-export readiness types for convenience
-export type { ReadinessState, ReadinessDimension, DimensionStatus, AdaptiveTab } from './readiness';
-export { computeReadiness, createInitialReadiness, countCompleted, getVisibleTabs } from './readiness';
+export type { ReadinessState, ReadinessDimension, DimensionStatus, AdaptiveTab, RecommendedAction } from './readiness';
+export { computeReadiness, createInitialReadiness, countCompleted, getVisibleTabs, getRecommendedAction } from './readiness';

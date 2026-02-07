@@ -99,6 +99,85 @@ export function countCompleted(state: ReadinessState): { completed: number; tota
 
 export type AdaptiveTab = 'visual' | 'code' | 'schema' | 'connections' | 'test' | 'triggers' | 'analytics' | 'monitor';
 
+export interface RecommendedAction {
+  dimension: ReadinessDimension;
+  label: string;
+  description: string;
+  tabTarget: AdaptiveTab;
+  optionId: string;
+}
+
+/**
+ * Returns the next recommended action based on current readiness state.
+ * Priority: designed → connected → tested → activated → monitored.
+ * Returns null if all applicable dimensions are complete.
+ */
+export function getRecommendedAction(state: ReadinessState): RecommendedAction | null {
+  const actions: Array<{
+    dimension: ReadinessDimension;
+    status: DimensionStatus;
+    label: string;
+    description: string;
+    tabTarget: AdaptiveTab;
+    optionId: string;
+  }> = [
+    {
+      dimension: 'designed',
+      status: state.designed,
+      label: 'Review Design',
+      description: 'Check the visual layout and code to make sure everything looks right',
+      tabTarget: 'visual',
+      optionId: 'review-design',
+    },
+    {
+      dimension: 'connected',
+      status: state.connected,
+      label: 'Set Up Connections',
+      description: 'Connect the AI provider and any services your tools need',
+      tabTarget: 'connections',
+      optionId: 'setup-connections',
+    },
+    {
+      dimension: 'tested',
+      status: state.tested,
+      label: 'Run Tests',
+      description: 'Generate test cases and run them to verify your bot works',
+      tabTarget: 'test',
+      optionId: 'run-tests',
+    },
+    {
+      dimension: 'activated',
+      status: state.activated,
+      label: 'Set Up Triggers',
+      description: 'Configure when your bot should run automatically',
+      tabTarget: 'triggers',
+      optionId: 'setup-triggers',
+    },
+    {
+      dimension: 'monitored',
+      status: state.monitored,
+      label: 'Enable Monitoring',
+      description: 'Set up monitoring to track your bot\'s performance',
+      tabTarget: 'monitor',
+      optionId: 'enable-monitoring',
+    },
+  ];
+
+  for (const action of actions) {
+    if (action.status === 'incomplete' || action.status === 'in-progress') {
+      return {
+        dimension: action.dimension,
+        label: action.label,
+        description: action.description,
+        tabTarget: action.tabTarget,
+        optionId: action.optionId,
+      };
+    }
+  }
+
+  return null;
+}
+
 export function getVisibleTabs(readiness: ReadinessState): AdaptiveTab[] {
   const tabs: AdaptiveTab[] = ['visual', 'code'];
   if (readiness.designed !== 'incomplete') {

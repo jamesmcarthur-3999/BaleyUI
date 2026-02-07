@@ -6,6 +6,7 @@ import {
   createInitialReadiness,
   countCompleted,
   getVisibleTabs,
+  getRecommendedAction,
 } from '../readiness';
 
 describe('computeApplicability', () => {
@@ -234,5 +235,112 @@ describe('getVisibleTabs', () => {
       monitored: 'incomplete',
     });
     expect(tabsDesigned).toContain('analytics');
+  });
+});
+
+describe('getRecommendedAction', () => {
+  it('returns designed first when nothing is done', () => {
+    const state = computeReadiness({
+      hasBalCode: false, hasEntities: false, tools: [],
+      connectionsMet: false, hasConnections: false,
+      testsPassed: false, hasTestRuns: 0,
+      hasTrigger: false, hasMonitoring: false,
+    });
+    const action = getRecommendedAction(state);
+    expect(action?.dimension).toBe('designed');
+    expect(action?.tabTarget).toBe('visual');
+    expect(action?.optionId).toBe('review-design');
+  });
+
+  it('returns connected after design is complete', () => {
+    const state = computeReadiness({
+      hasBalCode: true, hasEntities: true,
+      tools: ['web_search', 'schedule_task'],
+      connectionsMet: false, hasConnections: true,
+      testsPassed: false, hasTestRuns: 0,
+      hasTrigger: false, hasMonitoring: false,
+    });
+    expect(state.designed).toBe('complete');
+    const action = getRecommendedAction(state);
+    expect(action?.dimension).toBe('connected');
+    expect(action?.tabTarget).toBe('connections');
+  });
+
+  it('returns tested after connections are met', () => {
+    const state = computeReadiness({
+      hasBalCode: true, hasEntities: true,
+      tools: ['web_search', 'schedule_task'],
+      connectionsMet: true, hasConnections: true,
+      testsPassed: false, hasTestRuns: 0,
+      hasTrigger: false, hasMonitoring: false,
+    });
+    const action = getRecommendedAction(state);
+    expect(action?.dimension).toBe('tested');
+    expect(action?.tabTarget).toBe('test');
+  });
+
+  it('returns activated after testing is complete', () => {
+    const state = computeReadiness({
+      hasBalCode: true, hasEntities: true,
+      tools: ['schedule_task'],
+      connectionsMet: true, hasConnections: true,
+      testsPassed: true, hasTestRuns: 1,
+      hasTrigger: false, hasMonitoring: false,
+    });
+    const action = getRecommendedAction(state);
+    expect(action?.dimension).toBe('activated');
+    expect(action?.tabTarget).toBe('triggers');
+  });
+
+  it('returns null when all applicable dimensions are complete', () => {
+    const state = computeReadiness({
+      hasBalCode: true, hasEntities: true,
+      tools: ['web_search'],
+      connectionsMet: true, hasConnections: true,
+      testsPassed: true, hasTestRuns: 1,
+      hasTrigger: false, hasMonitoring: false,
+    });
+    // web_search only → activated/monitored = not-applicable, connected N/A (no connection-requiring tools with hasConnections=true still marks connected=true)
+    const action = getRecommendedAction(state);
+    expect(action).toBeNull();
+  });
+
+  it('skips not-applicable dimensions', () => {
+    const state = computeReadiness({
+      hasBalCode: true, hasEntities: true,
+      tools: ['web_search'],
+      connectionsMet: true, hasConnections: false,
+      testsPassed: false, hasTestRuns: 0,
+      hasTrigger: false, hasMonitoring: false,
+    });
+    // connected is N/A (no connection-requiring tools, no hasConnections)
+    const action = getRecommendedAction(state);
+    expect(action?.dimension).toBe('tested');
+  });
+
+  it('returns in-progress dimension as next action', () => {
+    const state = computeReadiness({
+      hasBalCode: true, hasEntities: false,
+      tools: [],
+      connectionsMet: false, hasConnections: false,
+      testsPassed: false, hasTestRuns: 0,
+      hasTrigger: false, hasMonitoring: false,
+    });
+    expect(state.designed).toBe('in-progress');
+    const action = getRecommendedAction(state);
+    expect(action?.dimension).toBe('designed');
+  });
+
+  it('returns monitored after activated is complete', () => {
+    const state = computeReadiness({
+      hasBalCode: true, hasEntities: true,
+      tools: ['schedule_task'],
+      connectionsMet: true, hasConnections: true,
+      testsPassed: true, hasTestRuns: 1,
+      hasTrigger: true, hasMonitoring: false,
+    });
+    const action = getRecommendedAction(state);
+    expect(action?.dimension).toBe('monitored');
+    expect(action?.tabTarget).toBe('monitor');
   });
 });
