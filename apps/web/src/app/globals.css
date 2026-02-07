@@ -588,6 +588,23 @@
   .stagger-4 { animation-delay: 0.2s; }
   .stagger-5 { animation-delay: 0.25s; }
   .stagger-6 { animation-delay: 0.3s; }
+
+  /* Activity feed animations */
+  .animate-stagger-fade-in {
+    animation: stagger-fade-in 0.35s ease-out backwards;
+  }
+
+  .animate-phase-pulse {
+    animation: phase-pulse 1.2s ease-in-out infinite;
+  }
+
+  .animate-readiness-pop {
+    animation: readiness-pop 0.3s ease-out backwards;
+  }
+
+  .animate-pulse-soft {
+    animation: pulse-soft 2s ease-in-out infinite;
+  }
 }
 
 /* ============================================
@@ -641,6 +658,28 @@
 *:focus-visible {
   outline: 2px solid hsl(262 83% 58%);
   outline-offset: 2px;
+}
+
+/* Activity feed animations */
+@keyframes stagger-fade-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes phase-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+@keyframes readiness-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.4); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 /* Celebration animations (kept from original) */
