@@ -19,8 +19,7 @@ export function WorkspaceGuard({ children }: WorkspaceGuardProps) {
 
   const { data, isLoading, isFetched } = trpc.workspaces.checkWorkspace.useQuery(undefined, {
     retry: false,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    refetchOnWindowFocus: false,
+    staleTime: 30 * 1000, // 30 seconds - short enough to catch fresh workspace creation
   });
 
   const shouldRedirect = !isLoading && data && !data.hasWorkspace;
