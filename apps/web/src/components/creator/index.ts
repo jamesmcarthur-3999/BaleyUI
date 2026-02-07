@@ -20,3 +20,4 @@ export { ReadinessDots } from './ReadinessDots';
 export { ConnectionsPanel } from './ConnectionsPanel';
 export { TestPanel } from './TestPanel';
 export type { TestCase } from './TestPanel';
+export { MonitorPanel } from './MonitorPanel';
