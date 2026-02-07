@@ -768,6 +768,10 @@ export default function BaleybotPage() {
     setTestCases(prev => [...prev, { ...test, id: `test-${Date.now()}`, status: 'pending' }]);
   };
 
+  const handleOptionSelect = (optionId: string) => {
+    handleSendMessage(`I'd like to go with: ${optionId}`);
+  };
+
   // =====================================================================
   // EFFECTS
   // =====================================================================
@@ -1209,6 +1213,7 @@ export default function BaleybotPage() {
                   else if (action === 'code') { setViewMode('code'); setMobileView('editor'); }
                   else if (action === 'run') { handleRun(''); }
                 }}
+                onOptionSelect={handleOptionSelect}
               />
             </div>
 
