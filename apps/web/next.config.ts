@@ -36,9 +36,8 @@ const nextConfig: NextConfig = {
     '@baleybots/chat',
     '@baleybots/react',
   ],
-  // Use standalone output to skip static page generation
-  // Required when building without full env vars (e.g., Clerk keys)
-  output: 'standalone',
+  // Note: 'standalone' output removed — Vercel uses its own adapter.
+  // For Docker/self-hosted, re-add output: 'standalone'.
 };
 
 export default withSentryConfig(nextConfig, {
