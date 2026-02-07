@@ -1,9 +1,8 @@
 // apps/web/src/components/creator/MonitorPanel.tsx
 'use client';
 
-import { Activity, AlertTriangle, CheckCircle2, Pause, Play, TrendingUp } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface AnalyticsData {
@@ -22,9 +21,6 @@ interface MonitorPanelProps {
   isLoading: boolean;
   /** Whether the bot has a trigger configured */
   hasTrigger: boolean;
-  /** Whether the bot is currently paused (future use) */
-  isPaused?: boolean;
-  onPauseToggle?: () => void;
   className?: string;
 }
 
@@ -39,8 +35,6 @@ export function MonitorPanel({
   analyticsData,
   isLoading,
   hasTrigger,
-  isPaused = false,
-  onPauseToggle,
   className,
 }: MonitorPanelProps) {
   if (isLoading) {
@@ -99,12 +93,6 @@ export function MonitorPanel({
             </p>
           </div>
         </div>
-        {onPauseToggle && hasTrigger && (
-          <Button size="sm" variant="outline" onClick={onPauseToggle}>
-            {isPaused ? <Play className="h-3.5 w-3.5 mr-1" /> : <Pause className="h-3.5 w-3.5 mr-1" />}
-            {isPaused ? 'Resume' : 'Pause'}
-          </Button>
-        )}
       </div>
 
       {/* Quick stats */}
