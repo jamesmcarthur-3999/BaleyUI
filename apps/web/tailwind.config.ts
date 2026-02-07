@@ -70,6 +70,11 @@ const config: Config = {
         'provider-openai': 'hsl(var(--color-provider-openai))',
         'provider-anthropic': 'hsl(var(--color-provider-anthropic))',
         'provider-ollama': 'hsl(var(--color-provider-ollama))',
+        // Semantic status colors
+        'color-success': 'hsl(var(--color-success))',
+        'color-warning': 'hsl(var(--color-warning))',
+        'color-error': 'hsl(var(--color-error))',
+        'color-info': 'hsl(var(--color-info))',
         // Streaming states
         'stream-active': 'hsl(var(--color-stream-active))',
         'stream-tool': 'hsl(var(--color-stream-tool))',

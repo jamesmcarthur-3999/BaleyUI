@@ -52,7 +52,7 @@ export default async function HomePage() {
         <nav className="container flex items-center justify-between py-6">
           <Link href="/" className="flex items-center gap-2.5">
             <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-md shadow-primary/20">
-              <Sparkles className="h-4.5 w-4.5 text-primary-foreground" />
+              <Sparkles className="h-[18px] w-[18px] text-primary-foreground" />
             </div>
             <span className="text-xl font-bold tracking-tight">
               <span className="text-gradient">Baley</span>
@@ -101,13 +101,13 @@ export default async function HomePage() {
             {/* CTAs */}
             <div className="animate-fade-in-up stagger-3 flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
               <Link href={ROUTES.auth.signUp}>
-                <Button variant="premium" size="lg" className="gap-2 text-base h-13 px-8">
+                <Button variant="premium" size="lg" className="gap-2 text-base h-12 px-8">
                   Start Building Free
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
               <Link href="#how-it-works">
-                <Button variant="outline" size="lg" className="text-base h-13 px-8">
+                <Button variant="outline" size="lg" className="text-base h-12 px-8">
                   See How It Works
                 </Button>
               </Link>
@@ -370,7 +370,7 @@ export default async function HomePage() {
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link href={ROUTES.auth.signUp}>
-                <Button variant="premium" size="lg" className="gap-2 text-base h-13 px-8">
+                <Button variant="premium" size="lg" className="gap-2 text-base h-12 px-8">
                   Get Started Free
                   <ArrowRight className="h-4 w-4" />
                 </Button>
@@ -401,6 +401,24 @@ export default async function HomePage() {
 
 /* ===== COMPONENT HELPERS ===== */
 
+const featureColorMap = {
+  primary: {
+    gradient: 'from-primary/5',
+    bg: 'bg-primary/10',
+    text: 'text-primary',
+  },
+  accent: {
+    gradient: 'from-accent/5',
+    bg: 'bg-accent/10',
+    text: 'text-accent',
+  },
+  'block-ai': {
+    gradient: 'from-block-ai/5',
+    bg: 'bg-block-ai/10',
+    text: 'text-block-ai',
+  },
+} as const;
+
 function FeatureCard({
   icon,
   title,
@@ -410,13 +428,14 @@ function FeatureCard({
   icon: React.ReactNode;
   title: string;
   description: string;
-  color: string;
+  color: keyof typeof featureColorMap;
 }) {
+  const colors = featureColorMap[color];
   return (
     <div className="group relative p-6 rounded-2xl bg-card border border-border hover:border-primary/20 transition-all duration-300">
-      <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br from-${color}/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity`} />
+      <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${colors.gradient} to-transparent opacity-0 group-hover:opacity-100 transition-opacity`} />
       <div className="relative space-y-3">
-        <div className={`h-10 w-10 rounded-xl bg-${color}/10 flex items-center justify-center text-${color}`}>
+        <div className={`h-10 w-10 rounded-xl ${colors.bg} flex items-center justify-center ${colors.text}`}>
           {icon}
         </div>
         <h3 className="font-semibold">{title}</h3>

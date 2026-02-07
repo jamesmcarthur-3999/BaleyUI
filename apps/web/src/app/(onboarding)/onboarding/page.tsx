@@ -116,7 +116,7 @@ export default function OnboardingPage() {
           <Button
             size="lg"
             variant="premium"
-            className="gap-2 text-base h-13 px-10"
+            className="gap-2 text-base h-12 px-10"
             onClick={() => setStep('create')}
           >
             Set Up Your Workspace
