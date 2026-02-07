@@ -150,6 +150,73 @@ web_search_fallback {
 }
 `,
   },
+
+  connection_advisor: {
+    name: 'connection_advisor',
+    description: 'Advises on connection requirements and configuration for a BaleyBot',
+    icon: '🔌',
+    balCode: `
+connection_advisor {
+  "goal": "You are a Connection Advisor. Analyze a BaleyBot's tools and entities to determine what connections it needs.\\n\\nCRITICAL: Return a JSON object with this EXACT structure:\\n{\\n  \\\"analysis\\\": {\\n    \\\"aiProvider\\\": {\\\"needed\\\": true, \\\"recommended\\\": \\\"anthropic\\\", \\\"reason\\\": \\\"...\\\"},\\n    \\\"databases\\\": [{\\\"type\\\": \\\"postgres\\\", \\\"tools\\\": [\\\"query_postgres_users\\\"], \\\"configHints\\\": \\\"...\\\"}],\\n    \\\"external\\\": []\\n  },\\n  \\\"recommendations\\\": [\\\"Set up an Anthropic connection for best results\\\"],\\n  \\\"warnings\\\": []\\n}\\n\\nAnalyze the BAL code and entity tools to determine:\\n1. Which AI provider is best suited (consider model references in BAL)\\n2. Which database connections are needed (look for query_* tools)\\n3. Any external service connections needed\\n4. Configuration recommendations and warnings",
+  "model": "anthropic:claude-sonnet-4-20250514",
+  "output": {
+    "analysis": "object { aiProvider: object { needed: boolean, recommended: ?string, reason: string }, databases: array<object { type: string, tools: array<string>, configHints: ?string }>, external: array<object { service: string, reason: string }> }",
+    "recommendations": "array<string>",
+    "warnings": "array<string>"
+  }
+}
+`,
+  },
+
+  test_generator: {
+    name: 'test_generator',
+    description: 'Generates test cases from a BaleyBot goal and structure',
+    icon: '🧪',
+    balCode: `
+test_generator {
+  "goal": "You are a Test Generator. Create comprehensive test cases for a BaleyBot based on its goal, entities, and tools.\\n\\nCRITICAL: Return a JSON object with this EXACT structure:\\n{\\n  \\\"tests\\\": [\\n    {\\n      \\\"name\\\": \\\"Test name\\\",\\n      \\\"level\\\": \\\"unit|integration|e2e\\\",\\n      \\\"input\\\": \\\"The test input to send to the bot\\\",\\n      \\\"expectedOutput\\\": \\\"What the output should contain or match\\\",\\n      \\\"description\\\": \\\"Why this test matters\\\"\\n    }\\n  ],\\n  \\\"strategy\\\": \\\"Brief explanation of test strategy chosen\\\"\\n}\\n\\nGenerate tests at 3 levels:\\n- unit: Test individual entity responses with simple inputs\\n- integration: Test tool usage and entity chaining\\n- e2e: Test complete workflows from input to final output\\n\\nFor each test, think about:\\n1. What is the entity's goal? What inputs exercise that goal?\\n2. What tools should be called? What happens if they fail?\\n3. What edge cases exist? (empty input, very long input, malformed input)\\n4. What does success look like for the user?\\n\\nGenerate 3-8 tests covering the most important scenarios.",
+  "model": "anthropic:claude-sonnet-4-20250514",
+  "output": {
+    "tests": "array<object { name: string, level: enum('unit', 'integration', 'e2e'), input: string, expectedOutput: ?string, description: string }>",
+    "strategy": "string"
+  }
+}
+`,
+  },
+
+  deployment_advisor: {
+    name: 'deployment_advisor',
+    description: 'Advises on triggers, scheduling, and activation for a BaleyBot',
+    icon: '🚀',
+    balCode: `
+deployment_advisor {
+  "goal": "You are a Deployment Advisor. Analyze a BaleyBot and recommend how to activate it for production use.\\n\\nCRITICAL: Return a JSON object with this EXACT structure:\\n{\\n  \\\"triggerRecommendations\\\": [\\n    {\\\"type\\\": \\\"manual|webhook|schedule|bb_completion\\\", \\\"reason\\\": \\\"Why this trigger suits the bot\\\", \\\"config\\\": {}}\\n  ],\\n  \\\"monitoringAdvice\\\": {\\n    \\\"alertsToSet\\\": [\\\"Alert on 3+ consecutive failures\\\"],\\n    \\\"metricsToWatch\\\": [\\\"Success rate\\\", \\\"Average duration\\\"]\\n  },\\n  \\\"readinessGaps\\\": [\\\"Need to add error handling for empty input\\\"],\\n  \\\"productionChecklist\\\": [\\\"Verify AI provider connection\\\", \\\"Run test suite\\\"]\\n}\\n\\nConsider:\\n1. Is this bot best used manually, on a schedule, via webhook, or chained?\\n2. What should be monitored once active?\\n3. What gaps remain before production readiness?\\n4. What's the minimal checklist before going live?",
+  "model": "anthropic:claude-sonnet-4-20250514",
+  "output": {
+    "triggerRecommendations": "array<object { type: enum('manual', 'webhook', 'schedule', 'bb_completion'), reason: string, config: ?object }>",
+    "monitoringAdvice": "object { alertsToSet: array<string>, metricsToWatch: array<string> }",
+    "readinessGaps": "array<string>",
+    "productionChecklist": "array<string>"
+  }
+}
+`,
+  },
+
+  integration_builder: {
+    name: 'integration_builder',
+    description: 'Helps build integrations between BaleyBots and external systems',
+    icon: '🔗',
+    balCode: `
+integration_builder {
+  "goal": "You are an Integration Builder. Help users connect their BaleyBot to external systems and other BaleyBots.\\n\\nCRITICAL: Return a JSON object with this EXACT structure:\\n{\\n  \\\"integrations\\\": [\\n    {\\n      \\\"type\\\": \\\"webhook_inbound|webhook_outbound|api_endpoint|bb_chain|schedule\\\",\\n      \\\"name\\\": \\\"Integration name\\\",\\n      \\\"description\\\": \\\"What this integration does\\\",\\n      \\\"setupSteps\\\": [\\\"Step 1\\\", \\\"Step 2\\\"],\\n      \\\"codeSnippet\\\": \\\"Optional code example\\\"\\n    }\\n  ],\\n  \\\"architectureNotes\\\": \\\"How integrations fit together\\\"\\n}\\n\\nHelp users with:\\n1. Setting up webhook triggers for external events\\n2. Chaining BaleyBots via bb_completion triggers\\n3. Creating API endpoints to call the bot\\n4. Building multi-bot pipelines\\n\\nProvide concrete setup steps and code snippets where helpful.",
+  "model": "anthropic:claude-sonnet-4-20250514",
+  "output": {
+    "integrations": "array<object { type: enum('webhook_inbound', 'webhook_outbound', 'api_endpoint', 'bb_chain', 'schedule'), name: string, description: string, setupSteps: array<string>, codeSnippet: ?string }>",
+    "architectureNotes": "string"
+  }
+}
+`,
+  },
 };
 
 // ============================================================================
