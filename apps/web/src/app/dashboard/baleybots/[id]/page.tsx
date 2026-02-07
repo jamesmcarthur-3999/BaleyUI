@@ -69,6 +69,7 @@ import type {
   AdaptiveTab,
 } from '@/lib/baleybot/creator-types';
 import { computeReadiness, createInitialReadiness, getVisibleTabs } from '@/lib/baleybot/readiness';
+import { getConnectionSummary } from '@/lib/baleybot/tools/requirements-scanner';
 
 /**
  * Example prompts shown on the /new welcome view
@@ -249,10 +250,9 @@ export default function BaleybotPage() {
     enabled: viewMode === 'triggers',
   });
 
-  // Fetch workspace connections (for connections panel)
+  // Fetch workspace connections (for connections panel AND readiness computation)
   const { data: workspaceConnections, isLoading: isLoadingConnections } = trpc.connections.list.useQuery(
     { limit: 50 },
-    { enabled: viewMode === 'connections' },
   );
 
   // Fetch per-bot analytics (only when analytics or monitor tab is active and we have an ID)
@@ -664,16 +664,23 @@ export default function BaleybotPage() {
     const connectedTypes = new Set(wsConns.filter(c => c.status === 'connected').map(c => c.type));
     const hasAiProvider = connectedTypes.has('openai') || connectedTypes.has('anthropic') || connectedTypes.has('ollama');
 
+    // Check tool-specific connection requirements
+    const summary = getConnectionSummary(allTools);
+    const toolRequirementsMet = summary.required.every(req =>
+      wsConns.some(c => c.type === req.connectionType && (c.status === 'connected' || c.status === 'unconfigured'))
+    );
+    const allConnectionsMet = hasAiProvider && (summary.required.length === 0 || toolRequirementsMet);
+
     const newReadiness = computeReadiness({
       hasBalCode: balCode.length > 0,
       hasEntities: entities.length > 0,
       tools: allTools,
-      connectionsMet: hasAiProvider,
+      connectionsMet: allConnectionsMet,
       hasConnections: wsConns.length > 0,
       testsPassed: testCases.length > 0 && testCases.every(t => t.status === 'passed'),
       hasTestRuns: testCases.filter(t => t.status !== 'pending').length,
       hasTrigger: !!triggerConfig,
-      hasMonitoring: false, // Phase 5 will wire this
+      hasMonitoring: false, // Task 7 will wire this
     });
     setReadiness(newReadiness);
   }, [balCode, entities, testCases, triggerConfig, workspaceConnections]);
