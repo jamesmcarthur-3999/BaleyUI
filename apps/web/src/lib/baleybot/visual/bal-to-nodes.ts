@@ -5,6 +5,7 @@
  * Supports single BBs, chains, parallel execution, and conditional flows.
  */
 
+import dagre from 'dagre';
 import { parseBalCode } from '../generator';
 import type { TriggerConfig } from '../types';
 export type { VisualNode, VisualEdge, VisualGraph } from './types';
@@ -152,7 +153,15 @@ export function balToVisualFromParsed(
 
   edges.push(...parallelEdges, ...conditionalEdges);
 
-  return { graph: { nodes, edges }, errors: [] };
+  // Generate relationship edges from entity data
+  edges.push(...generateSpawnEdges(nodes));
+  edges.push(...generateSharedDataEdges(nodes));
+  edges.push(...generateTriggerEdges(nodes));
+
+  // Apply dagre layout based on edges
+  const layoutedNodes = autoLayout(nodes, edges);
+
+  return { graph: { nodes: layoutedNodes, edges }, errors: [] };
 }
 
 /**
@@ -266,20 +275,128 @@ function parseConditionalEdges(
 }
 
 // ============================================================================
+// RELATIONSHIP EDGE GENERATORS
+// ============================================================================
+
+/**
+ * Entities with spawn_baleybot connect to all other entities (potential spawn targets).
+ */
+function generateSpawnEdges(nodes: VisualNode[]): VisualEdge[] {
+  const edges: VisualEdge[] = [];
+  const hubNodes = nodes.filter(n => n.data.tools.includes('spawn_baleybot'));
+  for (const hub of hubNodes) {
+    for (const spoke of nodes) {
+      if (spoke.id === hub.id) continue;
+      edges.push({
+        id: `spawn-${hub.id}->${spoke.id}`,
+        source: hub.id,
+        target: spoke.id,
+        type: 'spawn',
+        label: 'spawns',
+        animated: true,
+      });
+    }
+  }
+  return edges;
+}
+
+/**
+ * Entities sharing data tools (store_memory, shared_storage) have an implicit data relationship.
+ */
+function generateSharedDataEdges(nodes: VisualNode[]): VisualEdge[] {
+  const edges: VisualEdge[] = [];
+  const dataTools = ['store_memory', 'shared_storage'];
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i]!;
+      const b = nodes[j]!;
+      const shared = a.data.tools.filter(t => dataTools.includes(t) && b.data.tools.includes(t));
+      if (shared.length > 0) {
+        edges.push({
+          id: `shared-${a.id}<->${b.id}`,
+          source: a.id,
+          target: b.id,
+          type: 'shared_data',
+          label: shared.join(', '),
+        });
+      }
+    }
+  }
+  return edges;
+}
+
+/**
+ * bb_completion triggers create edges from the source entity to the triggered entity.
+ * Trigger data comes from node.data.trigger (set via parseTriggerString when entity config includes trigger).
+ */
+function generateTriggerEdges(nodes: VisualNode[]): VisualEdge[] {
+  const edges: VisualEdge[] = [];
+  const nodeNames = new Set(nodes.map(n => n.id));
+
+  for (const node of nodes) {
+    if (node.data.trigger?.type === 'other_bb') {
+      const sourceId = node.data.trigger.sourceBaleybotId;
+      if (sourceId && nodeNames.has(sourceId)) {
+        edges.push({
+          id: `trigger-${sourceId}->${node.id}`,
+          source: sourceId,
+          target: node.id,
+          type: 'trigger',
+          label: 'triggers',
+          animated: true,
+        });
+      }
+    }
+  }
+
+  return edges;
+}
+
+// ============================================================================
 // LAYOUT HELPERS
 // ============================================================================
 
 /**
- * Apply auto-layout to nodes (simple horizontal chain)
+ * Apply dagre hierarchical layout to position nodes based on edges.
+ * Falls back to horizontal layout if no edges or dagre fails.
  */
-export function autoLayout(nodes: VisualNode[]): VisualNode[] {
-  return nodes.map((node, index) => ({
-    ...node,
-    position: {
-      x: index * (NODE_WIDTH + HORIZONTAL_GAP),
-      y: 100,
-    },
-  }));
+export function autoLayout(nodes: VisualNode[], edges: VisualEdge[] = []): VisualNode[] {
+  if (nodes.length === 0) return nodes;
+
+  // No edges — simple horizontal
+  if (edges.length === 0) {
+    return nodes.map((node, index) => ({
+      ...node,
+      position: { x: index * (NODE_WIDTH + HORIZONTAL_GAP), y: 100 },
+    }));
+  }
+
+  try {
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 140, marginx: 40, marginy: 40 });
+    g.setDefaultEdgeLabel(() => ({}));
+
+    for (const node of nodes) {
+      g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+    }
+    for (const edge of edges) {
+      g.setEdge(edge.source, edge.target);
+    }
+
+    dagre.layout(g);
+
+    return nodes.map((node) => {
+      const pos = g.node(node.id);
+      return pos
+        ? { ...node, position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 } }
+        : node;
+    });
+  } catch {
+    return nodes.map((node, index) => ({
+      ...node,
+      position: { x: index * (NODE_WIDTH + HORIZONTAL_GAP), y: 100 },
+    }));
+  }
 }
 
 /**

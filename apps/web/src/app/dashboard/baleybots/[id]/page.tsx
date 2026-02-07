@@ -66,6 +66,7 @@ import type {
   Connection,
   CreatorMessage,
   CreationStatus,
+  CreationProgress,
   AdaptiveTab,
 } from '@/lib/baleybot/creator-types';
 import { computeReadiness, createInitialReadiness, getVisibleTabs } from '@/lib/baleybot/readiness';
@@ -75,10 +76,10 @@ import { getConnectionSummary } from '@/lib/baleybot/tools/requirements-scanner'
  * Example prompts shown on the /new welcome view
  */
 const EXAMPLE_PROMPTS = [
-  { label: 'Summarize articles', prompt: 'Create a bot that summarizes news articles from URLs I give it' },
-  { label: 'Research assistant', prompt: 'Create a research assistant that can search the web and compile findings' },
-  { label: 'Data analyzer', prompt: 'Create a bot that analyzes CSV data and answers questions about it' },
-  { label: 'Email drafter', prompt: 'Create a bot that drafts professional emails based on bullet points' },
+  { label: 'Research & summarize', prompt: 'Create a bot that searches the web for a topic, fetches the top 3 results, and summarizes them into a concise report' },
+  { label: 'Data pipeline', prompt: 'Build a bot that reads data from a database, analyzes it, and sends me a notification with insights' },
+  { label: 'Multi-bot workflow', prompt: 'Create a team of bots: one that monitors websites for changes and another that summarizes the changes into a daily digest' },
+  { label: 'Simple assistant', prompt: 'Create a helpful assistant that can search the web and answer questions' },
 ];
 
 /**
@@ -169,6 +170,9 @@ export default function BaleybotPage() {
   const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [isResolvingConflict, setIsResolvingConflict] = useState(false);
 
+  // Real-time creation progress (replaces fake phase cycling)
+  const [creationProgress, setCreationProgress] = useState<CreationProgress | null>(null);
+
   // Ref to track if initial prompt was sent (avoids effect dependency issues)
   const initialPromptSentRef = useRef(false);
 
@@ -255,11 +259,32 @@ export default function BaleybotPage() {
     { limit: 50 },
   );
 
-  // Fetch per-bot analytics (for readiness computation and display)
+  // Fetch per-bot analytics (for readiness computation and Monitor tab)
   const { data: analyticsData, isLoading: isLoadingAnalytics } = trpc.analytics.getBaleybotAnalytics.useQuery(
     { baleybotId: savedBaleybotId! },
     { enabled: !!savedBaleybotId },
   );
+
+  // Fetch workspace-level overview (for Analytics tab — workspace aggregate view)
+  // Use isFetching instead of isLoading to avoid stuck loading state when query transitions from disabled to enabled
+  const { data: dashboardOverview, isFetching: isFetchingOverview } = trpc.analytics.getDashboardOverview.useQuery(
+    { days: 30 },
+    { enabled: viewMode === 'analytics' },
+  );
+  const isLoadingOverview = isFetchingOverview && !dashboardOverview;
+
+  // Fetch trigger config from baleybotTriggers table
+  const { data: savedTriggerConfig } = trpc.baleybots.getTriggerConfig.useQuery(
+    { baleybotId: savedBaleybotId! },
+    { enabled: !!savedBaleybotId },
+  );
+
+  // Load trigger config when query completes
+  useEffect(() => {
+    if (savedTriggerConfig && !triggerConfig) {
+      setTriggerConfig(savedTriggerConfig as unknown as TriggerConfigType);
+    }
+  }, [savedTriggerConfig, triggerConfig]);
 
   // Mutations
   const creatorMutation = trpc.baleybots.sendCreatorMessage.useMutation();
@@ -291,6 +316,7 @@ export default function BaleybotPage() {
 
     // 2. Set status to 'building'
     setStatus('building');
+    setCreationProgress({ phase: 'understanding', message: 'Understanding your request...' });
 
     try {
       // 4. Call sendCreatorMessage mutation
@@ -305,11 +331,13 @@ export default function BaleybotPage() {
         })),
       });
 
-      // 5. Transform result entities to VisualEntity[] (add position, status: 'stable')
+      setCreationProgress({ phase: 'designing', message: `Designed ${result.entities.length} entit${result.entities.length === 1 ? 'y' : 'ies'}` });
+
+      // 5. Transform result entities to VisualEntity[] (with appearing animation)
       const visualEntities: VisualEntity[] = result.entities.map((entity) => ({
         ...entity,
         position: { x: 0, y: 0 }, // Canvas will position them
-        status: 'stable' as const,
+        status: 'appearing' as const,
       }));
 
       // 6. Transform result connections to Connection[] (add id, status: 'stable')
@@ -321,8 +349,18 @@ export default function BaleybotPage() {
         status: 'stable' as const,
       }));
 
+      if (visualConnections.length > 0) {
+        setCreationProgress({ phase: 'connecting', message: `Connected ${visualConnections.length} workflow${visualConnections.length === 1 ? '' : 's'}` });
+      }
+      setCreationProgress({ phase: 'generating', message: 'Generating BAL code...' });
+
       // 7. Update all state (with name truncation - Phase 5.1)
       setEntities(visualEntities);
+
+      // Transition entities from 'appearing' to 'stable' after animation
+      setTimeout(() => {
+        setEntities(prev => prev.map(e => ({ ...e, status: 'stable' as const })));
+      }, 600);
       setConnections(visualConnections);
       setBalCode(result.balCode);
       setName(truncateName(result.name));
@@ -422,6 +460,15 @@ export default function BaleybotPage() {
         };
       }
 
+      // Show BAL code inline in chat for initial creation
+      if (isInitialCreation && result.balCode) {
+        metadata.codeBlock = {
+          language: 'bal',
+          code: result.balCode.length > 500 ? result.balCode.slice(0, 500) + '\n// ... (click Code tab for full code)' : result.balCode,
+          filename: `${result.name ?? 'baleybot'}.bal`,
+        };
+      }
+
       const assistantMessage: CreatorMessage = {
         id: `msg-${Date.now()}-assistant`,
         role: 'assistant',
@@ -434,18 +481,37 @@ export default function BaleybotPage() {
 
       // 9. Set status to 'ready'
       setStatus('ready');
+      setCreationProgress({ phase: 'complete', message: 'Ready!' });
+      setTimeout(() => setCreationProgress(null), 1000);
     } catch (error) {
       console.error('Creator message failed:', error);
       setStatus('error');
+      setCreationProgress(null);
 
-      // Add user-friendly error message
+      // Add user-friendly error message with recovery options
       const parsed = parseCreatorError(error);
       const errorMessage: CreatorMessage = {
         id: `msg-${Date.now()}-error`,
         role: 'assistant',
         content: `${parsed.title}: ${parsed.message}${parsed.action ? ` ${parsed.action}` : ''}`,
         timestamp: new Date(),
-        metadata: { isError: true },
+        metadata: {
+          isError: true,
+          diagnostic: {
+            level: 'error',
+            title: parsed.title,
+            details: parsed.message,
+            suggestions: [
+              'Try simplifying your request',
+              'Check your AI provider connection in Settings',
+              'Try one of the example prompts below',
+            ],
+          },
+          options: [
+            { id: 'retry', label: 'Retry', description: 'Send the same message again', icon: '🔄' },
+            { id: 'simplify', label: 'Start Simple', description: 'Try with a basic bot first', icon: '✨' },
+          ],
+        },
       };
       setMessages((prev) => [...prev, errorMessage]);
     }
@@ -726,14 +792,16 @@ export default function BaleybotPage() {
     setReadiness(newReadiness);
   }, [balCode, entities, testCases, triggerConfig, workspaceConnections, analyticsData]);
 
-  // Connection analysis — run once when connections tab is first opened
+  // Connection analysis — re-runs when connections tab is opened and code changes
   const analyzeConnectionsMutation = trpc.baleybots.analyzeConnections.useMutation();
-  const connectionAnalysisRunRef = useRef(false);
+  const lastAnalyzedCodeRef = useRef<string>('');
 
   useEffect(() => {
-    if (viewMode !== 'connections' || !savedBaleybotId || connectionAnalysisRunRef.current) return;
+    if (viewMode !== 'connections' || !savedBaleybotId) return;
     if (entities.length === 0 || !balCode) return;
-    connectionAnalysisRunRef.current = true;
+    // Skip if we already analyzed this exact code
+    if (lastAnalyzedCodeRef.current === balCode) return;
+    lastAnalyzedCodeRef.current = balCode;
 
     analyzeConnectionsMutation.mutate(
       {
@@ -743,22 +811,25 @@ export default function BaleybotPage() {
       },
       {
         onSuccess: (result) => {
+          const analysis = result.analysis;
+          const recommendations = result.recommendations ?? [];
+          const warnings = result.warnings ?? [];
           const msg: CreatorMessage = {
             id: `msg-${Date.now()}-connadvice`,
             role: 'assistant',
-            content: result.recommendations.join(' ') || 'Connection analysis complete.',
+            content: recommendations.join(' ') || 'Connection analysis complete.',
             timestamp: new Date(),
             metadata: {
               connectionStatus: {
                 connections: [
                   {
                     name: 'AI Provider',
-                    type: result.analysis.aiProvider.recommended || 'ai',
+                    type: analysis?.aiProvider?.recommended || 'ai',
                     status: (workspaceConnections ?? []).some(c =>
                       ['openai', 'anthropic', 'ollama'].includes(c.type) && c.status === 'connected'
                     ) ? 'connected' : 'missing',
                   },
-                  ...result.analysis.databases.map(db => ({
+                  ...(analysis?.databases ?? []).map(db => ({
                     name: db.type,
                     type: db.type,
                     status: 'missing' as const,
@@ -766,17 +837,21 @@ export default function BaleybotPage() {
                   })),
                 ],
               },
-              diagnostic: result.warnings.length > 0
-                ? { level: 'warning' as const, title: 'Connection Warnings', suggestions: result.warnings }
+              diagnostic: warnings.length > 0
+                ? { level: 'warning' as const, title: 'Connection Warnings', suggestions: warnings }
                 : undefined,
             },
           };
           setMessages(prev => [...prev, msg]);
         },
+        onError: () => {
+          // Connection analysis is a nice-to-have — fail silently.
+          // The ConnectionsPanel already shows requirements from the static scanner.
+        },
       }
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, savedBaleybotId]);
+  }, [viewMode, savedBaleybotId, balCode]);
 
   // Auto-save test cases when they change (debounced)
   useEffect(() => {
@@ -795,6 +870,21 @@ export default function BaleybotPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testCases, savedBaleybotId]);
 
+  // Auto-save trigger config when it changes (debounced)
+  const saveTriggerMutation = trpc.baleybots.saveTriggerConfig.useMutation();
+
+  useEffect(() => {
+    if (!savedBaleybotId) return;
+    const timeout = setTimeout(() => {
+      saveTriggerMutation.mutate({
+        id: savedBaleybotId,
+        triggerConfig: triggerConfig ?? null,
+      });
+    }, 1000);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [triggerConfig, savedBaleybotId]);
+
   // =====================================================================
   // TEST HANDLERS
   // =====================================================================
@@ -802,7 +892,23 @@ export default function BaleybotPage() {
   const generateTestsMutation = trpc.baleybots.generateTests.useMutation();
 
   const handleGenerateTests = async () => {
-    if (!savedBaleybotId) return;
+    if (!savedBaleybotId) {
+      setMessages(prev => [...prev, {
+        id: `msg-${Date.now()}-system`,
+        role: 'assistant' as const,
+        content: 'Please save your bot first before generating tests.',
+        timestamp: new Date(),
+        metadata: {
+          diagnostic: {
+            level: 'warning' as const,
+            title: 'Save Required',
+            details: 'Your bot needs to be saved before tests can be generated.',
+            suggestions: ['Click the Save button in the header to save your bot.'],
+          },
+        },
+      }]);
+      return;
+    }
     setIsGeneratingTests(true);
 
     try {
@@ -872,32 +978,66 @@ export default function BaleybotPage() {
   };
 
   const handleRunTest = async (testId: string) => {
+    const test = testCases.find(t => t.id === testId);
+    if (!test) return;
+
+    if (!savedBaleybotId) {
+      setTestCases(prev => prev.map(t =>
+        t.id === testId ? { ...t, status: 'failed' as const, error: 'Bot must be saved before running tests.' } : t
+      ));
+      return;
+    }
+
     setTestCases(prev => prev.map(t =>
       t.id === testId ? { ...t, status: 'running' as const } : t
     ));
 
     try {
-      const test = testCases.find(t => t.id === testId);
-      if (!test || !savedBaleybotId) return;
+      // Timeout after 60 seconds
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Test execution timed out after 60 seconds')), 60000)
+      );
 
-      const execution = await executeMutation.mutateAsync({
-        id: savedBaleybotId,
-        input: test.input,
-        triggeredBy: 'manual',
-      });
+      const execution = await Promise.race([
+        executeMutation.mutateAsync({
+          id: savedBaleybotId,
+          input: test.input,
+          triggeredBy: 'manual',
+        }),
+        timeoutPromise,
+      ]);
 
       const actualOutput = execution.output != null
         ? (typeof execution.output === 'string' ? execution.output : JSON.stringify(execution.output, null, 2))
         : undefined;
 
-      // Determine pass/fail
+      // Multi-strategy test comparison
       let testPassed = execution.status === 'completed';
 
-      // If there's an expected output, check if actual output contains it
       if (testPassed && test.expectedOutput && actualOutput) {
-        const expected = test.expectedOutput.toLowerCase().trim();
-        const actual = actualOutput.toLowerCase();
-        testPassed = actual.includes(expected);
+        const expected = test.expectedOutput.trim();
+        const actual = actualOutput;
+
+        // Strategy 1: Try JSON comparison (for structured outputs)
+        try {
+          const expectedJson = JSON.parse(expected);
+          const actualJson = JSON.parse(actual);
+          testPassed = JSON.stringify(expectedJson) === JSON.stringify(actualJson);
+        } catch {
+          // Strategy 2: Case-insensitive substring match
+          testPassed = actual.toLowerCase().includes(expected.toLowerCase());
+        }
+
+        if (!testPassed) {
+          // Strategy 3: Check if 80%+ key words from expected are present
+          const expectedWords = expected.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+          if (expectedWords.length > 0) {
+            const matchedWords = expectedWords.filter(w => actual.toLowerCase().includes(w));
+            if (matchedWords.length >= expectedWords.length * 0.8) {
+              testPassed = true;
+            }
+          }
+        }
       }
 
       setTestCases(prev => prev.map(t =>
@@ -907,7 +1047,7 @@ export default function BaleybotPage() {
               status: testPassed ? 'passed' as const : 'failed' as const,
               actualOutput,
               error: execution.error || (!testPassed && test.expectedOutput
-                ? `Output did not contain expected: "${test.expectedOutput}"`
+                ? `Output did not match expected: "${test.expectedOutput}"`
                 : undefined),
               durationMs: execution.durationMs ?? undefined,
             }
@@ -923,8 +1063,10 @@ export default function BaleybotPage() {
   };
 
   const handleRunAllTests = async () => {
-    for (const test of testCases) {
-      await handleRunTest(test.id);
+    const batchSize = 3;
+    for (let i = 0; i < testCases.length; i += batchSize) {
+      const batch = testCases.slice(i, i + batchSize);
+      await Promise.all(batch.map(test => handleRunTest(test.id)));
     }
   };
 
@@ -933,6 +1075,15 @@ export default function BaleybotPage() {
   };
 
   const handleOptionSelect = (optionId: string) => {
+    if (optionId === 'retry') {
+      const lastUserMsg = messages.filter(m => m.role === 'user').pop();
+      if (lastUserMsg) handleSendMessage(lastUserMsg.content);
+      return;
+    }
+    if (optionId === 'simplify') {
+      handleSendMessage('Create a simple assistant that helps answer questions');
+      return;
+    }
     handleSendMessage(`I'd like to go with: ${optionId}`);
   };
 
@@ -969,6 +1120,8 @@ export default function BaleybotPage() {
       if (existingBaleybot.testCasesJson && Array.isArray(existingBaleybot.testCasesJson)) {
         setTestCases(existingBaleybot.testCasesJson as TestCase[]);
       }
+
+      // Trigger config is loaded separately via getTriggerConfig query
 
       // Load conversation history (Phase 2.6)
       if (existingBaleybot.conversationHistory && Array.isArray(existingBaleybot.conversationHistory)) {
@@ -1335,7 +1488,7 @@ export default function BaleybotPage() {
           <div className="flex md:hidden border-b border-border/30">
             <button
               className={cn(
-                'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm transition-colors',
+                'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm transition-colors relative',
                 mobileView === 'chat'
                   ? 'border-b-2 border-primary font-medium text-foreground'
                   : 'text-muted-foreground hover:text-foreground'
@@ -1344,6 +1497,10 @@ export default function BaleybotPage() {
             >
               <MessageSquare className="h-3.5 w-3.5" />
               Chat
+              {/* Mobile building indicator — pulsing dot when AI is working and user is on editor tab */}
+              {status === 'building' && mobileView === 'editor' && (
+                <span className="absolute top-1.5 right-[calc(50%-24px)] w-2 h-2 rounded-full bg-primary animate-pulse" />
+              )}
             </button>
             <button
               className={cn(
@@ -1378,6 +1535,7 @@ export default function BaleybotPage() {
                   else if (action === 'run') { handleRun(''); }
                 }}
                 onOptionSelect={handleOptionSelect}
+                creationProgress={creationProgress}
               />
             </div>
 
@@ -1493,6 +1651,7 @@ export default function BaleybotPage() {
                       <TriggerConfig
                         value={triggerConfig}
                         onChange={setTriggerConfig}
+                        baleybotId={savedBaleybotId ?? undefined}
                         availableBaleybots={
                           availableBaleybots
                             ?.filter((bb) => bb.id !== savedBaleybotId)
@@ -1502,17 +1661,115 @@ export default function BaleybotPage() {
                     </div>
                   )}
 
-                  {/* Analytics View */}
+                  {/* Analytics View — workspace-level overview */}
                   {viewMode === 'analytics' && (
                     <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                      {!savedBaleybotId ? (
-                        <p className="text-muted-foreground text-sm">Save this BaleyBot first to see analytics.</p>
+                      {isLoadingOverview ? (
+                        <div className="space-y-4">
+                          <Skeleton className="h-20 w-full" />
+                          <div className="grid grid-cols-3 gap-3">
+                            <Skeleton className="h-16" />
+                            <Skeleton className="h-16" />
+                            <Skeleton className="h-16" />
+                          </div>
+                          <Skeleton className="h-28 w-full" />
+                        </div>
+                      ) : !dashboardOverview || dashboardOverview.totalExecutions === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                          <BarChart3 className="h-10 w-10 text-muted-foreground/40 mb-4" />
+                          <h3 className="text-lg font-medium mb-2">No workspace activity</h3>
+                          <p className="text-sm text-muted-foreground max-w-md">
+                            Run some BaleyBots to see aggregate workspace analytics here.
+                          </p>
+                        </div>
                       ) : (
-                        <MonitorPanel
-                          analyticsData={analyticsData ?? null}
-                          isLoading={isLoadingAnalytics}
-                          hasTrigger={!!triggerConfig}
-                        />
+                        <div className="space-y-6">
+                          {/* Workspace-level stats */}
+                          <div>
+                            <h3 className="text-sm font-medium mb-3">Workspace Overview (30 days)</h3>
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="rounded-lg border p-3 text-center">
+                                <p className="text-xl font-bold">{dashboardOverview.totalExecutions}</p>
+                                <p className="text-[10px] text-muted-foreground">Total Runs</p>
+                              </div>
+                              <div className="rounded-lg border p-3 text-center">
+                                <p className="text-xl font-bold">{(dashboardOverview.successRate * 100).toFixed(1)}%</p>
+                                <p className="text-[10px] text-muted-foreground">Success Rate</p>
+                              </div>
+                              <div className="rounded-lg border p-3 text-center">
+                                <p className="text-xl font-bold">
+                                  {dashboardOverview.avgDurationMs > 1000
+                                    ? `${(dashboardOverview.avgDurationMs / 1000).toFixed(1)}s`
+                                    : `${dashboardOverview.avgDurationMs}ms`}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground">Avg Duration</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Daily trend */}
+                          {dashboardOverview.dailyTrend.length > 0 && (
+                            <div>
+                              <h3 className="text-sm font-medium mb-2">Daily Activity</h3>
+                              <div className="flex items-end gap-1 h-20 px-1">
+                                {dashboardOverview.dailyTrend.map((day) => {
+                                  const maxCount = Math.max(...dashboardOverview.dailyTrend.map(d => d.count));
+                                  const height = maxCount > 0 ? (day.count / maxCount) * 100 : 0;
+                                  return (
+                                    <div key={day.date} className="flex-1 min-w-0">
+                                      <div
+                                        className="bg-primary hover:bg-primary/80 rounded-t transition-colors w-full"
+                                        style={{ height: `${Math.max(height, 4)}%` }}
+                                        title={`${day.date}: ${day.count} executions`}
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <div className="flex justify-between mt-1 px-1">
+                                <span className="text-[10px] text-muted-foreground">{dashboardOverview.dailyTrend[0]?.date}</span>
+                                <span className="text-[10px] text-muted-foreground">{dashboardOverview.dailyTrend[dashboardOverview.dailyTrend.length - 1]?.date}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Top bots */}
+                          {dashboardOverview.topBots.length > 0 && (
+                            <div>
+                              <h3 className="text-sm font-medium mb-2">Most Active Bots</h3>
+                              <div className="space-y-1">
+                                {dashboardOverview.topBots.map((bot) => (
+                                  <div key={bot.baleybotId} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border border-border/50">
+                                    {bot.icon && <span className="text-base shrink-0">{bot.icon}</span>}
+                                    <span className="truncate flex-1">{bot.name || bot.baleybotId.slice(0, 8)}</span>
+                                    <span className="text-xs text-muted-foreground shrink-0">{bot.count} runs</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* This bot's stats (if saved) */}
+                          {savedBaleybotId && analyticsData && analyticsData.total > 0 && (
+                            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+                              <h3 className="text-sm font-medium mb-2">This Bot</h3>
+                              <div className="grid grid-cols-3 gap-3 text-center">
+                                <div>
+                                  <p className="text-lg font-bold">{analyticsData.total}</p>
+                                  <p className="text-[10px] text-muted-foreground">Runs</p>
+                                </div>
+                                <div>
+                                  <p className="text-lg font-bold">{(analyticsData.successRate * 100).toFixed(0)}%</p>
+                                  <p className="text-[10px] text-muted-foreground">Success</p>
+                                </div>
+                                <div>
+                                  <p className="text-lg font-bold">{analyticsData.totalTokens.toLocaleString()}</p>
+                                  <p className="text-[10px] text-muted-foreground">Tokens</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}

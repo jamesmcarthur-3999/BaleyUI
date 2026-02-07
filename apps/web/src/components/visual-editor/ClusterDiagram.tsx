@@ -87,9 +87,42 @@ function toReactFlowEdge(edge: VisualEdge): Edge {
         ...baseEdge,
         style: { stroke: 'hsl(217.2, 91.2%, 59.8%)', strokeDasharray: '5,5' }, // blue dashed
       };
+    case 'spawn':
+      return {
+        ...baseEdge,
+        style: { stroke: 'hsl(280, 80%, 55%)', strokeWidth: 2, strokeDasharray: '8,4' }, // purple dashed
+        animated: true,
+      };
+    case 'shared_data':
+      return {
+        ...baseEdge,
+        style: { stroke: 'hsl(45, 90%, 50%)', strokeWidth: 1.5, strokeDasharray: '3,3' }, // gold dotted
+      };
+    case 'trigger':
+      return {
+        ...baseEdge,
+        style: { stroke: 'hsl(142.1, 76.2%, 36.3%)', strokeWidth: 2 }, // green solid
+        animated: true,
+      };
     default:
       return baseEdge;
   }
+}
+
+function LegendItem({ color, dashed, label }: { color: string; dashed: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <svg width="24" height="2" className="shrink-0">
+        <line
+          x1="0" y1="1" x2="24" y2="1"
+          stroke={color}
+          strokeWidth="2"
+          strokeDasharray={dashed ? '4,3' : undefined}
+        />
+      </svg>
+      <span className="text-muted-foreground">{label}</span>
+    </div>
+  );
 }
 
 export function ClusterDiagram({
@@ -103,6 +136,11 @@ export function ClusterDiagram({
 }: ClusterDiagramProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  // Compute visible edge types for legend
+  const edgeTypes = new Set(
+    graph.edges.map(e => e.type).filter(Boolean)
+  );
 
   // Sync React Flow state when graph prop changes
   useEffect(() => {
@@ -168,6 +206,33 @@ export function ClusterDiagram({
           nodeColor={() => 'hsl(var(--primary))'}
           maskColor="hsl(var(--background) / 0.8)"
         />
+        {/* Edge legend */}
+        {edgeTypes.size > 0 && (
+          <div className="absolute top-3 left-3 z-10 bg-card/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 space-y-1.5">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Relationships</p>
+            {edgeTypes.has('chain') && (
+              <LegendItem color="hsl(var(--primary))" dashed={false} label="Sequential chain" />
+            )}
+            {edgeTypes.has('spawn') && (
+              <LegendItem color="hsl(280, 80%, 55%)" dashed label="Spawns agent" />
+            )}
+            {edgeTypes.has('shared_data') && (
+              <LegendItem color="hsl(45, 90%, 50%)" dashed label="Shared data" />
+            )}
+            {edgeTypes.has('trigger') && (
+              <LegendItem color="hsl(142.1, 76.2%, 36.3%)" dashed={false} label="Triggers on complete" />
+            )}
+            {edgeTypes.has('parallel') && (
+              <LegendItem color="hsl(217.2, 91.2%, 59.8%)" dashed label="Parallel execution" />
+            )}
+            {edgeTypes.has('conditional_pass') && (
+              <LegendItem color="hsl(142.1, 76.2%, 36.3%)" dashed={false} label="Condition: pass" />
+            )}
+            {edgeTypes.has('conditional_fail') && (
+              <LegendItem color="hsl(0, 84.2%, 60.2%)" dashed={false} label="Condition: fail" />
+            )}
+          </div>
+        )}
       </ReactFlow>
     </div>
   );

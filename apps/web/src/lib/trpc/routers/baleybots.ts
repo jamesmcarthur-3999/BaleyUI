@@ -9,6 +9,7 @@ import { router, protectedProcedure } from '../trpc';
 import {
   baleybots,
   baleybotExecutions,
+  baleybotTriggers,
   connections,
   eq,
   and,
@@ -42,6 +43,39 @@ import { getBuiltInRuntimeTools, configureWebSearch } from '@/lib/baleybot/tools
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
 
 const log = createLogger('baleybots-router');
+
+// Zod schemas for validating internal BB outputs (C3 fix)
+const testGeneratorOutputSchema = z.object({
+  tests: z.array(z.object({
+    name: z.string(),
+    level: z.enum(['unit', 'integration', 'e2e']),
+    input: z.string(),
+    expectedOutput: z.string().optional(),
+    description: z.string().optional(),
+  })),
+  strategy: z.string().optional(),
+});
+
+const connectionAdvisorOutputSchema = z.object({
+  analysis: z.object({
+    aiProvider: z.object({
+      needed: z.boolean(),
+      recommended: z.string().optional(),
+      reason: z.string(),
+    }).optional(),
+    databases: z.array(z.object({
+      type: z.string(),
+      tools: z.array(z.string()),
+      configHints: z.string().optional(),
+    })).optional(),
+    external: z.array(z.object({
+      service: z.string(),
+      reason: z.string(),
+    })).optional(),
+  }).optional(),
+  recommendations: z.array(z.string()).optional(),
+  warnings: z.array(z.string()).optional(),
+});
 
 /**
  * Status values for BaleyBots
@@ -839,6 +873,11 @@ export const baleybotsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await checkRateLimit(
+        `creator:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.creatorMessage,
+      );
+
       // Build generator context
       // 1. Get connections from workspace (excluding soft-deleted)
       const workspaceConnections = await ctx.db.query.connections.findMany({
@@ -1050,11 +1089,97 @@ export const baleybotsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
       }
 
-      await ctx.db.update(baleybots)
-        .set({ testCasesJson: input.testCases, updatedAt: new Date() })
-        .where(eq(baleybots.id, input.id));
+      await updateWithLock(baleybots, input.id, baleybot.version, {
+        testCasesJson: input.testCases,
+        updatedAt: new Date(),
+      });
 
       return { success: true };
+    }),
+
+  /**
+   * Save trigger configuration to the baleybots row and sync with baleybotTriggers table.
+   */
+  saveTriggerConfig: protectedProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      triggerConfig: z.object({
+        type: z.enum(['manual', 'schedule', 'webhook', 'other_bb']),
+        schedule: z.string().optional(),
+        webhookPath: z.string().optional(),
+        sourceBaleybotId: z.string().uuid().optional(),
+        completionType: z.enum(['success', 'failure', 'completion']).optional(),
+        enabled: z.boolean().optional(),
+      }).nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.id),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots),
+        ),
+      });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+
+      // Touch updatedAt to signal a change
+      await updateWithLock(baleybots, input.id, existing.version, {
+        updatedAt: new Date(),
+      });
+
+      // Clean up existing triggers for this target bot
+      await ctx.db.delete(baleybotTriggers)
+        .where(and(
+          eq(baleybotTriggers.targetBaleybotId, input.id),
+          eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+        ));
+
+      // Create new trigger entry if config provided
+      if (input.triggerConfig) {
+        await ctx.db.insert(baleybotTriggers).values({
+          id: crypto.randomUUID(),
+          sourceBaleybotId: input.triggerConfig.type === 'other_bb' && input.triggerConfig.sourceBaleybotId
+            ? input.triggerConfig.sourceBaleybotId
+            : input.id, // Self-reference for non-BB triggers
+          targetBaleybotId: input.id,
+          triggerType: input.triggerConfig.type === 'other_bb'
+            ? input.triggerConfig.completionType ?? 'completion'
+            : input.triggerConfig.type,
+          workspaceId: ctx.workspace.id,
+          enabled: input.triggerConfig.enabled ?? true,
+          staticInput: input.triggerConfig, // Store full config as JSON
+        });
+      }
+
+      return { success: true };
+    }),
+
+  /**
+   * Get trigger configuration for a BaleyBot.
+   */
+  getTriggerConfig: protectedProcedure
+    .input(z.object({ baleybotId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const triggers = await ctx.db
+        .select()
+        .from(baleybotTriggers)
+        .where(and(
+          eq(baleybotTriggers.targetBaleybotId, input.baleybotId),
+          eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+        ))
+        .limit(1);
+
+      if (triggers.length === 0) return null;
+      // Return the stored trigger config from staticInput, or reconstruct from fields
+      const trigger = triggers[0]!;
+      if (trigger.staticInput && typeof trigger.staticInput === 'object') {
+        return trigger.staticInput as Record<string, unknown>;
+      }
+      return {
+        type: trigger.triggerType,
+        enabled: trigger.enabled,
+        sourceBaleybotId: trigger.sourceBaleybotId,
+      };
     }),
 
   /**
@@ -1082,6 +1207,11 @@ export const baleybotsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
       }
 
+      await checkRateLimit(
+        `genTests:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.generate,
+      );
+
       const contextStr = [
         `Bot: ${baleybot.name}`,
         `Entities: ${input.entities.map(e => `${e.name} (${e.tools.join(', ')})`).join('; ')}`,
@@ -1099,16 +1229,12 @@ export const baleybotsRouter = router({
         }
       );
 
-      return output as {
-        tests: Array<{
-          name: string;
-          level: 'unit' | 'integration' | 'e2e';
-          input: string;
-          expectedOutput?: string;
-          description: string;
-        }>;
-        strategy: string;
-      };
+      try {
+        return testGeneratorOutputSchema.parse(output);
+      } catch {
+        log.error('test_generator returned malformed output', { output, baleybotId: input.baleybotId });
+        return { tests: [], strategy: 'Test generation returned unexpected format. Please try again.' };
+      }
     }),
 
   /**
@@ -1135,6 +1261,11 @@ export const baleybotsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
       }
 
+      await checkRateLimit(
+        `connAnalysis:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.generate,
+      );
+
       const contextStr = [
         `Bot: ${baleybot.name}`,
         `Entities: ${input.entities.map(e => `${e.name} (${e.tools.join(', ')})`).join('; ')}`,
@@ -1152,14 +1283,56 @@ export const baleybotsRouter = router({
         }
       );
 
-      return output as {
-        analysis: {
-          aiProvider: { needed: boolean; recommended?: string; reason: string };
-          databases: Array<{ type: string; tools: string[]; configHints?: string }>;
-          external: Array<{ service: string; reason: string }>;
-        };
-        recommendations: string[];
-        warnings: string[];
-      };
+      try {
+        return connectionAdvisorOutputSchema.parse(output);
+      } catch {
+        log.error('connection_advisor returned malformed output', { output, baleybotId: input.baleybotId });
+        return { analysis: undefined, recommendations: ['Connection analysis returned unexpected format. Please try again.'], warnings: [] };
+      }
+    }),
+
+  /**
+   * Analyze deployment requirements using the deployment_advisor internal BB.
+   */
+  analyzeDeployment: protectedProcedure
+    .input(z.object({
+      baleybotId: z.string().uuid(),
+      balCode: z.string(),
+      entityNames: z.array(z.string()),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.query.baleybots.findFirst({
+        where: and(eq(baleybots.id, input.baleybotId), eq(baleybots.workspaceId, ctx.workspace.id), notDeleted(baleybots)),
+      });
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+
+      await checkRateLimit(
+        `deploy:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.generate,
+      );
+
+      const contextStr = `Bot: ${existing.name}\nEntities: ${input.entityNames.join(', ')}\n\nBAL Code:\n${input.balCode}`;
+      const { output } = await executeInternalBaleybot(
+        'deployment_advisor',
+        `Analyze deployment for this BaleyBot:\n${contextStr}`,
+        {
+          userWorkspaceId: ctx.workspace.id,
+          triggeredBy: 'internal',
+        }
+      );
+
+      const schema = z.object({
+        triggerRecommendations: z.array(z.object({ type: z.string(), reason: z.string(), config: z.unknown().optional() })).optional(),
+        monitoringAdvice: z.object({ alertsToSet: z.array(z.string()).optional(), metricsToWatch: z.array(z.string()).optional() }).optional(),
+        readinessGaps: z.array(z.string()).optional(),
+        productionChecklist: z.array(z.string()).optional(),
+      });
+
+      try {
+        return schema.parse(output);
+      } catch {
+        log.error('deployment_advisor returned malformed output', { output, baleybotId: input.baleybotId });
+        return { triggerRecommendations: [], readinessGaps: ['Deployment analysis returned unexpected format.'], productionChecklist: [] };
+      }
     }),
 });

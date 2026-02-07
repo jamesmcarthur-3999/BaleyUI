@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Clock, Globe, Zap, Hand, Info, ChevronDown } from 'lucide-react';
+import { Clock, Globe, Zap, Hand, Info, ChevronDown, Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TriggerConfig, TriggerType } from '@/lib/baleybot/types';
 
@@ -9,6 +9,7 @@ interface TriggerConfigProps {
   value: TriggerConfig | undefined;
   onChange: (config: TriggerConfig | undefined) => void;
   availableBaleybots?: Array<{ id: string; name: string }>;
+  baleybotId?: string;
   className?: string;
 }
 
@@ -57,10 +58,12 @@ export function TriggerConfig({
   value,
   onChange,
   availableBaleybots = [],
+  baleybotId,
   className,
 }: TriggerConfigProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [customSchedule, setCustomSchedule] = useState(value?.schedule || '');
+  const [copied, setCopied] = useState(false);
 
   const selectedType = value?.type || 'manual';
   const selectedOption = TRIGGER_OPTIONS.find((opt) => opt.type === selectedType);
@@ -227,6 +230,17 @@ export function TriggerConfig({
               Example: &quot;0 9 * * 1-5&quot; runs at 9am on weekdays.
             </span>
           </div>
+
+          {/* Cron validation indicator */}
+          {value?.schedule && (
+            <div className="text-xs">
+              {(() => {
+                const parts = value.schedule.trim().split(/\s+/);
+                if (parts.length !== 5) return <span className="text-red-500">Invalid: expected 5 fields (min hour day month weekday)</span>;
+                return <span className="text-green-600 dark:text-green-400">Valid cron expression ({parts.length} fields)</span>;
+              })()}
+            </div>
+          )}
         </div>
       )}
 
@@ -246,13 +260,45 @@ export function TriggerConfig({
             className="w-full px-3 py-2 text-sm rounded-lg border border-border/50 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
 
-          <div className="flex items-start gap-2 text-xs text-muted-foreground">
-            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-            <span>
-              A unique webhook URL will be generated for this BaleyBot.
-              POST requests to this URL will trigger execution.
-            </span>
-          </div>
+          {baleybotId ? (
+            <>
+              <div className="rounded-lg border border-border/50 bg-background p-3">
+                <p className="text-xs text-muted-foreground mb-1">Webhook URL</p>
+                <div className="flex items-center gap-2">
+                  <code className="text-xs font-mono flex-1 break-all">
+                    {typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/baleybots/{baleybotId}
+                  </code>
+                  <button
+                    type="button"
+                    className="h-7 w-7 p-0 shrink-0 inline-flex items-center justify-center rounded-md border border-border/50 hover:bg-muted/50 transition-colors"
+                    onClick={() => {
+                      const url = `${window.location.origin}/api/webhooks/baleybots/${baleybotId}`;
+                      navigator.clipboard.writeText(url);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                  >
+                    {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/50 bg-background p-3">
+                <p className="text-xs text-muted-foreground mb-1">Example cURL</p>
+                <pre className="text-[10px] font-mono whitespace-pre-wrap text-muted-foreground">{`curl -X POST \\
+  ${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/baleybots/${baleybotId} \\
+  -H "Content-Type: application/json" \\
+  -H "X-Webhook-Secret: YOUR_SECRET" \\
+  -d '{"input": "test"}'`}</pre>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-start gap-2 text-xs text-muted-foreground">
+              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                Save this BaleyBot first to generate a webhook URL.
+              </span>
+            </div>
+          )}
         </div>
       )}
 

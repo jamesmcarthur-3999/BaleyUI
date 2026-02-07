@@ -283,6 +283,38 @@ function outputSchemaToRecord(output: { fields: Array<{ name: string; fieldType:
 }
 
 /**
+ * Extract execution structure from AST root expression.
+ * Walks the expression tree to find entity names in order.
+ */
+function extractPipelineFromAst(
+  node: { type: string; [key: string]: unknown } | null
+): { type: 'chain' | 'parallel' | 'single'; order: string[] } | null {
+  if (!node) return null;
+
+  const extractNames = (n: { type: string; [key: string]: unknown }): string[] => {
+    if (n.type === 'EntityRef' && typeof n.name === 'string') return [n.name];
+    if (n.type === 'EntityRefWithContext' && typeof n.name === 'string') return [n.name];
+    const body = n.body as Array<{ type: string; [key: string]: unknown }> | undefined;
+    if (body && Array.isArray(body)) return body.flatMap(extractNames);
+    // IfExpr — collect from both branches
+    const then = n.thenBranch as { type: string; [key: string]: unknown } | undefined;
+    const els = n.elseBranch as { type: string; [key: string]: unknown } | undefined;
+    return [...(then ? extractNames(then) : []), ...(els ? extractNames(els) : [])];
+  };
+
+  switch (node.type) {
+    case 'ChainExpr':
+      return { type: 'chain', order: extractNames(node) };
+    case 'ParallelExpr':
+      return { type: 'parallel', order: extractNames(node) };
+    default: {
+      const names = extractNames(node);
+      return names.length > 0 ? { type: 'single', order: names } : null;
+    }
+  }
+}
+
+/**
  * Parse BAL code and extract entity definitions
  */
 export function parseBalCode(balCode: string): {
@@ -309,7 +341,8 @@ export function parseBalCode(balCode: string): {
       });
     }
 
-    return { entities, chain: undefined, errors: [] };
+    const pipeline = extractPipelineFromAst(ast.root as { type: string; [key: string]: unknown } | null);
+    return { entities, chain: pipeline?.order, errors: [] };
   } catch (error) {
     return {
       entities: [],

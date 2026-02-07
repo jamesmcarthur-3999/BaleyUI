@@ -4,7 +4,7 @@ import { ConversationThread } from './ConversationThread';
 import type { ViewAction } from './ConversationThread';
 import { ChatInput } from './ChatInput';
 import { ExecutionHistory } from './ExecutionHistory';
-import type { CreatorMessage, CreationStatus } from '@/lib/baleybot/creator-types';
+import type { CreatorMessage, CreationStatus, CreationProgress } from '@/lib/baleybot/creator-types';
 
 interface Execution {
   id: string;
@@ -27,6 +27,7 @@ interface LeftPanelProps {
   onExecutionClick?: (id: string) => void;
   onViewAction?: (action: ViewAction) => void;
   onOptionSelect?: (optionId: string) => void;
+  creationProgress?: CreationProgress | null;
 }
 
 /**
@@ -43,6 +44,7 @@ export function LeftPanel({
   onExecutionClick,
   onViewAction,
   onOptionSelect,
+  creationProgress,
 }: LeftPanelProps) {
   return (
     <div className="flex flex-col h-full">
@@ -51,6 +53,7 @@ export function LeftPanel({
         messages={messages}
         embedded
         isBuilding={status === 'building'}
+        creationProgress={creationProgress}
         className="flex-1 min-h-0"
         onViewAction={onViewAction}
         onOptionSelect={onOptionSelect}

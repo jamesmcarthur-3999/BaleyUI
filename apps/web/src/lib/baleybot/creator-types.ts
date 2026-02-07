@@ -254,6 +254,17 @@ export type CreatorStreamChunk =
   | { type: 'complete'; data: CreatorOutput }
   | { type: 'error'; data: { message: string; code?: string } };
 
+/**
+ * Real-time progress tracking during bot creation.
+ * Replaces fake phase cycling with actual creation state.
+ */
+export interface CreationProgress {
+  phase: 'understanding' | 'designing' | 'connecting' | 'generating' | 'complete';
+  message: string;
+  entitiesCreated?: number;
+  connectionsCreated?: number;
+}
+
 // ============================================================================
 // AI OUTPUT SCHEMA
 // ============================================================================

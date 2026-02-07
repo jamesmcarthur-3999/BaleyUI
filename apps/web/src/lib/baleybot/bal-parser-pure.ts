@@ -64,7 +64,7 @@ export interface VisualEdge {
   id: string;
   source: string;
   target: string;
-  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel';
+  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel' | 'spawn' | 'shared_data' | 'trigger';
   label?: string;
   animated?: boolean;
 }
@@ -117,6 +117,37 @@ function outputSchemaToRecord(output: { fields: Array<{ name: string; fieldType:
 // ============================================================================
 
 /**
+ * Extract pipeline order from AST root expression.
+ * Walks ChainExpr, ParallelExpr, EntityRef, etc.
+ */
+function extractPipelineFromAst(
+  node: { type: string; [key: string]: unknown } | null
+): { type: 'chain' | 'parallel' | 'single'; order: string[] } | null {
+  if (!node) return null;
+
+  const extractNames = (n: { type: string; [key: string]: unknown }): string[] => {
+    if (n.type === 'EntityRef' && typeof n.name === 'string') return [n.name];
+    if (n.type === 'EntityRefWithContext' && typeof n.name === 'string') return [n.name];
+    const body = n.body as Array<{ type: string; [key: string]: unknown }> | undefined;
+    if (body && Array.isArray(body)) return body.flatMap(extractNames);
+    const then = n.thenBranch as { type: string; [key: string]: unknown } | undefined;
+    const els = n.elseBranch as { type: string; [key: string]: unknown } | undefined;
+    return [...(then ? extractNames(then) : []), ...(els ? extractNames(els) : [])];
+  };
+
+  switch (node.type) {
+    case 'ChainExpr':
+      return { type: 'chain', order: extractNames(node) };
+    case 'ParallelExpr':
+      return { type: 'parallel', order: extractNames(node) };
+    default: {
+      const names = extractNames(node);
+      return names.length > 0 ? { type: 'single', order: names } : null;
+    }
+  }
+}
+
+/**
  * Parse BAL code and extract entity definitions.
  * Pure function with no server dependencies.
  */
@@ -140,7 +171,8 @@ export function parseBalCode(balCode: string): ParseResult {
       });
     }
 
-    return { entities, chain: undefined, errors: [] };
+    const pipeline = extractPipelineFromAst(ast.root as { type: string; [key: string]: unknown } | null);
+    return { entities, chain: pipeline?.order, errors: [] };
   } catch (error) {
     return {
       entities: [],
@@ -283,6 +315,182 @@ function parseConditionalEdges(
   return edges;
 }
 
+// ============================================================================
+// RELATIONSHIP EDGE GENERATORS
+// ============================================================================
+
+/**
+ * Entities with spawn_baleybot connect to all other entities (potential spawn targets).
+ */
+function generateSpawnEdges(nodes: VisualNode[]): VisualEdge[] {
+  const edges: VisualEdge[] = [];
+  const hubNodes = nodes.filter(n => n.data.tools.includes('spawn_baleybot'));
+  for (const hub of hubNodes) {
+    for (const spoke of nodes) {
+      if (spoke.id === hub.id) continue;
+      edges.push({
+        id: `spawn-${hub.id}->${spoke.id}`,
+        source: hub.id,
+        target: spoke.id,
+        type: 'spawn',
+        label: 'spawns',
+        animated: true,
+      });
+    }
+  }
+  return edges;
+}
+
+/**
+ * Entities sharing data tools (store_memory, shared_storage) have an implicit data relationship.
+ */
+function generateSharedDataEdges(nodes: VisualNode[]): VisualEdge[] {
+  const edges: VisualEdge[] = [];
+  const dataTools = ['store_memory', 'shared_storage'];
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i]!;
+      const b = nodes[j]!;
+      const shared = a.data.tools.filter(t => dataTools.includes(t) && b.data.tools.includes(t));
+      if (shared.length > 0) {
+        edges.push({
+          id: `shared-${a.id}<->${b.id}`,
+          source: a.id,
+          target: b.id,
+          type: 'shared_data',
+          label: shared.join(', '),
+        });
+      }
+    }
+  }
+  return edges;
+}
+
+/**
+ * bb_completion triggers create edges from the source entity to the triggered entity.
+ */
+function generateTriggerEdges(nodes: VisualNode[]): VisualEdge[] {
+  const edges: VisualEdge[] = [];
+  const nodeNames = new Set(nodes.map(n => n.id));
+
+  for (const node of nodes) {
+    if (node.data.trigger?.type === 'other_bb') {
+      const sourceId = node.data.trigger.sourceBaleybotId;
+      if (sourceId && nodeNames.has(sourceId)) {
+        edges.push({
+          id: `trigger-${sourceId}->${node.id}`,
+          source: sourceId,
+          target: node.id,
+          type: 'trigger',
+          label: 'triggers',
+          animated: true,
+        });
+      }
+    }
+  }
+
+  return edges;
+}
+
+// ============================================================================
+// LAYOUT (simple hierarchical — dagre is in bal-to-nodes.ts for server path)
+// ============================================================================
+
+const NODE_HEIGHT = 150;
+
+/**
+ * Simple left-to-right layout based on edge topology.
+ * Uses BFS from sources to assign ranks for basic hierarchical positioning.
+ */
+function autoLayout(nodes: VisualNode[], edges: VisualEdge[]): VisualNode[] {
+  if (nodes.length === 0) return nodes;
+
+  // No edges — simple horizontal
+  if (edges.length === 0) {
+    return nodes.map((node, index) => ({
+      ...node,
+      position: { x: index * (NODE_WIDTH + HORIZONTAL_GAP), y: 100 },
+    }));
+  }
+
+  // Build adjacency from edges
+  const outgoing = new Map<string, string[]>();
+  const incoming = new Map<string, number>();
+  const nodeIds = new Set(nodes.map(n => n.id));
+
+  for (const n of nodes) {
+    outgoing.set(n.id, []);
+    incoming.set(n.id, 0);
+  }
+
+  for (const edge of edges) {
+    if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
+      outgoing.get(edge.source)?.push(edge.target);
+      incoming.set(edge.target, (incoming.get(edge.target) ?? 0) + 1);
+    }
+  }
+
+  // BFS topological sort for rank assignment
+  const rank = new Map<string, number>();
+  const queue: string[] = [];
+
+  for (const n of nodes) {
+    if ((incoming.get(n.id) ?? 0) === 0) {
+      queue.push(n.id);
+      rank.set(n.id, 0);
+    }
+  }
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const currentRank = rank.get(current) ?? 0;
+    for (const next of outgoing.get(current) ?? []) {
+      const existingRank = rank.get(next);
+      if (existingRank === undefined || existingRank < currentRank + 1) {
+        rank.set(next, currentRank + 1);
+      }
+      incoming.set(next, (incoming.get(next) ?? 1) - 1);
+      if ((incoming.get(next) ?? 0) <= 0) {
+        queue.push(next);
+      }
+    }
+  }
+
+  // Assign any unranked nodes (cycles)
+  for (const n of nodes) {
+    if (!rank.has(n.id)) {
+      rank.set(n.id, 0);
+    }
+  }
+
+  // Group nodes by rank
+  const byRank = new Map<number, string[]>();
+  for (const [id, r] of rank) {
+    const group = byRank.get(r) ?? [];
+    group.push(id);
+    byRank.set(r, group);
+  }
+
+  // Position: x by rank, y stagger within rank
+  return nodes.map(node => {
+    const r = rank.get(node.id) ?? 0;
+    const group = byRank.get(r) ?? [node.id];
+    const indexInGroup = group.indexOf(node.id);
+    const totalInGroup = group.length;
+    const yCenter = 100;
+    const ySpacing = NODE_HEIGHT + 40;
+    const yOffset = (indexInGroup - (totalInGroup - 1) / 2) * ySpacing;
+
+    return {
+      ...node,
+      position: {
+        x: r * (NODE_WIDTH + HORIZONTAL_GAP),
+        y: yCenter + yOffset,
+      },
+    };
+  });
+}
+
 /**
  * Convert BAL code to a visual graph representation.
  * Pure function with no server dependencies.
@@ -349,5 +557,13 @@ export function balToVisual(balCode: string): BalToVisualResult {
 
   edges.push(...parallelEdges, ...conditionalEdges);
 
-  return { graph: { nodes, edges }, errors: [] };
+  // Generate relationship edges from entity data
+  edges.push(...generateSpawnEdges(nodes));
+  edges.push(...generateSharedDataEdges(nodes));
+  edges.push(...generateTriggerEdges(nodes));
+
+  // Apply layout based on edges
+  const layoutedNodes = autoLayout(nodes, edges);
+
+  return { graph: { nodes: layoutedNodes, edges }, errors: [] };
 }

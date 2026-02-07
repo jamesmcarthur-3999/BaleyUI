@@ -1,7 +1,7 @@
 'use client';
 
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Zap, Clock, Globe, Wrench, Target } from 'lucide-react';
+import { Zap, Clock, Globe, Wrench, Target, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { VisualNode } from '@/lib/baleybot/visual/types';
 
@@ -41,8 +41,6 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
     }
   };
 
-  const toolCount = (nodeData.tools?.length || 0) + (nodeData.canRequest?.length || 0);
-
   return (
     <>
       {/* Input handle */}
@@ -54,7 +52,7 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
 
       <div
         className={cn(
-          'w-[260px] rounded-xl border bg-card shadow-lg transition-all',
+          'w-[290px] rounded-xl border bg-card shadow-lg transition-all',
           selected
             ? 'border-primary ring-2 ring-primary/20'
             : 'border-border hover:border-primary/50'
@@ -87,13 +85,47 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
             </p>
           </div>
 
-          {/* Tools count */}
-          {toolCount > 0 && (
-            <div className="flex items-center gap-2">
-              <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">
-                {toolCount} tool{toolCount !== 1 ? 's' : ''}
-              </span>
+          {/* Individual tools */}
+          {nodeData.tools && nodeData.tools.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <Wrench className="h-3 w-3 text-muted-foreground shrink-0" />
+                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Tools</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {nodeData.tools.map((tool) => (
+                  <span
+                    key={tool}
+                    className={cn(
+                      'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium',
+                      getToolStyle(tool)
+                    )}
+                  >
+                    <span>{getToolIcon(tool)}</span>
+                    {formatToolName(tool)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Approval-required tools */}
+          {nodeData.canRequest && nodeData.canRequest.length > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <Shield className="h-3 w-3 text-amber-500 shrink-0" />
+                <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider">Approval</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {nodeData.canRequest.map((tool) => (
+                  <span
+                    key={tool}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20"
+                  >
+                    {getToolIcon(tool)} {formatToolName(tool)}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 
@@ -161,4 +193,30 @@ function getNodeEmoji(name: string): string {
   if (lowerName.includes('schedule') || lowerName.includes('task')) return '📅';
 
   return '🤖';
+}
+
+function getToolIcon(tool: string): string {
+  if (tool === 'web_search') return '🔍';
+  if (tool === 'fetch_url') return '🌐';
+  if (tool === 'spawn_baleybot') return '🤖';
+  if (tool === 'send_notification') return '🔔';
+  if (tool === 'store_memory') return '💾';
+  if (tool === 'shared_storage') return '📦';
+  if (tool === 'schedule_task') return '📅';
+  if (tool === 'create_agent') return '🧬';
+  if (tool === 'create_tool') return '🔧';
+  if (tool.startsWith('query_postgres')) return '🐘';
+  if (tool.startsWith('query_mysql')) return '🐬';
+  return '⚡';
+}
+
+function getToolStyle(tool: string): string {
+  if (tool === 'spawn_baleybot') return 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20';
+  if (tool === 'store_memory' || tool === 'shared_storage') return 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20';
+  if (tool.startsWith('query_')) return 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20';
+  return 'bg-muted text-muted-foreground border border-border/50';
+}
+
+function formatToolName(tool: string): string {
+  return tool.replace(/_/g, ' ');
 }

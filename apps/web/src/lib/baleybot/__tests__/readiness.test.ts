@@ -172,7 +172,7 @@ describe('countCompleted', () => {
 describe('getVisibleTabs', () => {
   it('shows only visual and code for initial state', () => {
     const tabs = getVisibleTabs(createInitialReadiness());
-    expect(tabs).toEqual(['visual', 'code', 'analytics']);
+    expect(tabs).toEqual(['visual', 'code']);
   });
 
   it('shows schema when designed is in-progress', () => {
@@ -222,8 +222,17 @@ describe('getVisibleTabs', () => {
     expect(tabs).toContain('triggers');
   });
 
-  it('always includes analytics', () => {
+  it('includes analytics only after design starts', () => {
     const tabs = getVisibleTabs(createInitialReadiness());
-    expect(tabs).toContain('analytics');
+    expect(tabs).not.toContain('analytics');
+
+    const tabsDesigned = getVisibleTabs({
+      designed: 'in-progress',
+      connected: 'incomplete',
+      tested: 'incomplete',
+      activated: 'incomplete',
+      monitored: 'incomplete',
+    });
+    expect(tabsDesigned).toContain('analytics');
   });
 });

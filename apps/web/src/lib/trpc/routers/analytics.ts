@@ -553,6 +553,8 @@ export const analyticsRouter = router({
         .select({
           id: baleybotExecutions.id,
           baleybotId: baleybotExecutions.baleybotId,
+          baleybotName: baleybots.name,
+          baleybotIcon: baleybots.icon,
           status: baleybotExecutions.status,
           durationMs: baleybotExecutions.durationMs,
           startedAt: baleybotExecutions.startedAt,
@@ -572,15 +574,22 @@ export const analyticsRouter = router({
       const successes = executions.filter(e => e.status === 'completed').length;
       const avgDuration = total > 0 ? executions.reduce((s, e) => s + (e.durationMs || 0), 0) / total : 0;
 
-      // Top bots by execution count
-      const botCounts: Record<string, number> = {};
+      // Top bots by execution count (with name and icon)
+      const botInfo: Record<string, { count: number; name: string; icon: string | null }> = {};
       executions.forEach(e => {
-        if (e.baleybotId) botCounts[e.baleybotId] = (botCounts[e.baleybotId] || 0) + 1;
+        if (e.baleybotId) {
+          const existing = botInfo[e.baleybotId];
+          if (existing) {
+            existing.count++;
+          } else {
+            botInfo[e.baleybotId] = { count: 1, name: e.baleybotName, icon: e.baleybotIcon };
+          }
+        }
       });
-      const topBots = Object.entries(botCounts)
-        .sort((a, b) => b[1] - a[1])
+      const topBots = Object.entries(botInfo)
+        .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 5)
-        .map(([baleybotId, count]) => ({ baleybotId, count }));
+        .map(([baleybotId, info]) => ({ baleybotId, count: info.count, name: info.name, icon: info.icon }));
 
       // Daily trend
       const dailyCounts: Record<string, number> = {};

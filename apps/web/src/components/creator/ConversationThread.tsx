@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronUp, ChevronDown, User, Bot, Brain, Loader2, Eye, Code2, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { CreatorMessage } from '@/lib/baleybot/creator-types';
+import type { CreatorMessage, CreationProgress } from '@/lib/baleybot/creator-types';
 
 // Swipe threshold for gesture detection (Phase 4.7)
 const SWIPE_THRESHOLD = 50;
@@ -24,6 +24,8 @@ interface ConversationThreadProps {
   embedded?: boolean;
   /** Show thinking/building indicator */
   isBuilding?: boolean;
+  /** Real-time creation progress (replaces fake phase cycling) */
+  creationProgress?: CreationProgress | null;
   /** Quick action callback */
   onViewAction?: (action: ViewAction) => void;
   /** Callback when user selects an option card */
@@ -50,6 +52,7 @@ export function ConversationThread({
   maxHeight = '300px',
   embedded = false,
   isBuilding = false,
+  creationProgress,
   onViewAction,
   onOptionSelect,
 }: ConversationThreadProps) {
@@ -154,7 +157,7 @@ export function ConversationThread({
               />
             )
           )}
-          {isBuilding && <BuildingIndicator />}
+          {isBuilding && <BuildingIndicator progress={creationProgress} />}
         </div>
       </div>
     );
@@ -230,7 +233,7 @@ export function ConversationThread({
                 />
               )
             )}
-            {isBuilding && <BuildingIndicator />}
+            {isBuilding && <BuildingIndicator progress={creationProgress} />}
           </div>
         </div>
       </div>
@@ -481,44 +484,92 @@ function AssistantMessage({ message, isLatest, onViewAction, onOptionSelect }: A
 // BUILDING INDICATOR
 // ============================================================================
 
-const BUILD_PHASES = ['Analyzing', 'Designing', 'Generating code', 'Assembling'] as const;
+const PROGRESS_PHASES: Array<{ key: CreationProgress['phase']; label: string }> = [
+  { key: 'understanding', label: 'Understanding' },
+  { key: 'designing', label: 'Designing' },
+  { key: 'connecting', label: 'Connecting' },
+  { key: 'generating', label: 'Generating code' },
+  { key: 'complete', label: 'Done' },
+];
+
+const FALLBACK_PHASES = ['Analyzing', 'Designing', 'Generating code', 'Assembling'] as const;
 
 /**
  * Multi-phase building indicator shown when AI is processing.
- * Cycles through phases automatically.
+ * Uses real CreationProgress when available, falls back to cycling.
  */
-function BuildingIndicator() {
-  const [currentPhase, setCurrentPhase] = useState(0);
+function BuildingIndicator({ progress }: { progress?: CreationProgress | null }) {
+  const [fallbackPhase, setFallbackPhase] = useState(0);
 
   useEffect(() => {
+    if (progress) return; // Don't cycle when we have real progress
     const interval = setInterval(() => {
-      setCurrentPhase(prev => (prev + 1) % BUILD_PHASES.length);
+      setFallbackPhase(prev => (prev + 1) % FALLBACK_PHASES.length);
     }, 2500);
     return () => clearInterval(interval);
-  }, []);
+  }, [progress]);
 
+  // Real progress mode
+  if (progress) {
+    const currentIndex = PROGRESS_PHASES.findIndex(p => p.key === progress.phase);
+    return (
+      <div className="relative pl-3 animate-fade-in">
+        <div className="absolute left-0 top-0 bottom-0 w-0.5 rounded-full bg-primary/30" />
+        <div className="flex items-start gap-3 py-1">
+          <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+            <Loader2 className="h-4 w-4 text-primary animate-spin" />
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">{progress.message}</p>
+            <div className="flex items-center gap-1.5">
+              {PROGRESS_PHASES.slice(0, -1).map((phase, i) => (
+                <span
+                  key={phase.key}
+                  className={cn(
+                    'h-1.5 rounded-full transition-all duration-300',
+                    i === currentIndex
+                      ? 'w-4 bg-primary animate-phase-pulse'
+                      : i < currentIndex
+                        ? 'w-1.5 bg-primary/40'
+                        : 'w-1.5 bg-muted-foreground/20'
+                  )}
+                  title={phase.label}
+                />
+              ))}
+            </div>
+            {(progress.entitiesCreated ?? 0) > 0 && (
+              <p className="text-[10px] text-muted-foreground">
+                {progress.entitiesCreated} entit{progress.entitiesCreated === 1 ? 'y' : 'ies'}
+                {(progress.connectionsCreated ?? 0) > 0 && `, ${progress.connectionsCreated} connection${progress.connectionsCreated === 1 ? '' : 's'}`}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback cycling mode
   return (
     <div className="relative pl-3 animate-fade-in">
-      {/* Left accent border */}
       <div className="absolute left-0 top-0 bottom-0 w-0.5 rounded-full bg-primary/30" />
-
       <div className="flex items-start gap-3 py-1">
         <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
           <Loader2 className="h-4 w-4 text-primary animate-spin" />
         </div>
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            {BUILD_PHASES[currentPhase]}...
+            {FALLBACK_PHASES[fallbackPhase]}...
           </p>
           <div className="flex items-center gap-1.5">
-            {BUILD_PHASES.map((_, i) => (
+            {FALLBACK_PHASES.map((_, i) => (
               <span
                 key={i}
                 className={cn(
                   'h-1.5 rounded-full transition-all duration-300',
-                  i === currentPhase
+                  i === fallbackPhase
                     ? 'w-4 bg-primary animate-phase-pulse'
-                    : i < currentPhase
+                    : i < fallbackPhase
                       ? 'w-1.5 bg-primary/40'
                       : 'w-1.5 bg-muted-foreground/20'
                 )}

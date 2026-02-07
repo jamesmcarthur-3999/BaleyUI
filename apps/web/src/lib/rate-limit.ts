@@ -241,6 +241,7 @@ export const RATE_LIMITS = {
   webhook: { windowMs: 1000, maxRequests: 100 },  // 100 webhooks per second
   webhookPerMinute: { windowMs: 60000, maxRequests: 60 },  // 60 webhooks per minute per IP
   api: { windowMs: 60000, maxRequests: 100 },     // 100 API calls per minute
+  creatorMessage: { windowMs: 60000, maxRequests: 10 },  // 10 creator AI calls per minute
 } as const;
 
 // ============================================================================

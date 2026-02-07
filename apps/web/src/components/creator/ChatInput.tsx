@@ -58,9 +58,11 @@ export function ChatInput({
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const MAX_LENGTH = 2000;
   const isProcessing = status === 'building' || status === 'running';
   const isDisabled = disabled || status === 'running';
   const hasContent = value.trim().length > 0;
+  const isOverLimit = value.length > MAX_LENGTH;
   const showGlow = isFocused || hasContent;
 
   // Auto-focus on mount when status is 'empty'
@@ -88,7 +90,7 @@ export function ChatInput({
 
   const handleSend = () => {
     const trimmedValue = value.trim();
-    if (!trimmedValue || isDisabled) return;
+    if (!trimmedValue || isDisabled || isOverLimit) return;
 
     onSend(trimmedValue);
     setValue('');
@@ -158,7 +160,7 @@ export function ChatInput({
           type="button"
           size="icon"
           variant={hasContent ? 'default' : 'ghost'}
-          disabled={!hasContent || isDisabled}
+          disabled={!hasContent || isDisabled || isOverLimit}
           onClick={handleSend}
           aria-label={isProcessing ? 'Sending message' : 'Send message'}
           className={cn(
@@ -176,10 +178,20 @@ export function ChatInput({
         </Button>
       </div>
 
-      {/* Hint text - hidden on mobile for cleaner UI (Phase 4.5) */}
-      <p id="chat-input-hint" className="mt-2 text-center text-xs text-muted-foreground/60 hidden sm:block">
-        Press Enter to send, Shift+Enter for new line
-      </p>
+      {/* Footer: hint text + character count */}
+      <div className="mt-2 flex items-center justify-between px-1">
+        <p id="chat-input-hint" className="text-xs text-muted-foreground/60 hidden sm:block">
+          Press Enter to send, Shift+Enter for new line
+        </p>
+        {value.length > MAX_LENGTH * 0.8 && (
+          <span className={cn(
+            'text-xs ml-auto',
+            isOverLimit ? 'text-red-500 font-medium' : 'text-muted-foreground/60'
+          )}>
+            {value.length}/{MAX_LENGTH}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

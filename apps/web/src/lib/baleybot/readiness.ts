@@ -117,7 +117,9 @@ export function getVisibleTabs(readiness: ReadinessState): AdaptiveTab[] {
       tabs.push('triggers');
     }
   }
-  tabs.push('analytics');
+  if (readiness.designed !== 'incomplete') {
+    tabs.push('analytics');
+  }
   if (readiness.activated !== 'incomplete' || readiness.tested === 'complete') {
     if (readiness.monitored !== 'not-applicable') {
       tabs.push('monitor');

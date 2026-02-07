@@ -159,32 +159,38 @@ export function TestPanel({
             <div className="space-y-1">
               {tests.map(test => (
                 <div key={test.id} className="rounded-lg border border-border/50 overflow-hidden">
-                  <button
-                    onClick={() => toggleExpanded(test.id)}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/30 transition-colors"
-                    aria-expanded={expandedTests.has(test.id)}
-                    aria-label={`${expandedTests.has(test.id) ? 'Collapse' : 'Expand'} test: ${test.name}`}
-                  >
-                    {expandedTests.has(test.id) ? (
-                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    )}
-                    {STATUS_ICONS[test.status]}
-                    <span className="truncate text-left flex-1">{test.name}</span>
-                    {test.durationMs !== undefined && (
-                      <span className="text-[10px] text-muted-foreground shrink-0">{test.durationMs}ms</span>
-                    )}
+                  <div className="flex items-center">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => toggleExpanded(test.id)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(test.id); } }}
+                      className="flex-1 flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/30 transition-colors cursor-pointer min-w-0"
+                      aria-expanded={expandedTests.has(test.id)}
+                      aria-label={`${expandedTests.has(test.id) ? 'Collapse' : 'Expand'} test: ${test.name}`}
+                    >
+                      {expandedTests.has(test.id) ? (
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      )}
+                      {STATUS_ICONS[test.status]}
+                      <span className="truncate text-left flex-1">{test.name}</span>
+                      {test.durationMs !== undefined && (
+                        <span className="text-[10px] text-muted-foreground shrink-0">{test.durationMs}ms</span>
+                      )}
+                    </div>
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-6 w-6 p-0 shrink-0"
-                      onClick={(e) => { e.stopPropagation(); onRunTest(test.id); }}
+                      className="h-6 w-6 p-0 shrink-0 mr-2"
+                      onClick={() => onRunTest(test.id)}
                       disabled={test.status === 'running'}
+                      aria-label={`Run test: ${test.name}`}
                     >
                       <Play className="h-3 w-3" />
                     </Button>
-                  </button>
+                  </div>
                   {expandedTests.has(test.id) && (
                     <div className="px-3 pb-3 pt-1 border-t border-border/30 space-y-2 text-xs">
                       <div>
