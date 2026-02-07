@@ -182,6 +182,7 @@ export default function BaleybotPage() {
 
   // Readiness state
   const [readiness, setReadiness] = useState(createInitialReadiness());
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- setTestCases used in Phase 3 (TestPanel wiring)
   const [testCases, setTestCases] = useState<Array<{ id: string; status: 'pending' | 'running' | 'passed' | 'failed' }>>([]);
 
   // Save conflict state (Phase 5.4)
@@ -738,7 +739,6 @@ export default function BaleybotPage() {
       hasMonitoring: false, // Phase 5 will wire this
     });
     setReadiness(newReadiness);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [balCode, entities, testCases, triggerConfig]);
 
   // =====================================================================
