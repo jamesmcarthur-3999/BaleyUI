@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { trpc } from '@/lib/trpc/client';
-import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ReadinessDots } from '@/components/creator';
+import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ReadinessDots, ConnectionsPanel } from '@/components/creator';
 import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
 
 // Dynamic import to avoid bundling @baleybots/core server-only modules in client
@@ -270,10 +270,16 @@ export default function BaleybotPage() {
     enabled: viewMode === 'triggers',
   });
 
-  // Fetch per-bot analytics (only when analytics tab is active and we have an ID)
+  // Fetch workspace connections (for connections panel)
+  const { data: workspaceConnections, isLoading: isLoadingConnections } = trpc.connections.list.useQuery(
+    { limit: 50 },
+    { enabled: viewMode === 'connections' },
+  );
+
+  // Fetch per-bot analytics (only when analytics or monitor tab is active and we have an ID)
   const { data: analyticsData, isLoading: isLoadingAnalytics } = trpc.analytics.getBaleybotAnalytics.useQuery(
     { baleybotId: savedBaleybotId! },
-    { enabled: viewMode === 'analytics' && !!savedBaleybotId },
+    { enabled: (viewMode === 'analytics' || viewMode === 'monitor') && !!savedBaleybotId },
   );
 
   // Mutations
@@ -727,19 +733,23 @@ export default function BaleybotPage() {
   // Compute readiness whenever relevant state changes
   useEffect(() => {
     const allTools = entities.flatMap(e => e.tools);
+    const wsConns = workspaceConnections ?? [];
+    const connectedTypes = new Set(wsConns.filter(c => c.status === 'connected').map(c => c.type));
+    const hasAiProvider = connectedTypes.has('openai') || connectedTypes.has('anthropic') || connectedTypes.has('ollama');
+
     const newReadiness = computeReadiness({
       hasBalCode: balCode.length > 0,
       hasEntities: entities.length > 0,
       tools: allTools,
-      connectionsMet: false, // Phase 2 will wire this properly
-      hasConnections: false, // Phase 2 will wire this properly
+      connectionsMet: hasAiProvider,
+      hasConnections: wsConns.length > 0,
       testsPassed: testCases.length > 0 && testCases.every(t => t.status === 'passed'),
       hasTestRuns: testCases.filter(t => t.status !== 'pending').length,
       hasTrigger: !!triggerConfig,
       hasMonitoring: false, // Phase 5 will wire this
     });
     setReadiness(newReadiness);
-  }, [balCode, entities, testCases, triggerConfig]);
+  }, [balCode, entities, testCases, triggerConfig, workspaceConnections]);
 
   // =====================================================================
   // EFFECTS
@@ -1395,16 +1405,21 @@ export default function BaleybotPage() {
                       ) : null}
                     </div>
                   )}
-                  {/* Connections View (placeholder — Phase 2) */}
+                  {/* Connections View */}
                   {viewMode === 'connections' && (
                     <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                      <div className="flex flex-col items-center justify-center h-full text-center py-12">
-                        <Cable className="h-10 w-10 text-muted-foreground/40 mb-4" />
-                        <h3 className="text-lg font-medium mb-2">Connections</h3>
-                        <p className="text-sm text-muted-foreground max-w-md">
-                          Manage the connections this bot needs to operate.
-                        </p>
-                      </div>
+                      <ConnectionsPanel
+                        tools={entities.flatMap(e => e.tools)}
+                        connections={(workspaceConnections ?? []).map(c => ({
+                          id: c.id,
+                          type: c.type,
+                          name: c.name,
+                          status: c.status ?? 'unconfigured',
+                          isDefault: c.isDefault ?? false,
+                        }))}
+                        isLoading={isLoadingConnections}
+                        onManageConnections={() => router.push(ROUTES.settings.connections)}
+                      />
                     </div>
                   )}
 
