@@ -1,7 +1,7 @@
 'use client';
 
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Zap, Clock, Globe, Wrench, Target, Shield } from 'lucide-react';
+import { Zap, Clock, Globe, Wrench, Target, Shield, Thermometer, Brain, RotateCcw, StopCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { VisualNode } from '@/lib/baleybot/visual/types';
 
@@ -126,6 +126,36 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
                   </span>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Advanced config badges */}
+          {(nodeData.temperature !== undefined || nodeData.reasoning || nodeData.retries || nodeData.stopWhen) && (
+            <div className="flex flex-wrap gap-1.5">
+              {nodeData.temperature !== undefined && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/10 text-orange-700 dark:text-orange-300 border border-orange-500/20">
+                  <Thermometer className="h-2.5 w-2.5" />
+                  {nodeData.temperature}
+                </span>
+              )}
+              {nodeData.reasoning && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
+                  <Brain className="h-2.5 w-2.5" />
+                  {typeof nodeData.reasoning === 'object' ? nodeData.reasoning.effort : 'on'}
+                </span>
+              )}
+              {nodeData.retries !== undefined && nodeData.retries > 0 && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
+                  <RotateCcw className="h-2.5 w-2.5" />
+                  {nodeData.retries}x
+                </span>
+              )}
+              {nodeData.stopWhen && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/20">
+                  <StopCircle className="h-2.5 w-2.5" />
+                  stop
+                </span>
+              )}
             </div>
           )}
 

@@ -16,6 +16,10 @@ type DbProvider = 'postgres' | 'mysql';
 
 interface InlineConnectionFormProps {
   mode: FormMode;
+  /** Pre-select a database provider (e.g. when user clicks "Add" on a mysql requirement) */
+  defaultDbProvider?: DbProvider;
+  /** Existing connection names, used to deduplicate auto-generated names */
+  existingNames?: string[];
   onSuccess?: () => void;
   onCancel?: () => void;
   className?: string;
@@ -32,7 +36,7 @@ const DB_PROVIDERS: { value: DbProvider; label: string }[] = [
   { value: 'mysql', label: 'MySQL' },
 ];
 
-function autoName(provider: string): string {
+function autoName(provider: string, existingNames: string[]): string {
   const labels: Record<string, string> = {
     openai: 'My OpenAI Connection',
     anthropic: 'My Anthropic Connection',
@@ -40,7 +44,14 @@ function autoName(provider: string): string {
     postgres: 'My Postgres Connection',
     mysql: 'My MySQL Connection',
   };
-  return labels[provider] ?? `My ${provider} Connection`;
+  const base = labels[provider] ?? `My ${provider} Connection`;
+  if (!existingNames.includes(base)) return base;
+  // Deduplicate: "My OpenAI Connection 2", "My OpenAI Connection 3", ...
+  for (let i = 2; i <= 20; i++) {
+    const candidate = `${base} ${i}`;
+    if (!existingNames.includes(candidate)) return candidate;
+  }
+  return `${base} ${Date.now()}`;
 }
 
 /**
@@ -50,13 +61,15 @@ function autoName(provider: string): string {
  */
 export function InlineConnectionForm({
   mode,
+  defaultDbProvider,
+  existingNames = [],
   onSuccess,
   onCancel,
   className,
 }: InlineConnectionFormProps) {
   // Provider selection
   const [aiProvider, setAiProvider] = useState<AiProvider>('openai');
-  const [dbProvider, setDbProvider] = useState<DbProvider>('postgres');
+  const [dbProvider, setDbProvider] = useState<DbProvider>(defaultDbProvider ?? 'postgres');
 
   // Form fields
   const [apiKey, setApiKey] = useState('');
@@ -141,7 +154,7 @@ export function InlineConnectionForm({
       // Create the connection
       await createMutation.mutateAsync({
         type: provider,
-        name: autoName(provider),
+        name: autoName(provider, existingNames),
         config: buildConfig(),
       });
 

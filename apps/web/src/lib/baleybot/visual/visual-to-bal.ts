@@ -58,6 +58,18 @@ export function applyNodeChangeFromParsed(
   if (change.changes.output !== undefined) {
     updatedConfig.output = change.changes.output;
   }
+  if (change.changes.temperature !== undefined) {
+    updatedConfig.temperature = change.changes.temperature;
+  }
+  if (change.changes.reasoning !== undefined) {
+    updatedConfig.reasoning = change.changes.reasoning;
+  }
+  if (change.changes.retries !== undefined) {
+    updatedConfig.retries = change.changes.retries;
+  }
+  if (change.changes.stopWhen !== undefined) {
+    updatedConfig.stopWhen = change.changes.stopWhen;
+  }
 
   // Rebuild BAL code
   return rebuildBAL(
@@ -82,6 +94,10 @@ export function visualToBAL(graph: VisualGraph): string {
       trigger: node.data.trigger
         ? serializeTrigger(node.data.trigger)
         : undefined,
+      temperature: node.data.temperature,
+      reasoning: node.data.reasoning,
+      retries: node.data.retries,
+      stopWhen: node.data.stopWhen,
     },
   }));
 
@@ -134,6 +150,40 @@ function rebuildBAL(
         .map(([key, type]) => `    "${key}": "${type}"`)
         .join(',\n');
       lines.push(`  "output": {\n${outputLines}\n  },`);
+    }
+
+    // Temperature
+    if (entity.config.temperature !== undefined) {
+      lines.push(`  "temperature": ${entity.config.temperature},`);
+    }
+
+    // Reasoning
+    if (entity.config.reasoning !== undefined) {
+      if (typeof entity.config.reasoning === 'object' && entity.config.reasoning !== null) {
+        const r = entity.config.reasoning as { effort?: string };
+        lines.push(`  "reasoning": "${r.effort || 'medium'}",`);
+      } else if (entity.config.reasoning) {
+        lines.push(`  "reasoning": true,`);
+      }
+    }
+
+    // Retries
+    if (entity.config.retries !== undefined && (entity.config.retries as number) > 0) {
+      lines.push(`  "retries": ${entity.config.retries},`);
+    }
+
+    // Stop condition
+    if (entity.config.stopWhen) {
+      lines.push(`  "stopWhen": "${escapeString(entity.config.stopWhen as string)}",`);
+    }
+
+    // Can Request / Needs Approval
+    if (
+      entity.config.can_request &&
+      Array.isArray(entity.config.can_request) &&
+      entity.config.can_request.length > 0
+    ) {
+      lines.push(`  "can_request": [${(entity.config.can_request as string[]).map((t) => `"${t}"`).join(', ')}],`);
     }
 
     // Trigger

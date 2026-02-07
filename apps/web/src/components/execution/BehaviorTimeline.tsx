@@ -27,6 +27,9 @@ import {
   Coins,
   Timer,
   RotateCcw,
+  GitFork,
+  ShieldCheck,
+  Cog,
 } from 'lucide-react';
 import type {
   BlockExecution,
@@ -40,7 +43,7 @@ import type {
 
 interface TimelineEvent {
   id: string;
-  type: 'start' | 'tool_call' | 'reasoning' | 'artifact' | 'error' | 'complete';
+  type: 'start' | 'tool_call' | 'reasoning' | 'artifact' | 'error' | 'complete' | 'retry' | 'route_selected' | 'gate_evaluation' | 'processor_output';
   timestamp: Date;
   durationMs?: number;
   data: {
@@ -52,6 +55,14 @@ interface TimelineEvent {
     artifactUrl?: string;
     error?: string;
     status?: string;
+    attempt?: number;
+    maxRetries?: number;
+    route?: string;
+    classifierOutput?: string;
+    condition?: string;
+    conditionResult?: boolean;
+    processorName?: string;
+    processorOutput?: unknown;
   };
 }
 
@@ -207,6 +218,14 @@ function TimelineEventItem({
         return <XCircle className="h-4 w-4 text-red-500" />;
       case 'complete':
         return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+      case 'retry':
+        return <RotateCcw className="h-4 w-4 text-orange-500" />;
+      case 'route_selected':
+        return <GitFork className="h-4 w-4 text-purple-500" />;
+      case 'gate_evaluation':
+        return <ShieldCheck className="h-4 w-4 text-yellow-500" />;
+      case 'processor_output':
+        return <Cog className="h-4 w-4 text-cyan-500" />;
       default:
         return <Clock className="h-4 w-4 text-muted-foreground" />;
     }
@@ -226,6 +245,14 @@ function TimelineEventItem({
         return 'Error';
       case 'complete':
         return 'Complete';
+      case 'retry':
+        return `Retry ${event.data.attempt ?? ''}/${event.data.maxRetries ?? '?'}`;
+      case 'route_selected':
+        return `Route: ${event.data.route || 'unknown'}`;
+      case 'gate_evaluation':
+        return `Gate: ${event.data.conditionResult ? 'Passed' : 'Blocked'}`;
+      case 'processor_output':
+        return event.data.processorName || 'Processor';
       default:
         return 'Event';
     }
@@ -247,6 +274,18 @@ function TimelineEventItem({
         return event.data.reasoning?.slice(0, 100) || null;
       case 'error':
         return event.data.error || null;
+      case 'retry':
+        return event.data.error ? `Failed: ${event.data.error}` : 'Retrying...';
+      case 'route_selected':
+        return event.data.classifierOutput || null;
+      case 'gate_evaluation':
+        return event.data.condition || null;
+      case 'processor_output': {
+        if (event.data.processorOutput === undefined) return null;
+        const output = event.data.processorOutput;
+        if (typeof output === 'string') return output.slice(0, 100);
+        return JSON.stringify(output).slice(0, 100);
+      }
       default:
         return null;
     }

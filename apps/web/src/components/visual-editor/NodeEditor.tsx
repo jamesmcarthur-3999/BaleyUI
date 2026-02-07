@@ -1,6 +1,6 @@
 'use client';
 
-import { X, Target, Cpu, Zap, Wrench } from 'lucide-react';
+import { X, Target, Cpu, Zap, Wrench, Thermometer, Brain, RotateCcw, StopCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { VisualNode } from '@/lib/baleybot/visual/types';
 
@@ -106,6 +106,95 @@ export function NodeEditor({
             ))}
           </select>
         </div>
+
+        {/* Temperature */}
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <Thermometer className="h-3.5 w-3.5" />
+            Temperature
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min="0"
+              max="2"
+              step="0.1"
+              value={node.data.temperature ?? 0.7}
+              onChange={(e) => onUpdate({ temperature: parseFloat(e.target.value) })}
+              className="flex-1 h-1.5 accent-primary"
+            />
+            <span className="text-xs font-mono w-8 text-right">
+              {(node.data.temperature ?? 0.7).toFixed(1)}
+            </span>
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>Precise</span>
+            <span>Creative</span>
+          </div>
+        </div>
+
+        {/* Reasoning */}
+        <div className="space-y-1.5">
+          <label className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+            <span className="flex items-center gap-2">
+              <Brain className="h-3.5 w-3.5" />
+              Extended Thinking
+            </span>
+            <button
+              type="button"
+              onClick={() => onUpdate({ reasoning: !node.data.reasoning })}
+              className={cn(
+                'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
+                node.data.reasoning ? 'bg-primary' : 'bg-muted-foreground/30'
+              )}
+            >
+              <span
+                className={cn(
+                  'inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform',
+                  node.data.reasoning ? 'translate-x-4.5' : 'translate-x-0.5'
+                )}
+              />
+            </button>
+          </label>
+          {node.data.reasoning && (
+            <p className="text-[10px] text-muted-foreground">
+              For o1/o3/o4 models. Ignored on other models.
+            </p>
+          )}
+        </div>
+
+        {/* Retries */}
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <RotateCcw className="h-3.5 w-3.5" />
+            Max Retries
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="10"
+            value={node.data.retries ?? 0}
+            onChange={(e) => onUpdate({ retries: parseInt(e.target.value) || 0 })}
+            className={cn(
+              'w-full px-3 py-2 text-sm rounded-lg',
+              'border border-border bg-background',
+              'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50'
+            )}
+          />
+        </div>
+
+        {/* Stop Condition */}
+        {node.data.stopWhen && (
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <StopCircle className="h-3.5 w-3.5" />
+              Stop Condition
+            </label>
+            <div className="px-3 py-2 bg-muted/50 rounded-lg text-xs font-mono">
+              {node.data.stopWhen}
+            </div>
+          </div>
+        )}
 
         {/* Tools (read-only display) */}
         {(node.data.tools.length > 0 || node.data.canRequest.length > 0) && (

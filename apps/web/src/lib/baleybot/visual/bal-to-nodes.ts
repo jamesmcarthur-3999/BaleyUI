@@ -123,8 +123,12 @@ export function balToVisualFromParsed(
         model: entity.config.model as string | undefined,
         trigger: triggerConfig,
         tools: (entity.config.tools as string[]) || [],
-        canRequest: (entity.config.can_request as string[]) || [],
+        canRequest: (entity.config.can_request as string[]) || (entity.config.needsApproval as string[]) || [],
         output: entity.config.output as Record<string, string> | undefined,
+        temperature: entity.config.temperature as number | undefined,
+        reasoning: entity.config.reasoning as boolean | { effort?: 'low' | 'medium' | 'high' } | undefined,
+        stopWhen: entity.config.stopWhen as string | undefined,
+        retries: entity.config.retries as number | undefined,
       },
       position,
     });

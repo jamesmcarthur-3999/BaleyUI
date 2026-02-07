@@ -104,6 +104,26 @@ function toReactFlowEdge(edge: VisualEdge): Edge {
         style: { stroke: 'hsl(142.1, 76.2%, 36.3%)', strokeWidth: 2 }, // green solid
         animated: true,
       };
+    case 'try_catch':
+      return {
+        ...baseEdge,
+        style: { stroke: 'hsl(0, 72%, 51%)', strokeWidth: 2, strokeDasharray: '6,4' }, // red dashed
+      };
+    case 'route':
+      return {
+        ...baseEdge,
+        style: { stroke: 'hsl(262, 83%, 58%)', strokeWidth: 2 }, // purple solid
+      };
+    case 'gate':
+      return {
+        ...baseEdge,
+        style: { stroke: 'hsl(45, 93%, 47%)', strokeWidth: 2, strokeDasharray: '4,4' }, // yellow dashed
+      };
+    case 'filter':
+      return {
+        ...baseEdge,
+        style: { stroke: 'hsl(199, 89%, 48%)', strokeWidth: 1.5, strokeDasharray: '3,3' }, // cyan dashed
+      };
     default:
       return baseEdge;
   }
@@ -230,6 +250,18 @@ export function ClusterDiagram({
             )}
             {edgeTypes.has('conditional_fail') && (
               <LegendItem color="hsl(0, 84.2%, 60.2%)" dashed={false} label="Condition: fail" />
+            )}
+            {edgeTypes.has('try_catch') && (
+              <LegendItem color="hsl(0, 72%, 51%)" dashed label="Try/Catch fallback" />
+            )}
+            {edgeTypes.has('route') && (
+              <LegendItem color="hsl(262, 83%, 58%)" dashed={false} label="Route path" />
+            )}
+            {edgeTypes.has('gate') && (
+              <LegendItem color="hsl(45, 93%, 47%)" dashed label="Conditional gate" />
+            )}
+            {edgeTypes.has('filter') && (
+              <LegendItem color="hsl(199, 89%, 48%)" dashed label="Filter" />
             )}
           </div>
         )}

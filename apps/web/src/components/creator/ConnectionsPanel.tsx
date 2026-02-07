@@ -2,13 +2,14 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle2, AlertCircle, Plus, ExternalLink } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Plus, ExternalLink, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getConnectionSummary, scanToolRequirements } from '@/lib/baleybot/tools/requirements-scanner';
 import { InlineConnectionForm } from './InlineConnectionForm';
 import { ROUTES } from '@/lib/routes';
+import Link from 'next/link';
 
 interface ConnectionData {
   id: string;
@@ -27,6 +28,8 @@ interface ConnectionsPanelProps {
   isLoading: boolean;
   /** Callback when a new connection is created inline */
   onConnectionCreated?: () => void;
+  /** Callback to navigate to the test tab (shown as CTA when all connections ready) */
+  onNavigateToTest?: () => void;
   className?: string;
 }
 
@@ -112,9 +115,12 @@ export function ConnectionsPanel({
   connections,
   isLoading,
   onConnectionCreated,
+  onNavigateToTest,
   className,
 }: ConnectionsPanelProps) {
   const [addFormType, setAddFormType] = useState<'ai' | 'database' | null>(null);
+  const [requestedDbProvider, setRequestedDbProvider] = useState<'postgres' | 'mysql' | undefined>();
+  const existingNames = connections.map(c => c.name);
 
   const uniqueTools = [...new Set(tools)];
   const summary = getConnectionSummary(uniqueTools);
@@ -178,6 +184,15 @@ export function ConnectionsPanel({
             {requiredStatus.filter(r => !r.met).length > 0 && `${requiredStatus.filter(r => !r.met).length} required connection(s) missing.`}
           </p>
         )}
+        {allMet && onNavigateToTest && (
+          <button
+            onClick={onNavigateToTest}
+            className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline mt-1 ml-7"
+          >
+            Proceed to Testing
+            <ArrowRight className="h-3 w-3" />
+          </button>
+        )}
       </div>
 
       {/* AI Provider section */}
@@ -219,6 +234,7 @@ export function ConnectionsPanel({
           <div className="mt-3">
             <InlineConnectionForm
               mode="ai"
+              existingNames={existingNames}
               onSuccess={handleFormSuccess}
               onCancel={() => setAddFormType(null)}
             />
@@ -252,7 +268,10 @@ export function ConnectionsPanel({
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setAddFormType('database')}
+                      onClick={() => {
+                        setRequestedDbProvider(req.connectionType as 'postgres' | 'mysql');
+                        setAddFormType('database');
+                      }}
                     >
                       <Plus className="h-3.5 w-3.5 mr-1" />
                       Add
@@ -267,6 +286,8 @@ export function ConnectionsPanel({
             <div className="mt-3">
               <InlineConnectionForm
                 mode="database"
+                defaultDbProvider={requestedDbProvider}
+                existingNames={existingNames}
                 onSuccess={handleFormSuccess}
                 onCancel={() => setAddFormType(null)}
               />
@@ -297,15 +318,13 @@ export function ConnectionsPanel({
       )}
 
       {/* Subtle link to full connections page */}
-      <a
+      <Link
         href={ROUTES.connections.list}
-        target="_blank"
-        rel="noopener noreferrer"
         className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
-        View all connections
+        Manage all connections
         <ExternalLink className="h-3 w-3" />
-      </a>
+      </Link>
     </div>
   );
 }

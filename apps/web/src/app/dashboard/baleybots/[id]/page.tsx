@@ -1840,6 +1840,7 @@ export default function BaleybotPage() {
                         connections={normalizedConnections ?? []}
                         isLoading={isLoadingConnections}
                         onConnectionCreated={() => utils.connections.list.invalidate()}
+                        onNavigateToTest={() => setViewMode('test')}
                       />
                     </div>
                   )}
