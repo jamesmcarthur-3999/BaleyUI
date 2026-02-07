@@ -1055,6 +1055,11 @@ export default function BaleybotPage() {
       handleRunAllTests();
       return;
     }
+    if (optionId === 'review-mismatches') {
+      setViewMode('test');
+      setMobileView('editor');
+      return;
+    }
 
     // Readiness-guided option cards → navigate to tab + add guide message
     const optionToTab: Record<string, AdaptiveTab> = {
