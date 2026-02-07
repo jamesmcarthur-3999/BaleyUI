@@ -726,6 +726,58 @@ export default function BaleybotPage() {
     setReadiness(newReadiness);
   }, [balCode, entities, testCases, triggerConfig, workspaceConnections, analyticsData]);
 
+  // Connection analysis — run once when connections tab is first opened
+  const analyzeConnectionsMutation = trpc.baleybots.analyzeConnections.useMutation();
+  const connectionAnalysisRunRef = useRef(false);
+
+  useEffect(() => {
+    if (viewMode !== 'connections' || !savedBaleybotId || connectionAnalysisRunRef.current) return;
+    if (entities.length === 0 || !balCode) return;
+    connectionAnalysisRunRef.current = true;
+
+    analyzeConnectionsMutation.mutate(
+      {
+        baleybotId: savedBaleybotId,
+        balCode,
+        entities: entities.map(e => ({ name: e.name, tools: e.tools })),
+      },
+      {
+        onSuccess: (result) => {
+          const msg: CreatorMessage = {
+            id: `msg-${Date.now()}-connadvice`,
+            role: 'assistant',
+            content: result.recommendations.join(' ') || 'Connection analysis complete.',
+            timestamp: new Date(),
+            metadata: {
+              connectionStatus: {
+                connections: [
+                  {
+                    name: 'AI Provider',
+                    type: result.analysis.aiProvider.recommended || 'ai',
+                    status: (workspaceConnections ?? []).some(c =>
+                      ['openai', 'anthropic', 'ollama'].includes(c.type) && c.status === 'connected'
+                    ) ? 'connected' : 'missing',
+                  },
+                  ...result.analysis.databases.map(db => ({
+                    name: db.type,
+                    type: db.type,
+                    status: 'missing' as const,
+                    requiredBy: db.tools,
+                  })),
+                ],
+              },
+              diagnostic: result.warnings.length > 0
+                ? { level: 'warning' as const, title: 'Connection Warnings', suggestions: result.warnings }
+                : undefined,
+            },
+          };
+          setMessages(prev => [...prev, msg]);
+        },
+      }
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, savedBaleybotId]);
+
   // Auto-save test cases when they change (debounced)
   useEffect(() => {
     if (!savedBaleybotId || testCases.length === 0) return;

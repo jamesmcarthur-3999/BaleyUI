@@ -1110,4 +1110,56 @@ export const baleybotsRouter = router({
         strategy: string;
       };
     }),
+
+  /**
+   * Analyze connection requirements using the connection_advisor internal BB.
+   */
+  analyzeConnections: protectedProcedure
+    .input(z.object({
+      baleybotId: z.string().uuid(),
+      balCode: z.string(),
+      entities: z.array(z.object({
+        name: z.string(),
+        tools: z.array(z.string()),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const baleybot = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.baleybotId),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots),
+        ),
+      });
+      if (!baleybot) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+
+      const contextStr = [
+        `Bot: ${baleybot.name}`,
+        `Entities: ${input.entities.map(e => `${e.name} (${e.tools.join(', ')})`).join('; ')}`,
+        '',
+        'BAL Code:',
+        input.balCode,
+      ].join('\n');
+
+      const { output } = await executeInternalBaleybot(
+        'connection_advisor',
+        `Analyze connection requirements:\n${contextStr}`,
+        {
+          userWorkspaceId: ctx.workspace.id,
+          triggeredBy: 'internal',
+        }
+      );
+
+      return output as {
+        analysis: {
+          aiProvider: { needed: boolean; recommended?: string; reason: string };
+          databases: Array<{ type: string; tools: string[]; configHints?: string }>;
+          external: Array<{ service: string; reason: string }>;
+        };
+        recommendations: string[];
+        warnings: string[];
+      };
+    }),
 });
