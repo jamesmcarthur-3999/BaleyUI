@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { trpc } from '@/lib/trpc/client';
-import { ChatInput, ActionBar, ConversationThread, ExecutionHistory, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError } from '@/components/creator';
+import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ReadinessDots } from '@/components/creator';
 import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
 
 // Dynamic import to avoid bundling @baleybots/core server-only modules in client
@@ -52,7 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, ListTree, Zap, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, ListTree, Zap, BarChart3, MessageSquare, PanelRight, Cable, FlaskConical, Activity } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } from '@/hooks';
@@ -65,7 +65,9 @@ import type {
   Connection,
   CreatorMessage,
   CreationStatus,
+  AdaptiveTab,
 } from '@/lib/baleybot/creator-types';
+import { computeReadiness, createInitialReadiness, getVisibleTabs } from '@/lib/baleybot/readiness';
 
 /**
  * Example prompts shown on the /new welcome view
@@ -165,15 +167,22 @@ export default function BaleybotPage() {
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [showFullDescription, setShowFullDescription] = useState(false);
 
-  // View mode state (Phase 2 - Editor & Schema integration)
-  type ViewMode = 'visual' | 'code' | 'schema' | 'triggers' | 'analytics';
-  const [viewMode, setViewMode] = useState<ViewMode>('visual');
+  // View mode state (adaptive based on readiness)
+  const [viewMode, setViewMode] = useState<AdaptiveTab>('visual');
+
+  // Mobile view toggle (chat vs editor)
+  type MobileView = 'editor' | 'chat';
+  const [mobileView, setMobileView] = useState<MobileView>('editor');
 
   // Output schema state (extracted from BAL code when switching to schema view)
   const [outputSchema, setOutputSchema] = useState<Record<string, string>>({});
 
   // Trigger config state
   const [triggerConfig, setTriggerConfig] = useState<TriggerConfigType | undefined>(undefined);
+
+  // Readiness state
+  const [readiness, setReadiness] = useState(createInitialReadiness());
+  const [testCases, setTestCases] = useState<Array<{ id: string; status: 'pending' | 'running' | 'passed' | 'failed' }>>([]);
 
   // Save conflict state (Phase 5.4)
   const [showConflictDialog, setShowConflictDialog] = useState(false);
@@ -362,34 +371,40 @@ export default function BaleybotPage() {
       );
       const summaryText = formatChangeSummaryForChat(changeSummary);
 
-      // Build response message
+      // Build a concise summary — thinking goes in the expandable section, not in content
+      const isInitialCreation = prevEntities.length === 0;
       let responseContent = '';
-      if (prevEntities.length === 0) {
-        // Initial creation — use AI thinking for detailed response if available
-        if (result.thinking) {
-          responseContent = result.thinking;
-        } else {
-          // Fallback to a structured summary
-          const toolList = visualEntities.flatMap(e => e.tools).filter(Boolean);
-          responseContent = `I've created **${result.name}** with ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}.`;
-          if (toolList.length > 0) {
-            responseContent += ` Tools: ${toolList.join(', ')}.`;
-          }
-          responseContent += ' You can test it by typing a message below, or customize the code in the Code tab.';
+      if (isInitialCreation) {
+        const totalTools = visualEntities.reduce((sum, e) => sum + e.tools.length, 0);
+        responseContent = `I've created **${result.name}** with ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}`;
+        if (totalTools > 0) {
+          responseContent += ` and ${totalTools} ${totalTools === 1 ? 'tool' : 'tools'}`;
         }
+        responseContent += '.';
       } else {
-        // Update — include change summary
-        responseContent = summaryText || `Updated "${result.name}".`;
-        if (result.thinking) {
-          responseContent += ` ${result.thinking}`;
-        }
+        responseContent = summaryText || `Updated **${result.name}**.`;
       }
+
+      // Build entity metadata for rich rendering
+      const prevEntityIds = new Set(prevEntities.map(e => e.id));
+      const entityMetadata = visualEntities.map(e => ({
+        id: e.id,
+        name: e.name,
+        icon: e.icon,
+        tools: e.tools,
+        isNew: !prevEntityIds.has(e.id),
+      }));
 
       const assistantMessage: CreatorMessage = {
         id: `msg-${Date.now()}-assistant`,
         role: 'assistant',
         content: responseContent.trim(),
         timestamp: new Date(),
+        thinking: result.thinking || undefined,
+        metadata: {
+          entities: entityMetadata,
+          isInitialCreation,
+        },
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
@@ -406,6 +421,7 @@ export default function BaleybotPage() {
         role: 'assistant',
         content: `${parsed.title}: ${parsed.message}${parsed.action ? ` ${parsed.action}` : ''}`,
         timestamp: new Date(),
+        metadata: { isError: true },
       };
       setMessages((prev) => [...prev, errorMessage]);
     }
@@ -468,6 +484,7 @@ export default function BaleybotPage() {
         role: 'assistant',
         content: `Save failed: ${errorContent}`,
         timestamp: new Date(),
+        metadata: { isError: true },
       };
       setMessages((prev) => [...prev, errorMessage]);
       setStatus('error');
@@ -706,6 +723,24 @@ export default function BaleybotPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty]);
 
+  // Compute readiness whenever relevant state changes
+  useEffect(() => {
+    const allTools = entities.flatMap(e => e.tools);
+    const newReadiness = computeReadiness({
+      hasBalCode: balCode.length > 0,
+      hasEntities: entities.length > 0,
+      tools: allTools,
+      connectionsMet: false, // Phase 2 will wire this properly
+      hasConnections: false, // Phase 2 will wire this properly
+      testsPassed: testCases.length > 0 && testCases.every(t => t.status === 'passed'),
+      hasTestRuns: testCases.filter(t => t.status !== 'pending').length,
+      hasTrigger: !!triggerConfig,
+      hasMonitoring: false, // Phase 5 will wire this
+    });
+    setReadiness(newReadiness);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [balCode, entities, testCases, triggerConfig]);
+
   // =====================================================================
   // EFFECTS
   // =====================================================================
@@ -787,14 +822,19 @@ export default function BaleybotPage() {
           <Skeleton className="h-9 w-20" />
         </div>
 
-        {/* Canvas skeleton */}
-        <div className="flex-1 p-6">
-          <Skeleton className="h-full w-full rounded-2xl" />
-        </div>
-
-        {/* Controls skeleton */}
-        <div className="px-4 pb-4">
-          <Skeleton className="h-16 w-full max-w-2xl mx-auto rounded-2xl" />
+        {/* Two-column skeleton */}
+        <div className="flex-1 flex overflow-hidden">
+          <div className="hidden md:flex w-[380px] shrink-0 flex-col border-r border-border/50 p-4 space-y-3">
+            <Skeleton className="h-10 w-full rounded-xl" />
+            <Skeleton className="h-10 w-3/4 rounded-xl" />
+            <Skeleton className="h-10 w-full rounded-xl" />
+            <div className="flex-1" />
+            <Skeleton className="h-12 w-full rounded-xl" />
+          </div>
+          <div className="flex-1 p-4">
+            <Skeleton className="h-9 w-64 mb-4" />
+            <Skeleton className="h-full w-full rounded-2xl" />
+          </div>
         </div>
       </div>
     );
@@ -870,7 +910,7 @@ export default function BaleybotPage() {
       {/* Header - Adaptive layout (Phase 4.6) */}
       <header className="animate-fade-slide-down border-b border-border/50 bg-background/80 backdrop-blur-sm">
         {/* Main header row - responsive padding (Phase 4.6) */}
-        <div className="flex items-center gap-2 sm:gap-3 max-w-6xl mx-auto w-full px-2 sm:px-4 py-2 sm:py-3">
+        <div className="flex items-center gap-2 sm:gap-3 w-full px-2 sm:px-4 py-2 sm:py-3">
           {/* Back button */}
           <Button variant="ghost" size="icon" onClick={handleBack} className="shrink-0 min-h-10 min-w-10 sm:min-h-11 sm:min-w-11" aria-label="Go back to BaleyBots list">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -991,7 +1031,7 @@ export default function BaleybotPage() {
 
         {/* Description row (Phase 2.8) - hidden on mobile (Phase 4.6) */}
         {(description || isEditingDescription || status === 'ready') && (
-          <div className="hidden sm:block max-w-6xl mx-auto w-full px-4 pb-3 pl-14">
+          <div className="hidden sm:block w-full px-4 pb-3 pl-14">
             {isEditingDescription ? (
               <div className="flex gap-2">
                 <textarea
@@ -1051,10 +1091,9 @@ export default function BaleybotPage() {
         )}
       </header>
 
-      {/* Main content area */}
-      <div className="flex-1 relative overflow-hidden p-2 sm:p-4 md:p-6">
-        {status === 'empty' ? (
-          /* Welcome / creation view for new bots */
+      {status === 'empty' ? (
+        /* Welcome / creation view for new bots — full width centered */
+        <div className="flex-1 relative overflow-hidden p-2 sm:p-4 md:p-6">
           <div className="mx-auto max-w-2xl h-full flex flex-col items-center justify-center text-center px-4">
             <div className="mb-8">
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">
@@ -1070,7 +1109,7 @@ export default function BaleybotPage() {
               <ChatInput
                 status={status}
                 onSend={handleSendMessage}
-                disabled={creatorMutation.isPending || isSaving}
+                disabled={isSaving}
               />
             </div>
 
@@ -1088,258 +1127,317 @@ export default function BaleybotPage() {
               ))}
             </div>
           </div>
-        ) : (
-          /* Tabbed editor view for existing / in-progress bots */
-          <div className={cn("mx-auto h-full flex flex-col", viewMode === 'visual' ? 'max-w-6xl' : 'max-w-4xl')}>
-            {/* View mode tabs */}
-            <div className="flex items-center justify-between mb-3">
-              <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)} className="w-auto">
-                <TabsList className="h-9 bg-muted/50">
-                  <TabsTrigger value="visual" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
-                    <LayoutGrid className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Visual</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="code" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
-                    <Code2 className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Code</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="schema" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
-                    <ListTree className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Schema</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="triggers" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
-                    <Zap className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Triggers</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="analytics" className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
-                    <BarChart3 className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Analytics</span>
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
-
-            {/* View content */}
-            <div className="flex-1 min-h-0">
-              <ErrorBoundary
-                fallback={
-                  <div className="h-full flex items-center justify-center bg-muted/20 rounded-2xl">
-                    <p className="text-muted-foreground">Failed to render. Please refresh.</p>
-                  </div>
-                }
-              >
-                {/* Visual Editor View */}
-                {viewMode === 'visual' && (
-                  <VisualEditor
-                    balCode={balCode}
-                    onChange={handleCodeChange}
-                    readOnly={status === 'building' || status === 'running'}
-                    className="h-full"
-                    hideToolbar
-                  />
-                )}
-
-                {/* Code Editor View */}
-                {viewMode === 'code' && (
-                  <div className="h-full">
-                    <BalCodeEditor
-                      value={balCode}
-                      onChange={handleCodeChange}
-                      height="100%"
-                      className="h-full"
-                      readOnly={status === 'building' || status === 'running'}
-                    />
-                  </div>
-                )}
-
-                {/* Schema Builder View */}
-                {viewMode === 'schema' && (
-                  <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                    {Object.keys(outputSchema).length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-full text-center py-12">
-                        <ListTree className="h-10 w-10 text-muted-foreground/40 mb-4" />
-                        <h3 className="text-lg font-medium mb-2">Input/Output Schema</h3>
-                        <p className="text-sm text-muted-foreground max-w-md mb-4">
-                          Define the expected input and output format for your bot. This enables type-safe integrations and API usage.
-                        </p>
-                        <Button
-                          variant="outline"
-                          onClick={() => setOutputSchema({ result: 'string' })}
-                        >
-                          Add Schema
-                        </Button>
-                      </div>
-                    ) : (
-                      <SchemaBuilder
-                        value={outputSchema}
-                        onChange={handleSchemaChange}
-                        readOnly={status === 'building' || status === 'running'}
-                      />
-                    )}
-                  </div>
-                )}
-
-                {/* Triggers View */}
-                {viewMode === 'triggers' && (
-                  <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                    <TriggerConfig
-                      value={triggerConfig}
-                      onChange={setTriggerConfig}
-                      availableBaleybots={
-                        availableBaleybots
-                          ?.filter((bb) => bb.id !== savedBaleybotId)
-                          .map((bb) => ({ id: bb.id, name: bb.name })) ?? []
-                      }
-                    />
-                  </div>
-                )}
-
-                {/* Analytics View */}
-                {viewMode === 'analytics' && (
-                  <div className="h-full overflow-auto bg-background rounded-lg border p-4 space-y-6">
-                    {!savedBaleybotId ? (
-                      <p className="text-muted-foreground text-sm">Save this BaleyBot first to see analytics.</p>
-                    ) : isLoadingAnalytics ? (
-                      <div className="space-y-3">
-                        <Skeleton className="h-20 w-full" />
-                        <Skeleton className="h-40 w-full" />
-                        <Skeleton className="h-32 w-full" />
-                      </div>
-                    ) : analyticsData ? (
-                      <>
-                        {/* Empty state when all analytics are zero */}
-                        {analyticsData.total === 0 ? (
-                          <div className="flex flex-col items-center justify-center h-full text-center py-12">
-                            <BarChart3 className="h-10 w-10 text-muted-foreground/40 mb-4" />
-                            <h3 className="text-lg font-medium mb-2">No activity yet</h3>
-                            <p className="text-sm text-muted-foreground max-w-md">
-                              Run your bot a few times to see analytics here.
-                            </p>
-                          </div>
-                        ) : (
-                          <>
-                            {/* Stats row */}
-                            <div className="grid grid-cols-3 gap-4">
-                              <div className="rounded-lg border p-4 text-center">
-                                <p className="text-2xl font-bold">{analyticsData.total}</p>
-                                <p className="text-xs text-muted-foreground">Total Runs</p>
-                              </div>
-                              <div className="rounded-lg border p-4 text-center">
-                                <p className="text-2xl font-bold">{(analyticsData.successRate * 100).toFixed(1)}%</p>
-                                <p className="text-xs text-muted-foreground">Success Rate</p>
-                              </div>
-                              <div className="rounded-lg border p-4 text-center">
-                                <p className="text-2xl font-bold">{analyticsData.avgDurationMs > 1000 ? `${(analyticsData.avgDurationMs / 1000).toFixed(1)}s` : `${analyticsData.avgDurationMs}ms`}</p>
-                                <p className="text-xs text-muted-foreground">Avg Duration</p>
-                              </div>
-                            </div>
-
-                            {/* Additional stats */}
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="rounded-lg border p-4 text-center">
-                                <p className="text-xl font-bold">{analyticsData.totalTokens.toLocaleString()}</p>
-                                <p className="text-xs text-muted-foreground">Total Tokens</p>
-                              </div>
-                              <div className="rounded-lg border p-4 text-center">
-                                <p className="text-xl font-bold">{analyticsData.failures}</p>
-                                <p className="text-xs text-muted-foreground">Failures</p>
-                              </div>
-                            </div>
-
-                            {/* Daily trend */}
-                            {analyticsData.dailyTrend.length > 0 && (
-                              <div>
-                                <h3 className="text-sm font-medium mb-3">Daily Executions</h3>
-                                <div className="flex items-end gap-1 h-24">
-                                  {analyticsData.dailyTrend.map((day) => {
-                                    const maxCount = Math.max(...analyticsData.dailyTrend.map(d => d.count));
-                                    const height = maxCount > 0 ? (day.count / maxCount) * 100 : 0;
-                                    return (
-                                      <div
-                                        key={day.date}
-                                        className="flex-1 min-w-0 group relative"
-                                      >
-                                        <div
-                                          className="bg-primary/70 hover:bg-primary rounded-t transition-colors w-full"
-                                          style={{ height: `${Math.max(height, 4)}%` }}
-                                          title={`${day.date}: ${day.count} executions`}
-                                        />
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                                <div className="flex justify-between mt-1">
-                                  <span className="text-[10px] text-muted-foreground">{analyticsData.dailyTrend[0]?.date}</span>
-                                  <span className="text-[10px] text-muted-foreground">{analyticsData.dailyTrend[analyticsData.dailyTrend.length - 1]?.date}</span>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Top errors */}
-                            {analyticsData.topErrors.length > 0 && (
-                              <div>
-                                <h3 className="text-sm font-medium mb-3">Recent Errors</h3>
-                                <div className="space-y-2">
-                                  {analyticsData.topErrors.map((err, i) => (
-                                    <div key={i} className="flex items-start justify-between gap-2 text-sm rounded-lg border border-destructive/20 bg-destructive/5 p-3">
-                                      <p className="text-destructive text-xs break-all flex-1">{err.message}</p>
-                                      <span className="text-muted-foreground text-xs shrink-0">{err.count}x</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </>
-                    ) : null}
-                  </div>
-                )}
-              </ErrorBoundary>
-            </div>
+        </div>
+      ) : (
+        /* Two-column layout: Left = Chat, Right = Editor */
+        <>
+          {/* Mobile view toggle — only shown below md */}
+          <div className="flex md:hidden border-b border-border/30">
+            <button
+              className={cn(
+                'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm transition-colors',
+                mobileView === 'chat'
+                  ? 'border-b-2 border-primary font-medium text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+              onClick={() => setMobileView('chat')}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              Chat
+            </button>
+            <button
+              className={cn(
+                'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm transition-colors',
+                mobileView === 'editor'
+                  ? 'border-b-2 border-primary font-medium text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+              onClick={() => setMobileView('editor')}
+            >
+              <PanelRight className="h-3.5 w-3.5" />
+              Editor
+            </button>
           </div>
-        )}
-      </div>
 
-      {/* Bottom controls — hidden during welcome view (chat input is inline there) */}
-      {status !== 'empty' && (
-        <div className="animate-fade-slide-up border-t border-border/50 bg-background/80 backdrop-blur-sm px-2 sm:px-4 md:px-6 py-3 sm:py-4">
-          <div className="max-w-2xl md:max-w-3xl mx-auto space-y-4">
-            {/* Conversation thread */}
-            <ConversationThread
-              messages={messages}
-              defaultCollapsed={messages.length > 3}
-              maxHeight="250px"
-            />
-
-            {/* Execution history */}
-            {!isNew && existingBaleybot?.executions && existingBaleybot.executions.length > 0 && (
-              <ExecutionHistory
-                executions={existingBaleybot.executions}
-                defaultCollapsed={true}
-                onExecutionClick={(executionId) => {
-                  router.push(ROUTES.activity.execution(executionId));
+          <div className="flex-1 flex overflow-hidden">
+            {/* Left Panel — Chat + Controls (desktop: always visible, mobile: toggled) */}
+            <div className={cn(
+              'w-full md:w-[380px] lg:w-[420px] xl:w-[460px] shrink-0 flex-col border-r border-border/50 bg-background/60',
+              mobileView === 'chat' ? 'flex' : 'hidden md:flex'
+            )}>
+              <LeftPanel
+                messages={messages}
+                status={status}
+                onSendMessage={handleSendMessage}
+                isCreatorDisabled={status === 'building' || isSaving}
+                executions={!isNew && existingBaleybot?.executions ? existingBaleybot.executions : undefined}
+                onExecutionClick={(executionId) => router.push(ROUTES.activity.execution(executionId))}
+                onRun={handleRun}
+                runResult={runResult}
+                isRunLocked={isRunLocked}
+                autoSaveStatus={autoSaveStatus}
+                onViewAction={(action) => {
+                  if (action === 'visual') { setViewMode('visual'); setMobileView('editor'); }
+                  else if (action === 'code') { setViewMode('code'); setMobileView('editor'); }
+                  else if (action === 'run') { handleRun(''); }
                 }}
               />
-            )}
+            </div>
 
-            {/* Action bar (when ready) */}
-            <ActionBar
-              status={status}
-              onRun={handleRun}
-              runResult={runResult}
-              isRunLocked={isRunLocked}
-              autoSaveStatus={autoSaveStatus}
-            />
+            {/* Right Panel — Editor (desktop: always visible, mobile: toggled) */}
+            <div className={cn(
+              'flex-1 flex-col min-w-0 overflow-hidden',
+              mobileView === 'editor' ? 'flex' : 'hidden md:flex'
+            )}>
+              {/* Adaptive Tab bar */}
+              <div className="flex items-center px-4 py-2 border-b border-border/30">
+                <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as AdaptiveTab)} className="w-auto">
+                  <TabsList className="h-9 bg-muted/50">
+                    {getVisibleTabs(readiness).map((tab) => {
+                      const tabConfig: Record<AdaptiveTab, { icon: React.ReactNode; label: string }> = {
+                        visual: { icon: <LayoutGrid className="h-3.5 w-3.5" />, label: 'Visual' },
+                        code: { icon: <Code2 className="h-3.5 w-3.5" />, label: 'Code' },
+                        schema: { icon: <ListTree className="h-3.5 w-3.5" />, label: 'Schema' },
+                        connections: { icon: <Cable className="h-3.5 w-3.5" />, label: 'Connections' },
+                        test: { icon: <FlaskConical className="h-3.5 w-3.5" />, label: 'Test' },
+                        triggers: { icon: <Zap className="h-3.5 w-3.5" />, label: 'Triggers' },
+                        analytics: { icon: <BarChart3 className="h-3.5 w-3.5" />, label: 'Analytics' },
+                        monitor: { icon: <Activity className="h-3.5 w-3.5" />, label: 'Monitor' },
+                      };
+                      const config = tabConfig[tab];
+                      return (
+                        <TabsTrigger key={tab} value={tab} className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
+                          {config.icon}
+                          <span className="hidden sm:inline">{config.label}</span>
+                        </TabsTrigger>
+                      );
+                    })}
+                  </TabsList>
+                </Tabs>
+                <ReadinessDots
+                  readiness={readiness}
+                  onDotClick={(dim) => {
+                    const tabMap: Record<string, AdaptiveTab> = {
+                      designed: 'visual',
+                      connected: 'connections',
+                      tested: 'test',
+                      activated: 'triggers',
+                      monitored: 'monitor',
+                    };
+                    setViewMode(tabMap[dim] ?? 'visual');
+                  }}
+                  className="ml-3"
+                />
+              </div>
 
-            {/* Chat input */}
-            <ChatInput
-              status={status}
-              onSend={handleSendMessage}
-              disabled={creatorMutation.isPending || isSaving}
-            />
+              {/* Editor content */}
+              <div className="flex-1 min-h-0 p-4">
+                <ErrorBoundary
+                  fallback={
+                    <div className="h-full flex items-center justify-center bg-muted/20 rounded-2xl">
+                      <p className="text-muted-foreground">Failed to render. Please refresh.</p>
+                    </div>
+                  }
+                >
+                  {/* Visual Editor View */}
+                  {viewMode === 'visual' && (
+                    <VisualEditor
+                      balCode={balCode}
+                      onChange={handleCodeChange}
+                      readOnly={status === 'building' || status === 'running'}
+                      className="h-full"
+                      hideToolbar
+                    />
+                  )}
+
+                  {/* Code Editor View */}
+                  {viewMode === 'code' && (
+                    <div className="h-full">
+                      <BalCodeEditor
+                        value={balCode}
+                        onChange={handleCodeChange}
+                        height="100%"
+                        className="h-full"
+                        readOnly={status === 'building' || status === 'running'}
+                      />
+                    </div>
+                  )}
+
+                  {/* Schema Builder View */}
+                  {viewMode === 'schema' && (
+                    <div className="h-full overflow-auto bg-background rounded-lg border p-4">
+                      {Object.keys(outputSchema).length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                          <ListTree className="h-10 w-10 text-muted-foreground/40 mb-4" />
+                          <h3 className="text-lg font-medium mb-2">Input/Output Schema</h3>
+                          <p className="text-sm text-muted-foreground max-w-md mb-4">
+                            Define the expected input and output format for your bot. This enables type-safe integrations and API usage.
+                          </p>
+                          <Button
+                            variant="outline"
+                            onClick={() => setOutputSchema({ result: 'string' })}
+                          >
+                            Add Schema
+                          </Button>
+                        </div>
+                      ) : (
+                        <SchemaBuilder
+                          value={outputSchema}
+                          onChange={handleSchemaChange}
+                          readOnly={status === 'building' || status === 'running'}
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Triggers View */}
+                  {viewMode === 'triggers' && (
+                    <div className="h-full overflow-auto bg-background rounded-lg border p-4">
+                      <TriggerConfig
+                        value={triggerConfig}
+                        onChange={setTriggerConfig}
+                        availableBaleybots={
+                          availableBaleybots
+                            ?.filter((bb) => bb.id !== savedBaleybotId)
+                            .map((bb) => ({ id: bb.id, name: bb.name })) ?? []
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {/* Analytics View */}
+                  {viewMode === 'analytics' && (
+                    <div className="h-full overflow-auto bg-background rounded-lg border p-4 space-y-6">
+                      {!savedBaleybotId ? (
+                        <p className="text-muted-foreground text-sm">Save this BaleyBot first to see analytics.</p>
+                      ) : isLoadingAnalytics ? (
+                        <div className="space-y-3">
+                          <Skeleton className="h-20 w-full" />
+                          <Skeleton className="h-40 w-full" />
+                          <Skeleton className="h-32 w-full" />
+                        </div>
+                      ) : analyticsData ? (
+                        <>
+                          {analyticsData.total === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                              <BarChart3 className="h-10 w-10 text-muted-foreground/40 mb-4" />
+                              <h3 className="text-lg font-medium mb-2">No activity yet</h3>
+                              <p className="text-sm text-muted-foreground max-w-md">
+                                Run your bot a few times to see analytics here.
+                              </p>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="grid grid-cols-3 gap-4">
+                                <div className="rounded-lg border p-4 text-center">
+                                  <p className="text-2xl font-bold">{analyticsData.total}</p>
+                                  <p className="text-xs text-muted-foreground">Total Runs</p>
+                                </div>
+                                <div className="rounded-lg border p-4 text-center">
+                                  <p className="text-2xl font-bold">{(analyticsData.successRate * 100).toFixed(1)}%</p>
+                                  <p className="text-xs text-muted-foreground">Success Rate</p>
+                                </div>
+                                <div className="rounded-lg border p-4 text-center">
+                                  <p className="text-2xl font-bold">{analyticsData.avgDurationMs > 1000 ? `${(analyticsData.avgDurationMs / 1000).toFixed(1)}s` : `${analyticsData.avgDurationMs}ms`}</p>
+                                  <p className="text-xs text-muted-foreground">Avg Duration</p>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-4">
+                                <div className="rounded-lg border p-4 text-center">
+                                  <p className="text-xl font-bold">{analyticsData.totalTokens.toLocaleString()}</p>
+                                  <p className="text-xs text-muted-foreground">Total Tokens</p>
+                                </div>
+                                <div className="rounded-lg border p-4 text-center">
+                                  <p className="text-xl font-bold">{analyticsData.failures}</p>
+                                  <p className="text-xs text-muted-foreground">Failures</p>
+                                </div>
+                              </div>
+                              {analyticsData.dailyTrend.length > 0 && (
+                                <div>
+                                  <h3 className="text-sm font-medium mb-3">Daily Executions</h3>
+                                  <div className="flex items-end gap-1 h-24">
+                                    {analyticsData.dailyTrend.map((day) => {
+                                      const maxCount = Math.max(...analyticsData.dailyTrend.map(d => d.count));
+                                      const height = maxCount > 0 ? (day.count / maxCount) * 100 : 0;
+                                      return (
+                                        <div key={day.date} className="flex-1 min-w-0 group relative">
+                                          <div
+                                            className="bg-primary/70 hover:bg-primary rounded-t transition-colors w-full"
+                                            style={{ height: `${Math.max(height, 4)}%` }}
+                                            title={`${day.date}: ${day.count} executions`}
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="flex justify-between mt-1">
+                                    <span className="text-[10px] text-muted-foreground">{analyticsData.dailyTrend[0]?.date}</span>
+                                    <span className="text-[10px] text-muted-foreground">{analyticsData.dailyTrend[analyticsData.dailyTrend.length - 1]?.date}</span>
+                                  </div>
+                                </div>
+                              )}
+                              {analyticsData.topErrors.length > 0 && (
+                                <div>
+                                  <h3 className="text-sm font-medium mb-3">Recent Errors</h3>
+                                  <div className="space-y-2">
+                                    {analyticsData.topErrors.map((err, i) => (
+                                      <div key={i} className="flex items-start justify-between gap-2 text-sm rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+                                        <p className="text-destructive text-xs break-all flex-1">{err.message}</p>
+                                        <span className="text-muted-foreground text-xs shrink-0">{err.count}x</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </>
+                      ) : null}
+                    </div>
+                  )}
+                  {/* Connections View (placeholder — Phase 2) */}
+                  {viewMode === 'connections' && (
+                    <div className="h-full overflow-auto bg-background rounded-lg border p-4">
+                      <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                        <Cable className="h-10 w-10 text-muted-foreground/40 mb-4" />
+                        <h3 className="text-lg font-medium mb-2">Connections</h3>
+                        <p className="text-sm text-muted-foreground max-w-md">
+                          Manage the connections this bot needs to operate.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Test View (placeholder — Phase 3) */}
+                  {viewMode === 'test' && (
+                    <div className="h-full overflow-auto bg-background rounded-lg border p-4">
+                      <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                        <FlaskConical className="h-10 w-10 text-muted-foreground/40 mb-4" />
+                        <h3 className="text-lg font-medium mb-2">Test Suite</h3>
+                        <p className="text-sm text-muted-foreground max-w-md">
+                          Generate and run tests to verify your bot works correctly.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Monitor View (placeholder — Phase 5) */}
+                  {viewMode === 'monitor' && (
+                    <div className="h-full overflow-auto bg-background rounded-lg border p-4">
+                      <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                        <Activity className="h-10 w-10 text-muted-foreground/40 mb-4" />
+                        <h3 className="text-lg font-medium mb-2">Monitor</h3>
+                        <p className="text-sm text-muted-foreground max-w-md">
+                          Track your bot&apos;s health, performance, and errors in production.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </ErrorBoundary>
+              </div>
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Keyboard Shortcuts Dialog (Phase 3.8) */}
