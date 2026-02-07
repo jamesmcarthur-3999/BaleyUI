@@ -707,20 +707,76 @@ export default function BaleybotPage() {
   // TEST HANDLERS
   // =====================================================================
 
-  const handleGenerateTests = () => {
+  const generateTestsMutation = trpc.baleybots.generateTests.useMutation();
+
+  const handleGenerateTests = async () => {
+    if (!savedBaleybotId) return;
     setIsGeneratingTests(true);
-    // Stub: Phase 4 will wire to test_generator internal BB
-    const generated: TestCase[] = entities.flatMap((entity, i) => [
-      {
-        id: `test-${Date.now()}-${i}-unit`,
-        name: `${entity.name}: basic input/output`,
-        level: 'unit' as const,
-        input: `Test input for ${entity.name}`,
+
+    try {
+      const result = await generateTestsMutation.mutateAsync({
+        baleybotId: savedBaleybotId,
+        balCode,
+        entities: entities.map(e => ({
+          name: e.name,
+          tools: e.tools,
+          purpose: e.purpose || e.name,
+        })),
+      });
+
+      const generated: TestCase[] = result.tests.map((test, i) => ({
+        id: `test-${Date.now()}-${i}`,
+        name: test.name,
+        level: test.level,
+        input: test.input,
+        expectedOutput: test.expectedOutput,
         status: 'pending' as const,
-      },
-    ]);
-    setTestCases(prev => [...prev, ...generated]);
-    setIsGeneratingTests(false);
+      }));
+
+      setTestCases(prev => [...prev, ...generated]);
+
+      // Add assistant message with test plan metadata
+      const testMessage: CreatorMessage = {
+        id: `msg-${Date.now()}-tests`,
+        role: 'assistant',
+        content: `Generated ${generated.length} tests. Strategy: ${result.strategy}`,
+        timestamp: new Date(),
+        metadata: {
+          testPlan: {
+            tests: generated.map(t => ({
+              id: t.id,
+              name: t.name,
+              level: t.level,
+              status: t.status,
+              input: t.input,
+              expectedOutput: t.expectedOutput,
+            })),
+            summary: result.strategy,
+          },
+        },
+      };
+      setMessages(prev => [...prev, testMessage]);
+    } catch (error) {
+      console.error('Test generation failed:', error);
+      const errorMsg: CreatorMessage = {
+        id: `msg-${Date.now()}-testerr`,
+        role: 'assistant',
+        content: 'Failed to generate tests. Please try again.',
+        timestamp: new Date(),
+        metadata: {
+          isError: true,
+          diagnostic: {
+            level: 'error',
+            title: 'Test Generation Failed',
+            details: error instanceof Error ? error.message : 'Unknown error',
+            suggestions: ['Make sure your bot has been saved first', 'Check that an AI provider is connected'],
+          },
+        },
+      };
+      setMessages(prev => [...prev, errorMsg]);
+    } finally {
+      setIsGeneratingTests(false);
+    }
   };
 
   const handleRunTest = async (testId: string) => {

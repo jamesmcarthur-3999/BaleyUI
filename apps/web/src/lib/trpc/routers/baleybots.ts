@@ -36,6 +36,7 @@ import {
   versionSchema,
 } from '../helpers';
 import { createLogger } from '@/lib/logger';
+import { executeInternalBaleybot } from '@/lib/baleybot/internal-baleybots';
 import { getWorkspaceAICredentials, initializeBuiltInToolServices } from '@/lib/baleybot/services';
 import { getBuiltInRuntimeTools, configureWebSearch } from '@/lib/baleybot/tools/built-in/implementations';
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
@@ -1054,5 +1055,59 @@ export const baleybotsRouter = router({
         .where(eq(baleybots.id, input.id));
 
       return { success: true };
+    }),
+
+  /**
+   * Generate test cases using the test_generator internal BB.
+   */
+  generateTests: protectedProcedure
+    .input(z.object({
+      baleybotId: z.string().uuid(),
+      balCode: z.string(),
+      entities: z.array(z.object({
+        name: z.string(),
+        tools: z.array(z.string()),
+        purpose: z.string(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const baleybot = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.baleybotId),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots),
+        ),
+      });
+      if (!baleybot) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+
+      const contextStr = [
+        `Bot: ${baleybot.name}`,
+        `Entities: ${input.entities.map(e => `${e.name} (${e.tools.join(', ')})`).join('; ')}`,
+        '',
+        'BAL Code:',
+        input.balCode,
+      ].join('\n');
+
+      const { output } = await executeInternalBaleybot(
+        'test_generator',
+        `Generate comprehensive tests for this BaleyBot:\n${contextStr}`,
+        {
+          userWorkspaceId: ctx.workspace.id,
+          triggeredBy: 'internal',
+        }
+      );
+
+      return output as {
+        tests: Array<{
+          name: string;
+          level: 'unit' | 'integration' | 'e2e';
+          input: string;
+          expectedOutput?: string;
+          description: string;
+        }>;
+        strategy: string;
+      };
     }),
 });
