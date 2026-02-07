@@ -17,3 +17,4 @@ export { InlineLoading, SkeletonBlock, NetworkStatus, useNetworkStatus, LoadingD
 export { SaveConflictDialog, isSaveConflictError } from './SaveConflictDialog';
 export type { ConflictAction } from './SaveConflictDialog';
 export { ReadinessDots } from './ReadinessDots';
+export { ConnectionsPanel } from './ConnectionsPanel';
