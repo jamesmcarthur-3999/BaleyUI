@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { trpc } from '@/lib/trpc/client';
-import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ReadinessDots, ConnectionsPanel, TestPanel } from '@/components/creator';
+import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ReadinessDots, ConnectionsPanel, TestPanel, MonitorPanel } from '@/components/creator';
 import type { TestCase } from '@/components/creator';
 import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
 
@@ -1503,16 +1503,18 @@ export default function BaleybotPage() {
                     </div>
                   )}
 
-                  {/* Monitor View (placeholder — Phase 5) */}
+                  {/* Monitor View */}
                   {viewMode === 'monitor' && (
                     <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                      <div className="flex flex-col items-center justify-center h-full text-center py-12">
-                        <Activity className="h-10 w-10 text-muted-foreground/40 mb-4" />
-                        <h3 className="text-lg font-medium mb-2">Monitor</h3>
-                        <p className="text-sm text-muted-foreground max-w-md">
-                          Track your bot&apos;s health, performance, and errors in production.
-                        </p>
-                      </div>
+                      {!savedBaleybotId ? (
+                        <p className="text-muted-foreground text-sm">Save this BaleyBot first to see monitoring.</p>
+                      ) : (
+                        <MonitorPanel
+                          analyticsData={analyticsData ?? null}
+                          isLoading={isLoadingAnalytics}
+                          hasTrigger={!!triggerConfig}
+                        />
+                      )}
                     </div>
                   )}
                 </ErrorBoundary>
