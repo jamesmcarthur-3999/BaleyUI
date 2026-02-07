@@ -26,6 +26,9 @@ export * from './useDirtyState';
 export * from './useNavigationGuard';
 export * from './useHistory';
 
+// Test execution hooks
+export * from './useTestExecution';
+
 // Accessibility hooks
 export * from './useGridNavigation';
 export * from './useFocusTrap';

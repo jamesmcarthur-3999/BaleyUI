@@ -88,11 +88,23 @@ function buildCreatorContext(options: CreatorBotOptions): string {
 
   const lines: string[] = [];
 
-  // Add tool catalog
+  // Add tool catalog (including connection-derived tools if database connections exist)
+  const databaseConnections = context.connections
+    .filter((c) => (c.type === 'postgres' || c.type === 'mysql') && c.status === 'connected')
+    .map((c) => ({
+      connectionId: c.id,
+      connectionName: c.name,
+      type: c.type as 'postgres' | 'mysql',
+      config: {} as import('@/lib/connections/providers').DatabaseConnectionConfig, // Config not needed for catalog display
+      schema: c.availableModels as import('./tools/connection-derived').DatabaseSchema | undefined,
+    }));
+
   const fullCatalog = getToolCatalog({
     workspaceId: context.workspaceId,
     workspacePolicies: context.workspacePolicies,
     workspaceTools: context.availableTools,
+    includeConnectionTools: databaseConnections.length > 0,
+    databaseConnections,
   });
   lines.push(formatToolCatalogForCreatorBot(fullCatalog));
 

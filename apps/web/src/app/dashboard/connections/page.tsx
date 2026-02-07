@@ -8,40 +8,26 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
-import { Plug, Plus, Wifi, WifiOff, Trash2, RefreshCw } from 'lucide-react';
+import { Plug, Wifi, WifiOff, Trash2, RefreshCw, Star, Database, Bot } from 'lucide-react';
+import { AddConnectionDialog } from '@/components/connections';
+import { PROVIDERS } from '@/lib/connections/providers';
+import type { ProviderType } from '@/lib/connections/providers';
 
-const CONNECTION_TYPES = [
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'ollama', label: 'Ollama' },
-  { value: 'postgres', label: 'PostgreSQL' },
-  { value: 'mysql', label: 'MySQL' },
-] as const;
+// ============================================================================
+// HELPERS
+// ============================================================================
 
-type ConnectionType = (typeof CONNECTION_TYPES)[number]['value'];
-
-/**
- * Map connection type to a badge variant. Falls back to 'secondary'
- * for database connection types that have no dedicated badge variant.
- */
 function typeBadgeVariant(type: string): 'openai' | 'anthropic' | 'ollama' | 'secondary' {
   switch (type) {
     case 'openai':
@@ -55,12 +41,8 @@ function typeBadgeVariant(type: string): 'openai' | 'anthropic' | 'ollama' | 'se
   }
 }
 
-/**
- * Render a colored status dot based on connection status.
- */
 function StatusDot({ status }: { status: string }) {
   let colorClass: string;
-
   switch (status) {
     case 'connected':
       colorClass = 'bg-green-500';
@@ -72,103 +54,323 @@ function StatusDot({ status }: { status: string }) {
       colorClass = 'bg-gray-400';
       break;
   }
-
   return (
     <span className={cn('inline-block h-2.5 w-2.5 rounded-full shrink-0', colorClass)} />
   );
 }
 
-/**
- * Track per-connection test results for inline feedback.
- */
+
+function isDbType(type: string): boolean {
+  return type === 'postgres' || type === 'mysql';
+}
+
+function getCategoryIcon(type: string) {
+  return isDbType(type) ? Database : Bot;
+}
+
+// ============================================================================
+// CONNECTION CARD
+// ============================================================================
+
 interface TestResult {
   success: boolean;
   message?: string;
+  tableCount?: number;
 }
 
-/**
- * Connections management page.
- *
- * Lists all workspace connections with their type, status,
- * and actions to test or delete.
- */
+function ConnectionCardItem({
+  connection,
+  testResult,
+  onTest,
+  isTesting,
+  onDelete,
+  onSetDefault,
+}: {
+  connection: {
+    id: string;
+    type: string;
+    name: string;
+    status: string | null;
+    isDefault: boolean | null;
+    config: Record<string, unknown>;
+    lastCheckedAt: Date | null;
+    availableModels: unknown;
+  };
+  testResult?: TestResult;
+  onTest: (id: string) => void;
+  isTesting: boolean;
+  onDelete: (id: string) => void;
+  onSetDefault: (id: string) => void;
+}) {
+  const provider = PROVIDERS[connection.type as ProviderType];
+  const config = (connection.config ?? {}) as Record<string, string | number | boolean | null | undefined>;
+  const CategoryIcon = getCategoryIcon(connection.type);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <StatusDot status={connection.status ?? 'unconfigured'} />
+            <CategoryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+            <CardTitle className="truncate text-base">
+              {connection.name}
+            </CardTitle>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Badge variant={typeBadgeVariant(connection.type)}>
+              {provider?.name ?? connection.type}
+            </Badge>
+            {connection.isDefault && (
+              <Badge variant="outline" className="gap-1">
+                <Star className="h-3 w-3 fill-current" />
+                Default
+              </Badge>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {/* Connection details */}
+        <div className="space-y-1 text-sm mb-3">
+          <p className="text-xs text-muted-foreground">
+            {provider?.description}
+          </p>
+
+          {/* AI provider details */}
+          {!isDbType(connection.type) && (
+            <>
+              {!!config.baseUrl && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground text-xs">URL:</span>
+                  <span className="font-mono text-xs truncate">{String(config.baseUrl)}</span>
+                </div>
+              )}
+              {!!config._hasApiKey && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground text-xs">API Key:</span>
+                  <span className="font-mono text-xs">{String(config.apiKey)}</span>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Database provider details */}
+          {isDbType(connection.type) && (
+            <>
+              {!!config.host && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground text-xs">Host:</span>
+                  <span className="font-mono text-xs">
+                    {String(config.host)}{config.port ? `:${String(config.port)}` : ''}
+                  </span>
+                </div>
+              )}
+              {!!config.database && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground text-xs">Database:</span>
+                  <span className="font-mono text-xs">{String(config.database)}</span>
+                </div>
+              )}
+              {!!config.username && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground text-xs">User:</span>
+                  <span className="font-mono text-xs">{String(config.username)}</span>
+                </div>
+              )}
+              {!!config._hasPassword && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground text-xs">Password:</span>
+                  <span className="font-mono text-xs">{String(config.password)}</span>
+                </div>
+              )}
+              {!!config.ssl && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground text-xs">SSL:</span>
+                  <Badge variant="outline" className="text-xs px-1 py-0">Enabled</Badge>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Schema info for database connections */}
+          {isDbType(connection.type) && !!connection.availableModels && typeof connection.availableModels === 'object' && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground text-xs">Tables:</span>
+              <span className="text-xs">
+                {Array.isArray((connection.availableModels as { tables?: unknown[] }).tables)
+                  ? `${((connection.availableModels as { tables: unknown[] }).tables).length} cached`
+                  : 'Schema cached'}
+              </span>
+            </div>
+          )}
+
+          {connection.lastCheckedAt && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground text-xs">Checked:</span>
+              <span className="text-xs">
+                {new Date(connection.lastCheckedAt).toLocaleString()}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Test result feedback */}
+        {testResult && (
+          <div
+            className={cn(
+              'text-xs mb-3 flex items-center gap-1.5 rounded-md px-2 py-1.5',
+              testResult.success
+                ? 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400'
+                : 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400'
+            )}
+          >
+            {testResult.success ? (
+              <Wifi className="h-3.5 w-3.5 shrink-0" />
+            ) : (
+              <WifiOff className="h-3.5 w-3.5 shrink-0" />
+            )}
+            <span className="truncate">{testResult.message}</span>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onTest(connection.id)}
+            disabled={isTesting}
+          >
+            <RefreshCw
+              className={cn(
+                'h-3.5 w-3.5 mr-1.5',
+                isTesting && 'animate-spin'
+              )}
+            />
+            Test
+          </Button>
+          {!connection.isDefault && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onSetDefault(connection.id)}
+            >
+              <Star className="h-3.5 w-3.5 mr-1.5" />
+              Set Default
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onDelete(connection.id)}
+            className="text-destructive hover:text-destructive ml-auto"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================================
+// MAIN PAGE
+// ============================================================================
+
 export default function ConnectionsPage() {
+  const { toast } = useToast();
   const utils = trpc.useUtils();
-  const { data: connectionsList, isLoading } = trpc.connections.list.useQuery(undefined, { staleTime: 10 * 60 * 1000 });
+  const { data: connectionsList, isLoading } = trpc.connections.list.useQuery(undefined, {
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   const testMutation = trpc.connections.test.useMutation({
-    onSuccess() {
+    onSuccess: (_data, variables) => {
       utils.connections.list.invalidate();
+      if (variables.id) {
+        setTestResults((prev) => ({
+          ...prev,
+          [variables.id!]: {
+            success: _data.success,
+            message: _data.message,
+            tableCount: _data.details?.tableCount,
+          },
+        }));
+      }
+    },
+    onSettled: () => {
+      setTestingId(null);
     },
   });
 
   const deleteMutation = trpc.connections.delete.useMutation({
-    onSuccess() {
+    onSuccess: () => {
+      toast({
+        title: 'Connection Deleted',
+        description: 'The connection has been removed.',
+      });
       utils.connections.list.invalidate();
+      setDeleteTarget(null);
+    },
+    onError: (error) => {
+      toast({
+        title: 'Delete Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
     },
   });
 
-  const createMutation = trpc.connections.create.useMutation({
-    onSuccess() {
+  const setDefaultMutation = trpc.connections.setDefault.useMutation({
+    onSuccess: () => {
+      toast({
+        title: 'Default Updated',
+        description: 'This connection is now the default for its type.',
+      });
       utils.connections.list.invalidate();
-      setDialogOpen(false);
-      resetForm();
+    },
+    onError: (error) => {
+      toast({
+        title: 'Update Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
     },
   });
 
-  const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [formType, setFormType] = useState<ConnectionType>('openai');
-  const [formName, setFormName] = useState('');
-  const [formApiKey, setFormApiKey] = useState('');
-  const [formBaseUrl, setFormBaseUrl] = useState('');
-
-  function resetForm() {
-    setFormType('openai');
-    setFormName('');
-    setFormApiKey('');
-    setFormBaseUrl('');
-  }
-
-  function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!formName.trim()) return;
-
-    createMutation.mutate({
-      type: formType,
-      name: formName.trim(),
-      config: {
-        ...(formApiKey ? { apiKey: formApiKey } : {}),
-        ...(formBaseUrl ? { baseUrl: formBaseUrl } : {}),
-      },
-    });
-  }
-
-  async function handleTest(id: string): Promise<void> {
-    // Clear previous result
+  function handleTest(id: string) {
+    setTestingId(id);
     setTestResults((prev) => {
       const next = { ...prev };
       delete next[id];
       return next;
     });
+    testMutation.mutate({ id });
+  }
 
-    try {
-      const result = await testMutation.mutateAsync({ id });
-      setTestResults((prev) => ({
-        ...prev,
-        [id]: { success: result.success, message: result.success ? 'Connected' : 'Failed' },
-      }));
-    } catch {
-      setTestResults((prev) => ({
-        ...prev,
-        [id]: { success: false, message: 'Test failed' },
-      }));
+  function handleDelete(id: string) {
+    const connection = connectionsList?.find((c) => c.id === id);
+    setDeleteTarget(connection ? { id, name: connection.name } : { id, name: 'this connection' });
+  }
+
+  function confirmDelete() {
+    if (deleteTarget) {
+      deleteMutation.mutate({ id: deleteTarget.id });
     }
   }
 
-  function handleDelete(id: string): void {
-    deleteMutation.mutate({ id });
+  function handleSetDefault(id: string) {
+    setDefaultMutation.mutate({ id });
   }
+
+  // Group connections by category
+  const aiConnections = connectionsList?.filter((c) => !isDbType(c.type)) ?? [];
+  const dbConnections = connectionsList?.filter((c) => isDbType(c.type)) ?? [];
 
   return (
     <div className="container py-10">
@@ -178,180 +380,116 @@ export default function ConnectionsPage() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Connections</h1>
             <p className="text-muted-foreground">
-              Manage AI provider and database connections
+              Manage AI provider and database connections for your BaleyBots.
             </p>
           </div>
-          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Connection
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <form onSubmit={handleCreate}>
-                <DialogHeader>
-                  <DialogTitle>Add Connection</DialogTitle>
-                  <DialogDescription>
-                    Connect an AI provider or database to your workspace.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="connection-type">Type</Label>
-                    <Select value={formType} onValueChange={(v) => setFormType(v as ConnectionType)}>
-                      <SelectTrigger id="connection-type">
-                        <SelectValue placeholder="Select a type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CONNECTION_TYPES.map((ct) => (
-                          <SelectItem key={ct.value} value={ct.value}>
-                            {ct.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="connection-name">Name</Label>
-                    <Input
-                      id="connection-name"
-                      placeholder="My OpenAI Connection"
-                      value={formName}
-                      onChange={(e) => setFormName(e.target.value)}
-                      maxLength={100}
-                      required
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="connection-api-key">API Key</Label>
-                    <Input
-                      id="connection-api-key"
-                      type="password"
-                      placeholder="sk-..."
-                      value={formApiKey}
-                      onChange={(e) => setFormApiKey(e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="connection-base-url">
-                      Base URL <span className="text-muted-foreground font-normal">(optional)</span>
-                    </Label>
-                    <Input
-                      id="connection-base-url"
-                      placeholder="https://api.openai.com/v1"
-                      value={formBaseUrl}
-                      onChange={(e) => setFormBaseUrl(e.target.value)}
-                    />
-                  </div>
-                  {createMutation.isError && (
-                    <p className="text-sm text-destructive">
-                      {createMutation.error.message}
-                    </p>
-                  )}
-                </div>
-                <DialogFooter>
-                  <Button type="submit" disabled={createMutation.isPending || !formName.trim()}>
-                    {createMutation.isPending ? 'Creating...' : 'Create Connection'}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+          <AddConnectionDialog />
         </div>
 
-        {/* Connections Grid */}
+        {/* Content */}
         {isLoading ? (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {[1, 2, 3, 4, 5, 6].map((i) => (
-              <Skeleton key={i} className="h-44" />
+              <Skeleton key={i} className="h-52" />
             ))}
           </div>
         ) : connectionsList && connectionsList.length > 0 ? (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {connectionsList.map((connection) => {
-              const testResult = testResults[connection.id];
+          <div className="space-y-8">
+            {/* AI Providers section */}
+            {aiConnections.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Bot className="h-4 w-4 text-muted-foreground" />
+                  <h2 className="text-lg font-semibold">AI Providers</h2>
+                  <Badge variant="secondary" className="ml-1">{aiConnections.length}</Badge>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {aiConnections.map((connection) => (
+                    <ConnectionCardItem
+                      key={connection.id}
+                      connection={connection as typeof connection & { config: Record<string, unknown>; availableModels: unknown }}
+                      testResult={testResults[connection.id]}
+                      onTest={handleTest}
+                      isTesting={testingId === connection.id}
+                      onDelete={handleDelete}
+                      onSetDefault={handleSetDefault}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
-              return (
-                <Card key={connection.id}>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <StatusDot status={connection.status ?? 'unconfigured'} />
-                        <CardTitle className="truncate text-base">
-                          {connection.name}
-                        </CardTitle>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <Badge variant={typeBadgeVariant(connection.type)}>
-                          {connection.type}
-                        </Badge>
-                        {connection.isDefault && (
-                          <Badge variant="outline">Default</Badge>
-                        )}
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {/* Test result feedback */}
-                    {testResult && (
-                      <div
-                        className={cn(
-                          'text-xs mb-3 flex items-center gap-1.5',
-                          testResult.success
-                            ? 'text-green-600'
-                            : 'text-red-600'
-                        )}
-                      >
-                        {testResult.success ? (
-                          <Wifi className="h-3.5 w-3.5" />
-                        ) : (
-                          <WifiOff className="h-3.5 w-3.5" />
-                        )}
-                        {testResult.message}
-                      </div>
-                    )}
+            {/* Database Connections section */}
+            {dbConnections.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Database className="h-4 w-4 text-muted-foreground" />
+                  <h2 className="text-lg font-semibold">Databases</h2>
+                  <Badge variant="secondary" className="ml-1">{dbConnections.length}</Badge>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {dbConnections.map((connection) => (
+                    <ConnectionCardItem
+                      key={connection.id}
+                      connection={connection as typeof connection & { config: Record<string, unknown>; availableModels: unknown }}
+                      testResult={testResults[connection.id]}
+                      onTest={handleTest}
+                      isTesting={testingId === connection.id}
+                      onDelete={handleDelete}
+                      onSetDefault={handleSetDefault}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleTest(connection.id)}
-                        disabled={testMutation.isPending}
-                      >
-                        <RefreshCw
-                          className={cn(
-                            'h-3.5 w-3.5 mr-1.5',
-                            testMutation.isPending && 'animate-spin'
-                          )}
-                        />
-                        Test
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(connection.id)}
-                        disabled={deleteMutation.isPending}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                        Delete
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+            {/* Mixed (single section when all same type) */}
+            {aiConnections.length === 0 && dbConnections.length === 0 && (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {connectionsList.map((connection) => (
+                  <ConnectionCardItem
+                    key={connection.id}
+                    connection={connection as typeof connection & { config: Record<string, unknown>; availableModels: unknown }}
+                    testResult={testResults[connection.id]}
+                    onTest={handleTest}
+                    isTesting={testingId === connection.id}
+                    onDelete={handleDelete}
+                    onSetDefault={handleSetDefault}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <EmptyState
             icon={Plug}
             title="No connections"
-            description="Add a connection to an AI provider or database to get started."
+            description="Add a connection to an AI provider or database to power your BaleyBots."
           />
         )}
       </div>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Connection</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &ldquo;{deleteTarget?.name}&rdquo;? BaleyBots using this
+              connection will lose access to it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

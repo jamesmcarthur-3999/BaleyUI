@@ -242,5 +242,6 @@ export interface TestConnectionResult {
   details?: {
     models?: string[];
     error?: string;
+    tableCount?: number;
   };
 }

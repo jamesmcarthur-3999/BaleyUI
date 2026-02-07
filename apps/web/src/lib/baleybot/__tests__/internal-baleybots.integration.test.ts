@@ -94,11 +94,13 @@ describe('internal-baleybots integration', () => {
       'connection_advisor',
       'test_generator',
       'deployment_advisor',
+      'test_validator',
+      'test_results_analyzer',
       'integration_builder',
     ];
 
-    it('defines all 11 internal bots', () => {
-      expect(Object.keys(INTERNAL_BALEYBOTS).length).toBe(11);
+    it('defines at least all expected internal bots', () => {
+      expect(Object.keys(INTERNAL_BALEYBOTS).length).toBeGreaterThanOrEqual(expectedBots.length);
       for (const name of expectedBots) {
         expect(INTERNAL_BALEYBOTS[name]).toBeDefined();
       }

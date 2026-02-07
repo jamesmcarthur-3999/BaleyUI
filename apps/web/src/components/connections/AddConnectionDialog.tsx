@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { trpc } from '@/lib/trpc/client';
-import { PROVIDERS, type ProviderType, type AIProviderType, isAIProvider, isDatabaseProvider } from '@/lib/connections/providers';
+import { PROVIDERS, type ProviderType, isAIProvider } from '@/lib/connections/providers';
 import { OpenAIForm } from './OpenAIForm';
 import { AnthropicForm } from './AnthropicForm';
 import { OllamaForm } from './OllamaForm';
@@ -233,24 +233,13 @@ export function AddConnectionDialog() {
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               {renderProviderForm()}
 
-              {/* Test Connection - only for AI providers for now */}
-              {isAIProvider(selectedProvider) && (
-                <div className="border-t pt-4">
-                  <TestConnectionButton
-                    type={selectedProvider as AIProviderType}
-                    config={form.watch('config')}
-                  />
-                </div>
-              )}
-
-              {/* Database connection test will be implemented separately */}
-              {isDatabaseProvider(selectedProvider) && (
-                <div className="border-t pt-4">
-                  <p className="text-sm text-muted-foreground">
-                    Connection will be tested when you save. Make sure your database is accessible.
-                  </p>
-                </div>
-              )}
+              {/* Test Connection - works for all provider types */}
+              <div className="border-t pt-4">
+                <TestConnectionButton
+                  type={selectedProvider}
+                  config={form.watch('config')}
+                />
+              </div>
 
               <DialogFooter>
                 <Button

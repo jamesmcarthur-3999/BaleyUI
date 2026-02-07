@@ -11,6 +11,7 @@ import {
   baleybotExecutions,
   baleybotTriggers,
   connections,
+  tools,
   eq,
   and,
   desc,
@@ -39,8 +40,9 @@ import {
 import { createLogger } from '@/lib/logger';
 import { executeInternalBaleybot } from '@/lib/baleybot/internal-baleybots';
 import { getWorkspaceAICredentials, initializeBuiltInToolServices } from '@/lib/baleybot/services';
-import { getBuiltInRuntimeTools, configureWebSearch } from '@/lib/baleybot/tools/built-in/implementations';
+import { configureWebSearch } from '@/lib/baleybot/tools/built-in/implementations';
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
+import { loadExecutionTools } from '@/lib/baleybot/services/execution-tools-loader';
 
 const log = createLogger('baleybots-router');
 
@@ -51,9 +53,36 @@ const testGeneratorOutputSchema = z.object({
     level: z.enum(['unit', 'integration', 'e2e']),
     input: z.string(),
     expectedOutput: z.string().optional(),
+    matchStrategy: z.enum(['exact', 'contains', 'semantic']).optional(),
     description: z.string().optional(),
   })),
   strategy: z.string().optional(),
+});
+
+const testValidatorOutputSchema = z.object({
+  passed: z.boolean(),
+  confidence: z.number().min(0).max(1),
+  reasoning: z.string(),
+  suggestions: z.array(z.string()).optional(),
+});
+
+const testResultsAnalyzerOutputSchema = z.object({
+  overallStatus: z.enum(['passed', 'mixed', 'failed']),
+  summary: z.string(),
+  passRate: z.number().min(0).max(1),
+  patterns: z.array(z.object({
+    type: z.string(),
+    description: z.string(),
+    affectedTests: z.array(z.string()),
+    suggestedFix: z.string(),
+  })).optional(),
+  botImprovements: z.array(z.object({
+    type: z.enum(['prompt', 'tool', 'model', 'structure']),
+    title: z.string(),
+    description: z.string(),
+    impact: z.enum(['high', 'medium', 'low']),
+  })).optional(),
+  nextSteps: z.array(z.string()).optional(),
 });
 
 const connectionAdvisorOutputSchema = z.object({
@@ -551,8 +580,11 @@ export const baleybotsRouter = router({
           userId: ctx.userId!,
         };
 
-        // Get built-in runtime tools with implementations
-        const runtimeTools = getBuiltInRuntimeTools(toolCtx);
+        // Load all tool categories (built-in + connection-derived + workspace)
+        const { runtimeTools } = await loadExecutionTools({
+          workspaceId: ctx.workspace.id,
+          toolCtx,
+        });
 
         // Convert to format expected by SDK
         const availableTools: Record<string, {
@@ -903,12 +935,14 @@ export const baleybotsRouter = router({
       });
 
       // 3. Format connections for the generator context (null-safe)
+      // Include availableModels so connection-derived tools can be shown in the creator bot catalog
       const formattedConnections = workspaceConnections.map((conn) => ({
         id: conn.id,
         type: conn.type,
         name: conn.name,
         status: conn.status ?? 'unknown',
         isDefault: conn.isDefault ?? false,
+        availableModels: conn.availableModels,
       }));
 
       // 4. Format existing BaleyBots for the generator context (null-safe)
@@ -933,15 +967,34 @@ export const baleybotsRouter = router({
         })
       );
 
-      // 6. Get built-in tools for the context
+      // 6. Get built-in tools + workspace custom tools for the context
       const builtInTools = getBuiltInToolDefinitions();
+
+      // Also load workspace custom tools so the creator bot knows about them
+      const workspaceCustomTools = await ctx.db.query.tools.findMany({
+        where: and(
+          eq(tools.workspaceId, ctx.workspace.id),
+          notDeleted(tools)
+        ),
+        columns: { name: true, description: true, inputSchema: true },
+      });
+
+      const allAvailableTools = [
+        ...builtInTools,
+        ...workspaceCustomTools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: (t.inputSchema as Record<string, unknown>) || {},
+          category: 'custom' as const,
+        })),
+      ];
 
       // 7. Call processCreatorMessage
       const result = await processCreatorMessage(
         {
           context: {
             workspaceId: ctx.workspace.id,
-            availableTools: builtInTools, // Built-in tools are now available
+            availableTools: allAvailableTools,
             workspacePolicies: null, // Will be populated from workspace settings in the future
             connections: formattedConnections,
             existingBaleybots: formattedBaleybots,
@@ -1075,10 +1128,12 @@ export const baleybotsRouter = router({
         level: z.enum(['unit', 'integration', 'e2e']),
         input: z.string(),
         expectedOutput: z.string().optional(),
+        matchStrategy: z.enum(['exact', 'contains', 'semantic']).optional(),
         status: z.enum(['pending', 'running', 'passed', 'failed']),
         actualOutput: z.string().optional(),
         error: z.string().optional(),
         durationMs: z.number().optional(),
+        failureCategory: z.string().optional(),
       })),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -1293,6 +1348,118 @@ export const baleybotsRouter = router({
       } catch {
         log.error('connection_advisor returned malformed output', { output, baleybotId: input.baleybotId });
         return { analysis: undefined, recommendations: ['Connection analysis returned unexpected format. Please try again.'], warnings: [] };
+      }
+    }),
+
+  /**
+   * Validate a single test output using the test_validator internal BB.
+   * Uses a cheap model (gpt-4o-mini) for fast semantic validation.
+   */
+  validateTestOutput: protectedProcedure
+    .input(z.object({
+      testName: z.string(),
+      input: z.string(),
+      expectedOutput: z.string(),
+      actualOutput: z.string(),
+      botName: z.string(),
+      botGoal: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await checkRateLimit(
+        `testValidate:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.generate,
+      );
+
+      const contextStr = [
+        `Bot: ${input.botName}`,
+        input.botGoal ? `Goal: ${input.botGoal}` : '',
+        `Test: ${input.testName}`,
+        `Input: ${input.input}`,
+        `Expected Output: ${input.expectedOutput}`,
+        `Actual Output: ${input.actualOutput}`,
+      ].filter(Boolean).join('\n');
+
+      const { output } = await executeInternalBaleybot(
+        'test_validator',
+        `Validate this test result:\n${contextStr}`,
+        {
+          userWorkspaceId: ctx.workspace.id,
+          triggeredBy: 'internal',
+        }
+      );
+
+      try {
+        return testValidatorOutputSchema.parse(output);
+      } catch {
+        log.error('test_validator returned malformed output', { output });
+        return { passed: false, confidence: 0, reasoning: 'Validation returned unexpected format.', suggestions: [] };
+      }
+    }),
+
+  /**
+   * Analyze test results using the test_results_analyzer internal BB.
+   * Generates a rich summary with patterns and improvement suggestions.
+   */
+  analyzeTestResults: protectedProcedure
+    .input(z.object({
+      botName: z.string(),
+      botGoal: z.string().optional(),
+      testResults: z.array(z.object({
+        id: z.string(),
+        name: z.string(),
+        level: z.enum(['unit', 'integration', 'e2e']),
+        input: z.string(),
+        expectedOutput: z.string().optional(),
+        actualOutput: z.string().optional(),
+        status: z.enum(['pending', 'running', 'passed', 'failed']),
+        error: z.string().optional(),
+        failureCategory: z.string().optional(),
+        durationMs: z.number().optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await checkRateLimit(
+        `testAnalyze:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.generate,
+      );
+
+      const contextStr = [
+        `Bot: ${input.botName}`,
+        input.botGoal ? `Goal: ${input.botGoal}` : '',
+        '',
+        'Test Results:',
+        ...input.testResults.map(t => [
+          `- ${t.name} (${t.level}): ${t.status}`,
+          t.error ? `  Error: ${t.error}` : '',
+          t.actualOutput ? `  Output: ${t.actualOutput.slice(0, 200)}` : '',
+          t.failureCategory ? `  Category: ${t.failureCategory}` : '',
+          t.durationMs ? `  Duration: ${t.durationMs}ms` : '',
+        ].filter(Boolean).join('\n')),
+      ].filter(Boolean).join('\n');
+
+      const { output } = await executeInternalBaleybot(
+        'test_results_analyzer',
+        `Analyze these test results and provide an actionable summary:\n${contextStr}`,
+        {
+          userWorkspaceId: ctx.workspace.id,
+          triggeredBy: 'internal',
+        }
+      );
+
+      try {
+        return testResultsAnalyzerOutputSchema.parse(output);
+      } catch {
+        log.error('test_results_analyzer returned malformed output', { output });
+        const passed = input.testResults.filter(t => t.status === 'passed').length;
+        const total = input.testResults.length;
+        return {
+          overallStatus: passed === total ? 'passed' as const : passed === 0 ? 'failed' as const : 'mixed' as const,
+          summary: `${passed}/${total} tests passed.`,
+          passRate: total > 0 ? passed / total : 0,
+          patterns: [],
+          botImprovements: [],
+          nextSteps: ['Review failed tests and adjust expected outputs or bot configuration.'],
+        };
       }
     }),
 

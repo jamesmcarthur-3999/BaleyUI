@@ -16,8 +16,14 @@ export {
 // Provider definitions
 export {
   PROVIDERS,
+  isAIProvider,
+  isDatabaseProvider,
   type ProviderType,
+  type AIProviderType,
+  type DatabaseProviderType,
   type ProviderDefinition,
+  type AIConnectionConfig,
+  type DatabaseConnectionConfig,
   type ConnectionConfig,
   type OllamaModel,
   type OllamaModelsResponse,
@@ -29,5 +35,7 @@ export {
   testOpenAIConnection,
   testAnthropicConnection,
   testOllamaConnection,
+  testPostgresConnection,
+  testMySQLConnection,
   testConnection,
 } from './test';

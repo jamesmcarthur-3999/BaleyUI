@@ -56,7 +56,7 @@ import {
 import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, ListTree, Zap, BarChart3, MessageSquare, PanelRight, Cable, FlaskConical, Activity } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
-import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } from '@/hooks';
+import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory, useTestExecution } from '@/hooks';
 import { formatErrorWithAction, parseCreatorError } from '@/lib/errors/creator-errors';
 import { generateChangeSummary, formatChangeSummaryForChat } from '@/lib/baleybot/change-summary';
 import { safeParseDate } from '@/lib/utils/date';
@@ -166,8 +166,6 @@ export default function BaleybotPage() {
   // Readiness state
   const [readiness, setReadiness] = useState(createInitialReadiness());
   const prevReadinessRef = useRef<ReadinessState | null>(null);
-  const [testCases, setTestCases] = useState<TestCase[]>([]);
-  const [isGeneratingTests, setIsGeneratingTests] = useState(false);
 
   // Save conflict state (Phase 5.4)
   const [showConflictDialog, setShowConflictDialog] = useState(false);
@@ -293,7 +291,49 @@ export default function BaleybotPage() {
   const creatorMutation = trpc.baleybots.sendCreatorMessage.useMutation();
   const saveMutation = trpc.baleybots.saveFromSession.useMutation();
   const executeMutation = trpc.baleybots.execute.useMutation();
-  const saveTestsMutation = trpc.baleybots.saveTestCases.useMutation();
+
+  // =====================================================================
+  // TEST EXECUTION HOOK
+  // =====================================================================
+
+  const injectMessage = (message: CreatorMessage) => {
+    setMessages(prev => [...prev, message]);
+  };
+
+  const navigateToTab = (tab: AdaptiveTab) => {
+    setViewMode(tab);
+    setMobileView('editor');
+  };
+
+  const {
+    testCases,
+    setTestCases,
+    isGeneratingTests,
+    isRunningAll,
+    runAllProgress,
+    lastRunSummary,
+    handleGenerateTests,
+    handleRunTest,
+    handleRunAllTests,
+    handleAddTest,
+    handleUpdateTest,
+    handleDeleteTest,
+    handleAcceptActual,
+  } = useTestExecution({
+    savedBaleybotId,
+    balCode,
+    botName: name,
+    entities,
+    workspaceConnections: workspaceConnections?.map(c => ({
+      id: c.id,
+      type: c.type,
+      name: c.name,
+      status: c.status ?? 'unconfigured',
+      isDefault: c.isDefault ?? false,
+    })),
+    onInjectMessage: injectMessage,
+    onNavigateToTab: navigateToTab,
+  });
 
   // =====================================================================
   // HANDLERS
@@ -978,23 +1018,6 @@ export default function BaleybotPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, savedBaleybotId, balCode]);
 
-  // Auto-save test cases when they change (debounced)
-  useEffect(() => {
-    if (!savedBaleybotId || testCases.length === 0) return;
-    const timeout = setTimeout(() => {
-      saveTestsMutation.mutate({
-        id: savedBaleybotId,
-        testCases: testCases.map(t => ({
-          ...t,
-          // Reset running status to pending on save (can't persist mid-run)
-          status: t.status === 'running' ? 'pending' : t.status,
-        })),
-      });
-    }, 2000);
-    return () => clearTimeout(timeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [testCases, savedBaleybotId]);
-
   // Auto-save trigger config when it changes (debounced)
   const saveTriggerMutation = trpc.baleybots.saveTriggerConfig.useMutation();
 
@@ -1010,196 +1033,29 @@ export default function BaleybotPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [triggerConfig, savedBaleybotId]);
 
-  // =====================================================================
-  // TEST HANDLERS
-  // =====================================================================
-
-  const generateTestsMutation = trpc.baleybots.generateTests.useMutation();
-
-  const handleGenerateTests = async () => {
-    if (!savedBaleybotId) {
-      setMessages(prev => [...prev, {
-        id: `msg-${Date.now()}-system`,
-        role: 'assistant' as const,
-        content: 'Please save your bot first before generating tests.',
-        timestamp: new Date(),
-        metadata: {
-          diagnostic: {
-            level: 'warning' as const,
-            title: 'Save Required',
-            details: 'Your bot needs to be saved before tests can be generated.',
-            suggestions: ['Click the Save button in the header to save your bot.'],
-          },
-        },
-      }]);
-      return;
-    }
-    setIsGeneratingTests(true);
-
-    try {
-      const result = await generateTestsMutation.mutateAsync({
-        baleybotId: savedBaleybotId,
-        balCode,
-        entities: entities.map(e => ({
-          name: e.name,
-          tools: e.tools,
-          purpose: e.purpose || e.name,
-        })),
-      });
-
-      const generated: TestCase[] = result.tests.map((test, i) => ({
-        id: `test-${Date.now()}-${i}`,
-        name: test.name,
-        level: test.level,
-        input: test.input,
-        expectedOutput: test.expectedOutput,
-        status: 'pending' as const,
-      }));
-
-      setTestCases(prev => [...prev, ...generated]);
-
-      // Add assistant message with test plan metadata
-      const testMessage: CreatorMessage = {
-        id: `msg-${Date.now()}-tests`,
-        role: 'assistant',
-        content: `Generated ${generated.length} tests. Strategy: ${result.strategy}`,
-        timestamp: new Date(),
-        metadata: {
-          testPlan: {
-            tests: generated.map(t => ({
-              id: t.id,
-              name: t.name,
-              level: t.level,
-              status: t.status,
-              input: t.input,
-              expectedOutput: t.expectedOutput,
-            })),
-            summary: result.strategy,
-          },
-        },
-      };
-      setMessages(prev => [...prev, testMessage]);
-    } catch (error) {
-      console.error('Test generation failed:', error);
-      const errorMsg: CreatorMessage = {
-        id: `msg-${Date.now()}-testerr`,
-        role: 'assistant',
-        content: 'Failed to generate tests. Please try again.',
-        timestamp: new Date(),
-        metadata: {
-          isError: true,
-          diagnostic: {
-            level: 'error',
-            title: 'Test Generation Failed',
-            details: error instanceof Error ? error.message : 'Unknown error',
-            suggestions: ['Make sure your bot has been saved first', 'Check that an AI provider is connected'],
-          },
-        },
-      };
-      setMessages(prev => [...prev, errorMsg]);
-    } finally {
-      setIsGeneratingTests(false);
-    }
-  };
-
-  const handleRunTest = async (testId: string) => {
-    const test = testCases.find(t => t.id === testId);
-    if (!test) return;
-
-    if (!savedBaleybotId) {
-      setTestCases(prev => prev.map(t =>
-        t.id === testId ? { ...t, status: 'failed' as const, error: 'Bot must be saved before running tests.' } : t
-      ));
-      return;
-    }
-
-    setTestCases(prev => prev.map(t =>
-      t.id === testId ? { ...t, status: 'running' as const } : t
-    ));
-
-    try {
-      // Timeout after 60 seconds
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Test execution timed out after 60 seconds')), 60000)
-      );
-
-      const execution = await Promise.race([
-        executeMutation.mutateAsync({
-          id: savedBaleybotId,
-          input: test.input,
-          triggeredBy: 'manual',
-        }),
-        timeoutPromise,
-      ]);
-
-      const actualOutput = execution.output != null
-        ? (typeof execution.output === 'string' ? execution.output : JSON.stringify(execution.output, null, 2))
-        : undefined;
-
-      // Multi-strategy test comparison
-      let testPassed = execution.status === 'completed';
-
-      if (testPassed && test.expectedOutput && actualOutput) {
-        const expected = test.expectedOutput.trim();
-        const actual = actualOutput;
-
-        // Strategy 1: Try JSON comparison (for structured outputs)
-        try {
-          const expectedJson = JSON.parse(expected);
-          const actualJson = JSON.parse(actual);
-          testPassed = JSON.stringify(expectedJson) === JSON.stringify(actualJson);
-        } catch {
-          // Strategy 2: Case-insensitive substring match
-          testPassed = actual.toLowerCase().includes(expected.toLowerCase());
-        }
-
-        if (!testPassed) {
-          // Strategy 3: Check if 80%+ key words from expected are present
-          const expectedWords = expected.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-          if (expectedWords.length > 0) {
-            const matchedWords = expectedWords.filter(w => actual.toLowerCase().includes(w));
-            if (matchedWords.length >= expectedWords.length * 0.8) {
-              testPassed = true;
-            }
-          }
-        }
-      }
-
-      setTestCases(prev => prev.map(t =>
-        t.id === testId
-          ? {
-              ...t,
-              status: testPassed ? 'passed' as const : 'failed' as const,
-              actualOutput,
-              error: execution.error || (!testPassed && test.expectedOutput
-                ? `Output did not match expected: "${test.expectedOutput}"`
-                : undefined),
-              durationMs: execution.durationMs ?? undefined,
-            }
-          : t
-      ));
-    } catch (error: unknown) {
-      setTestCases(prev => prev.map(t =>
-        t.id === testId
-          ? { ...t, status: 'failed' as const, error: error instanceof Error ? error.message : 'Unknown error' }
-          : t
-      ));
-    }
-  };
-
-  const handleRunAllTests = async () => {
-    const batchSize = 3;
-    for (let i = 0; i < testCases.length; i += batchSize) {
-      const batch = testCases.slice(i, i + batchSize);
-      await Promise.all(batch.map(test => handleRunTest(test.id)));
-    }
-  };
-
-  const handleAddTest = (test: Omit<TestCase, 'id' | 'status'>) => {
-    setTestCases(prev => [...prev, { ...test, id: `test-${Date.now()}`, status: 'pending' }]);
-  };
-
   const handleOptionSelect = (optionId: string) => {
+    // Test-specific dynamic option IDs
+    const acceptMatch = optionId.match(/^accept-actual-(.+)$/);
+    if (acceptMatch) {
+      handleAcceptActual(acceptMatch[1]!);
+      return;
+    }
+    const editMatch = optionId.match(/^edit-test-(.+)$/);
+    if (editMatch) {
+      setViewMode('test');
+      setMobileView('editor');
+      return;
+    }
+    const retryMatch = optionId.match(/^retry-test-(.+)$/);
+    if (retryMatch) {
+      handleRunTest(retryMatch[1]!);
+      return;
+    }
+    if (optionId === 'retry-all-tests') {
+      handleRunAllTests();
+      return;
+    }
+
     // Readiness-guided option cards → navigate to tab + add guide message
     const optionToTab: Record<string, AdaptiveTab> = {
       'review-design': 'visual',
@@ -1338,7 +1194,7 @@ export default function BaleybotPage() {
       // Mark state as initialized after all state updates
       setIsStateInitialized(true);
     }
-  }, [isNew, existingBaleybot, markClean]);
+  }, [isNew, existingBaleybot, markClean, setTestCases]);
 
   // Auto-send initial prompt if provided (using ref to track sent state)
   // Note: handleSendMessage is intentionally excluded from deps - we use ref to ensure single execution
@@ -1996,6 +1852,12 @@ export default function BaleybotPage() {
                         onAddTest={handleAddTest}
                         onGenerateTests={handleGenerateTests}
                         isGenerating={isGeneratingTests}
+                        isRunningAll={isRunningAll}
+                        runAllProgress={runAllProgress}
+                        lastRunSummary={lastRunSummary}
+                        onUpdateTest={handleUpdateTest}
+                        onDeleteTest={handleDeleteTest}
+                        onAcceptActual={handleAcceptActual}
                       />
                     </div>
                   )}

@@ -34,12 +34,24 @@ export interface ExecutionOutput {
 }
 
 /**
- * Configuration for connection providers (OpenAI, Anthropic, Ollama).
+ * Configuration for connection providers.
+ * Covers AI providers (OpenAI, Anthropic, Ollama) and
+ * database providers (PostgreSQL, MySQL).
  */
 export interface ConnectionConfig {
+  // AI provider fields
   apiKey?: string;
   baseUrl?: string;
   organization?: string;
+  // Database provider fields
+  host?: string;
+  port?: number;
+  database?: string;
+  username?: string;
+  password?: string;
+  connectionUrl?: string;
+  ssl?: boolean;
+  schema?: string;
   [key: string]: unknown;
 }
 

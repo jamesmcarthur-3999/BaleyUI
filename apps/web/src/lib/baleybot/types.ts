@@ -108,6 +108,8 @@ export interface Connection {
   name: string;
   status: string;
   isDefault: boolean;
+  /** Cached database schema or AI model list (from the connections table availableModels JSONB) */
+  availableModels?: unknown;
 }
 
 /**

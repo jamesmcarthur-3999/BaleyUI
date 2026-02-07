@@ -8,11 +8,19 @@ import { trpc } from '@/lib/trpc/client';
 
 interface TestConnectionButtonProps {
   connectionId?: string;
-  type?: 'openai' | 'anthropic' | 'ollama';
+  type?: 'openai' | 'anthropic' | 'ollama' | 'postgres' | 'mysql';
   config?: {
     apiKey?: string;
     baseUrl?: string;
     organization?: string;
+    host?: string;
+    port?: number;
+    database?: string;
+    username?: string;
+    password?: string;
+    connectionUrl?: string;
+    ssl?: boolean;
+    schema?: string;
   };
   onTestComplete?: (success: boolean) => void;
 }

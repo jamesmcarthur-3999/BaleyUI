@@ -4,6 +4,8 @@ import { connections, eq, and, notDeleted, softDelete, updateWithLock, sql } fro
 import { encrypt, decrypt } from '@/lib/encryption';
 import { testConnection } from '@/lib/connections/test';
 import { listOllamaModels } from '@/lib/connections/ollama';
+import { isDatabaseProvider } from '@/lib/connections/providers';
+import type { ProviderType } from '@/lib/connections/providers';
 import type { ConnectionConfig } from '@/lib/types';
 import { createLogger } from '@/lib/logger';
 import {
@@ -18,12 +20,28 @@ import {
 
 const log = createLogger('connections-router');
 
+// ============================================================================
+// SENSITIVE FIELDS
+// ============================================================================
+
+/**
+ * Get the list of sensitive fields that should be encrypted for a given provider type.
+ */
+type SensitiveField = 'apiKey' | 'password';
+
+function getSensitiveFields(type: string): SensitiveField[] {
+  if (isDatabaseProvider(type as ProviderType)) {
+    return ['password'];
+  }
+  return ['apiKey'];
+}
+
 /**
  * Encrypt an object's sensitive fields.
  */
 function encryptObject<T extends ConnectionConfig>(
   obj: T,
-  sensitiveFields: (keyof T)[]
+  sensitiveFields: SensitiveField[]
 ): T {
   const result = { ...obj };
   for (const field of sensitiveFields) {
@@ -39,7 +57,7 @@ function encryptObject<T extends ConnectionConfig>(
  */
 function decryptObject<T extends ConnectionConfig>(
   obj: T,
-  sensitiveFields: (keyof T)[]
+  sensitiveFields: SensitiveField[]
 ): T {
   const result = { ...obj };
   for (const field of sensitiveFields) {
@@ -56,24 +74,48 @@ function decryptObject<T extends ConnectionConfig>(
   return result;
 }
 
-/**
- * tRPC router for managing AI provider connections.
- */
+// ============================================================================
+// VALIDATION SCHEMAS
+// ============================================================================
 
 /**
- * API-001: Stricter connection config validation
+ * AI provider config schema (OpenAI, Anthropic, Ollama)
  */
-const connectionConfigSchema = z.object({
+const aiConfigSchema = z.object({
   apiKey: z.string().min(10, 'API key is too short').max(500, 'API key is too long').optional(),
   baseUrl: urlSchema,
   organization: z.string().max(255).optional(),
 });
 
+/**
+ * Database provider config schema (PostgreSQL, MySQL)
+ */
+const databaseConfigSchema = z.object({
+  host: z.string().min(1, 'Host is required').max(500).optional(),
+  port: z.coerce.number().int().min(1).max(65535).optional(),
+  database: z.string().min(1, 'Database name is required').max(255).optional(),
+  username: z.string().max(255).optional(),
+  password: z.string().max(1000).optional(),
+  connectionUrl: z.string().max(2000).optional(),
+  ssl: z.boolean().optional(),
+  schema: z.string().max(255).optional(),
+});
+
+/**
+ * Flexible connection config schema that accepts both AI and database fields.
+ * The router enforces which fields are required based on the provider type.
+ */
+const connectionConfigSchema = aiConfigSchema.merge(databaseConfigSchema);
+
+const providerTypeSchema = z.enum(['openai', 'anthropic', 'ollama', 'postgres', 'mysql']);
+
+// ============================================================================
+// ROUTER
+// ============================================================================
+
 export const connectionsRouter = router({
   /**
    * List all connections for the workspace.
-   * API-003: Add pagination support
-   * API-004: Return only necessary fields for list view
    */
   list: protectedProcedure
     .input(
@@ -83,8 +125,6 @@ export const connectionsRouter = router({
       }).optional()
     )
     .query(async ({ ctx, input }) => {
-      // API-004: Select only fields needed for list display
-      // Note: availableModels is included as it's needed for model selection dropdowns
       const allConnections = await ctx.db.query.connections.findMany({
         where: and(
           eq(connections.workspaceId, ctx.workspace.id),
@@ -94,11 +134,11 @@ export const connectionsRouter = router({
           id: true,
           type: true,
           name: true,
-          config: true, // Needed for masking apiKey
+          config: true,
           isDefault: true,
           status: true,
           lastCheckedAt: true,
-          availableModels: true, // Needed for model selection
+          availableModels: true,
           createdAt: true,
           updatedAt: true,
           version: true,
@@ -107,10 +147,11 @@ export const connectionsRouter = router({
         limit: input?.limit ?? 50,
       });
 
-      // Mask API keys without decrypting (decryption only needed for edit form)
+      // Mask sensitive fields without decrypting
       return allConnections.map((conn) => {
         const config = conn.config as ConnectionConfig;
 
+        // Mask API keys for AI providers
         if (config.apiKey) {
           return {
             ...conn,
@@ -122,13 +163,24 @@ export const connectionsRouter = router({
           };
         }
 
+        // Mask passwords for database providers
+        if (config.password) {
+          return {
+            ...conn,
+            config: {
+              ...config,
+              password: '••••••••',
+              _hasPassword: true,
+            },
+          };
+        }
+
         return conn;
       });
     }),
 
   /**
    * Get a single connection by ID.
-   * API-001: Use standardized UUID schema
    */
   get: protectedProcedure
     .input(z.object({ id: uuidSchema }))
@@ -147,13 +199,16 @@ export const connectionsRouter = router({
 
       // Decrypt sensitive fields for editing
       const config = connection.config as ConnectionConfig;
-      const decryptedConfig = decryptObject(config, ['apiKey']);
+      const sensitiveFields = getSensitiveFields(connection.type);
+      const decryptedConfig = decryptObject(config, sensitiveFields);
 
-      // Mask the API key - only show last 4 characters
+      // Mask the sensitive value - only show last 4 characters
       const maskedConfig = { ...decryptedConfig };
-      if (typeof maskedConfig.apiKey === 'string' && maskedConfig.apiKey.length > 4) {
-        const last4 = maskedConfig.apiKey.slice(-4);
-        maskedConfig.apiKey = `****${last4}`;
+      for (const field of sensitiveFields) {
+        const value = maskedConfig[field];
+        if (typeof value === 'string' && value.length > 4 && value !== '[DECRYPTION_FAILED]') {
+          (maskedConfig as Record<string, unknown>)[field as string] = `****${value.slice(-4)}`;
+        }
       }
 
       return {
@@ -164,19 +219,19 @@ export const connectionsRouter = router({
 
   /**
    * Create a new connection.
-   * API-001: Use standardized name schema
    */
   create: protectedProcedure
     .input(
       z.object({
-        type: z.enum(['openai', 'anthropic', 'ollama', 'postgres', 'mysql']),
+        type: providerTypeSchema,
         name: nameSchema,
         config: connectionConfigSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Encrypt API key if present
-      const encryptedConfig = encryptObject(input.config, ['apiKey']);
+      // Encrypt sensitive fields based on type
+      const sensitiveFields = getSensitiveFields(input.type);
+      const encryptedConfig = encryptObject(input.config, sensitiveFields);
 
       // If this is the first connection of its type, make it default
       const existingConnections = await ctx.db.query.connections.findMany({
@@ -228,8 +283,6 @@ export const connectionsRouter = router({
 
   /**
    * Update a connection.
-   * API-001: Stricter input validation
-   * API-002: Use shared error handling
    */
   update: protectedProcedure
     .input(
@@ -248,7 +301,7 @@ export const connectionsRouter = router({
           eq(connections.workspaceId, ctx.workspace.id),
           notDeleted(connections)
         ),
-        columns: { id: true },
+        columns: { id: true, type: true },
       });
 
       if (!existing) {
@@ -263,12 +316,12 @@ export const connectionsRouter = router({
       }
 
       if (input.config) {
-        // Encrypt sensitive fields
-        const encryptedConfig = encryptObject(input.config, ['apiKey']);
+        // Encrypt sensitive fields based on connection type
+        const sensitiveFields = getSensitiveFields(existing.type);
+        const encryptedConfig = encryptObject(input.config, sensitiveFields);
         updateData.config = encryptedConfig;
       }
 
-      // API-002: Use shared error handling helper
       return await withErrorHandling(
         () => updateWithLock(connections, input.id, input.version, updateData),
         'Connection'
@@ -277,12 +330,10 @@ export const connectionsRouter = router({
 
   /**
    * Delete a connection (soft delete).
-   * API-001: Use standardized UUID schema
    */
   delete: protectedProcedure
     .input(z.object({ id: uuidSchema }))
     .mutation(async ({ ctx, input }) => {
-      // Verify connection exists and belongs to workspace
       const existing = await ctx.db.query.connections.findFirst({
         where: and(
           eq(connections.id, input.id),
@@ -296,22 +347,20 @@ export const connectionsRouter = router({
         throwNotFound('Connection');
       }
 
-      // Soft delete - API key auth has null userId, use fallback for audit trail
       const deleted = await softDelete(connections, input.id, ctx.userId ?? 'system:api-key');
 
       return deleted;
     }),
 
   /**
-   * Test a connection by calling the provider's API.
-   * API-001: Use standardized UUID schema
-   * API-002: Use shared error helpers
+   * Test a connection by calling the provider's API or database server.
+   * On success for database connections, introspects the schema and caches it.
    */
   test: protectedProcedure
     .input(
       z.object({
         id: uuidSchema.optional(),
-        type: z.enum(['openai', 'anthropic', 'ollama', 'postgres', 'mysql']).optional(),
+        type: providerTypeSchema.optional(),
         config: connectionConfigSchema.optional(),
       })
     )
@@ -334,7 +383,8 @@ export const connectionsRouter = router({
         }
 
         type = connection.type;
-        config = decryptObject(connection.config as ConnectionConfig, ['apiKey']);
+        const sensitiveFields = getSensitiveFields(type);
+        config = decryptObject(connection.config as ConnectionConfig, sensitiveFields);
       } else if (input.type && input.config) {
         // Test new connection config
         type = input.type;
@@ -348,30 +398,51 @@ export const connectionsRouter = router({
 
       // Update connection status if testing an existing connection
       if (input.id) {
-        await ctx.db
-          .update(connections)
-          .set({
-            status: result.success ? 'connected' : 'error',
-            lastCheckedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(and(eq(connections.id, input.id), notDeleted(connections)));
+        const statusUpdate: Record<string, unknown> = {
+          status: result.success ? 'connected' : 'error',
+          lastCheckedAt: new Date(),
+          updatedAt: new Date(),
+        };
 
         // For Ollama, also update available models
         if (type === 'ollama' && result.success) {
           try {
             const models = await listOllamaModels(config.baseUrl || 'http://localhost:11434');
-            await ctx.db
-              .update(connections)
-              .set({
-                availableModels: models,
-                updatedAt: new Date(),
-              })
-              .where(and(eq(connections.id, input.id), notDeleted(connections)));
+            statusUpdate.availableModels = models;
           } catch (error) {
             log.error('Failed to fetch Ollama models', { error });
           }
         }
+
+        // For database connections, introspect and cache the schema on success
+        if (isDatabaseProvider(type as ProviderType) && result.success) {
+          try {
+            const { introspectDatabaseConnection } = await import(
+              '@/lib/baleybot/tools/catalog-service'
+            );
+            const schema = await introspectDatabaseConnection({
+              connectionId: input.id,
+              connectionName: 'test',
+              type: type as 'postgres' | 'mysql',
+              config: config as import('@/lib/connections/providers').DatabaseConnectionConfig,
+            });
+
+            if (schema) {
+              statusUpdate.availableModels = schema; // Reuse availableModels JSONB column for cached schema
+              log.info('Cached database schema', {
+                connectionId: input.id,
+                tableCount: schema.tables?.length ?? 0,
+              });
+            }
+          } catch (error) {
+            log.error('Failed to introspect database schema', { connectionId: input.id, error });
+          }
+        }
+
+        await ctx.db
+          .update(connections)
+          .set(statusUpdate)
+          .where(and(eq(connections.id, input.id), notDeleted(connections)));
       }
 
       return result;
@@ -379,7 +450,6 @@ export const connectionsRouter = router({
 
   /**
    * Set a connection as the default for its provider type.
-   * API-001: Use standardized UUID schema
    */
   setDefault: protectedProcedure
     .input(z.object({ id: uuidSchema }))
@@ -420,8 +490,6 @@ export const connectionsRouter = router({
 
   /**
    * Refresh Ollama models for a connection.
-   * API-001: Use standardized UUID schema
-   * API-002: Use shared error helpers
    */
   refreshOllamaModels: protectedProcedure
     .input(z.object({ id: uuidSchema }))

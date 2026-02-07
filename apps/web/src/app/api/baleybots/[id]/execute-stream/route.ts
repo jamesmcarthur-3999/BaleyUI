@@ -31,7 +31,6 @@ import {
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { createLogger } from '@/lib/logger';
 import {
-  getBuiltInRuntimeTools,
   configureWebSearch,
 } from '@/lib/baleybot/tools/built-in/implementations';
 import { initializeBuiltInToolServices } from '@/lib/baleybot/services';
@@ -41,6 +40,7 @@ import { validateApiKey } from '@/lib/api/validate-api-key';
 import { processBBCompletion } from '@/lib/baleybot/services/bb-completion-trigger-service';
 import { apiErrors, createErrorResponse } from '@/lib/api/error-response';
 import { getAuthenticatedWorkspace } from '@/lib/auth/workspace-lookup';
+import { loadExecutionTools } from '@/lib/baleybot/services/execution-tools-loader';
 
 const log = createLogger('baleybot-stream');
 
@@ -249,8 +249,11 @@ export async function POST(
             userId: userId ?? 'api_key_user',
           };
 
-          // Get built-in runtime tools with implementations
-          const runtimeTools = getBuiltInRuntimeTools(toolCtx);
+          // Load all tool categories (built-in + connection-derived + workspace)
+          const { runtimeTools } = await loadExecutionTools({
+            workspaceId,
+            toolCtx,
+          });
 
           // Convert to format expected by SDK
           const availableTools: Record<string, {
