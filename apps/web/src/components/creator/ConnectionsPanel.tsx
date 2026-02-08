@@ -1,7 +1,7 @@
 // apps/web/src/components/creator/ConnectionsPanel.tsx
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowRight,
@@ -41,11 +41,22 @@ interface ConnectionData {
   isDefault: boolean;
 }
 
+interface EntitySummaryInput {
+  name: string;
+  tools: string[];
+}
+
 interface ConnectionsPanelProps {
   /** All tools used by this bot's entities */
   tools: string[];
   /** Connections available in the workspace */
   connections: ConnectionData[];
+  /** Saved BaleyBot ID (required for internal BB analysis) */
+  baleybotId?: string;
+  /** Current BAL code for analysis context */
+  balCode?: string;
+  /** Current entities for analysis context */
+  entitySummaries?: EntitySummaryInput[];
   /** Whether connections are loading */
   isLoading: boolean;
   /** Callback when a new connection is created inline */
@@ -79,6 +90,46 @@ interface ToolVerificationResult {
     success?: boolean;
     message?: string;
   };
+}
+
+interface ConnectionAdvisorResult {
+  analysis?: {
+    aiProvider?: {
+      needed: boolean;
+      recommended?: string;
+      reason: string;
+    };
+    databases?: Array<{
+      type: string;
+      tools: string[];
+      configHints?: string;
+    }>;
+    external?: Array<{
+      service: string;
+      reason: string;
+    }>;
+  };
+  recommendations?: string[];
+  warnings?: string[];
+}
+
+type GuidedActionType =
+  | 'connect_ai'
+  | 'add_database_source'
+  | 'apply_remap'
+  | 'verify_tool'
+  | 'test_connection'
+  | 'open_tests';
+
+interface GuidedResolutionAction {
+  id: string;
+  type: GuidedActionType;
+  title: string;
+  description: string;
+  toolName?: string;
+  connectionId?: string;
+  dbType?: 'postgres' | 'mysql';
+  sourceSlug?: string;
 }
 
 // ============================================================================
@@ -248,6 +299,25 @@ function buildConnectionDerivedToolName(
   return `query_${provider}_${connectionNameToSlug(connectionName)}`;
 }
 
+function actionVerb(action: GuidedResolutionAction): string {
+  switch (action.type) {
+    case 'connect_ai':
+      return 'Connect';
+    case 'add_database_source':
+      return 'Add Source';
+    case 'apply_remap':
+      return 'Apply';
+    case 'verify_tool':
+      return 'Verify';
+    case 'test_connection':
+      return 'Test';
+    case 'open_tests':
+      return 'Open Tests';
+    default:
+      return 'Run';
+  }
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -259,6 +329,9 @@ function buildConnectionDerivedToolName(
 export function ConnectionsPanel({
   tools,
   connections,
+  baleybotId,
+  balCode,
+  entitySummaries,
   isLoading,
   onConnectionCreated,
   onApplyToolRemap,
@@ -274,10 +347,15 @@ export function ConnectionsPanel({
   const [testResultsByConnection, setTestResultsByConnection] = useState<Record<string, { success: boolean; message: string }>>({});
   const [verifyingToolName, setVerifyingToolName] = useState<string | null>(null);
   const [toolVerificationByName, setToolVerificationByName] = useState<Record<string, ToolVerificationResult>>({});
+  const [advisorResult, setAdvisorResult] = useState<ConnectionAdvisorResult | null>(null);
+  const [isRunningGuidedPass, setIsRunningGuidedPass] = useState(false);
+  const [advisorError, setAdvisorError] = useState<string | null>(null);
+  const analyzedSignatureRef = useRef<string | null>(null);
 
   const utils = trpc.useUtils();
   const testConnectionMutation = trpc.connections.test.useMutation();
   const verifyToolMutation = trpc.baleybots.verifyTool.useMutation();
+  const analyzeConnectionsMutation = trpc.baleybots.analyzeConnections.useMutation();
 
   const existingNames = connections.map((c) => c.name);
   const uniqueTools = useMemo(() => [...new Set(tools)], [tools]);
@@ -365,8 +443,12 @@ export function ConnectionsPanel({
   }));
 
   const allMet = hasAiProvider && unresolvedToolWiring.length === 0;
-  const verifiedToolCount = uniqueTools.filter(
-    (toolName) => toolVerificationByName[toolName]?.status === 'verified'
+  const verificationCompleteStatuses = new Set<ToolVerificationResult['status']>([
+    'verified',
+    'manual_review',
+  ]);
+  const verifiedToolCount = uniqueTools.filter((toolName) =>
+    verificationCompleteStatuses.has(toolVerificationByName[toolName]?.status ?? 'failed')
   ).length;
   const setupProgress = [
     {
@@ -404,6 +486,14 @@ export function ConnectionsPanel({
     workspaceConnectionHealth.length > 0 ||
     requiredStatus.length > 0 ||
     requirements.length > 0;
+  const advisorRecommendations = advisorResult?.recommendations ?? [];
+  const advisorWarnings = advisorResult?.warnings ?? [];
+  const advisorDatabaseInsights = advisorResult?.analysis?.databases ?? [];
+  const showAdvisorInsights =
+    Boolean(advisorResult?.analysis?.aiProvider) ||
+    advisorDatabaseInsights.length > 0 ||
+    advisorRecommendations.length > 0 ||
+    advisorWarnings.length > 0;
 
   const databaseToolWiring = toolWiring.filter(
     (tool) => tool.expectedType === 'postgres' || tool.expectedType === 'mysql'
@@ -427,6 +517,209 @@ export function ConnectionsPanel({
       };
     })
     .filter((plan): plan is ToolRemapPlan => Boolean(plan));
+
+  function buildGuidedActions(args: {
+    advisor: ConnectionAdvisorResult | null;
+  }): GuidedResolutionAction[] {
+    const actions: GuidedResolutionAction[] = [];
+    const seen = new Set<string>();
+
+    const pushAction = (action: GuidedResolutionAction) => {
+      if (seen.has(action.id)) return;
+      seen.add(action.id);
+      actions.push(action);
+    };
+
+    if (!hasAiProvider) {
+      const recommendedProvider = args.advisor?.analysis?.aiProvider?.recommended;
+      pushAction({
+        id: 'connect-ai-runtime',
+        type: 'connect_ai',
+        title: 'Connect AI Runtime',
+        description: recommendedProvider
+          ? `Add a ${recommendedProvider} provider so tools and tests can execute.`
+          : 'Add OpenAI, Anthropic, or Ollama so tools and tests can execute.',
+      });
+    }
+
+    const handledSources = new Set<string>();
+    for (const tool of databaseToolWiring) {
+      if (tool.readiness.status === 'ready' || !tool.expectedType) continue;
+      const sourceKey = `${tool.expectedType}:${tool.expectedSlug ?? 'unspecified'}`;
+      if (handledSources.has(sourceKey)) continue;
+      handledSources.add(sourceKey);
+
+      pushAction({
+        id: `add-source-${sourceKey}`,
+        type: 'add_database_source',
+        title: tool.expectedSlug
+          ? `Add ${tool.expectedType} source: ${displaySourceNameFromSlug(tool.expectedSlug)}`
+          : `Add ${tool.expectedType} source`,
+        description: tool.expectedSlug
+          ? `Create or reconnect a ${tool.expectedType} source that matches "${tool.expectedSlug}", then re-verify tools.`
+          : `Create a connected ${tool.expectedType} source for database tools.`,
+        dbType: tool.expectedType,
+        sourceSlug: tool.expectedSlug,
+      });
+    }
+
+    if (onApplyToolRemap && remapPlans.length > 0) {
+      pushAction({
+        id: 'apply-remaps',
+        type: 'apply_remap',
+        title: `Apply ${remapPlans.length} BAL tool mapping change${remapPlans.length === 1 ? '' : 's'}`,
+        description: 'Update BAL tool bindings to match your selected connection sources.',
+      });
+    }
+
+    const mergedVerification = {
+      ...toolVerificationByName,
+    };
+
+    for (const tool of toolWiring) {
+      const verification = mergedVerification[tool.toolName];
+      if (!verification) {
+        if (tool.readiness.status !== 'ready') {
+          pushAction({
+            id: `verify-${tool.toolName}`,
+            type: 'verify_tool',
+            title: `Verify ${tool.toolName}`,
+            description: 'Run a runtime verification check and get precise remediation guidance.',
+            toolName: tool.toolName,
+          });
+        }
+        continue;
+      }
+
+      if (verification.status === 'failed' || verification.status === 'needs_setup') {
+        if (verification.connection?.id) {
+          pushAction({
+            id: `test-connection-${verification.connection.id}`,
+            type: 'test_connection',
+            title: `Test ${verification.connection.name}`,
+            description: 'Re-test this connection and re-run tool verification after fixing credentials.',
+            connectionId: verification.connection.id,
+          });
+        } else {
+          pushAction({
+            id: `reverify-${tool.toolName}`,
+            type: 'verify_tool',
+            title: `Re-verify ${tool.toolName}`,
+            description: verification.summary,
+            toolName: tool.toolName,
+          });
+        }
+      }
+    }
+
+    const hasVerificationForAllTools =
+      toolWiring.length === 0 ||
+      toolWiring.every((tool) => {
+        const verification = mergedVerification[tool.toolName];
+        return Boolean(verification && verificationCompleteStatuses.has(verification.status));
+      });
+
+    if (allMet && hasVerificationForAllTools && onNavigateToTest) {
+      pushAction({
+        id: 'open-tests',
+        type: 'open_tests',
+        title: 'Run End-to-End Tests',
+        description: 'Connections look healthy. Move to Testing to validate expected behavior.',
+      });
+    }
+
+    return actions;
+  }
+
+  const guidedActions = buildGuidedActions({ advisor: advisorResult });
+
+  async function runAdvisorAnalysis(): Promise<ConnectionAdvisorResult | null> {
+    if (!baleybotId || !balCode || !entitySummaries || entitySummaries.length === 0) {
+      setAdvisorError('Save the bot and generate entities before running AI connection analysis.');
+      return null;
+    }
+
+    setAdvisorError(null);
+    try {
+      const analysisResult = (await analyzeConnectionsMutation.mutateAsync({
+        baleybotId,
+        balCode,
+        entities: entitySummaries.map((entity) => ({
+          name: entity.name,
+          tools: entity.tools,
+        })),
+      })) as ConnectionAdvisorResult;
+
+      setAdvisorResult(analysisResult);
+      return analysisResult;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'AI connection analysis failed.';
+      setAdvisorError(message);
+      return null;
+    }
+  }
+
+  async function runGuidedConnectionPass() {
+    setIsRunningGuidedPass(true);
+    try {
+      await runAdvisorAnalysis();
+      await handleVerifyAllTools();
+    } finally {
+      setIsRunningGuidedPass(false);
+    }
+  }
+
+  function handleGuidedAction(action: GuidedResolutionAction) {
+    switch (action.type) {
+      case 'connect_ai':
+        setAddFormType('ai');
+        break;
+      case 'add_database_source':
+        setRequestedDbProvider(action.dbType);
+        setRequestedDbName(
+          action.sourceSlug && action.dbType
+            ? suggestedConnectionNameFromSlug(action.sourceSlug, action.dbType)
+            : undefined
+        );
+        setAddFormType('database');
+        break;
+      case 'apply_remap':
+        handleApplyRemaps();
+        break;
+      case 'verify_tool':
+        if (!action.toolName) break;
+        {
+          const wiring = toolWiringByName.get(action.toolName);
+          const mappedConnectionId = wiring
+            ? selectedConnectionByTool[action.toolName] ?? wiring.exactConnection?.id
+            : undefined;
+          void handleVerifyTool(action.toolName, mappedConnectionId);
+        }
+        break;
+      case 'test_connection':
+        if (action.connectionId) {
+          void handleTestConnection(action.connectionId);
+        }
+        break;
+      case 'open_tests':
+        onNavigateToTest?.();
+        break;
+      default:
+        break;
+    }
+  }
+
+  useEffect(() => {
+    if (!baleybotId || !balCode || !entitySummaries || entitySummaries.length === 0) return;
+
+    const signature = `${baleybotId}:${balCode}`;
+    if (analyzedSignatureRef.current === signature) return;
+    analyzedSignatureRef.current = signature;
+
+    void runAdvisorAnalysis();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baleybotId, balCode, entitySummaries]);
 
   async function handleTestConnection(connectionId: string) {
     setTestingConnectionId(connectionId);
@@ -454,34 +747,41 @@ export function ConnectionsPanel({
     }
   }
 
-  async function handleVerifyTool(toolName: string, mappedConnectionId?: string) {
+  async function handleVerifyTool(
+    toolName: string,
+    mappedConnectionId?: string
+  ): Promise<ToolVerificationResult> {
     setVerifyingToolName(toolName);
     try {
       const result = await verifyToolMutation.mutateAsync({
         toolName,
         ...(mappedConnectionId ? { mappedConnectionId } : {}),
       });
+      const typedResult = result as ToolVerificationResult;
       setToolVerificationByName((prev) => ({
         ...prev,
-        [toolName]: result as ToolVerificationResult,
+        [toolName]: typedResult,
       }));
+      return typedResult;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Tool verification failed';
+      const failedResult: ToolVerificationResult = {
+        toolName,
+        status: 'failed',
+        checkType: 'runtime',
+        summary: message,
+        details: ['Review connection requirements and try again.'],
+        probe: {
+          attempted: true,
+          success: false,
+          message,
+        },
+      };
       setToolVerificationByName((prev) => ({
         ...prev,
-        [toolName]: {
-          toolName,
-          status: 'failed',
-          checkType: 'runtime',
-          summary: message,
-          details: ['Review connection requirements and try again.'],
-          probe: {
-            attempted: true,
-            success: false,
-            message,
-          },
-        },
+        [toolName]: failedResult,
       }));
+      return failedResult;
     } finally {
       setVerifyingToolName(null);
     }
@@ -534,7 +834,8 @@ export function ConnectionsPanel({
     setAddFormType('database');
   }
 
-  async function handleVerifyAllTools() {
+  async function handleVerifyAllTools(): Promise<Record<string, ToolVerificationResult>> {
+    const verificationResults: Record<string, ToolVerificationResult> = {};
     for (const tool of toolWiring) {
       if (toolVerificationByName[tool.toolName]?.status === 'verified') {
         continue;
@@ -542,8 +843,10 @@ export function ConnectionsPanel({
 
       const selectedConnectionId =
         selectedConnectionByTool[tool.toolName] ?? tool.exactConnection?.id ?? undefined;
-      await handleVerifyTool(tool.toolName, selectedConnectionId);
+      const result = await handleVerifyTool(tool.toolName, selectedConnectionId);
+      verificationResults[tool.toolName] = result;
     }
+    return verificationResults;
   }
 
   if (isLoading) {
@@ -593,6 +896,132 @@ export function ConnectionsPanel({
             Proceed to Testing
             <ArrowRight className="h-3 w-3" />
           </button>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-sm font-medium flex items-center gap-1.5">
+              <Sparkles className="h-4 w-4 text-primary" />
+              AI-Guided Resolution
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Stage 2 of 4: connect required services, validate tool wiring, then move to testing.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px]"
+            onClick={() => void runGuidedConnectionPass()}
+            disabled={
+              isRunningGuidedPass ||
+              Boolean(verifyingToolName) ||
+              testingConnectionId !== null ||
+              !baleybotId ||
+              !balCode
+            }
+          >
+            {isRunningGuidedPass ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                Running guided check
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                Run AI Health Check
+              </>
+            )}
+          </Button>
+        </div>
+
+        {guidedActions.length > 0 ? (
+          <div className="space-y-2">
+            {guidedActions.slice(0, 4).map((action, index) => (
+              <div
+                key={action.id}
+                className="rounded-md border border-border/50 bg-background/70 px-3 py-2 flex items-start justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
+                    Next action {index + 1}
+                  </p>
+                  <p className="text-sm font-medium">{action.title}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{action.description}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px] shrink-0"
+                  onClick={() => handleGuidedAction(action)}
+                >
+                  {actionVerb(action)}
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {allMet
+              ? 'Connections are healthy. You can continue to testing.'
+              : 'Run AI Health Check to get prioritized next actions for unresolved setup issues.'}
+          </p>
+        )}
+
+        {advisorError && (
+          <p className="text-xs text-red-600 dark:text-red-400">{advisorError}</p>
+        )}
+
+        {showAdvisorInsights && (
+          <details className="rounded-md border border-border/50 bg-background/60 px-3 py-2">
+            <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+              View AI analysis details
+            </summary>
+            <div className="space-y-2 pt-2">
+              {advisorResult?.analysis?.aiProvider && (
+                <p className="text-xs">
+                  <span className="font-medium">AI Runtime:</span>{' '}
+                  {advisorResult.analysis.aiProvider.reason}
+                </p>
+              )}
+              {advisorDatabaseInsights.length > 0 && (
+                <div className="space-y-1">
+                  {advisorDatabaseInsights.map((db) => (
+                    <p key={`${db.type}-${db.tools.join(',')}`} className="text-xs">
+                      <span className="font-medium capitalize">{db.type}:</span>{' '}
+                      {db.configHints || `Required by ${db.tools.join(', ')}`}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {advisorRecommendations.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-medium text-muted-foreground mb-1">Recommendations</p>
+                  <ul className="space-y-1">
+                    {advisorRecommendations.map((rec, idx) => (
+                      <li key={`${rec}-${idx}`} className="text-xs text-muted-foreground">
+                        - {rec}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {advisorWarnings.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400 mb-1">Warnings</p>
+                  <ul className="space-y-1">
+                    {advisorWarnings.map((warning, idx) => (
+                      <li key={`${warning}-${idx}`} className="text-xs text-amber-700 dark:text-amber-400">
+                        - {warning}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </details>
         )}
       </div>
 

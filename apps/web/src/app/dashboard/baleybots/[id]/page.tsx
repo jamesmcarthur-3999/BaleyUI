@@ -1462,67 +1462,6 @@ export default function BaleybotPage() {
     existingBaleybot?.runtimeInterfaceSpec,
   ]);
 
-  // Connection analysis — re-runs when connections tab is opened and code changes
-  const analyzeConnectionsMutation = trpc.baleybots.analyzeConnections.useMutation();
-  const lastAnalyzedCodeRef = useRef<string>('');
-
-  useEffect(() => {
-    if (viewMode !== 'connections' || !savedBaleybotId) return;
-    if (entities.length === 0 || !balCode) return;
-    // Skip if we already analyzed this exact code
-    if (lastAnalyzedCodeRef.current === balCode) return;
-    lastAnalyzedCodeRef.current = balCode;
-
-    analyzeConnectionsMutation.mutate(
-      {
-        baleybotId: savedBaleybotId,
-        balCode,
-        entities: entities.map(e => ({ name: e.name, tools: e.tools })),
-      },
-      {
-        onSuccess: (result) => {
-          const analysis = result.analysis;
-          const recommendations = result.recommendations ?? [];
-          const warnings = result.warnings ?? [];
-          const msg: CreatorMessage = {
-            id: `msg-${Date.now()}-connadvice`,
-            role: 'assistant',
-            content: recommendations.join(' ') || 'Connection analysis complete.',
-            timestamp: new Date(),
-            metadata: {
-              connectionStatus: {
-                connections: [
-                  {
-                    name: 'AI Provider',
-                    type: analysis?.aiProvider?.recommended || 'ai',
-                    status: (workspaceConnections ?? []).some(c =>
-                      ['openai', 'anthropic', 'ollama'].includes(c.type) && c.status === 'connected'
-                    ) ? 'connected' : 'missing',
-                  },
-                  ...(analysis?.databases ?? []).map(db => ({
-                    name: db.type,
-                    type: db.type,
-                    status: 'missing' as const,
-                    requiredBy: db.tools,
-                  })),
-                ],
-              },
-              diagnostic: warnings.length > 0
-                ? { level: 'warning' as const, title: 'Connection Warnings', suggestions: warnings }
-                : undefined,
-            },
-          };
-          setMessages(prev => [...prev, msg]);
-        },
-        onError: () => {
-          // Connection analysis is a nice-to-have — fail silently.
-          // The ConnectionsPanel already shows requirements from the static scanner.
-        },
-      }
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, savedBaleybotId, balCode]);
-
   // Auto-save trigger config when it changes (debounced)
   const saveTriggerMutation = trpc.baleybots.saveTriggerConfig.useMutation();
   const getPersistableTriggerConfig = (
@@ -2432,6 +2371,12 @@ export default function BaleybotPage() {
                       <ConnectionsPanel
                         tools={entities.flatMap(e => e.tools)}
                         connections={normalizedConnections ?? []}
+                        baleybotId={savedBaleybotId ?? undefined}
+                        balCode={balCode}
+                        entitySummaries={entities.map((entity) => ({
+                          name: entity.name,
+                          tools: entity.tools,
+                        }))}
                         isLoading={isLoadingConnections}
                         onConnectionCreated={() => utils.connections.list.invalidate()}
                         onApplyToolRemap={handleApplyToolRemap}
