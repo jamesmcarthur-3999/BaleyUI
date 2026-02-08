@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Play, Clock, Zap, AlertCircle, Pause, FileQuestion, MoreHorizontal, Trash2, Bot, Pencil } from 'lucide-react';
+import { Play, Clock, Zap, AlertCircle, Pause, FileQuestion, MoreHorizontal, Trash2, Bot, Pencil, PanelRightOpen } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -37,6 +37,7 @@ interface BaleybotCardProps {
   onPause?: (id: string) => void;
   onActivate?: (id: string) => void;
   onDelete?: (id: string) => void;
+  onInspect?: (id: string) => void;
 }
 
 const statusConfig = {
@@ -80,6 +81,7 @@ export function BaleybotCard({
   onPause,
   onActivate,
   onDelete,
+  onInspect,
 }: BaleybotCardProps) {
   const config = statusConfig[status];
   const StatusIcon = config.Icon;
@@ -125,6 +127,12 @@ export function BaleybotCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {onInspect && (
+                <DropdownMenuItem onClick={() => onInspect(id)}>
+                  <PanelRightOpen className="mr-2 h-4 w-4" />
+                  Quick details
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => onExecute?.(id)}>
                 <Play className="mr-2 h-4 w-4" />
                 Execute
