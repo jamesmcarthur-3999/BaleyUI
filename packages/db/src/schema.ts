@@ -690,6 +690,20 @@ export const baleybots = pgTable(
     // Admin-edited flag: if true, seeding will not overwrite this bot's BAL code
     adminEdited: boolean('admin_edited').default(false).notNull(),
 
+    // Lifecycle stage for Build -> Launch Prep -> Live flow
+    lifecycleStage: varchar('lifecycle_stage', { length: 50 }).notNull().default('draft'), // draft, verified, launch_prepared, live, paused
+
+    // Generated launch preparation artifact
+    launchKit: jsonb('launch_kit'),
+
+    // Generated runtime interface spec used by Live mode
+    runtimeInterfaceSpec: jsonb('runtime_interface_spec'),
+
+    // Lifecycle timestamps
+    launchPreparedAt: timestamp('launch_prepared_at'),
+    liveAt: timestamp('live_at'),
+    pausedAt: timestamp('paused_at'),
+
     // Webhook trigger (optional secret for HTTP triggers)
     webhookSecret: varchar('webhook_secret', { length: 100 }),
     webhookEnabled: boolean('webhook_enabled').default(false),
@@ -739,6 +753,7 @@ export const baleybots = pgTable(
   (table) => [
     index('baleybots_workspace_idx').on(table.workspaceId),
     index('baleybots_status_idx').on(table.status),
+    index('baleybots_lifecycle_stage_idx').on(table.lifecycleStage),
     index('baleybots_deleted_at_idx').on(table.deletedAt),
   ]
 );

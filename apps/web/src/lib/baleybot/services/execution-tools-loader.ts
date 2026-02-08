@@ -37,7 +37,7 @@ const log = createLogger('execution-tools-loader');
 export interface LoadToolsInput {
   workspaceId: string;
   toolCtx: BuiltInToolContext;
-  /** Tool names declared in the BAL code's "tools" array (if parsed) */
+  /** Tool names declared in the BAL code's "tools" set (if parsed) */
   declaredTools?: string[];
 }
 

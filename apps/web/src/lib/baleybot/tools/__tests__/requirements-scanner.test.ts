@@ -1,6 +1,12 @@
 // apps/web/src/lib/baleybot/tools/__tests__/requirements-scanner.test.ts
 import { describe, it, expect } from 'vitest';
-import { scanToolRequirements, getConnectionSummary } from '../requirements-scanner';
+import {
+  connectionNameToSlug,
+  evaluateToolConnectionBinding,
+  getConnectionSummary,
+  parseConnectionTool,
+  scanToolRequirements,
+} from '../requirements-scanner';
 
 describe('scanToolRequirements', () => {
   it('returns known requirements for built-in tools', () => {
@@ -14,6 +20,7 @@ describe('scanToolRequirements', () => {
     const result = scanToolRequirements(['query_postgres_users']);
     expect(result).toHaveLength(1);
     expect(result[0]?.connectionType).toBe('postgres');
+    expect(result[0]?.connectionSlug).toBe('users');
     expect(result[0]?.required).toBe(true);
   });
 
@@ -21,6 +28,7 @@ describe('scanToolRequirements', () => {
     const result = scanToolRequirements(['query_mysql_orders']);
     expect(result).toHaveLength(1);
     expect(result[0]?.connectionType).toBe('mysql');
+    expect(result[0]?.connectionSlug).toBe('orders');
   });
 
   it('returns none for unknown tools', () => {
@@ -32,6 +40,47 @@ describe('scanToolRequirements', () => {
   it('handles empty array', () => {
     const result = scanToolRequirements([]);
     expect(result).toHaveLength(0);
+  });
+});
+
+describe('connection-derived tool parsing and binding', () => {
+  it('parses connection-derived tool names', () => {
+    expect(parseConnectionTool('query_postgres_users')).toEqual({
+      connectionType: 'postgres',
+      connectionSlug: 'users',
+    });
+    expect(parseConnectionTool('query_pg_events')).toEqual({
+      connectionType: 'postgres',
+      connectionSlug: 'events',
+    });
+    expect(parseConnectionTool('query_mysql_orders')).toEqual({
+      connectionType: 'mysql',
+      connectionSlug: 'orders',
+    });
+    expect(parseConnectionTool('custom_tool')).toEqual({
+      connectionType: null,
+      connectionSlug: undefined,
+    });
+  });
+
+  it('normalizes connection names to slugs', () => {
+    expect(connectionNameToSlug('Users DB')).toBe('users_db');
+    expect(connectionNameToSlug('Primary-Postgres!!')).toBe('primary_postgres');
+  });
+
+  it('marks binding ready when exact source connection is connected', () => {
+    const result = evaluateToolConnectionBinding('query_postgres_users_db', [
+      { id: '1', type: 'postgres', name: 'Users DB', status: 'connected' },
+    ]);
+    expect(result.status).toBe('ready');
+    expect(result.matchedConnectionName).toBe('Users DB');
+  });
+
+  it('marks binding mismatch when same type exists but exact source is missing', () => {
+    const result = evaluateToolConnectionBinding('query_mysql_orders', [
+      { id: '1', type: 'mysql', name: 'Analytics', status: 'connected' },
+    ]);
+    expect(result.status).toBe('mismatch');
   });
 });
 

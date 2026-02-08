@@ -30,7 +30,7 @@ export interface VisualEdge {
   id: string;
   source: string;
   target: string;
-  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel' | 'spawn' | 'shared_data' | 'trigger' | 'try_catch' | 'route' | 'gate' | 'filter';
+  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel' | 'loop' | 'spawn' | 'shared_data' | 'trigger' | 'try_catch' | 'route' | 'gate' | 'filter';
   label?: string;
   animated?: boolean;
 }

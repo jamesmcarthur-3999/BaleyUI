@@ -68,6 +68,7 @@ vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
   RATE_LIMITS: {
     execute: { maxRequests: 10, windowMs: 60000 },
+    executeTest: { maxRequests: 60, windowMs: 60000 },
   },
 }));
 

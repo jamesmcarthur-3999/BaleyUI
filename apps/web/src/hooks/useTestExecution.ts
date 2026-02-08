@@ -14,6 +14,10 @@ import { trpc } from '@/lib/trpc/client';
 import type { TestCase } from '@/components/creator';
 import type { CreatorMessage, VisualEntity, AdaptiveTab } from '@/lib/baleybot/creator-types';
 import { getConnectionSummary } from '@/lib/baleybot/tools/requirements-scanner';
+import {
+  evaluateOutputMatch,
+  type MatchStrategy as OutputMatchStrategy,
+} from '@/lib/baleybot/testing/output-match';
 
 // ============================================================================
 // TYPES
@@ -27,7 +31,7 @@ export type FailureCategory =
   | 'rate_limited'
   | 'precondition_failed';
 
-export type MatchStrategy = 'exact' | 'contains' | 'semantic' | 'schema' | 'structured';
+export type MatchStrategy = OutputMatchStrategy;
 
 interface WorkspaceConnection {
   id: string;
@@ -84,11 +88,13 @@ export interface UseTestExecutionReturn {
   setTestCases: Dispatch<SetStateAction<TestCase[]>>;
   isGeneratingTests: boolean;
   isRunningAll: boolean;
+  isSelfHealing: boolean;
   runAllProgress: RunAllProgress | null;
   lastRunSummary: TestRunSummary | null;
   handleGenerateTests: () => Promise<void>;
   handleRunTest: (testId: string) => Promise<void>;
   handleRunAllTests: () => Promise<void>;
+  handleRunAllWithSelfHealing: () => Promise<void>;
   handleAddTest: (test: Omit<TestCase, 'id' | 'status'>) => void;
   handleUpdateTest: (testId: string, updates: Partial<TestCase>) => void;
   handleDeleteTest: (testId: string) => void;
@@ -213,117 +219,7 @@ export function compareOutput(
   expected: string,
   strategy: MatchStrategy = 'contains',
 ): boolean {
-  const trimActual = actual.trim();
-  const trimExpected = expected.trim();
-
-  if (!trimExpected) return true; // No expected output = pass if execution completed
-
-  switch (strategy) {
-    case 'exact': {
-      // Try JSON comparison first
-      try {
-        const expectedJson = JSON.parse(trimExpected);
-        const actualJson = JSON.parse(trimActual);
-        return JSON.stringify(expectedJson) === JSON.stringify(actualJson);
-      } catch {
-        // Fall through to string comparison
-      }
-      return trimActual === trimExpected;
-    }
-
-    case 'contains': {
-      // Case-insensitive substring match
-      if (trimActual.toLowerCase().includes(trimExpected.toLowerCase())) return true;
-
-      // 80%+ keyword match
-      const expectedWords = trimExpected.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-      if (expectedWords.length > 0) {
-        const matchedWords = expectedWords.filter(w => trimActual.toLowerCase().includes(w));
-        if (matchedWords.length >= expectedWords.length * 0.8) return true;
-      }
-
-      return false;
-    }
-
-    case 'semantic': {
-      // Extract signal concepts from descriptions
-      const lowerActual = trimActual.toLowerCase();
-      const lowerExpected = trimExpected.toLowerCase();
-
-      // Direct substring
-      if (lowerActual.includes(lowerExpected)) return true;
-
-      // Strip prescriptive language and check concepts
-      const stripped = lowerExpected
-        .replace(/should (contain|include|mention|have|be|return|output)/g, '')
-        .replace(/must (contain|include|mention|have|be|return|output)/g, '')
-        .replace(/the (output|response|result) (should|must|will)/g, '')
-        .replace(/expected to/g, '')
-        .trim();
-
-      const concepts = stripped.split(/[\s,;.]+/).filter(w => w.length > 3);
-      if (concepts.length === 0) return true;
-
-      const matched = concepts.filter(c => lowerActual.includes(c));
-      // 60% threshold for semantic matching
-      return matched.length >= concepts.length * 0.6;
-    }
-
-    case 'schema': {
-      // Parse expected as key→type shape, validate actual has matching keys with correct types
-      try {
-        const expectedShape = JSON.parse(trimExpected) as Record<string, string>;
-        const actualObj = JSON.parse(trimActual) as Record<string, unknown>;
-
-        const typeCheckers: Record<string, (v: unknown) => boolean> = {
-          string: (v) => typeof v === 'string',
-          number: (v) => typeof v === 'number',
-          boolean: (v) => typeof v === 'boolean',
-          array: (v) => Array.isArray(v),
-          object: (v) => typeof v === 'object' && v !== null && !Array.isArray(v),
-        };
-
-        for (const [key, expectedType] of Object.entries(expectedShape)) {
-          if (!(key in actualObj)) return false;
-          const checker = typeCheckers[expectedType.toLowerCase()];
-          if (checker && !checker(actualObj[key])) return false;
-        }
-        return true;
-      } catch {
-        return false;
-      }
-    }
-
-    case 'structured': {
-      // Deep JSON comparison — parse both, compare keys/values ignoring order, tolerant of extra keys
-      try {
-        const expectedObj = JSON.parse(trimExpected) as Record<string, unknown>;
-        const actualObj = JSON.parse(trimActual) as Record<string, unknown>;
-
-        const deepMatch = (exp: unknown, act: unknown): boolean => {
-          if (exp === act) return true;
-          if (typeof exp !== typeof act) return false;
-          if (Array.isArray(exp)) {
-            if (!Array.isArray(act) || act.length < exp.length) return false;
-            return exp.every((item, i) => deepMatch(item, (act as unknown[])[i]));
-          }
-          if (typeof exp === 'object' && exp !== null && act !== null) {
-            const expObj = exp as Record<string, unknown>;
-            const actObj = act as Record<string, unknown>;
-            return Object.keys(expObj).every(key => key in actObj && deepMatch(expObj[key], actObj[key]));
-          }
-          return false;
-        };
-
-        return deepMatch(expectedObj, actualObj);
-      } catch {
-        return false;
-      }
-    }
-
-    default:
-      return false;
-  }
+  return evaluateOutputMatch(actual, expected, strategy).passed;
 }
 
 // ============================================================================
@@ -334,6 +230,26 @@ interface PreflightResult {
   ok: boolean;
   error?: string;
   category?: FailureCategory;
+}
+
+const TEST_EXECUTION_CONFIG = {
+  interTestDelayMs: 350,
+  batchSize: 6,
+  batchCooldownMs: 1500,
+  rateLimitBackoffMs: 3000,
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfterMs(error?: string): number | null {
+  if (!error) return null;
+  const match = error.match(/retry after\s+(\d+)\s+seconds?/i);
+  if (!match?.[1]) return null;
+  const seconds = Number(match[1]);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return seconds * 1000;
 }
 
 function runPreflightChecks(
@@ -399,9 +315,11 @@ export function useTestExecution({
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [isGeneratingTests, setIsGeneratingTests] = useState(false);
   const [isRunningAll, setIsRunningAll] = useState(false);
+  const [isSelfHealing, setIsSelfHealing] = useState(false);
   const [runAllProgress, setRunAllProgress] = useState<RunAllProgress | null>(null);
   const [lastRunSummary, setLastRunSummary] = useState<TestRunSummary | null>(null);
   const prevStatusesRef = useRef<Map<string, TestCase['status']>>(new Map());
+  const testCasesRef = useRef<TestCase[]>([]);
 
   const generateTestsMutation = trpc.baleybots.generateTests.useMutation();
   const executeMutation = trpc.baleybots.execute.useMutation();
@@ -430,6 +348,7 @@ export function useTestExecution({
   useEffect(() => {
     const newStatuses = new Map(testCases.map(t => [t.id, t.status]));
     prevStatusesRef.current = newStatuses;
+    testCasesRef.current = testCases;
   }, [testCases]);
 
   // ─── BB-Powered Semantic Validation ──────────────────────────────────
@@ -437,7 +356,7 @@ export function useTestExecution({
   const validateWithBB = async (
     test: TestCase,
     actualOutput: string,
-  ): Promise<{ passed: boolean; reasoning?: string }> => {
+  ): Promise<{ passed: boolean; confidence?: number; reasoning?: string }> => {
     if (!test.expectedOutput) return { passed: true };
 
     const inputForValidation = typeof test.input === 'object' ? JSON.stringify(test.input) : test.input;
@@ -449,11 +368,13 @@ export function useTestExecution({
         actualOutput,
         botName: botName || 'BaleyBot',
         botGoal: entities[0]?.purpose,
+        matchStrategy: test.matchStrategy,
         expectedSteps: test.expectedSteps,
       });
 
       return {
         passed: result.passed,
+        confidence: result.confidence,
         reasoning: result.reasoning,
       };
     } catch {
@@ -754,6 +675,7 @@ export function useTestExecution({
           id: savedBaleybotId!,
           input: executionInput,
           triggeredBy: 'manual',
+          triggerSource: `test_runner:${testId}`,
         }),
         timeoutPromise,
       ]);
@@ -766,20 +688,22 @@ export function useTestExecution({
       const strategy = test.matchStrategy ?? 'contains';
       let testPassed = execution.status === 'completed';
       let hasOutputMismatch = false;
+      let validationReasoning: string | undefined;
 
       if (testPassed && test.expectedOutput && actualOutput) {
-        // First try local comparison
-        const localPassed = compareOutput(actualOutput, test.expectedOutput, strategy);
+        const localMatch = evaluateOutputMatch(actualOutput, test.expectedOutput, strategy);
+        validationReasoning = localMatch.reason;
+        testPassed = localMatch.passed;
 
-        if (!localPassed && strategy === 'semantic') {
-          // For semantic tests, escalate to BB validation if local comparison fails
+        // Escalate looser strategies to AI validator when deterministic checks fail.
+        // This catches semantically-correct outputs that miss strict keyword overlap.
+        if (!localMatch.passed && (strategy === 'semantic' || strategy === 'contains')) {
           const bbResult = await validateWithBB(test, actualOutput);
           testPassed = bbResult.passed;
-          if (!testPassed) hasOutputMismatch = true;
-        } else {
-          testPassed = localPassed;
-          if (!testPassed) hasOutputMismatch = true;
+          validationReasoning = bbResult.reasoning ?? localMatch.reason;
         }
+
+        if (!testPassed) hasOutputMismatch = true;
       }
 
       if (testPassed) {
@@ -797,7 +721,7 @@ export function useTestExecution({
         ));
       } else {
         const errorMsg = execution.error || (!testPassed && test.expectedOutput
-          ? `Output did not match expected (strategy: ${strategy})`
+          ? `Output did not match expected (strategy: ${strategy}). ${validationReasoning ?? ''}`.trim()
           : undefined);
         const failCat = categorizeTestFailure(
           errorMsg,
@@ -884,6 +808,55 @@ export function useTestExecution({
 
   // ─── Run All Tests ──────────────────────────────────────────────────────
 
+  const runTestsSequentially = async (
+    testIds: string[],
+    phase: RunAllProgress['phase'],
+    options?: {
+      interTestDelayMs?: number;
+      batchSize?: number;
+      batchCooldownMs?: number;
+      adaptiveBackoff?: boolean;
+    },
+  ) => {
+    const interTestDelayMs = options?.interTestDelayMs ?? TEST_EXECUTION_CONFIG.interTestDelayMs;
+    const batchSize = options?.batchSize ?? TEST_EXECUTION_CONFIG.batchSize;
+    const batchCooldownMs = options?.batchCooldownMs ?? TEST_EXECUTION_CONFIG.batchCooldownMs;
+    const adaptiveBackoff = options?.adaptiveBackoff ?? true;
+
+    for (let i = 0; i < testIds.length; i++) {
+      const testId = testIds[i]!;
+      const test = testCasesRef.current.find(t => t.id === testId);
+      setRunAllProgress({
+        current: i + 1,
+        total: testIds.length,
+        currentTestName: test?.name ?? `Test ${i + 1}`,
+        phase,
+      });
+      await handleRunTest(testId);
+
+      if (i >= testIds.length - 1) continue;
+
+      let pauseMs = interTestDelayMs;
+      const latest = testCasesRef.current.find((t) => t.id === testId);
+
+      if (adaptiveBackoff && latest?.failureCategory === 'rate_limited') {
+        const retryAfterMs = parseRetryAfterMs(latest.error);
+        pauseMs = Math.max(
+          pauseMs,
+          retryAfterMs ?? TEST_EXECUTION_CONFIG.rateLimitBackoffMs
+        );
+      }
+
+      if (batchSize > 0 && (i + 1) % batchSize === 0) {
+        pauseMs = Math.max(pauseMs, batchCooldownMs);
+      }
+
+      if (pauseMs > 0) {
+        await sleep(pauseMs);
+      }
+    }
+  };
+
   const handleRunAllTests = async () => {
     // Pre-flight validation once for all tests
     const preflight = runPreflightChecks(savedBaleybotId, entities, workspaceConnections);
@@ -913,21 +886,15 @@ export function useTestExecution({
 
     setIsRunningAll(true);
     setLastRunSummary(null);
-    const total = testCases.length;
 
     try {
       // Run tests sequentially to avoid rate limits and provide clear progress
-      for (let i = 0; i < testCases.length; i++) {
-        const test = testCases[i]!;
-        setRunAllProgress({
-          current: i + 1,
-          total,
-          currentTestName: test.name,
-          phase: 'running',
-        });
-
-        await handleRunTest(test.id);
-      }
+      await runTestsSequentially(testCases.map(t => t.id), 'running', {
+        interTestDelayMs: TEST_EXECUTION_CONFIG.interTestDelayMs,
+        batchSize: TEST_EXECUTION_CONFIG.batchSize,
+        batchCooldownMs: TEST_EXECUTION_CONFIG.batchCooldownMs,
+        adaptiveBackoff: true,
+      });
 
       // After all tests, get the final state and analyze
       // We need to read testCases from a ref-like approach since setState is async
@@ -952,6 +919,120 @@ export function useTestExecution({
       setRunAllProgress(null);
       setIsRunningAll(false);
     }, 1500);
+  };
+
+  const handleRunAllWithSelfHealing = async () => {
+    // Pre-flight validation once for all tests
+    const preflight = runPreflightChecks(savedBaleybotId, entities, workspaceConnections);
+    if (!preflight.ok) {
+      const failCat = preflight.category ?? 'precondition_failed';
+      const { diagnostic, options } = getFailureDiagnostic(failCat, preflight.error, 'all tests');
+
+      setTestCases(prev => prev.map(t => ({
+        ...t,
+        status: 'failed' as const,
+        error: preflight.error,
+        failureCategory: failCat,
+      })));
+
+      onInjectMessage({
+        id: `msg-${Date.now()}-preflight-heal-all`,
+        role: 'assistant',
+        content: preflight.error ?? 'Pre-flight check failed for all tests.',
+        timestamp: new Date(),
+        metadata: {
+          diagnostic,
+          options: options.length > 0 ? options : undefined,
+        },
+      });
+      return;
+    }
+
+    setIsRunningAll(true);
+    setIsSelfHealing(true);
+    setLastRunSummary(null);
+
+    try {
+      // Baseline run
+      await runTestsSequentially(testCasesRef.current.map(t => t.id), 'running', {
+        interTestDelayMs: TEST_EXECUTION_CONFIG.interTestDelayMs,
+        batchSize: TEST_EXECUTION_CONFIG.batchSize,
+        batchCooldownMs: TEST_EXECUTION_CONFIG.batchCooldownMs,
+        adaptiveBackoff: true,
+      });
+
+      const maxHealCycles = 2;
+      let previousPassCount = testCasesRef.current.filter(t => t.status === 'passed').length;
+
+      for (let cycle = 1; cycle <= maxHealCycles; cycle++) {
+        const healable = testCasesRef.current.filter(
+          (t) =>
+            t.status === 'failed' &&
+            (
+              t.failureCategory === 'timeout' ||
+              t.failureCategory === 'rate_limited' ||
+              t.failureCategory === 'execution_error' ||
+              t.failureCategory === 'output_mismatch'
+            )
+        );
+
+        if (healable.length === 0) {
+          break;
+        }
+
+        onInjectMessage({
+          id: `msg-${Date.now()}-heal-cycle-${cycle}`,
+          role: 'assistant',
+          content: `Self-heal cycle ${cycle}: retrying ${healable.length} failed test${healable.length === 1 ? '' : 's'} with adaptive backoff.`,
+          timestamp: new Date(),
+        });
+
+        setRunAllProgress({
+          current: 0,
+          total: healable.length,
+          currentTestName: `Self-heal cycle ${cycle}`,
+          phase: 'analyzing',
+        });
+
+        // Brief pause before healing cycle, then re-run with stronger cooldown.
+        await sleep(TEST_EXECUTION_CONFIG.batchCooldownMs);
+        await runTestsSequentially(healable.map(t => t.id), 'validating', {
+          interTestDelayMs: TEST_EXECUTION_CONFIG.interTestDelayMs + 150,
+          batchSize: Math.max(1, Math.floor(TEST_EXECUTION_CONFIG.batchSize / 2)),
+          batchCooldownMs: TEST_EXECUTION_CONFIG.batchCooldownMs + 500,
+          adaptiveBackoff: true,
+        });
+
+        const currentPassCount = testCasesRef.current.filter(t => t.status === 'passed').length;
+        if (currentPassCount <= previousPassCount) {
+          // No progress in this cycle: stop healing.
+          onInjectMessage({
+            id: `msg-${Date.now()}-heal-stop-${cycle}`,
+            role: 'assistant',
+            content: 'Self-healing stopped: no additional tests were recovered in the latest cycle.',
+            timestamp: new Date(),
+          });
+          break;
+        }
+        previousPassCount = currentPassCount;
+      }
+
+      setRunAllProgress({
+        current: 1,
+        total: 1,
+        currentTestName: 'Analyzing healed results...',
+        phase: 'analyzing',
+      });
+
+      await analyzeResults(testCasesRef.current);
+    } finally {
+      setRunAllProgress({ current: 1, total: 1, currentTestName: 'Done', phase: 'complete' });
+      setTimeout(() => {
+        setRunAllProgress(null);
+        setIsRunningAll(false);
+        setIsSelfHealing(false);
+      }, 1200);
+    }
   };
 
   // ─── Add / Update / Delete / Accept ─────────────────────────────────────
@@ -988,11 +1069,13 @@ export function useTestExecution({
     setTestCases,
     isGeneratingTests,
     isRunningAll,
+    isSelfHealing,
     runAllProgress,
     lastRunSummary,
     handleGenerateTests,
     handleRunTest,
     handleRunAllTests,
+    handleRunAllWithSelfHealing,
     handleAddTest,
     handleUpdateTest,
     handleDeleteTest,

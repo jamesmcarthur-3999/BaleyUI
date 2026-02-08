@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import { executeInternalBaleybot } from './internal-baleybots';
-import { parseBalCode } from './bal-parser-pure';
+import { normalizeBalCodeForCompatibility, parseBalCode } from './bal-parser-pure';
 import type {
   GeneratorContext,
   GenerateResult,
@@ -56,7 +56,7 @@ BAL is used to define BaleyBot configurations. Each entity is an AI agent with a
 entity_name {
   "goal": "What this entity should accomplish",
   "model": "provider:model-name",  // Optional, e.g., "openai:gpt-4o-mini"
-  "tools": ["tool1", "tool2"],     // Tools available to the entity
+  "tools": { "tool1", "tool2" },   // Tools available to the entity
   "output": {                      // Optional output schema
     "field1": "type",
     "field2": "type"
@@ -108,14 +108,14 @@ run("Your input text here")
 activity_poller {
   "goal": "Poll database for new user events every 5 minutes",
   "model": "openai:gpt-4o-mini",
-  "tools": ["query_database"],
+  "tools": { "query_database" },
   "history": "none"
 }
 
 trend_analyzer {
   "goal": "Analyze event patterns and identify trends",
   "model": "anthropic:claude-sonnet-4-20250514",
-  "tools": ["query_database", "send_notification"],
+  "tools": { "query_database", "send_notification" },
   "output": {
     "trends": "array",
     "anomalies": "array"
@@ -172,6 +172,7 @@ ${existingBBsSection}
 5. **Clear Names**: Use descriptive snake_case names for entities
 6. **Good Defaults**: Use appropriate models (gpt-4o-mini for simple tasks, claude-sonnet for complex reasoning)
 7. **Helpful Icons**: Suggest relevant emoji icons
+8. **Use BAL Skills Intentionally**: Prefer loop compositions for iterative/self-healing tasks with explicit until/max guardrails
 `;
 }
 
@@ -260,11 +261,26 @@ Please refine the BAL code based on this feedback.`;
   }
   const parsed = result.data;
 
+  // Normalize model-generated BAL into parser/runtime-compatible syntax.
+  const normalizedBalCode = normalizeBalCodeForCompatibility(parsed.balCode);
+  const normalizedParse = parseBalCode(normalizedBalCode);
+  if (normalizedParse.entities.length === 0 || normalizedParse.errors.length > 0) {
+    const genLogger = await import('@/lib/logger').then(m => m.createLogger('bal-generator'));
+    genLogger.error('Generated BAL failed compatibility normalization', {
+      parseErrors: normalizedParse.errors,
+      balPreview: normalizedBalCode.slice(0, 500),
+    });
+    throw new Error(
+      'The AI returned BAL code in an unsupported format. Please try again.'
+    );
+  }
+
   // Validate tool assignments against policies
   const validatedEntities = validateToolAssignments(ctx, parsed.entities);
 
   return {
     ...parsed,
+    balCode: normalizedBalCode,
     entities: validatedEntities,
   };
 }

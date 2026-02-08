@@ -3,6 +3,7 @@ import {
   seedInternalBaleybots,
   getInternalBaleybot,
   INTERNAL_BALEYBOTS,
+  executeInternalBaleybot,
 } from '../internal-baleybots';
 
 // Mock external dependencies for integration test
@@ -24,14 +25,21 @@ vi.mock('@baleyui/db', () => {
         workspaces: {
           findFirst: vi.fn().mockResolvedValue({ id: 'system-ws-id', slug: '__system__' }),
         },
+        connections: {
+          findMany: vi.fn().mockResolvedValue([
+            { type: 'openai', name: 'OpenAI Workspace Provider' },
+          ]),
+        },
       },
       insert: vi.fn().mockImplementation((_table) => ({
         values: vi.fn().mockImplementation((values) => ({
           returning: vi.fn().mockImplementation(() => {
             // Simulate successful insertion
             const id = `bb-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            const created = { id, ...values, isInternal: true };
-            mockBaleybots.set(values.name, created);
+            const created = { id, ...values, isInternal: values.isInternal ?? true };
+            if (typeof values.name === 'string') {
+              mockBaleybots.set(values.name, created);
+            }
             return Promise.resolve([created]);
           }),
         })),
@@ -44,6 +52,7 @@ vi.mock('@baleyui/db', () => {
     },
     baleybots: { isInternal: {} },
     baleybotExecutions: {},
+    connections: { workspaceId: {}, type: {}, name: {} },
     workspaces: {},
     eq: vi.fn().mockReturnValue(true),
     and: vi.fn(),
@@ -84,7 +93,9 @@ describe('internal-baleybots integration', () => {
 
   describe('INTERNAL_BALEYBOTS definitions', () => {
     const expectedBots = [
+      'creator_discovery',
       'creator_bot',
+      'creator_action_advisor',
       'bal_generator',
       'pattern_learner',
       'execution_reviewer',
@@ -92,6 +103,7 @@ describe('internal-baleybots integration', () => {
       'nl_to_sql_mysql',
       'web_search_fallback',
       'connection_advisor',
+      'test_orchestrator',
       'test_generator',
       'deployment_advisor',
       'test_validator',
@@ -149,6 +161,30 @@ describe('internal-baleybots integration', () => {
     it('returns null for unknown bots', async () => {
       const bot = await getInternalBaleybot('nonexistent_bot');
       expect(bot).toBeNull();
+    });
+  });
+
+  describe('executeInternalBaleybot', () => {
+    it('uses user workspace context for provider resolution and execution', async () => {
+      const { executeBaleybot } = await import('../executor');
+
+      await expect(
+        executeInternalBaleybot('web_search_fallback', 'Search for latest AI news', {
+          triggeredBy: 'internal',
+          userWorkspaceId: 'user-ws-123',
+        })
+      ).resolves.toMatchObject({
+        executionId: expect.any(String),
+      });
+
+      expect(executeBaleybot).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({
+          workspaceId: 'user-ws-123',
+          triggerSource: 'user-ws-123',
+        })
+      );
     });
   });
 });

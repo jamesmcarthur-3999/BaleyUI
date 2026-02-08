@@ -87,6 +87,12 @@ function toReactFlowEdge(edge: VisualEdge): Edge {
         ...baseEdge,
         style: { stroke: 'hsl(217.2, 91.2%, 59.8%)', strokeDasharray: '5,5' }, // blue dashed
       };
+    case 'loop':
+      return {
+        ...baseEdge,
+        style: { stroke: 'hsl(33, 95%, 55%)', strokeWidth: 2, strokeDasharray: '6,4' }, // orange dashed
+        animated: true,
+      };
     case 'spawn':
       return {
         ...baseEdge,
@@ -244,6 +250,9 @@ export function ClusterDiagram({
             )}
             {edgeTypes.has('parallel') && (
               <LegendItem color="hsl(217.2, 91.2%, 59.8%)" dashed label="Parallel execution" />
+            )}
+            {edgeTypes.has('loop') && (
+              <LegendItem color="hsl(33, 95%, 55%)" dashed label="Loop iteration" />
             )}
             {edgeTypes.has('conditional_pass') && (
               <LegendItem color="hsl(142.1, 76.2%, 36.3%)" dashed={false} label="Condition: pass" />

@@ -36,6 +36,11 @@ function parseTriggerString(trigger: string): TriggerConfig | null {
     return { type: 'webhook' };
   }
 
+  if (trimmed.startsWith('webhook:')) {
+    const webhookPath = trigger.slice('webhook:'.length).trim();
+    return { type: 'webhook', webhookPath };
+  }
+
   // Schedule trigger with cron expression
   if (trimmed.startsWith('schedule:')) {
     const schedule = trigger.slice('schedule:'.length).trim();
@@ -44,8 +49,42 @@ function parseTriggerString(trigger: string): TriggerConfig | null {
 
   // BB completion trigger
   if (trimmed.startsWith('bb_completion:')) {
-    const sourceBaleybotId = trigger.slice('bb_completion:'.length).trim();
-    return { type: 'other_bb', sourceBaleybotId };
+    const parts = trigger.slice('bb_completion:'.length).trim().split(':');
+    const sourceBaleybotId = parts[0]?.trim();
+    const completionType = parts[1]?.trim() as TriggerConfig['completionType'] | undefined;
+    return {
+      type: 'other_bb',
+      ...(sourceBaleybotId ? { sourceBaleybotId } : {}),
+      ...(completionType ? { completionType } : {}),
+    };
+  }
+
+  // Database event trigger
+  if (trimmed.startsWith('db_event:')) {
+    const parts = trigger.slice('db_event:'.length).trim().split(':');
+    const dbConnectionId = parts[0]?.trim();
+    const dbTable = parts[1]?.trim();
+    const dbEvent = parts[2]?.trim() as TriggerConfig['dbEvent'] | undefined;
+    return {
+      type: 'db_event',
+      ...(dbConnectionId ? { dbConnectionId } : {}),
+      ...(dbTable ? { dbTable } : {}),
+      ...(dbEvent ? { dbEvent } : {}),
+    };
+  }
+
+  // MCP event trigger
+  if (trimmed.startsWith('mcp_event:')) {
+    const parts = trigger.slice('mcp_event:'.length).trim().split(':');
+    const mcpServer = parts[0]?.trim();
+    const mcpTool = parts[1]?.trim();
+    const mcpResource = parts[2]?.trim();
+    return {
+      type: 'mcp_event',
+      ...(mcpServer ? { mcpServer } : {}),
+      ...(mcpTool ? { mcpTool } : {}),
+      ...(mcpResource ? { mcpResource } : {}),
+    };
   }
 
   // Default to manual if unrecognized
@@ -59,6 +98,56 @@ function parseTriggerString(trigger: string): TriggerConfig | null {
 const NODE_WIDTH = 280;
 const NODE_HEIGHT = 150;
 const HORIZONTAL_GAP = 100;
+
+function findMatchingDelimiter(
+  source: string,
+  startIndex: number,
+  open: '{' | '[' | '(',
+  close: '}' | ']' | ')'
+): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = startIndex; i < source.length; i++) {
+    const char = source[i];
+    if (!char) break;
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === open) {
+      depth++;
+      continue;
+    }
+
+    if (char === close) {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+
+  return -1;
+}
 
 // ============================================================================
 // CONVERTER
@@ -89,7 +178,7 @@ export function balToVisualFromParsed(
 ): BalToVisualResult {
   const { entities, chain, errors } = parsed;
 
-  if (errors.length > 0 || entities.length === 0) {
+  if (entities.length === 0) {
     return { graph: { nodes: [], edges: [] }, errors };
   }
 
@@ -154,8 +243,9 @@ export function balToVisualFromParsed(
   // Parse and add edges for other control structures
   const parallelEdges = parseParallelEdges(balCode, nodes);
   const conditionalEdges = parseConditionalEdges(balCode, nodes);
+  const loopEdges = parseLoopEdges(balCode, nodes);
 
-  edges.push(...parallelEdges, ...conditionalEdges);
+  edges.push(...parallelEdges, ...conditionalEdges, ...loopEdges);
 
   // Generate relationship edges from entity data
   edges.push(...generateSpawnEdges(nodes));
@@ -165,7 +255,7 @@ export function balToVisualFromParsed(
   // Apply dagre layout based on edges
   const layoutedNodes = autoLayout(nodes, edges);
 
-  return { graph: { nodes: layoutedNodes, edges }, errors: [] };
+  return { graph: { nodes: layoutedNodes, edges }, errors };
 }
 
 /**
@@ -272,6 +362,95 @@ function parseConditionalEdges(
       target: failMatch[1],
       type: 'conditional_fail',
       label: 'fail',
+    });
+  }
+
+  return edges;
+}
+
+/**
+ * Parse loop edges from BAL code.
+ * Adds an iterative edge from the loop body's final entity back to the first entity.
+ */
+function parseLoopEdges(
+  balCode: string,
+  nodes: VisualNode[]
+): VisualEdge[] {
+  const edges: VisualEdge[] = [];
+  const nodeNames = new Set(nodes.map((node) => node.id));
+  const loopRegex = /\bloop\b/g;
+  let loopMatch: RegExpExecArray | null;
+  let loopIndex = 0;
+
+  while ((loopMatch = loopRegex.exec(balCode)) !== null) {
+    let cursor = loopMatch.index + loopMatch[0].length;
+    while (cursor < balCode.length && /\s/.test(balCode[cursor] || '')) {
+      cursor++;
+    }
+
+    let params = '';
+    if (balCode[cursor] === '(') {
+      const paramsEnd = findMatchingDelimiter(balCode, cursor, '(', ')');
+      if (paramsEnd === -1) {
+        continue;
+      }
+      params = balCode.slice(cursor + 1, paramsEnd);
+      cursor = paramsEnd + 1;
+      while (cursor < balCode.length && /\s/.test(balCode[cursor] || '')) {
+        cursor++;
+      }
+    }
+
+    if (balCode[cursor] !== '{') {
+      continue;
+    }
+
+    const bodyEnd = findMatchingDelimiter(balCode, cursor, '{', '}');
+    if (bodyEnd === -1) {
+      continue;
+    }
+
+    const body = balCode.slice(cursor + 1, bodyEnd);
+    const loopBodyEntities: string[] = [];
+    const seen = new Set<string>();
+    const idRegex = /\b[a-zA-Z_][a-zA-Z0-9_]*\b/g;
+    let idMatch: RegExpExecArray | null;
+
+    while ((idMatch = idRegex.exec(body)) !== null) {
+      const name = idMatch[0];
+      if (name && nodeNames.has(name) && !seen.has(name)) {
+        loopBodyEntities.push(name);
+        seen.add(name);
+      }
+    }
+
+    if (loopBodyEntities.length === 0) {
+      continue;
+    }
+
+    const source = loopBodyEntities[loopBodyEntities.length - 1];
+    const target = loopBodyEntities[0];
+    if (!source || !target) {
+      continue;
+    }
+
+    const labelParts: string[] = [];
+    const untilMatch = params.match(/(?:"until"|until)\s*:\s*"((?:\\.|[^"\\])*)"/i);
+    const maxMatch = params.match(/(?:"max"|max)\s*:\s*(\d+)/i);
+    if (untilMatch?.[1]) {
+      labelParts.push(`until ${untilMatch[1]}`);
+    }
+    if (maxMatch?.[1]) {
+      labelParts.push(`max ${maxMatch[1]}`);
+    }
+
+    edges.push({
+      id: `loop-${source}->${target}-${loopIndex++}`,
+      source,
+      target,
+      type: 'loop',
+      animated: true,
+      label: labelParts.length > 0 ? `loop (${labelParts.join(', ')})` : 'loop',
     });
   }
 

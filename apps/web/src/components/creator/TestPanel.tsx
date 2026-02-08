@@ -44,10 +44,12 @@ interface TestPanelProps {
   topology?: string;
   onRunTest: (testId: string) => void;
   onRunAll: () => void;
+  onRunAllWithSelfHealing?: () => void;
   onAddTest: (test: Omit<TestCase, 'id' | 'status'>) => void;
   onGenerateTests: () => void;
   isGenerating: boolean;
   isRunningAll?: boolean;
+  isSelfHealing?: boolean;
   runAllProgress?: RunAllProgress | null;
   lastRunSummary?: TestRunSummary | null;
   onUpdateTest?: (testId: string, updates: Partial<TestCase>) => void;
@@ -113,10 +115,12 @@ export function TestPanel({
   topology,
   onRunTest,
   onRunAll,
+  onRunAllWithSelfHealing,
   onAddTest,
   onGenerateTests,
   isGenerating,
   isRunningAll,
+  isSelfHealing,
   runAllProgress,
   lastRunSummary,
   onUpdateTest,
@@ -239,6 +243,11 @@ export function TestPanel({
     setEditingTestId(null);
   };
 
+  const totalPassed = testCases.filter(t => t.status === 'passed').length;
+  const totalFailed = testCases.filter(t => t.status === 'failed').length;
+  const totalPending = testCases.filter(t => t.status === 'pending').length;
+  const isRunning = testCases.some(t => t.status === 'running');
+
   // Group by level
   const byLevel = {
     unit: testCases.filter(t => t.level === 'unit'),
@@ -246,10 +255,6 @@ export function TestPanel({
     e2e: testCases.filter(t => t.level === 'e2e'),
   };
 
-  const totalPassed = testCases.filter(t => t.status === 'passed').length;
-  const totalFailed = testCases.filter(t => t.status === 'failed').length;
-  const totalPending = testCases.filter(t => t.status === 'pending').length;
-  const isRunning = testCases.some(t => t.status === 'running');
   const passRate = testCases.length > 0 ? totalPassed / testCases.length : 0;
 
   // SVG ring calculations for mini pass-rate indicator
@@ -286,6 +291,11 @@ export function TestPanel({
           <div>
             <div className="flex items-center gap-1.5">
               <h3 className="text-sm font-medium leading-none">Test Suite</h3>
+              {isSelfHealing && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-violet-500/10 text-violet-600 dark:text-violet-400">
+                  self-healing
+                </span>
+              )}
               {topology && TOPOLOGY_BADGES[topology] && (
                 <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-medium', TOPOLOGY_BADGES[topology].className)}>
                   {TOPOLOGY_BADGES[topology].label}
@@ -309,12 +319,28 @@ export function TestPanel({
         </div>
         <div className="flex items-center gap-1.5">
           {testCases.length > 0 && (
-            <Button size="sm" variant="outline" onClick={onRunAll} disabled={isRunning || !!isRunningAll} className="h-7 text-xs">
-              {(isRunning || isRunningAll) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Zap className="h-3 w-3 mr-1" />}
-              {isRunningAll && runAllProgress ? `${runAllProgress.current}/${runAllProgress.total}` : 'Run All'}
-            </Button>
+            <>
+              <Button size="sm" variant="outline" onClick={onRunAll} disabled={isRunning || !!isRunningAll} className="h-7 text-xs">
+                {(isRunning || isRunningAll) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Zap className="h-3 w-3 mr-1" />}
+                {isRunningAll && runAllProgress ? `${runAllProgress.current}/${runAllProgress.total}` : 'Run All'}
+              </Button>
+              {onRunAllWithSelfHealing && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onRunAllWithSelfHealing}
+                  disabled={isRunning || !!isRunningAll}
+                  className="h-7 text-xs border-violet-500/40 bg-violet-500/5 text-violet-700 dark:text-violet-300"
+                >
+                  {(isRunning || isRunningAll)
+                    ? <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    : <Sparkles className="h-3 w-3 mr-1" />}
+                  {isSelfHealing ? 'Self-Healing...' : 'Run + Self-Heal'}
+                </Button>
+              )}
+            </>
           )}
-          <Button size="sm" onClick={onGenerateTests} disabled={isGenerating} className="h-7 text-xs">
+          <Button size="sm" onClick={onGenerateTests} disabled={isGenerating || !!isRunningAll} className="h-7 text-xs">
             {isGenerating ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1" />}
             Generate
           </Button>

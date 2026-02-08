@@ -6,7 +6,11 @@ import { ClusterDiagram } from './ClusterDiagram';
 import { NodeEditor } from './NodeEditor';
 import { parseBalGraphAndEntities } from '@/app/dashboard/baleybots/[id]/actions';
 import { useBalWorker } from '@/hooks/useBalWorker';
-import { applyNodeChangeFromParsed } from '@/lib/baleybot/visual/visual-to-bal';
+import {
+  applyNodeChangeFromParsed,
+  applyNodeIntentFromParsed,
+  type NodeIntentResult,
+} from '@/lib/baleybot/visual/visual-to-bal';
 import type { VisualGraph, ParsedEntities } from '@/lib/baleybot/visual/types';
 import { cn } from '@/lib/utils';
 
@@ -62,6 +66,7 @@ export function VisualEditor({
             setParseErrors(workerResult.errors);
             parsedEntitiesRef.current = {
               entities: workerResult.entities,
+              chain: workerResult.chain,
               errors: workerResult.errors,
             };
             setIsParsing(false);
@@ -109,7 +114,7 @@ export function VisualEditor({
     const updatedCode = applyNodeChangeFromParsed(parsedEntitiesRef.current, {
       nodeId: selectedNodeId,
       changes: changes as Parameters<typeof applyNodeChangeFromParsed>[1]['changes'],
-    });
+    }, latestBalCodeRef.current);
 
     onChange(updatedCode);
   };
@@ -117,6 +122,43 @@ export function VisualEditor({
   const handleCodeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (readOnly) return;
     onChange(e.target.value);
+  };
+
+  const handleNodeIntent = (instruction: string): NodeIntentResult => {
+    if (readOnly) {
+      return {
+        applied: false,
+        balCode,
+        summary: 'No changes applied.',
+        error: 'Editor is read-only.',
+      };
+    }
+    if (!parsedEntitiesRef.current) {
+      return {
+        applied: false,
+        balCode,
+        summary: 'No changes applied.',
+        error: 'Visual state is still parsing. Try again in a second.',
+      };
+    }
+
+    const result = applyNodeIntentFromParsed(
+      parsedEntitiesRef.current,
+      {
+        nodeId: selectedNodeId,
+        instruction,
+      },
+      latestBalCodeRef.current
+    );
+
+    if (result.applied) {
+      onChange(result.balCode);
+      if (result.nextSelectedNodeId !== undefined) {
+        setSelectedNodeId(result.nextSelectedNodeId ?? null);
+      }
+    }
+
+    return result;
   };
 
   return (
@@ -198,8 +240,10 @@ export function VisualEditor({
             {selectedNode && !readOnly && (
               <div className="absolute top-4 right-4 z-10">
                 <NodeEditor
+                  key={selectedNode.id}
                   node={selectedNode}
                   onUpdate={handleNodeUpdate}
+                  onApplyIntent={handleNodeIntent}
                   onClose={() => setSelectedNodeId(null)}
                 />
               </div>
@@ -225,7 +269,7 @@ export function VisualEditor({
 entity_name {
   "goal": "What this entity should accomplish",
   "model": "openai:gpt-4o-mini",
-  "tools": ["web_search"]
+  "tools": { "web_search" }
 }`}
             />
           </div>

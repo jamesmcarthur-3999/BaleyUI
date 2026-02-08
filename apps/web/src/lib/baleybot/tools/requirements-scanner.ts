@@ -10,8 +10,22 @@
 export interface ToolRequirement {
   toolName: string;
   connectionType: 'openai' | 'anthropic' | 'ollama' | 'postgres' | 'mysql' | 'none';
+  connectionSlug?: string;
   description: string;
   required: boolean;
+}
+
+export interface ParsedConnectionTool {
+  connectionType: 'postgres' | 'mysql' | null;
+  connectionSlug?: string;
+}
+
+export interface ConnectionBindingStatus {
+  status: 'ready' | 'needs-setup' | 'mismatch';
+  connectionType: 'openai' | 'anthropic' | 'ollama' | 'postgres' | 'mysql' | 'none';
+  expectedConnectionSlug?: string;
+  matchedConnectionName?: string;
+  reason: string;
 }
 
 /**
@@ -75,26 +89,155 @@ const TOOL_REQUIREMENTS: Record<string, ToolRequirement> = {
   },
 };
 
+/**
+ * Convert a human connection name to the normalized slug used by
+ * connection-derived tool names.
+ */
+export function connectionNameToSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
+/**
+ * Parse a connection-derived tool name (query_postgres_x / query_mysql_x).
+ */
+export function parseConnectionTool(toolName: string): ParsedConnectionTool {
+  if (toolName.startsWith('query_postgres_')) {
+    const slug = toolName.slice('query_postgres_'.length).trim();
+    return {
+      connectionType: 'postgres',
+      connectionSlug: slug || undefined,
+    };
+  }
+
+  if (toolName.startsWith('query_pg_')) {
+    const slug = toolName.slice('query_pg_'.length).trim();
+    return {
+      connectionType: 'postgres',
+      connectionSlug: slug || undefined,
+    };
+  }
+
+  if (toolName.startsWith('query_mysql_')) {
+    const slug = toolName.slice('query_mysql_'.length).trim();
+    return {
+      connectionType: 'mysql',
+      connectionSlug: slug || undefined,
+    };
+  }
+
+  return {
+    connectionType: null,
+    connectionSlug: undefined,
+  };
+}
+
+/**
+ * Evaluate whether a specific tool is wired to a concrete connection.
+ * For connection-derived database tools, this enforces exact source mapping
+ * by matching the derived tool suffix to a workspace connection slug.
+ */
+export function evaluateToolConnectionBinding(
+  toolName: string,
+  connections: Array<{ id: string; type: string; name: string; status: string }>
+): ConnectionBindingStatus {
+  const builtIn = TOOL_REQUIREMENTS[toolName];
+  if (builtIn) {
+    return {
+      status: 'ready',
+      connectionType: builtIn.connectionType,
+      reason: builtIn.description,
+    };
+  }
+
+  const parsed = parseConnectionTool(toolName);
+  if (!parsed.connectionType) {
+    return {
+      status: 'ready',
+      connectionType: 'none',
+      reason: 'Custom tool',
+    };
+  }
+
+  const sameType = connections.filter((conn) => conn.type === parsed.connectionType);
+  const connectedSameType = sameType.filter((conn) => conn.status === 'connected');
+
+  if (sameType.length === 0) {
+    return {
+      status: 'needs-setup',
+      connectionType: parsed.connectionType,
+      expectedConnectionSlug: parsed.connectionSlug,
+      reason: `Requires a ${parsed.connectionType === 'postgres' ? 'PostgreSQL' : 'MySQL'} connection`,
+    };
+  }
+
+  const bySlug = sameType.find(
+    (conn) => parsed.connectionSlug && connectionNameToSlug(conn.name) === parsed.connectionSlug
+  );
+
+  if (bySlug) {
+    if (bySlug.status === 'connected') {
+      return {
+        status: 'ready',
+        connectionType: parsed.connectionType,
+        expectedConnectionSlug: parsed.connectionSlug,
+        matchedConnectionName: bySlug.name,
+        reason: `Mapped to ${bySlug.name}`,
+      };
+    }
+    return {
+      status: 'needs-setup',
+      connectionType: parsed.connectionType,
+      expectedConnectionSlug: parsed.connectionSlug,
+      matchedConnectionName: bySlug.name,
+      reason: `${bySlug.name} is ${bySlug.status}`,
+    };
+  }
+
+  if (connectedSameType.length > 0) {
+    return {
+      status: 'mismatch',
+      connectionType: parsed.connectionType,
+      expectedConnectionSlug: parsed.connectionSlug,
+      reason: `No exact source match for ${toolName}; available ${parsed.connectionType} connection(s): ${connectedSameType
+        .map((conn) => conn.name)
+        .join(', ')}`,
+    };
+  }
+
+  return {
+    status: 'needs-setup',
+    connectionType: parsed.connectionType,
+    expectedConnectionSlug: parsed.connectionSlug,
+    reason: `A ${parsed.connectionType} connection exists but is not connected`,
+  };
+}
+
 /** Scan a list of tool names and return their requirements */
 export function scanToolRequirements(tools: string[]): ToolRequirement[] {
   return tools.map((toolName) => {
     const known = TOOL_REQUIREMENTS[toolName];
     if (known) return known;
 
-    // Unknown tool — might be a connection-derived tool
-    // Database tools follow patterns like "query_postgres_<name>" or "query_mysql_<name>"
-    if (toolName.startsWith('query_postgres_') || toolName.startsWith('query_pg_')) {
+    // Unknown tool — might be a connection-derived tool.
+    const parsed = parseConnectionTool(toolName);
+    if (parsed.connectionType === 'postgres') {
       return {
         toolName,
         connectionType: 'postgres' as const,
+        connectionSlug: parsed.connectionSlug,
         description: 'Database query tool (PostgreSQL)',
         required: true,
       };
     }
-    if (toolName.startsWith('query_mysql_')) {
+    if (parsed.connectionType === 'mysql') {
       return {
         toolName,
         connectionType: 'mysql' as const,
+        connectionSlug: parsed.connectionSlug,
         description: 'Database query tool (MySQL)',
         required: true,
       };

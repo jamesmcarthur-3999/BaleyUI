@@ -74,6 +74,51 @@ describe('web-search-service', () => {
       });
     });
 
+    it('parses object output with nested results array', async () => {
+      const { executeInternalBaleybot } = await import('../../internal-baleybots');
+      vi.mocked(executeInternalBaleybot).mockResolvedValueOnce({
+        output: {
+          results: [
+            {
+              title: 'Nested Result',
+              url: 'https://example.com/nested',
+              content: 'Nested snippet from content field',
+            },
+          ],
+        },
+        executionId: 'exec-nested',
+      });
+
+      const service = createWebSearchService({});
+      const results = await service.search('nested test', 5);
+
+      expect(results).toEqual([
+        {
+          title: 'Nested Result',
+          url: 'https://example.com/nested',
+          snippet: 'Nested snippet from content field',
+        },
+      ]);
+    });
+
+    it('passes user workspace to internal fallback', async () => {
+      const { executeInternalBaleybot } = await import('../../internal-baleybots');
+
+      const service = createWebSearchService({});
+      await service.search('workspace scoped query', 4, {
+        workspaceId: 'ws-user-123',
+      });
+
+      expect(executeInternalBaleybot).toHaveBeenCalledWith(
+        'web_search_fallback',
+        expect.any(String),
+        expect.objectContaining({
+          triggeredBy: 'internal',
+          userWorkspaceId: 'ws-user-123',
+        })
+      );
+    });
+
     it('handles failed AI search gracefully', async () => {
       const { executeInternalBaleybot } = await import('../../internal-baleybots');
       vi.mocked(executeInternalBaleybot).mockRejectedValueOnce(new Error('AI failed'));

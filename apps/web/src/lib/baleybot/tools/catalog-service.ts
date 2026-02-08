@@ -282,7 +282,8 @@ export function formatToolCatalogForCreatorBot(catalog: FullToolCatalog): string
   lines.push('# Available Tools for BaleyBots');
   lines.push('');
   lines.push('When designing BaleyBots, you can use these tools. Assign tools in the "tools"');
-  lines.push('array as needed. Approval is handled at runtime for sensitive tools.');
+  lines.push('set as needed (BAL syntax: "tools": { "tool_a", "tool_b" }).');
+  lines.push('Approval is handled at runtime for sensitive tools.');
   lines.push('');
 
   // Built-in tools section
@@ -337,7 +338,7 @@ export function formatToolCatalogForCreatorBot(catalog: FullToolCatalog): string
   // Tool categorization guidance
   lines.push('## Tool Categorization Guide');
   lines.push('');
-  lines.push('**Use in "tools" array (immediate access):**');
+  lines.push('**Use in the "tools" set (immediate access):**');
   lines.push('- Read-only operations (web_search, fetch_url)');
   lines.push('- Inter-BB communication (spawn_baleybot)');
   lines.push('- Notifications (send_notification)');

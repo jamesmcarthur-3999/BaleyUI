@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseBalCode, balToVisual } from '../bal-parser-pure';
+import { parseBalCode, balToVisual, normalizeBalCodeForCompatibility } from '../bal-parser-pure';
 
 // Mock server-side dependencies so we can import validateBalCode from generator
 vi.mock('../internal-baleybots', () => ({
@@ -17,11 +17,6 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { validateBalCode } from '../generator';
-
-// NOTE: The SDK lexer uses { } brace syntax for tools arrays (not [ ] brackets).
-// The parser's parseToolsList() checks for LBRACE, not LBRACKET.
-// The documented [ ] bracket syntax requires LBRACKET/RBRACKET tokens in the lexer.
-// TODO: Add bracket syntax tests after SDK lexer adds [ ] support.
 
 // ============================================================================
 // parseBalCode — Entity Properties
@@ -84,8 +79,109 @@ describe('parseBalCode entity properties', () => {
     expect(result.entities[0]?.config.tools).toEqual(['web_search']);
   });
 
-  // TODO: Enable after SDK lexer adds LBRACKET/RBRACKET token support
-  it.todo('parses tools with bracket syntax: ["web_search", "fetch_url"]');
+  it('parses tools with bracket syntax by normalizing to BAL set syntax', () => {
+    const result = parseBalCode(`
+      bot {
+        "goal": "Search things",
+        "tools": ["web_search", "fetch_url"]
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    expect(result.entities[0]?.config.tools).toEqual(['web_search', 'fetch_url']);
+  });
+
+  it('normalizes unsupported scalar properties (reasoning, retries) and still parses', () => {
+    const code = `
+      bot {
+        "goal": "Search things",
+        "tools": ["web_search", "fetch_url"],
+        "reasoning": "high",
+        "retries": 2
+      }
+    `;
+    const normalized = normalizeBalCodeForCompatibility(code);
+    expect(normalized.includes('"reasoning"')).toBe(false);
+    expect(normalized.includes('"retries"')).toBe(false);
+
+    const result = parseBalCode(code);
+    expect(result.errors).toHaveLength(0);
+    expect(result.entities[0]?.config.goal).toBe('Search things');
+    expect(result.entities[0]?.config.tools).toEqual(['web_search', 'fetch_url']);
+  });
+
+  it('normalizes unsupported multiline object/array properties and still parses', () => {
+    const code = `
+      bot {
+        "goal": "Monitor",
+        "model": "anthropic:claude-sonnet-4-20250514",
+        "reasoning": {
+          "effort": "high"
+        },
+        "can_request": [
+          "send_notification"
+        ],
+        "trigger": {
+          "type": "schedule",
+          "schedule": "0 * * * *"
+        },
+        "tools": { "send_notification" }
+      }
+    `;
+    const normalized = normalizeBalCodeForCompatibility(code);
+    expect(normalized.includes('"reasoning"')).toBe(false);
+    expect(normalized.includes('"can_request"')).toBe(false);
+    expect(normalized.includes('"trigger"')).toBe(false);
+
+    const result = parseBalCode(code);
+    expect(result.errors).toHaveLength(0);
+    expect(result.entities).toHaveLength(1);
+    expect(result.entities[0]?.name).toBe('bot');
+    expect(result.entities[0]?.config.tools).toEqual(['send_notification']);
+  });
+
+  it('preserves trigger and reasoning objects from loose compatibility parsing', () => {
+    const result = parseBalCode(`
+      watcher {
+        "goal": "Watch for new rows",
+        "trigger": {
+          "type": "db_event",
+          "dbConnectionId": "primary_db",
+          "dbTable": "users",
+          "dbEvent": "insert"
+        },
+        "reasoning": {
+          "effort": "high"
+        },
+        "tools": { "send_notification" }
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    expect(result.entities).toHaveLength(1);
+    expect(result.entities[0]?.config.trigger).toEqual({
+      type: 'db_event',
+      dbConnectionId: 'primary_db',
+      dbTable: 'users',
+      dbEvent: 'insert',
+    });
+    expect(result.entities[0]?.config.reasoning).toEqual({
+      effort: 'high',
+    });
+  });
+
+  it('parses unquoted key syntax in loose mode', () => {
+    const result = parseBalCode(`
+      helper_bot {
+        goal: "Handle quick requests",
+        tools: ["web_search", "fetch_url"],
+        reasoning: "high"
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    expect(result.entities).toHaveLength(1);
+    expect(result.entities[0]?.config.goal).toBe('Handle quick requests');
+    expect(result.entities[0]?.config.tools).toEqual(['web_search', 'fetch_url']);
+    expect(result.entities[0]?.config.reasoning).toEqual({ effort: 'high' });
+  });
 
   // TODO: Enable after SDK patch lands — these properties may need SDK parser support
   it.todo('parses temperature property');
@@ -588,6 +684,21 @@ describe('balToVisual entity data', () => {
     `);
     expect(result.graph.nodes[0]?.data.tools).toEqual([]);
   });
+
+  it('keeps visual rendering resilient when unsupported properties are present', () => {
+    const result = balToVisual(`
+      bot {
+        "goal": "Handle unsupported config safely",
+        "reasoning": "high",
+        "trigger": "schedule:0 * * * *",
+        "tools": ["web_search"]
+      }
+    `);
+    expect(result.errors).toHaveLength(0);
+    expect(result.graph.nodes).toHaveLength(1);
+    expect(result.graph.nodes[0]?.data.goal).toBe('Handle unsupported config safely');
+    expect(result.graph.nodes[0]?.data.tools).toEqual(['web_search']);
+  });
 });
 
 // ============================================================================
@@ -615,6 +726,20 @@ describe('balToVisual composition edges', () => {
       solo { "goal": "Work alone" }
     `);
     expect(result.graph.edges.filter(e => e.type === 'chain')).toHaveLength(0);
+  });
+
+  it('generates loop edges for iterative compositions', () => {
+    const result = balToVisual(`
+      validator { "goal": "Validate output quality" }
+      loop ("until": "result.passed == true", "max": 4) {
+        validator
+      }
+    `);
+    const loopEdges = result.graph.edges.filter((edge) => edge.type === 'loop');
+    expect(loopEdges).toHaveLength(1);
+    expect(loopEdges[0]?.source).toBe('validator');
+    expect(loopEdges[0]?.target).toBe('validator');
+    expect(loopEdges[0]?.label).toContain('max 4');
   });
 
   it('returns empty graph for invalid BAL', () => {

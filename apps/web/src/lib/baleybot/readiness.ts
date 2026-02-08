@@ -97,7 +97,16 @@ export function countCompleted(state: ReadinessState): { completed: number; tota
   return { completed: completed.length, total: applicable.length };
 }
 
-export type AdaptiveTab = 'visual' | 'code' | 'connections' | 'test' | 'triggers' | 'analytics' | 'monitor';
+export type AdaptiveTab =
+  | 'visual'
+  | 'code'
+  | 'connections'
+  | 'test'
+  | 'triggers'
+  | 'analytics'
+  | 'monitor'
+  | 'launch'
+  | 'runtime';
 
 export interface RecommendedAction {
   dimension: ReadinessDimension;

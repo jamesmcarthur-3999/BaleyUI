@@ -38,6 +38,57 @@ export interface WorkspacePolicies {
 export type BaleybotStatus = 'draft' | 'active' | 'paused' | 'error';
 
 /**
+ * Lifecycle stage for Build -> Launch Prep -> Live UX.
+ */
+export type BaleybotLifecycleStage = 'draft' | 'verified' | 'launch_prepared' | 'live' | 'paused';
+
+/**
+ * Runtime interface specification used by Live mode.
+ */
+export interface RuntimeInterfaceSpec {
+  version: 1;
+  mode: 'chat' | 'form' | 'hybrid';
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  components: Array<
+    | { type: 'chat_input'; id: string; label: string }
+    | { type: 'json_form'; id: string; schema: Record<string, unknown> }
+    | { type: 'file_input'; id: string; accept: string[] }
+    | { type: 'run_button'; id: string; label: string }
+    | { type: 'result_view'; id: string; format: 'text' | 'json' | 'table' | 'mixed' }
+    | { type: 'cluster_trace'; id: string; showEntityTiming: boolean }
+  >;
+}
+
+/**
+ * Launch preparation artifact generated before going live.
+ */
+export interface LaunchKit {
+  generatedAt: string;
+  confidenceScore: number;
+  verificationSummary: {
+    passRate: number;
+    topology: 'single' | 'chain' | 'parallel' | 'complex';
+    keyRisks: string[];
+  };
+  activationPlan: {
+    recommendedPrimary: TriggerType;
+    channels: Array<{
+      type: TriggerType;
+      enabledByDefault: boolean;
+      config: Record<string, unknown>;
+      rationale: string;
+    }>;
+  };
+  runtimeInterface: RuntimeInterfaceSpec;
+  monitoringPlan: {
+    alerts: string[];
+    metrics: string[];
+  };
+  goLiveChecklist: string[];
+}
+
+/**
  * A BaleyBot definition from the database
  */
 export interface Baleybot {
@@ -47,10 +98,16 @@ export interface Baleybot {
   description: string | null;
   icon: string | null;
   status: BaleybotStatus;
+  lifecycleStage: BaleybotLifecycleStage;
   balCode: string;
   structure: Record<string, unknown> | null;
   entityNames: string[] | null;
   dependencies: string[] | null;
+  launchKit: LaunchKit | null;
+  runtimeInterfaceSpec: RuntimeInterfaceSpec | null;
+  launchPreparedAt: Date | null;
+  liveAt: Date | null;
+  pausedAt: Date | null;
   executionCount: number;
   lastExecutedAt: Date | null;
   createdBy: string | null;
@@ -126,6 +183,18 @@ export interface TriggerConfig {
   completionType?: 'success' | 'failure' | 'completion';
   /** Webhook path for webhook triggers */
   webhookPath?: string;
+  /** Database connection ID for db_event triggers */
+  dbConnectionId?: string;
+  /** Database table name for db_event triggers */
+  dbTable?: string;
+  /** Database event type for db_event triggers */
+  dbEvent?: 'insert' | 'update' | 'delete' | 'change';
+  /** MCP server name for mcp_event triggers */
+  mcpServer?: string;
+  /** MCP tool identifier for mcp_event triggers */
+  mcpTool?: string;
+  /** MCP resource identifier for mcp_event triggers */
+  mcpResource?: string;
   /** Whether the trigger is enabled */
   enabled?: boolean;
 }
@@ -183,7 +252,7 @@ export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | '
 /**
  * Trigger type for an execution
  */
-export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'other_bb';
+export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'db_event' | 'mcp_event';
 
 /**
  * A BaleyBot execution record

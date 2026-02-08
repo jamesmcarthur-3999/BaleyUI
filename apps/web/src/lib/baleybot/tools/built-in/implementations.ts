@@ -80,7 +80,7 @@ export function configureWebSearch(tavilyApiKey?: string): void {
 
 async function webSearchImpl(
   args: WebSearchArgs,
-  _ctx: BuiltInToolContext
+  ctx: BuiltInToolContext
 ): Promise<WebSearchResult[]> {
   const numResults = Math.min(args.num_results ?? 5, 20);
 
@@ -89,7 +89,9 @@ async function webSearchImpl(
   // Use injected service if available, otherwise create one without API key
   const service = webSearchService ?? createWebSearchService({});
 
-  const results = await service.search(args.query, numResults);
+  const results = await service.search(args.query, numResults, {
+    workspaceId: ctx.workspaceId,
+  });
 
   return results;
 }

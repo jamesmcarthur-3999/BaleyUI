@@ -234,7 +234,7 @@ const BAL_COMPLETIONS = {
   properties: [
     { label: 'goal', detail: 'Entity goal (required)', insertText: '"goal": "$0"' },
     { label: 'model', detail: 'AI model to use', insertText: '"model": "$0"' },
-    { label: 'tools', detail: 'Available tools', insertText: '"tools": [$0]' },
+    { label: 'tools', detail: 'Available tools', insertText: '"tools": { $0 }' },
     { label: 'output', detail: 'Output schema', insertText: '"output": {\n  $0\n}' },
     { label: 'history', detail: 'History mode', insertText: '"history": "$0"' },
     { label: 'maxTokens', detail: 'Max response tokens', insertText: '"maxTokens": $0' },
@@ -325,8 +325,8 @@ export function registerBALLanguage(monaco: Monaco): void {
         return { suggestions };
       }
 
-      // Check if we're inside a tools array
-      if (/"tools"\s*:\s*\[[^\]]*$/.test(textBeforeCursor)) {
+      // Check if we're inside a tools set/list
+      if (/"tools"\s*:\s*(?:\{[^}]*|\[[^\]]*)$/.test(textBeforeCursor)) {
         BAL_COMPLETIONS.tools.forEach((item) => {
           suggestions.push({
             label: item.label,

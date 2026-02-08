@@ -50,11 +50,13 @@ vi.mock('@/lib/encryption', () => ({
 }));
 
 // ============================================================================
-// All 14 internal BaleyBots
+// All internal BaleyBots
 // ============================================================================
 
 const ALL_INTERNAL_BOTS = [
+  'creator_discovery',
   'creator_bot',
+  'creator_action_advisor',
   'bal_generator',
   'pattern_learner',
   'execution_reviewer',
@@ -76,11 +78,6 @@ const ALL_INTERNAL_BOTS = [
 // nl_to_sql_postgres and nl_to_sql_mysql use only simple types (string, number, boolean, array, object).
 const BOTS_PARSEABLE_NOW = ['nl_to_sql_postgres', 'nl_to_sql_mysql'] as const;
 
-// Bots excluded from parse tests — their BAL uses unsupported type syntax
-const BOTS_AWAITING_SDK_PATCH = ALL_INTERNAL_BOTS.filter(
-  (name) => !BOTS_PARSEABLE_NOW.includes(name as typeof BOTS_PARSEABLE_NOW[number])
-);
-
 describe('internal-baleybots', () => {
   describe('INTERNAL_BALEYBOTS', () => {
     it('defines creator_bot', () => {
@@ -89,15 +86,15 @@ describe('internal-baleybots', () => {
       expect(INTERNAL_BALEYBOTS.creator_bot!.balCode).toContain('creator_bot');
     });
 
-    it('defines all 14 internal bots', () => {
+    it('defines all internal bots', () => {
       for (const name of ALL_INTERNAL_BOTS) {
         expect(INTERNAL_BALEYBOTS[name], `Missing internal bot: ${name}`).toBeDefined();
       }
     });
 
-    it('has exactly 14 internal bots', () => {
+    it('has exactly 16 internal bots', () => {
       const definedBots = Object.keys(INTERNAL_BALEYBOTS);
-      expect(definedBots).toHaveLength(14);
+      expect(definedBots).toHaveLength(16);
     });
 
     it.each(ALL_INTERNAL_BOTS)('%s has required fields (name, description, icon, balCode)', (botName) => {
@@ -125,7 +122,7 @@ describe('internal-baleybots', () => {
     });
 
     // TODO: Enable after SDK parser adds complex type support (array<object{...}>, enum(...), ?type, unknown)
-    it.todo('remaining 12 internal bots parse without errors (awaiting SDK complex type parser)');
+    it.todo('remaining 13 internal bots parse without errors (awaiting SDK complex type parser)');
 
     it.each(BOTS_PARSEABLE_NOW)('%s balCode defines an output schema', (botName) => {
       const bot = INTERNAL_BALEYBOTS[botName]!;
@@ -135,7 +132,7 @@ describe('internal-baleybots', () => {
       expect(entity!.config.output, `${botName} missing output schema`).toBeDefined();
     });
 
-    it.todo('remaining 12 internal bots define output schemas (awaiting SDK complex type parser)');
+    it.todo('remaining 13 internal bots define output schemas (awaiting SDK complex type parser)');
   });
 
   describe('INTERNAL_BALEYBOTS specific bot properties', () => {

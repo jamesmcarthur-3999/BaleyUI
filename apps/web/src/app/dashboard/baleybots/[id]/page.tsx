@@ -52,7 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, Zap, BarChart3, MessageSquare, PanelRight, Cable, FlaskConical, Activity } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, Zap, BarChart3, MessageSquare, PanelRight, Cable, FlaskConical, Activity, Rocket, CirclePlay, PauseCircle, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory, useTestExecution } from '@/hooks';
@@ -68,10 +68,23 @@ import type {
   CreationProgress,
   AdaptiveTab,
 } from '@/lib/baleybot/creator-types';
+import type { LaunchKit, RuntimeInterfaceSpec } from '@/lib/baleybot/types';
 import { computeReadiness, createInitialReadiness, getVisibleTabs, countCompleted, getRecommendedAction } from '@/lib/baleybot/readiness';
 import type { ReadinessDimension, ReadinessState } from '@/lib/baleybot/readiness';
 import { getConnectionSummary } from '@/lib/baleybot/tools/requirements-scanner';
 import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
+import { detectBalSkills, summarizeBalSkills } from '@/lib/baleybot/bal-skills';
+import {
+  sanitizeCreatorConversationHistory,
+  sanitizeCreatorText,
+} from '@/lib/baleybot/creator-sanitization';
+import type { DiscoveryIntakeSubmission } from '@/components/creator/DiscoveryIntakeForm';
+
+const ADVANCED_EDITOR_TABS: AdaptiveTab[] = ['code', 'analytics'];
+
+function isAdvancedEditorTab(tab: AdaptiveTab): boolean {
+  return ADVANCED_EDITOR_TABS.includes(tab);
+}
 
 /**
  * Example prompts shown on the /new welcome view
@@ -96,6 +109,79 @@ function truncateName(name: string, maxLength: number = MAX_NAME_LENGTH): string
   return name.slice(0, maxLength).trim();
 }
 
+function formatExecutionOutput(output: unknown): string {
+  if (output == null) return '';
+  if (typeof output === 'string') return output;
+  try {
+    return JSON.stringify(output, null, 2);
+  } catch {
+    return String(output);
+  }
+}
+
+function tryParseJson(value: string): unknown | null {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function formatFriendlyRuntimeValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (value == null) return 'null';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function getPrimaryRuntimeResponse(output: unknown): string {
+  if (typeof output === 'string') {
+    return output;
+  }
+
+  if (output && typeof output === 'object' && !Array.isArray(output)) {
+    const record = output as Record<string, unknown>;
+    const preferredKeys = ['message', 'summary', 'result', 'output', 'text', 'content'];
+
+    for (const key of preferredKeys) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value;
+      }
+    }
+  }
+
+  return formatExecutionOutput(output);
+}
+
+function isSameReadiness(a: ReadinessState, b: ReadinessState): boolean {
+  return (
+    a.designed === b.designed &&
+    a.connected === b.connected &&
+    a.tested === b.tested &&
+    a.activated === b.activated &&
+    a.monitored === b.monitored
+  );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildCreatorHistoryPayload(messages: CreatorMessage[]) {
+  return sanitizeCreatorConversationHistory(messages).map((message) => ({
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    timestamp: message.timestamp,
+    metadata: message.metadata as Record<string, unknown> | undefined,
+  }));
+}
+
 /**
  * State snapshot for undo/redo history
  */
@@ -105,6 +191,13 @@ interface HistoryState {
   balCode: string;
   name: string;
   icon: string;
+}
+
+interface RuntimeConversationMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
 }
 
 /**
@@ -151,6 +244,17 @@ export default function BaleybotPage() {
 
   // View mode state (adaptive based on readiness)
   const [viewMode, setViewMode] = useState<AdaptiveTab>('visual');
+  const [showAdvancedUI, setShowAdvancedUI] = useState(false);
+
+  // Runtime/live interaction state
+  const [runtimeInput, setRuntimeInput] = useState('');
+  const [runtimeInputMode, setRuntimeInputMode] = useState<'message' | 'structured'>('message');
+  const [runtimeOutput, setRuntimeOutput] = useState<string>('');
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [runtimeDurationMs, setRuntimeDurationMs] = useState<number | null>(null);
+  const [showRuntimeRawOutput, setShowRuntimeRawOutput] = useState(false);
+  const [showRuntimeDiagnostics, setShowRuntimeDiagnostics] = useState(false);
+  const [runtimeConversation, setRuntimeConversation] = useState<RuntimeConversationMessage[]>([]);
 
   // Mobile view toggle (chat vs editor)
   type MobileView = 'editor' | 'chat';
@@ -161,7 +265,8 @@ export default function BaleybotPage() {
 
   // Readiness state
   const [readiness, setReadiness] = useState(createInitialReadiness());
-  const prevReadinessRef = useRef<ReadinessState | null>(null);
+  // Seed initial readiness for new sessions so first completion can trigger guidance.
+  const prevReadinessRef = useRef<ReadinessState | null>(isNew ? createInitialReadiness() : null);
 
   // Save conflict state (Phase 5.4)
   const [showConflictDialog, setShowConflictDialog] = useState(false);
@@ -276,6 +381,41 @@ export default function BaleybotPage() {
     { enabled: !!savedBaleybotId },
   );
 
+  // Launch prep readiness and runtime interface
+  const {
+    data: launchReadinessData,
+    isFetching: isFetchingLaunchReadiness,
+    refetch: refetchLaunchReadiness,
+  } = trpc.baleybots.evaluateLaunchReadiness.useQuery(
+    { baleybotId: savedBaleybotId!, requiredPassRate: 0.8 },
+    { enabled: !!savedBaleybotId && viewMode === 'launch' },
+  );
+
+  const {
+    data: runtimeInterfaceData,
+    isFetching: isFetchingRuntimeInterface,
+  } = trpc.baleybots.getRuntimeInterface.useQuery(
+    { baleybotId: savedBaleybotId! },
+    {
+      enabled:
+        !!savedBaleybotId &&
+        (viewMode === 'runtime' || existingBaleybot?.lifecycleStage === 'live' || existingBaleybot?.lifecycleStage === 'paused'),
+    },
+  );
+
+  useEffect(() => {
+    const runtimeMode =
+      (runtimeInterfaceData as RuntimeInterfaceSpec | null | undefined)?.mode ??
+      ((existingBaleybot?.runtimeInterfaceSpec as RuntimeInterfaceSpec | null | undefined)?.mode);
+    if (runtimeMode === 'form' && runtimeInputMode !== 'structured') {
+      setRuntimeInputMode('structured');
+      return;
+    }
+    if (runtimeMode === 'chat' && runtimeInputMode !== 'message') {
+      setRuntimeInputMode('message');
+    }
+  }, [runtimeInterfaceData, existingBaleybot?.runtimeInterfaceSpec, runtimeInputMode]);
+
   // Load trigger config when query completes
   useEffect(() => {
     if (savedTriggerConfig && !triggerConfig) {
@@ -287,6 +427,10 @@ export default function BaleybotPage() {
   const creatorMutation = trpc.baleybots.sendCreatorMessage.useMutation();
   const saveMutation = trpc.baleybots.saveFromSession.useMutation();
   const executeMutation = trpc.baleybots.execute.useMutation();
+  const generateLaunchKitMutation = trpc.baleybots.generateLaunchKit.useMutation();
+  const approveLaunchPlanMutation = trpc.baleybots.approveLaunchPlan.useMutation();
+  const promoteToLiveMutation = trpc.baleybots.promoteToLive.useMutation();
+  const pauseLiveBotMutation = trpc.baleybots.pauseLiveBot.useMutation();
 
   // Normalize workspace connections once for both ConnectionsPanel and useTestExecution
   const normalizedConnections = workspaceConnections?.map(c => ({
@@ -315,11 +459,13 @@ export default function BaleybotPage() {
     setTestCases,
     isGeneratingTests,
     isRunningAll,
+    isSelfHealing,
     runAllProgress,
     lastRunSummary,
     handleGenerateTests,
     handleRunTest,
     handleRunAllTests,
+    handleRunAllWithSelfHealing,
     handleAddTest,
     handleUpdateTest,
     handleDeleteTest,
@@ -341,7 +487,22 @@ export default function BaleybotPage() {
   /**
    * Handle sending a message to the Creator Bot
    */
-  const handleSendMessage = async (message: string) => {
+  const handleSendMessage = async (message: string | DiscoveryIntakeSubmission) => {
+    const normalizedInput = typeof message === 'string'
+      ? {
+          modelMessage: message,
+          displayMessage: message,
+          discoverySummary: undefined,
+        }
+      : {
+          modelMessage: message.modelMessage,
+          displayMessage: message.displayMessage,
+          discoverySummary: message.summary,
+        };
+
+    const sanitizedMessage = sanitizeCreatorText(normalizedInput.modelMessage);
+    const sanitizedDisplayMessage = sanitizeCreatorText(normalizedInput.displayMessage);
+
     // 0. Capture previous state for change summary (Phase 3.2)
     const prevEntities = [...entities];
     const prevConnections = [...connections];
@@ -351,10 +512,18 @@ export default function BaleybotPage() {
     const userMessage: CreatorMessage = {
       id: `msg-${Date.now()}`,
       role: 'user',
-      content: message,
+      content: sanitizedDisplayMessage,
       timestamp: new Date(),
+      ...(normalizedInput.discoverySummary
+        ? {
+            metadata: {
+              discoveryIntake: normalizedInput.discoverySummary,
+            },
+          }
+        : {}),
     };
     setMessages((prev) => [...prev, userMessage]);
+    const nextConversationHistory = buildCreatorHistoryPayload([...messages, userMessage]);
 
     // 2. Set status to 'building'
     setStatus('building');
@@ -364,15 +533,110 @@ export default function BaleybotPage() {
       // 4. Call sendCreatorMessage mutation
       const result = await creatorMutation.mutateAsync({
         baleybotId: savedBaleybotId ?? undefined,
-        message,
-        conversationHistory: messages.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          timestamp: m.timestamp,
-          metadata: m.metadata as Record<string, unknown> | undefined,
-        })),
+        message: sanitizedMessage,
+        conversationHistory: nextConversationHistory,
       });
+
+      if (result.status === 'building') {
+        const requiredQuestions = (result.questions ?? []).filter(
+          (question) => question.requiredNow !== false
+        );
+        const optionalQuestions = (result.questions ?? []).filter(
+          (question) => question.requiredNow === false
+        );
+        const previousDiscoveryIteration = [...messages]
+          .reverse()
+          .find(
+            (msg) =>
+              msg.role === 'assistant' &&
+              msg.metadata?.creatorLifecycle?.stage === 'discovery'
+          )?.metadata?.creatorLifecycle?.iteration ?? 0;
+        const discoveryIteration = previousDiscoveryIteration + 1;
+
+        const fallbackLines: string[] = [];
+        if (requiredQuestions.length > 0) {
+          fallbackLines.push('To continue right now, please answer:', '');
+          for (const question of requiredQuestions) {
+            fallbackLines.push(`- **${question.label}**: ${question.description}`);
+          }
+        }
+        if (optionalQuestions.length > 0) {
+          fallbackLines.push(
+            '',
+            'Optional for now (can be configured later):',
+            ''
+          );
+          for (const question of optionalQuestions) {
+            fallbackLines.push(`- **${question.label}**: ${question.description}`);
+          }
+        }
+
+        const baseMessage = result.message?.trim() || result.thinking?.trim();
+        const responseContent = baseMessage
+          ? baseMessage
+          : fallbackLines.length > 0
+            ? fallbackLines.join('\n').trim()
+            : 'I need a bit more detail before generating BAL.';
+
+        if (!name && result.name) {
+          setName(truncateName(result.name));
+        }
+        if (!icon && result.icon) {
+          setIcon(result.icon);
+        }
+        if (!description && result.description) {
+          setDescription(result.description);
+        }
+
+        const assistantMessage: CreatorMessage = {
+          id: `msg-${Date.now()}-assistant-discovery`,
+          role: 'assistant',
+          content: responseContent.trim(),
+          timestamp: new Date(),
+          thinking: result.thinking || undefined,
+          metadata: {
+            diagnostic: {
+              level: 'info',
+              title: requiredQuestions.length > 0 ? 'Additional Discovery Needed' : 'Optional Configuration Details',
+              details: requiredQuestions.length > 0
+                ? 'Fill any fields you can in the Discovery Intake form below, then submit. Unfilled fields can be left blank.'
+                : 'I can continue now. Use the Discovery Intake form below for any optional details you want to add.',
+              suggestions: (result.questions ?? []).map((question) =>
+                `${question.requiredNow === false ? '[Later]' : '[Required]'} ${question.label}: ${question.description}`
+              ),
+            },
+            creatorLifecycle: {
+              stage: 'discovery',
+              iteration: discoveryIteration,
+              whatIDid:
+                discoveryIteration > 1
+                  ? 'Re-evaluated your latest response and checked which required details are still missing.'
+                  : 'Reviewed your request and identified the minimum details needed for a runnable first version.',
+              nextStage: 'Design Generation',
+              nextAction:
+                requiredQuestions.length > 0
+                  ? 'Answer the required questions so generation can continue.'
+                  : 'Generation can proceed now; optional details can be handled later.',
+              requiredQuestions: requiredQuestions.map((q) => ({
+                id: q.id,
+                label: q.label,
+                description: q.description,
+                requiredNow: true,
+              })),
+              optionalQuestions: optionalQuestions.map((q) => ({
+                id: q.id,
+                label: q.label,
+                description: q.description,
+                requiredNow: false,
+              })),
+            },
+          },
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+        setStatus('ready');
+        setCreationProgress(null);
+        return;
+      }
 
       setCreationProgress({ phase: 'designing', message: `Designed ${result.entities.length} entit${result.entities.length === 1 ? 'y' : 'ies'}` });
 
@@ -391,6 +655,8 @@ export default function BaleybotPage() {
         label: conn.label,
         status: 'stable' as const,
       }));
+      const detectedBalSkills = detectBalSkills(result.balCode);
+      const balSkillSummary = summarizeBalSkills(detectedBalSkills);
 
       if (visualConnections.length > 0) {
         setCreationProgress({ phase: 'connecting', message: `Connected ${visualConnections.length} workflow${visualConnections.length === 1 ? '' : 's'}` });
@@ -438,8 +704,11 @@ export default function BaleybotPage() {
 
       // Build a concise summary — thinking goes in the expandable section, not in content
       const isInitialCreation = prevEntities.length === 0;
+      const modelNarrative = result.message?.trim();
       let responseContent = '';
-      if (isInitialCreation) {
+      if (modelNarrative) {
+        responseContent = modelNarrative;
+      } else if (isInitialCreation) {
         const totalTools = visualEntities.reduce((sum, e) => sum + e.tools.length, 0);
         responseContent = `I've created **${result.name}** with ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}`;
         if (totalTools > 0) {
@@ -464,12 +733,13 @@ export default function BaleybotPage() {
       const metadata: CreatorMessage['metadata'] = {
         entities: entityMetadata,
         isInitialCreation,
+        balSkills: detectedBalSkills,
       };
+      const wsConns = workspaceConnections ?? [];
 
       // Add connection status if bot uses tools requiring connections
       const toolSummary = getConnectionSummary(visualEntities.flatMap(e => e.tools));
       if (toolSummary.required.length > 0) {
-        const wsConns = workspaceConnections ?? [];
         metadata.connectionStatus = {
           connections: [
             {
@@ -488,6 +758,32 @@ export default function BaleybotPage() {
           ],
         };
       }
+
+      const hasAiProviderConnected = wsConns.some(
+        (c) =>
+          ['openai', 'anthropic', 'ollama'].includes(c.type) &&
+          c.status === 'connected'
+      );
+      const missingRequiredConnectionTypes = toolSummary.required
+        .filter((req) => !wsConns.some((c) => c.type === req.connectionType && c.status === 'connected'))
+        .map((req) => req.connectionType);
+      const nextLifecycleStage =
+        !hasAiProviderConnected || missingRequiredConnectionTypes.length > 0
+          ? 'connections'
+          : 'testing';
+      const nextLifecycleAction =
+        nextLifecycleStage === 'connections'
+          ? missingRequiredConnectionTypes.length > 0
+            ? `Connect required services (${[...new Set(missingRequiredConnectionTypes)].join(', ')}) and verify tools.`
+            : 'Connect an AI provider and verify tool requirements.'
+          : 'Run generated tests and confirm expected outputs.';
+      const totalEntityTools = visualEntities.reduce((sum, entity) => sum + entity.tools.length, 0);
+      metadata.creatorLifecycle = {
+        stage: 'design',
+        whatIDid: `Designed ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}, mapped ${totalEntityTools} ${totalEntityTools === 1 ? 'tool' : 'tools'}, generated BAL code, and applied ${balSkillSummary}.`,
+        nextStage: nextLifecycleStage === 'connections' ? 'Connections' : 'Testing',
+        nextAction: nextLifecycleAction,
+      };
 
       // Add diagnostic and interactive next-step options for initial creation
       if (isInitialCreation) {
@@ -605,6 +901,45 @@ export default function BaleybotPage() {
     }
   };
 
+  const handleApplyToolRemap = (remaps: Array<{ fromTool: string; toTool: string }>) => {
+    if (remaps.length === 0) return;
+
+    let updatedCode = balCode;
+    const applied: Array<{ fromTool: string; toTool: string }> = [];
+
+    for (const remap of remaps) {
+      if (remap.fromTool === remap.toTool) continue;
+      const pattern = new RegExp(`"${escapeRegExp(remap.fromTool)}"`, 'g');
+      const nextCode = updatedCode.replace(pattern, `"${remap.toTool}"`);
+      if (nextCode !== updatedCode) {
+        updatedCode = nextCode;
+        applied.push(remap);
+      }
+    }
+
+    if (applied.length === 0 || updatedCode === balCode) return;
+
+    handleCodeChange(updatedCode);
+
+    const summary = applied
+      .map((item) => `- \`${item.fromTool}\` -> \`${item.toTool}\``)
+      .join('\n');
+    const assistantMessage: CreatorMessage = {
+      id: `msg-${Date.now()}-tool-remap`,
+      role: 'assistant',
+      content: `Updated tool mapping in BAL:\n${summary}`,
+      timestamp: new Date(),
+      metadata: {
+        diagnostic: {
+          level: 'success',
+          title: 'Tool Mapping Updated',
+          details: 'The selected source mapping has been written to BAL code.',
+        },
+      },
+    };
+    setMessages((prev) => [...prev, assistantMessage]);
+  };
+
   /**
    * Handle saving the BaleyBot
    * Returns the saved BaleyBot ID if successful, null if failed
@@ -621,13 +956,7 @@ export default function BaleybotPage() {
         description: description || undefined,
         icon: icon || undefined,
         balCode,
-        conversationHistory: messages.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          timestamp: m.timestamp,
-          metadata: m.metadata as Record<string, unknown> | undefined,
-        })),
+        conversationHistory: buildCreatorHistoryPayload(messages),
       });
 
       // If new, update savedBaleybotId and URL
@@ -755,6 +1084,168 @@ export default function BaleybotPage() {
     }
   };
 
+  /**
+   * Runtime-mode execution entrypoint (live mini-app usage).
+   */
+  const handleRuntimeRun = async () => {
+    if (isRunLocked) return;
+    setIsRunLocked(true);
+    setRuntimeError(null);
+
+    let baleybotIdToRun = savedBaleybotId;
+    try {
+      if (!baleybotIdToRun) {
+        const newId = await handleSave();
+        if (!newId) return;
+        baleybotIdToRun = newId;
+      }
+
+      const trimmed = runtimeInput.trim();
+      let payload: unknown = trimmed;
+
+      if (runtimeInputMode === 'message') {
+        if (!trimmed) {
+          setRuntimeError('Please enter a message before running.');
+          return;
+        }
+      } else if (runtimeInputMode === 'structured') {
+        if (!trimmed) {
+          setRuntimeError('Please provide a JSON payload before running.');
+          return;
+        }
+        const parsed = tryParseJson(trimmed);
+        if (parsed == null) {
+          setRuntimeError('Structured input must be valid JSON.');
+          return;
+        }
+        payload = parsed;
+      }
+
+      if (runtimeInputMode === 'message') {
+        setRuntimeConversation((prev) => [
+          ...prev,
+          {
+            id: `runtime-user-${Date.now()}`,
+            role: 'user',
+            content: trimmed,
+            timestamp: new Date(),
+          },
+        ]);
+      }
+
+      const execution = await executeMutation.mutateAsync({
+        id: baleybotIdToRun,
+        input: payload,
+        triggeredBy: 'manual',
+      });
+
+      if (execution.status === 'completed') {
+        setRuntimeOutput(formatExecutionOutput(execution.output));
+        setShowRuntimeRawOutput(false);
+        setRuntimeDurationMs(execution.durationMs ?? null);
+        if (runtimeInputMode === 'message') {
+          setRuntimeConversation((prev) => [
+            ...prev,
+            {
+              id: `runtime-assistant-${Date.now()}`,
+              role: 'assistant',
+              content: getPrimaryRuntimeResponse(execution.output),
+              timestamp: new Date(),
+            },
+          ]);
+          setRuntimeInput('');
+        }
+      } else {
+        setRuntimeError(execution.error ?? 'Execution did not complete successfully.');
+      }
+
+      await utils.baleybots.get.invalidate({ id: baleybotIdToRun });
+      await utils.analytics.getBaleybotAnalytics.invalidate({ baleybotId: baleybotIdToRun });
+    } catch (error) {
+      setRuntimeError(error instanceof Error ? error.message : 'Runtime execution failed');
+    } finally {
+      setIsRunLocked(false);
+    }
+  };
+
+  const handleGenerateLaunchKit = async () => {
+    if (!savedBaleybotId) return;
+    try {
+      await generateLaunchKitMutation.mutateAsync({ baleybotId: savedBaleybotId, requiredPassRate: 0.8 });
+      await utils.baleybots.get.invalidate({ id: savedBaleybotId });
+      await refetchLaunchReadiness();
+    } catch (error) {
+      const message: CreatorMessage = {
+        id: `msg-${Date.now()}-launchkit-error`,
+        role: 'assistant',
+        content: `Launch kit generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date(),
+        metadata: { isError: true },
+      };
+      setMessages((prev) => [...prev, message]);
+    }
+  };
+
+  const handleApproveLaunchPlan = async () => {
+    if (!savedBaleybotId) return;
+    try {
+      await approveLaunchPlanMutation.mutateAsync({ baleybotId: savedBaleybotId });
+      await utils.baleybots.get.invalidate({ id: savedBaleybotId });
+      await refetchLaunchReadiness();
+    } catch (error) {
+      const message: CreatorMessage = {
+        id: `msg-${Date.now()}-launch-approve-error`,
+        role: 'assistant',
+        content: `Launch plan approval failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date(),
+        metadata: { isError: true },
+      };
+      setMessages((prev) => [...prev, message]);
+    }
+  };
+
+  const handlePromoteToLive = async () => {
+    if (!savedBaleybotId) return;
+    try {
+      await promoteToLiveMutation.mutateAsync({ baleybotId: savedBaleybotId });
+      await utils.baleybots.get.invalidate({ id: savedBaleybotId });
+      await utils.analytics.getBaleybotAnalytics.invalidate({ baleybotId: savedBaleybotId });
+      setViewMode('runtime');
+    } catch (error) {
+      const message: CreatorMessage = {
+        id: `msg-${Date.now()}-promote-live-error`,
+        role: 'assistant',
+        content: `Could not promote to live: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date(),
+        metadata: { isError: true },
+      };
+      setMessages((prev) => [...prev, message]);
+    }
+  };
+
+  const handlePauseOrResumeLive = async () => {
+    if (!savedBaleybotId) return;
+    try {
+      const stage = existingBaleybot?.lifecycleStage;
+      if (stage === 'live') {
+        await pauseLiveBotMutation.mutateAsync({ baleybotId: savedBaleybotId });
+      } else {
+        await promoteToLiveMutation.mutateAsync({ baleybotId: savedBaleybotId });
+      }
+      await utils.baleybots.get.invalidate({ id: savedBaleybotId });
+      await utils.analytics.getBaleybotAnalytics.invalidate({ baleybotId: savedBaleybotId });
+    } catch (error) {
+      const message: CreatorMessage = {
+        id: `msg-${Date.now()}-pause-live-error`,
+        role: 'assistant',
+        content: `Live state update failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date(),
+        metadata: { isError: true },
+      };
+      setMessages((prev) => [...prev, message]);
+    }
+  };
+
   // =====================================================================
   // NAVIGATION GUARD (Phase 1.3)
   // =====================================================================
@@ -864,7 +1355,7 @@ export default function BaleybotPage() {
       hasTrigger: !!triggerConfig,
       hasMonitoring: (analyticsData?.total ?? 0) >= 1,
     });
-    setReadiness(newReadiness);
+    setReadiness((prev) => (isSameReadiness(prev, newReadiness) ? prev : newReadiness));
 
     // Detect dimension completions and inject follow-up guidance messages
     if (prevReadinessRef.current && status === 'ready') {
@@ -879,10 +1370,23 @@ export default function BaleybotPage() {
         if (prev[dim] !== 'complete' && newReadiness[dim] === 'complete') {
           const { completed: c, total: t } = countCompleted(newReadiness);
           const nextAction = getRecommendedAction(newReadiness);
+          const autoAdvanceTargets: Partial<Record<ReadinessDimension, AdaptiveTab>> = {
+            designed: 'connections',
+            connected: 'test',
+            tested: 'triggers',
+            activated: 'monitor',
+          };
+          const targetTab = autoAdvanceTargets[dim];
+          const canAutoAdvance =
+            !!targetTab &&
+            getVisibleTabs(newReadiness).includes(targetTab);
 
           let content = `**${dimensionLabels[dim]}** is complete! (${c}/${t})`;
           if (nextAction) {
             content += ` Next up: ${nextAction.label.toLowerCase()}.`;
+            if (canAutoAdvance) {
+              content += ` I moved you to the ${nextAction.label.toLowerCase()} step to keep momentum.`;
+            }
           } else if (c === t) {
             content += ' Your bot is fully production-ready!';
           }
@@ -901,20 +1405,62 @@ export default function BaleybotPage() {
             } : undefined,
           };
           setMessages(prev => [...prev, followUpMessage]);
+
+          if (canAutoAdvance && targetTab) {
+            setViewMode(targetTab);
+            setMobileView('editor');
+          }
           break; // Only one follow-up per render cycle
         }
       }
     }
     prevReadinessRef.current = newReadiness;
-  }, [balCode, entities, testCases, triggerConfig, workspaceConnections, analyticsData, status]);
+  }, [
+    balCode,
+    entities,
+    testCases,
+    triggerConfig,
+    workspaceConnections,
+    analyticsData,
+    status,
+  ]);
 
   // Auto-switch to a visible tab if current tab becomes hidden
   useEffect(() => {
-    const visibleTabs = getVisibleTabs(readiness);
+    const nextVisibleTabs = [...getVisibleTabs(readiness)];
+    if (savedBaleybotId && !nextVisibleTabs.includes('launch')) {
+      nextVisibleTabs.push('launch');
+    }
+    if (
+      savedBaleybotId &&
+      (
+        existingBaleybot?.lifecycleStage === 'live' ||
+        existingBaleybot?.lifecycleStage === 'paused' ||
+        !!existingBaleybot?.runtimeInterfaceSpec
+      ) &&
+      !nextVisibleTabs.includes('runtime')
+    ) {
+      nextVisibleTabs.push('runtime');
+    }
+    const visibleTabs = showAdvancedUI
+      ? nextVisibleTabs
+      : nextVisibleTabs.filter((tab) => !isAdvancedEditorTab(tab));
+
+    if (!showAdvancedUI && isAdvancedEditorTab(viewMode)) {
+      setViewMode('visual');
+      return;
+    }
     if (!visibleTabs.includes(viewMode)) {
       setViewMode('visual');
     }
-  }, [readiness, viewMode]);
+  }, [
+    readiness,
+    viewMode,
+    showAdvancedUI,
+    savedBaleybotId,
+    existingBaleybot?.lifecycleStage,
+    existingBaleybot?.runtimeInterfaceSpec,
+  ]);
 
   // Connection analysis — re-runs when connections tab is opened and code changes
   const analyzeConnectionsMutation = trpc.baleybots.analyzeConnections.useMutation();
@@ -979,13 +1525,47 @@ export default function BaleybotPage() {
 
   // Auto-save trigger config when it changes (debounced)
   const saveTriggerMutation = trpc.baleybots.saveTriggerConfig.useMutation();
+  const getPersistableTriggerConfig = (
+    config: TriggerConfigType | undefined
+  ):
+    | {
+        type: 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'db_event' | 'mcp_event';
+        schedule?: string;
+        sourceBaleybotId?: string;
+        completionType?: 'success' | 'failure' | 'completion';
+        webhookPath?: string;
+        dbConnectionId?: string;
+        dbTable?: string;
+        dbEvent?: 'insert' | 'update' | 'delete' | 'change';
+        mcpServer?: string;
+        mcpTool?: string;
+        mcpResource?: string;
+        enabled?: boolean;
+      }
+    | null => {
+    if (!config) return null;
+    return {
+      type: config.type,
+      schedule: config.schedule,
+      sourceBaleybotId: config.sourceBaleybotId,
+      completionType: config.completionType,
+      webhookPath: config.webhookPath,
+      dbConnectionId: config.dbConnectionId,
+      dbTable: config.dbTable,
+      dbEvent: config.dbEvent,
+      mcpServer: config.mcpServer,
+      mcpTool: config.mcpTool,
+      mcpResource: config.mcpResource,
+      enabled: config.enabled,
+    };
+  };
 
   useEffect(() => {
     if (!savedBaleybotId) return;
     const timeout = setTimeout(() => {
       saveTriggerMutation.mutate({
         id: savedBaleybotId,
-        triggerConfig: triggerConfig ?? null,
+        triggerConfig: getPersistableTriggerConfig(triggerConfig),
       });
     }, 1000);
     return () => clearTimeout(timeout);
@@ -1011,7 +1591,7 @@ export default function BaleybotPage() {
       return;
     }
     if (optionId === 'retry-all-tests') {
-      handleRunAllTests();
+      handleRunAllWithSelfHealing();
       return;
     }
     if (optionId === 'review-mismatches') {
@@ -1058,7 +1638,11 @@ export default function BaleybotPage() {
     // Existing option handling
     if (optionId === 'retry') {
       const lastUserMsg = messages.filter(m => m.role === 'user').pop();
-      if (lastUserMsg) handleSendMessage(lastUserMsg.content);
+      if (lastUserMsg) {
+        const retryMessage = lastUserMsg.metadata?.discoveryIntake?.modelMessage
+          ?? lastUserMsg.content;
+        handleSendMessage(retryMessage);
+      }
       return;
     }
     if (optionId === 'simplify') {
@@ -1080,6 +1664,9 @@ export default function BaleybotPage() {
       setIcon(existingBaleybot.icon || '');
       setBalCode(existingBaleybot.balCode);
       setStatus('ready');
+      if (existingBaleybot.lifecycleStage === 'live' || existingBaleybot.lifecycleStage === 'paused') {
+        setViewMode('runtime');
+      }
 
       // Parse BAL code to extract entity details (tools, goal, model)
       // This is much richer than just using entityNames which loses tool info
@@ -1145,7 +1732,7 @@ export default function BaleybotPage() {
           .map((msg) => ({
             id: msg.id,
             role: msg.role,
-            content: msg.content,
+            content: sanitizeCreatorText(msg.content),
             timestamp: safeParseDate(msg.timestamp),
             metadata: msg.metadata as CreatorMessage['metadata'],
           }));
@@ -1231,6 +1818,52 @@ export default function BaleybotPage() {
   const displayName = name || 'New BaleyBot';
   const displayIcon = icon || '✨';
   const canSave = status === 'ready' && balCode && name && !isSaving && !isSavePending;
+  const lifecycleStage = existingBaleybot?.lifecycleStage ?? 'draft';
+  const launchKit = (existingBaleybot?.launchKit as LaunchKit | null) ?? null;
+  const runtimeSpec = (
+    runtimeInterfaceData ??
+    existingBaleybot?.runtimeInterfaceSpec ??
+    null
+  ) as RuntimeInterfaceSpec | null;
+  const launchReadiness = launchReadinessData?.readiness;
+  const parsedRuntimeOutput = runtimeOutput ? tryParseJson(runtimeOutput) : null;
+  const runtimeOutputRecord =
+    parsedRuntimeOutput && typeof parsedRuntimeOutput === 'object' && !Array.isArray(parsedRuntimeOutput)
+      ? (parsedRuntimeOutput as Record<string, unknown>)
+      : null;
+  const runtimeOutputEntries = runtimeOutputRecord
+    ? Object.entries(runtimeOutputRecord).slice(0, 8)
+    : [];
+  const runtimeOutputHasMoreEntries = runtimeOutputRecord
+    ? Object.keys(runtimeOutputRecord).length > runtimeOutputEntries.length
+    : false;
+  const runtimeMode = runtimeSpec?.mode ?? 'chat';
+  const canUseMessageMode = runtimeMode !== 'form';
+  const isMessageRuntime = runtimeInputMode === 'message' && canUseMessageMode;
+  const launchBusy =
+    isFetchingLaunchReadiness ||
+    generateLaunchKitMutation.isPending ||
+    approveLaunchPlanMutation.isPending ||
+    promoteToLiveMutation.isPending ||
+    pauseLiveBotMutation.isPending;
+  const availableTabs: AdaptiveTab[] = (() => {
+    const tabs = [...getVisibleTabs(readiness)];
+    if (savedBaleybotId && !tabs.includes('launch')) {
+      tabs.push('launch');
+    }
+    if (
+      savedBaleybotId &&
+      (
+        existingBaleybot?.lifecycleStage === 'live' ||
+        existingBaleybot?.lifecycleStage === 'paused' ||
+        !!existingBaleybot?.runtimeInterfaceSpec
+      ) &&
+      !tabs.includes('runtime')
+    ) {
+      tabs.push('runtime');
+    }
+    return showAdvancedUI ? tabs : tabs.filter((tab) => !isAdvancedEditorTab(tab));
+  })();
 
   // Compute save button disabled reason for tooltip (Phase 1.8)
   const saveDisabledReason = !balCode || !name
@@ -1297,6 +1930,11 @@ export default function BaleybotPage() {
               <span className="text-amber-500 text-xs font-medium shrink-0" title="Unsaved changes">
                 <span className="hidden sm:inline">(unsaved)</span>
                 <span className="sm:hidden">•</span>
+              </span>
+            )}
+            {!isNew && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-primary/10 text-primary shrink-0 uppercase tracking-wide">
+                {lifecycleStage.replace('_', ' ')}
               </span>
             )}
           </div>
@@ -1477,6 +2115,12 @@ export default function BaleybotPage() {
                 status={status}
                 onSend={handleSendMessage}
                 disabled={isSaving}
+                quickPrompts={EXAMPLE_PROMPTS.slice(0, 3).map((example) => ({
+                  id: `quick-${example.label}`,
+                  label: example.label,
+                  prompt: example.prompt,
+                  mode: 'send' as const,
+                }))}
               />
             </div>
 
@@ -1545,7 +2189,11 @@ export default function BaleybotPage() {
                 onExecutionClick={(executionId) => router.push(ROUTES.activity.execution(executionId))}
                 onViewAction={(action) => {
                   if (action === 'visual') { setViewMode('visual'); setMobileView('editor'); }
-                  else if (action === 'code') { setViewMode('code'); setMobileView('editor'); }
+                  else if (action === 'code') {
+                    setShowAdvancedUI(true);
+                    setViewMode('code');
+                    setMobileView('editor');
+                  }
                   else if (action === 'run') { handleRun(''); }
                 }}
                 onOptionSelect={handleOptionSelect}
@@ -1562,7 +2210,7 @@ export default function BaleybotPage() {
               <div className="flex items-center px-4 py-2 border-b border-border/30">
                 <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as AdaptiveTab)} className="w-auto">
                   <TabsList className="h-9 bg-muted/50">
-                    {getVisibleTabs(readiness).map((tab) => {
+                    {availableTabs.map((tab) => {
                       const tabConfig: Record<AdaptiveTab, { icon: React.ReactNode; label: string }> = {
                         visual: { icon: <LayoutGrid className="h-3.5 w-3.5" />, label: 'Visual' },
                         code: { icon: <Code2 className="h-3.5 w-3.5" />, label: 'Code' },
@@ -1571,6 +2219,8 @@ export default function BaleybotPage() {
                         triggers: { icon: <Zap className="h-3.5 w-3.5" />, label: 'Triggers' },
                         analytics: { icon: <BarChart3 className="h-3.5 w-3.5" />, label: 'Analytics' },
                         monitor: { icon: <Activity className="h-3.5 w-3.5" />, label: 'Monitor' },
+                        launch: { icon: <Rocket className="h-3.5 w-3.5" />, label: 'Launch' },
+                        runtime: { icon: <CirclePlay className="h-3.5 w-3.5" />, label: 'Runtime' },
                       };
                       const config = tabConfig[tab];
                       return (
@@ -1597,6 +2247,14 @@ export default function BaleybotPage() {
                   onActionClick={(optionId) => handleOptionSelect(optionId)}
                   className="ml-3"
                 />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="ml-2 h-8 text-xs text-muted-foreground"
+                  onClick={() => setShowAdvancedUI((prev) => !prev)}
+                >
+                  {showAdvancedUI ? 'Hide advanced' : 'Show advanced'}
+                </Button>
               </div>
 
               {/* Editor content */}
@@ -1643,6 +2301,14 @@ export default function BaleybotPage() {
                           availableBaleybots
                             ?.filter((bb) => bb.id !== savedBaleybotId)
                             .map((bb) => ({ id: bb.id, name: bb.name })) ?? []
+                        }
+                        availableConnections={
+                          (workspaceConnections ?? []).map((conn) => ({
+                            id: conn.id,
+                            name: conn.name,
+                            type: conn.type,
+                            status: conn.status ?? undefined,
+                          }))
                         }
                       />
                     </div>
@@ -1768,6 +2434,7 @@ export default function BaleybotPage() {
                         connections={normalizedConnections ?? []}
                         isLoading={isLoadingConnections}
                         onConnectionCreated={() => utils.connections.list.invalidate()}
+                        onApplyToolRemap={handleApplyToolRemap}
                         onNavigateToTest={() => setViewMode('test')}
                       />
                     </div>
@@ -1781,16 +2448,503 @@ export default function BaleybotPage() {
                         topology={lastRunSummary?.topology}
                         onRunTest={handleRunTest}
                         onRunAll={handleRunAllTests}
+                        onRunAllWithSelfHealing={handleRunAllWithSelfHealing}
                         onAddTest={handleAddTest}
                         onGenerateTests={handleGenerateTests}
                         isGenerating={isGeneratingTests}
                         isRunningAll={isRunningAll}
+                        isSelfHealing={isSelfHealing}
                         runAllProgress={runAllProgress}
                         lastRunSummary={lastRunSummary}
                         onUpdateTest={handleUpdateTest}
                         onDeleteTest={handleDeleteTest}
                         onAcceptActual={handleAcceptActual}
                       />
+                    </div>
+                  )}
+
+                  {/* Launch Prep View */}
+                  {viewMode === 'launch' && (
+                    <div className="h-full overflow-auto bg-background rounded-lg border p-4 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-sm font-medium">Launch Prep</h3>
+                          <p className="text-xs text-muted-foreground">
+                            Verify readiness, generate launch artifacts, then promote this bot to live runtime mode.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => refetchLaunchReadiness()}
+                            disabled={launchBusy}
+                          >
+                            {launchBusy ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+                            Refresh
+                          </Button>
+                          {!launchKit && (
+                            <Button
+                              size="sm"
+                              onClick={handleGenerateLaunchKit}
+                              disabled={
+                                !savedBaleybotId ||
+                                launchBusy ||
+                                (launchReadiness ? !launchReadiness.readyForLaunchPrep : false)
+                              }
+                            >
+                              {generateLaunchKitMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5 mr-1.5" />}
+                              Generate Launch Kit
+                            </Button>
+                          )}
+                          {launchKit && lifecycleStage !== 'live' && lifecycleStage !== 'paused' && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={handleApproveLaunchPlan}
+                                disabled={!savedBaleybotId || launchBusy}
+                              >
+                                {approveLaunchPlanMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />}
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={handlePromoteToLive}
+                                disabled={!savedBaleybotId || launchBusy}
+                              >
+                                {promoteToLiveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CirclePlay className="h-3.5 w-3.5 mr-1.5" />}
+                                Go Live
+                              </Button>
+                            </>
+                          )}
+                          {(lifecycleStage === 'live' || lifecycleStage === 'paused') && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={handlePauseOrResumeLive}
+                              disabled={launchBusy}
+                            >
+                              {launchBusy ? (
+                                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                              ) : lifecycleStage === 'live' ? (
+                                <PauseCircle className="h-3.5 w-3.5 mr-1.5" />
+                              ) : (
+                                <CirclePlay className="h-3.5 w-3.5 mr-1.5" />
+                              )}
+                              {lifecycleStage === 'live' ? 'Pause Live' : 'Resume Live'}
+                            </Button>
+                          )}
+                          {launchKit && (
+                            <Button size="sm" variant="outline" onClick={() => setViewMode('runtime')}>
+                              <CirclePlay className="h-3.5 w-3.5 mr-1.5" />
+                              Open Runtime
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {launchReadiness && (
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                          <div className="rounded-lg border p-3">
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">BAL</p>
+                            <p className={cn('text-sm font-medium mt-1', launchReadiness.balValid ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400')}>
+                              {launchReadiness.balValid ? 'Valid' : 'Invalid'}
+                            </p>
+                          </div>
+                          <div className="rounded-lg border p-3">
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Connections</p>
+                            <p className={cn('text-sm font-medium mt-1', launchReadiness.connectionsReady ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400')}>
+                              {launchReadiness.connectionsReady ? 'Ready' : 'Needs setup'}
+                            </p>
+                          </div>
+                          <div className="rounded-lg border p-3">
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Test Pass Rate</p>
+                            <p className={cn('text-sm font-medium mt-1', launchReadiness.testPassRate >= 0.8 ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400')}>
+                              {Math.round(launchReadiness.testPassRate * 100)}%
+                            </p>
+                          </div>
+                          <div className="rounded-lg border p-3">
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                              {launchKit ? 'Launch Confidence' : 'Topology'}
+                            </p>
+                            <p className="text-sm font-medium mt-1">
+                              {launchKit
+                                ? `${Math.round(launchKit.confidenceScore * 100)}%`
+                                : launchReadiness.topology}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {launchReadiness?.blockingIssues?.length ? (
+                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                          <p className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1">Blocking Issues</p>
+                          <ul className="space-y-1">
+                            {launchReadiness.blockingIssues.map((issue, idx) => (
+                              <li key={`${issue}-${idx}`} className="text-xs text-amber-800/90 dark:text-amber-200/90">
+                                {idx + 1}. {issue}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : launchReadiness ? (
+                        <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3 text-xs text-green-700 dark:text-green-300">
+                          Launch readiness checks passed.
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                          Save this bot and run test coverage to evaluate launch readiness.
+                        </div>
+                      )}
+
+                      {launchKit ? (
+                        <div className="space-y-3">
+                          <div className="rounded-lg border p-3">
+                            <p className="text-sm font-medium mb-2">Activation Plan</p>
+                            <p className="text-xs text-muted-foreground mb-2">
+                              Primary: <span className="font-medium text-foreground">{launchKit.activationPlan.recommendedPrimary}</span>
+                            </p>
+                            <div className="space-y-1.5">
+                              {launchKit.activationPlan.channels.map((channel, idx) => (
+                                <div key={`${channel.type}-${idx}`} className="text-xs rounded border border-border/50 px-2 py-1.5">
+                                  <span className="font-medium">{channel.type}</span>
+                                  <span className="text-muted-foreground"> — {channel.rationale}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="rounded-lg border p-3">
+                              <p className="text-sm font-medium mb-2">Monitoring Plan</p>
+                              <ul className="space-y-1">
+                                {launchKit.monitoringPlan.metrics.map((metric, idx) => (
+                                  <li key={`${metric}-${idx}`} className="text-xs">{idx + 1}. {metric}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div className="rounded-lg border p-3">
+                              <p className="text-sm font-medium mb-2">Go-Live Checklist</p>
+                              <ul className="space-y-1">
+                                {launchKit.goLiveChecklist.map((item, idx) => (
+                                  <li key={`${item}-${idx}`} className="text-xs">{idx + 1}. {item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                          Generate a Launch Kit after tests and connections are ready.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Runtime View */}
+                  {viewMode === 'runtime' && (
+                    <div className="h-full overflow-auto bg-background rounded-lg border p-4 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-medium">Runtime Interface</h3>
+                            <span className={cn(
+                              'text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wide',
+                              lifecycleStage === 'live'
+                                ? 'bg-green-500/10 text-green-700 dark:text-green-300'
+                                : lifecycleStage === 'paused'
+                                  ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                                  : 'bg-muted text-muted-foreground'
+                            )}>
+                              {lifecycleStage}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Use this bot as a live mini-app. Runtime mode: {runtimeMode}.
+                          </p>
+                        </div>
+                        {(lifecycleStage === 'live' || lifecycleStage === 'paused') && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handlePauseOrResumeLive}
+                            disabled={pauseLiveBotMutation.isPending || promoteToLiveMutation.isPending}
+                          >
+                            {pauseLiveBotMutation.isPending || promoteToLiveMutation.isPending ? (
+                              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                            ) : lifecycleStage === 'live' ? (
+                              <PauseCircle className="h-3.5 w-3.5 mr-1.5" />
+                            ) : (
+                              <CirclePlay className="h-3.5 w-3.5 mr-1.5" />
+                            )}
+                            {lifecycleStage === 'live' ? 'Pause Live' : 'Resume Live'}
+                          </Button>
+                        )}
+                      </div>
+
+                      {isFetchingRuntimeInterface && !runtimeSpec ? (
+                        <div className="rounded-lg border p-6 text-center text-sm text-muted-foreground">
+                          Loading runtime interface...
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                          <div className="xl:col-span-2 space-y-3">
+                            <div className="rounded-xl border p-4 space-y-3 bg-gradient-to-b from-background to-muted/10">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-medium">Interact</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Choose a simple message or provide structured data.
+                                  </p>
+                                </div>
+                                <div className="inline-flex items-center rounded-lg border border-border/60 p-0.5 bg-muted/30">
+                                  <button
+                                    type="button"
+                                    onClick={() => setRuntimeInputMode('message')}
+                                    disabled={!canUseMessageMode}
+                                    className={cn(
+                                      'px-2.5 py-1 text-xs rounded-md transition-colors',
+                                      runtimeInputMode === 'message' && canUseMessageMode
+                                        ? 'bg-background text-foreground shadow-sm'
+                                        : 'text-muted-foreground hover:text-foreground',
+                                      !canUseMessageMode && 'opacity-50 cursor-not-allowed hover:text-muted-foreground'
+                                    )}
+                                  >
+                                    Message
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setRuntimeInputMode('structured')}
+                                    className={cn(
+                                      'px-2.5 py-1 text-xs rounded-md transition-colors',
+                                      runtimeInputMode === 'structured'
+                                        ? 'bg-background text-foreground shadow-sm'
+                                        : 'text-muted-foreground hover:text-foreground'
+                                    )}
+                                  >
+                                    Structured
+                                  </button>
+                                </div>
+                              </div>
+
+                              {!canUseMessageMode && (
+                                <p className="text-[11px] text-amber-700 dark:text-amber-300 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5">
+                                  This bot expects structured input. Message mode is disabled for this runtime.
+                                </p>
+                              )}
+
+                              <textarea
+                                value={runtimeInput}
+                                onChange={(e) => setRuntimeInput(e.target.value)}
+                                placeholder={
+                                  isMessageRuntime
+                                    ? 'Type what you want this bot to do...'
+                                    : runtimeInputMode === 'structured'
+                                    ? '{\n  "event": "new_signup",\n  "email": "new.user@example.com"\n}'
+                                    : 'Provide input...'
+                                }
+                                rows={6}
+                                className={cn(
+                                  'w-full text-sm bg-background border border-border/50 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20',
+                                  !isMessageRuntime && 'font-mono text-xs'
+                                )}
+                              />
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={handleRuntimeRun}
+                                  disabled={isRunLocked || executeMutation.isPending}
+                                >
+                                  {isRunLocked || executeMutation.isPending ? (
+                                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                                  ) : (
+                                    <CirclePlay className="h-3.5 w-3.5 mr-1.5" />
+                                  )}
+                                  {isMessageRuntime ? 'Send' : 'Run'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setRuntimeInput('');
+                                    setRuntimeOutput('');
+                                    setRuntimeError(null);
+                                    setRuntimeDurationMs(null);
+                                    setShowRuntimeRawOutput(false);
+                                    setRuntimeConversation([]);
+                                  }}
+                                  disabled={isRunLocked || executeMutation.isPending}
+                                >
+                                  Clear
+                                </Button>
+                                {runtimeDurationMs != null && (
+                                  <span className="text-xs text-muted-foreground">
+                                    Last run: {runtimeDurationMs > 1000 ? `${(runtimeDurationMs / 1000).toFixed(1)}s` : `${runtimeDurationMs}ms`}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="rounded-xl border p-4 space-y-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm font-medium">{isMessageRuntime ? 'Conversation' : 'Latest Result'}</p>
+                                {runtimeOutput && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 px-2 text-[11px]"
+                                    onClick={() => setShowRuntimeRawOutput((prev) => !prev)}
+                                  >
+                                    {showRuntimeRawOutput ? 'Hide raw output' : 'Show raw output'}
+                                  </Button>
+                                )}
+                              </div>
+
+                              {runtimeError ? (
+                                <div className="text-sm whitespace-pre-wrap bg-red-500/5 border border-red-500/20 text-red-700 dark:text-red-300 rounded-lg p-3">
+                                  {runtimeError}
+                                </div>
+                              ) : isMessageRuntime ? (
+                                <>
+                                  {runtimeConversation.length > 0 ? (
+                                    <div className="space-y-2 max-h-[320px] overflow-auto pr-1">
+                                      {runtimeConversation.map((message) => (
+                                        <div
+                                          key={message.id}
+                                          className={cn(
+                                            'max-w-[90%] rounded-lg px-3 py-2 text-sm border',
+                                            message.role === 'user'
+                                              ? 'ml-auto bg-primary/10 border-primary/20'
+                                              : 'mr-auto bg-muted/30 border-border/50'
+                                          )}
+                                        >
+                                          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                                          <p className="text-[10px] text-muted-foreground mt-1">
+                                            {message.timestamp.toLocaleTimeString([], {
+                                              hour: 'numeric',
+                                              minute: '2-digit',
+                                            })}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-muted-foreground">
+                                      Send a message to start the conversation.
+                                    </p>
+                                  )}
+
+                                  {showRuntimeRawOutput && runtimeOutput && (
+                                    <pre className="text-xs whitespace-pre-wrap bg-muted/40 rounded-lg p-3 font-mono overflow-x-auto">
+                                      {runtimeOutput}
+                                    </pre>
+                                  )}
+                                </>
+                              ) : runtimeOutput ? (
+                                <>
+                                  {runtimeOutputEntries.length > 0 ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      {runtimeOutputEntries.map(([key, value]) => (
+                                        <div key={key} className="rounded-lg border border-border/50 bg-muted/20 p-2.5">
+                                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                            {key.replace(/_/g, ' ')}
+                                          </p>
+                                          <p className="text-sm mt-1 break-words">
+                                            {formatFriendlyRuntimeValue(value)}
+                                          </p>
+                                        </div>
+                                      ))}
+                                      {runtimeOutputHasMoreEntries && (
+                                        <div className="rounded-lg border border-dashed border-border/60 bg-muted/10 p-2.5">
+                                          <p className="text-xs text-muted-foreground">
+                                            Additional fields are available in raw output.
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="rounded-lg border border-border/50 bg-muted/20 p-3 text-sm whitespace-pre-wrap">
+                                      {runtimeOutput}
+                                    </div>
+                                  )}
+
+                                  {showRuntimeRawOutput && (
+                                    <pre className="text-xs whitespace-pre-wrap bg-muted/40 rounded-lg p-3 font-mono overflow-x-auto">
+                                      {runtimeOutput}
+                                    </pre>
+                                  )}
+                                </>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">
+                                  Run the bot to view output.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <div className="rounded-lg border p-3 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs text-muted-foreground font-medium">Diagnostics</p>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-[11px]"
+                                  onClick={() => setShowRuntimeDiagnostics((prev) => !prev)}
+                                >
+                                  {showRuntimeDiagnostics ? 'Hide' : 'Show'}
+                                </Button>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground">
+                                Runtime internals and component-level details for power users.
+                              </p>
+                              {showRuntimeDiagnostics && (
+                                <ul className="space-y-1">
+                                  {(runtimeSpec?.components ?? []).map((component) => (
+                                    <li key={component.id} className="text-xs rounded bg-muted/40 px-2 py-1">
+                                      <span className="font-medium">{component.type}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                            <div className="rounded-lg border p-3">
+                              <p className="text-xs text-muted-foreground font-medium mb-2">Live Metrics</p>
+                              {isLoadingAnalytics ? (
+                                <div className="space-y-2">
+                                  <Skeleton className="h-12 w-full" />
+                                  <Skeleton className="h-12 w-full" />
+                                </div>
+                              ) : analyticsData && analyticsData.total > 0 ? (
+                                <div className="space-y-2 text-xs">
+                                  <div className="rounded border border-border/50 px-2 py-1.5 flex items-center justify-between">
+                                    <span className="text-muted-foreground">Runs</span>
+                                    <span className="font-medium">{analyticsData.total}</span>
+                                  </div>
+                                  <div className="rounded border border-border/50 px-2 py-1.5 flex items-center justify-between">
+                                    <span className="text-muted-foreground">Success</span>
+                                    <span className="font-medium">{Math.round(analyticsData.successRate * 100)}%</span>
+                                  </div>
+                                  <div className="rounded border border-border/50 px-2 py-1.5 flex items-center justify-between">
+                                    <span className="text-muted-foreground">Avg Duration</span>
+                                    <span className="font-medium">
+                                      {analyticsData.avgDurationMs > 1000
+                                        ? `${(analyticsData.avgDurationMs / 1000).toFixed(1)}s`
+                                        : `${analyticsData.avgDurationMs}ms`}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">
+                                  No runtime metrics yet.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

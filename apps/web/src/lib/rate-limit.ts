@@ -237,7 +237,10 @@ export function getRateLimitMode(): RateLimitMode {
 
 export const RATE_LIMITS = {
   execute: { windowMs: 60000, maxRequests: 10 },  // 10 executions per minute
+  executeTest: { windowMs: 60000, maxRequests: 60 },  // 60 test executions per minute
   generate: { windowMs: 60000, maxRequests: 5 },  // 5 generations per minute
+  testValidate: { windowMs: 60000, maxRequests: 120 }, // 120 test validations per minute
+  testAnalyze: { windowMs: 60000, maxRequests: 20 }, // 20 test result analyses per minute
   webhook: { windowMs: 1000, maxRequests: 100 },  // 100 webhooks per second
   webhookPerMinute: { windowMs: 60000, maxRequests: 60 },  // 60 webhooks per minute per IP
   api: { windowMs: 60000, maxRequests: 100 },     // 100 API calls per minute

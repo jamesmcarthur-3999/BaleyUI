@@ -65,6 +65,7 @@
     "dompurify": "^3.3.1",
     "isolated-vm": "^6.0.2",
     "lucide-react": "^0.468.0",
+    "mysql2": "^3.16.3",
     "next": "15.5.12",
     "postgres": "^3.4.5",
     "react": "^19.0.0",

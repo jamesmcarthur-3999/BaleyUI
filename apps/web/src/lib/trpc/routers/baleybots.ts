@@ -24,10 +24,12 @@ import {
 import { TRPCError } from '@trpc/server';
 import { processCreatorMessage } from '@/lib/baleybot/creator-bot';
 import type { CreatorMessage } from '@/lib/baleybot/creator-types';
+import { sanitizeCreatorText } from '@/lib/baleybot/creator-sanitization';
 import { getBuiltInToolDefinitions, getPreferredProvider } from '@/lib/baleybot';
 import { executeBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
 import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
+import { evaluateLaunchReadiness, buildLaunchKit, buildDefaultRuntimeInterface } from '@/lib/baleybot/launch-prep';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import {
   verifyNestedOwnership,
@@ -45,6 +47,20 @@ import { sharedStorageService } from '@/lib/baleybot/services/shared-storage-ser
 import { configureWebSearch } from '@/lib/baleybot/tools/built-in/implementations';
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
 import { loadExecutionTools } from '@/lib/baleybot/services/execution-tools-loader';
+import type { TriggerType } from '@/lib/baleybot/types';
+import { decrypt } from '@/lib/encryption';
+import { testConnection } from '@/lib/connections/test';
+import type { ConnectionConfig } from '@/lib/types';
+import {
+  evaluateToolConnectionBinding,
+  parseConnectionTool,
+  connectionNameToSlug,
+} from '@/lib/baleybot/tools/requirements-scanner';
+import {
+  evaluateOutputMatch,
+  MATCH_STRATEGIES,
+  type MatchStrategy,
+} from '@/lib/baleybot/testing/output-match';
 
 const log = createLogger('baleybots-router');
 
@@ -127,6 +143,30 @@ const connectionAdvisorOutputSchema = z.object({
   warnings: z.array(z.string()).optional(),
 });
 
+const deploymentAdvisorOutputSchema = z.object({
+  triggerRecommendations: z.array(z.object({
+    type: z.enum(['manual', 'schedule', 'webhook', 'other_bb', 'db_event', 'mcp_event']),
+    reason: z.string(),
+    config: z.record(z.string(), z.unknown()).optional(),
+  })).optional(),
+  monitoringAdvice: z.object({
+    alertsToSet: z.array(z.string()).optional(),
+    metricsToWatch: z.array(z.string()).optional(),
+  }).optional(),
+  readinessGaps: z.array(z.string()).optional(),
+  productionChecklist: z.array(z.string()).optional(),
+});
+
+const creatorActionAdvisorOutputSchema = z.object({
+  actions: z.array(z.object({
+    label: z.string().min(1).max(80),
+    prompt: z.string().min(1).max(2000),
+    mode: z.enum(['send', 'insert']).optional(),
+    reason: z.string().max(300).optional(),
+    priority: z.number().int().min(1).max(5).optional(),
+  })).max(3).optional(),
+});
+
 /**
  * Status values for BaleyBots
  */
@@ -140,7 +180,142 @@ const executionStatusSchema = z.enum(['pending', 'running', 'completed', 'failed
 /**
  * Trigger types for executions
  */
-const triggerTypeSchema = z.enum(['manual', 'schedule', 'webhook', 'other_bb']);
+const triggerTypeSchema = z.enum(['manual', 'schedule', 'webhook', 'other_bb', 'db_event', 'mcp_event']);
+
+type WorkspaceConnectionLite = {
+  id: string;
+  type: string;
+  name: string;
+  status: string | null;
+  config?: unknown;
+};
+
+function decryptMaybe(value?: string): string | undefined {
+  if (!value) return undefined;
+  try {
+    return decrypt(value);
+  } catch {
+    return value;
+  }
+}
+
+function decryptConfigForProvider(type: string, rawConfig: unknown): ConnectionConfig {
+  const config = (rawConfig ?? {}) as ConnectionConfig;
+  if (type === 'postgres' || type === 'mysql') {
+    return {
+      ...config,
+      password: decryptMaybe(config.password as string | undefined),
+    };
+  }
+  return {
+    ...config,
+    apiKey: decryptMaybe(config.apiKey as string | undefined),
+  };
+}
+
+function buildToolProbeArgs(toolName: string): Record<string, unknown> | null {
+  if (toolName === 'fetch_url') {
+    return {
+      url: 'https://example.com',
+      format: 'text',
+    };
+  }
+  if (toolName === 'web_search') {
+    return {
+      query: 'BaleyUI platform',
+      num_results: 1,
+      search_depth: 'basic',
+    };
+  }
+  if (toolName === 'store_memory') {
+    return {
+      action: 'list',
+    };
+  }
+  if (toolName === 'shared_storage') {
+    return {
+      action: 'list',
+    };
+  }
+  return null;
+}
+
+function getToolVerificationNextSteps(args: {
+  toolName: string;
+  status: 'needs_setup' | 'failed';
+  reason: string;
+  hasAiProvider: boolean;
+  expectedConnectionType?: 'postgres' | 'mysql' | null;
+  expectedConnectionSlug?: string;
+}): string[] {
+  const steps: string[] = [];
+
+  if (
+    args.toolName === 'web_search' &&
+    !hasProcessEnvKey('TAVILY_API_KEY') &&
+    !args.hasAiProvider
+  ) {
+    steps.push('Add an AI provider connection (OpenAI, Anthropic, or Ollama).');
+    steps.push('Optional: configure TAVILY_API_KEY for higher-quality search results.');
+  }
+
+  if (args.expectedConnectionType === 'postgres' || args.expectedConnectionType === 'mysql') {
+    const typeLabel = args.expectedConnectionType === 'postgres' ? 'PostgreSQL' : 'MySQL';
+    if (args.expectedConnectionSlug) {
+      steps.push(
+        `Create or map a ${typeLabel} source named "${args.expectedConnectionSlug}" (slug match) or remap the tool binding.`
+      );
+    } else {
+      steps.push(`Add a connected ${typeLabel} source.`);
+    }
+    steps.push('After connecting, click "Verify Tool" again to confirm runtime readiness.');
+  }
+
+  if (steps.length === 0) {
+    steps.push(args.reason);
+  }
+
+  return steps;
+}
+
+function hasProcessEnvKey(name: string): boolean {
+  const value = process.env[name];
+  return Boolean(value && value.trim().length > 0);
+}
+
+function sanitizeConversationHistoryForStorage(
+  history: Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: Date;
+    metadata?: Record<string, unknown>;
+  }> | undefined
+) {
+  if (!history) return undefined;
+
+  return history.slice(-50).map((message) => ({
+    id: message.id,
+    role: message.role,
+    content: sanitizeCreatorText(message.content),
+    timestamp: message.timestamp.toISOString(),
+    ...(message.metadata ? { metadata: message.metadata } : {}),
+  }));
+}
+
+function getModelConversationContent(message: {
+  content: string;
+  metadata?: Record<string, unknown>;
+}): string {
+  const discoveryIntake = message.metadata?.discoveryIntake;
+  if (discoveryIntake && typeof discoveryIntake === 'object') {
+    const modelMessage = (discoveryIntake as Record<string, unknown>).modelMessage;
+    if (typeof modelMessage === 'string' && modelMessage.trim().length > 0) {
+      return modelMessage;
+    }
+  }
+  return message.content;
+}
 
 /**
  * tRPC router for managing BaleyBots (BAL-first architecture).
@@ -448,6 +623,8 @@ export const baleybotsRouter = router({
 
       const updated = await updateWithLock(baleybots, input.id, input.version, {
         status: 'active',
+        lifecycleStage: existing.lifecycleStage === 'paused' ? 'live' : existing.lifecycleStage,
+        liveAt: existing.liveAt ?? new Date(),
       });
 
       return updated;
@@ -476,6 +653,8 @@ export const baleybotsRouter = router({
 
       const updated = await updateWithLock(baleybots, input.id, input.version, {
         status: 'paused',
+        lifecycleStage: 'paused',
+        pausedAt: new Date(),
       });
 
       return updated;
@@ -496,10 +675,14 @@ export const baleybotsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Rate limit: 10 executions per minute per user per workspace
+      const isTestExecution =
+        typeof input.triggerSource === 'string' &&
+        input.triggerSource.startsWith('test_runner');
+
+      // Use a higher budget for test-suite executions while keeping user/workspace scoping.
       await checkRateLimit(
-        `execute:${ctx.workspace.id}:${ctx.userId}`,
-        RATE_LIMITS.execute
+        `execute:${ctx.workspace.id}:${ctx.userId}:${isTestExecution ? 'test' : 'default'}`,
+        isTestExecution ? RATE_LIMITS.executeTest : RATE_LIMITS.execute
       );
 
       log.info('Executing baleybot', { baleybotId: input.id, triggeredBy: input.triggeredBy });
@@ -982,11 +1165,12 @@ export const baleybotsRouter = router({
         (msg) => ({
           id: msg.id,
           role: msg.role,
-          content: msg.content,
+          content: sanitizeCreatorText(getModelConversationContent(msg)),
           timestamp: msg.timestamp,
           ...(msg.metadata ? { metadata: msg.metadata as CreatorMessage['metadata'] } : {}),
         })
       );
+      const sanitizedMessage = sanitizeCreatorText(input.message);
 
       // 6. Get built-in tools + workspace custom tools for the context
       const builtInTools = getBuiltInToolDefinitions();
@@ -1022,10 +1206,145 @@ export const baleybotsRouter = router({
           },
           conversationHistory,
         },
-        input.message
+        sanitizedMessage
       );
 
       return result;
+    }),
+
+  /**
+   * Generate context-aware next actions for the creator UI.
+   * Uses internal BB reasoning to suggest only high-value steps.
+   */
+  getCreatorSuggestedActions: protectedProcedure
+    .input(
+      z.object({
+        status: z.enum(['empty', 'building', 'ready', 'running', 'error']),
+        messages: z.array(
+          z.object({
+            role: z.enum(['user', 'assistant']),
+            content: z.string().max(4000),
+            metadata: z.record(z.string(), z.unknown()).optional(),
+          })
+        ).max(30),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      if (input.status === 'running') {
+        return { actions: [] };
+      }
+
+      await checkRateLimit(
+        `creatorActions:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.creatorMessage,
+      );
+
+      const recentMessages = input.messages.slice(-12);
+      const transcript = recentMessages
+        .map((message, index) => {
+          const content = sanitizeCreatorText(message.content).slice(0, 280);
+          return `${index + 1}. ${message.role}: ${content}`;
+        })
+        .join('\n');
+
+      const latestLifecycle = [...recentMessages]
+        .reverse()
+        .find((message) => {
+          const metadata = message.metadata;
+          return Boolean(
+            message.role === 'assistant' &&
+              metadata &&
+              typeof metadata === 'object' &&
+              'creatorLifecycle' in metadata
+          );
+        })?.metadata?.creatorLifecycle as
+          | {
+              stage?: string;
+              nextStage?: string;
+              nextAction?: string;
+              requiredQuestions?: unknown[];
+              optionalQuestions?: unknown[];
+            }
+          | undefined;
+
+      const latestDiagnostic = [...recentMessages]
+        .reverse()
+        .find((message) => {
+          const metadata = message.metadata;
+          return Boolean(
+            message.role === 'assistant' &&
+              metadata &&
+              typeof metadata === 'object' &&
+              'diagnostic' in metadata
+          );
+        })?.metadata?.diagnostic as
+          | {
+              level?: string;
+              title?: string;
+              details?: string;
+            }
+          | undefined;
+
+      const requiredCount = Array.isArray(latestLifecycle?.requiredQuestions)
+        ? latestLifecycle.requiredQuestions.length
+        : 0;
+      const optionalCount = Array.isArray(latestLifecycle?.optionalQuestions)
+        ? latestLifecycle.optionalQuestions.length
+        : 0;
+
+      const contextStr = [
+        `Creator status: ${input.status}`,
+        latestLifecycle?.stage ? `Current stage: ${latestLifecycle.stage}` : '',
+        latestLifecycle?.nextStage ? `Next stage hint: ${latestLifecycle.nextStage}` : '',
+        latestLifecycle?.nextAction ? `Current next action: ${latestLifecycle.nextAction}` : '',
+        requiredCount > 0 ? `Required discovery questions remaining: ${requiredCount}` : '',
+        optionalCount > 0 ? `Optional discovery questions remaining: ${optionalCount}` : '',
+        latestDiagnostic?.level ? `Latest diagnostic level: ${latestDiagnostic.level}` : '',
+        latestDiagnostic?.title ? `Latest diagnostic title: ${latestDiagnostic.title}` : '',
+        latestDiagnostic?.details ? `Latest diagnostic details: ${latestDiagnostic.details}` : '',
+        '',
+        'Recent conversation:',
+        transcript || '(no recent messages)',
+      ].filter(Boolean).join('\n');
+
+      try {
+        const { output } = await executeInternalBaleybot(
+          'creator_action_advisor',
+          `Suggest up to three next actions for this creator session.\n\n${contextStr}`,
+          {
+            userWorkspaceId: ctx.workspace.id,
+            triggeredBy: 'internal',
+          }
+        );
+
+        const parsed = creatorActionAdvisorOutputSchema.parse(output);
+        const seen = new Set<string>();
+        const actions = (parsed.actions ?? [])
+          .map((action) => ({
+            label: sanitizeCreatorText(action.label),
+            prompt: sanitizeCreatorText(action.prompt),
+            mode: action.mode === 'insert' ? 'insert' : 'send',
+            reason: action.reason ? sanitizeCreatorText(action.reason) : undefined,
+            priority: action.priority ?? 3,
+          }))
+          .filter((action) => action.label.length > 0 && action.prompt.length > 0)
+          .filter((action) => {
+            const key = `${action.label}::${action.prompt}`.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .sort((a, b) => a.priority - b.priority)
+          .slice(0, 3);
+
+        return { actions };
+      } catch (error) {
+        log.warn('creator_action_advisor failed, returning no suggested actions', {
+          error: error instanceof Error ? error.message : String(error),
+          workspaceId: ctx.workspace.id,
+        });
+        return { actions: [] };
+      }
     }),
 
   /**
@@ -1077,16 +1396,9 @@ export const baleybotsRouter = router({
           });
         }
 
-        // Truncate conversation history to last 50 messages
-        const truncatedHistory = input.conversationHistory
-          ? input.conversationHistory.slice(-50).map((msg) => ({
-              id: msg.id,
-              role: msg.role,
-              content: msg.content,
-              timestamp: msg.timestamp.toISOString(),
-              ...(msg.metadata ? { metadata: msg.metadata } : {}),
-            }))
-          : undefined;
+        const balCodeChanged = input.balCode !== existing.balCode;
+
+        const truncatedHistory = sanitizeConversationHistoryForStorage(input.conversationHistory);
 
         // API-002: Use shared error handling helper
         return await withErrorHandling(
@@ -1098,20 +1410,16 @@ export const baleybotsRouter = router({
             structure: input.structure,
             entityNames: input.entityNames,
             conversationHistory: truncatedHistory,
+            lifecycleStage: balCodeChanged ? 'draft' : existing.lifecycleStage,
+            launchKit: balCodeChanged ? null : existing.launchKit,
+            runtimeInterfaceSpec: balCodeChanged ? null : existing.runtimeInterfaceSpec,
+            launchPreparedAt: balCodeChanged ? null : existing.launchPreparedAt,
+            liveAt: balCodeChanged ? null : existing.liveAt,
           }),
           'BaleyBot'
         );
       } else {
-        // Truncate conversation history to last 50 messages
-        const truncatedHistory = input.conversationHistory
-          ? input.conversationHistory.slice(-50).map((msg) => ({
-              id: msg.id,
-              role: msg.role,
-              content: msg.content,
-              timestamp: msg.timestamp.toISOString(),
-              ...(msg.metadata ? { metadata: msg.metadata } : {}),
-            }))
-          : undefined;
+        const truncatedHistory = sanitizeConversationHistoryForStorage(input.conversationHistory);
 
         // Create new BaleyBot
         const [baleybot] = await ctx.db
@@ -1127,6 +1435,7 @@ export const baleybotsRouter = router({
             entityNames: input.entityNames,
             conversationHistory: truncatedHistory,
             executionCount: 0,
+            lifecycleStage: 'draft',
             createdBy: ctx.userId,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -1220,11 +1529,17 @@ export const baleybotsRouter = router({
     .input(z.object({
       id: z.string().uuid(),
       triggerConfig: z.object({
-        type: z.enum(['manual', 'schedule', 'webhook', 'other_bb']),
+        type: z.enum(['manual', 'schedule', 'webhook', 'other_bb', 'db_event', 'mcp_event']),
         schedule: z.string().optional(),
         webhookPath: z.string().optional(),
         sourceBaleybotId: z.string().uuid().optional(),
         completionType: z.enum(['success', 'failure', 'completion']).optional(),
+        dbConnectionId: z.string().uuid().optional(),
+        dbTable: z.string().optional(),
+        dbEvent: z.enum(['insert', 'update', 'delete', 'change']).optional(),
+        mcpServer: z.string().optional(),
+        mcpTool: z.string().optional(),
+        mcpResource: z.string().optional(),
         enabled: z.boolean().optional(),
       }).nullable(),
     }))
@@ -1449,6 +1764,293 @@ export const baleybotsRouter = router({
     }),
 
   /**
+   * Verify a specific tool's operational readiness from the Connections panel.
+   * Performs connection-level checks and safe runtime probes where applicable.
+   */
+  verifyTool: protectedProcedure
+    .input(z.object({
+      toolName: z.string().min(1),
+      mappedConnectionId: z.string().uuid().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const workspaceConnections = await ctx.db.query.connections.findMany({
+        where: and(
+          eq(connections.workspaceId, ctx.workspace.id),
+          notDeleted(connections)
+        ),
+        columns: {
+          id: true,
+          type: true,
+          name: true,
+          status: true,
+          config: true,
+        },
+      });
+
+      const hasAiProvider = workspaceConnections.some(
+        (conn) =>
+          (conn.type === 'openai' || conn.type === 'anthropic' || conn.type === 'ollama') &&
+          conn.status === 'connected'
+      );
+
+      const parsed = parseConnectionTool(input.toolName);
+      const binding = evaluateToolConnectionBinding(
+        input.toolName,
+        workspaceConnections.map((conn) => ({
+          id: conn.id,
+          type: conn.type,
+          name: conn.name,
+          status: conn.status ?? 'unknown',
+        }))
+      );
+
+      let mappedConnection: WorkspaceConnectionLite | undefined;
+      if (input.mappedConnectionId) {
+        mappedConnection = workspaceConnections.find((conn) => conn.id === input.mappedConnectionId);
+      } else if (parsed.connectionType && parsed.connectionSlug) {
+        mappedConnection = workspaceConnections.find(
+          (conn) =>
+            conn.type === parsed.connectionType &&
+            connectionNameToSlug(conn.name) === parsed.connectionSlug
+        );
+      }
+
+      if (parsed.connectionType && !mappedConnection) {
+        return {
+          toolName: input.toolName,
+          status: 'needs_setup' as const,
+          checkType: 'connection' as const,
+          summary: binding.reason,
+          details: getToolVerificationNextSteps({
+            toolName: input.toolName,
+            status: 'needs_setup',
+            reason: binding.reason,
+            hasAiProvider,
+            expectedConnectionType: parsed.connectionType,
+            expectedConnectionSlug: parsed.connectionSlug,
+          }),
+          probe: {
+            attempted: false,
+          },
+        };
+      }
+
+      if (mappedConnection && mappedConnection.status !== 'connected') {
+        return {
+          toolName: input.toolName,
+          status: 'needs_setup' as const,
+          checkType: 'connection' as const,
+          summary: `"${mappedConnection.name}" is ${mappedConnection.status}.`,
+          details: [
+            `Reconnect or update "${mappedConnection.name}" credentials.`,
+            'Re-run connection test and then verify this tool again.',
+          ],
+          connection: {
+            id: mappedConnection.id,
+            name: mappedConnection.name,
+            type: mappedConnection.type,
+            status: mappedConnection.status,
+          },
+          probe: {
+            attempted: false,
+          },
+        };
+      }
+
+      if (mappedConnection?.config && (mappedConnection.type === 'postgres' || mappedConnection.type === 'mysql')) {
+        const decryptedConfig = decryptConfigForProvider(mappedConnection.type, mappedConnection.config);
+        const connectionCheck = await testConnection(mappedConnection.type, decryptedConfig);
+        if (!connectionCheck.success) {
+          return {
+            toolName: input.toolName,
+            status: 'failed' as const,
+            checkType: 'connection' as const,
+            summary: connectionCheck.message || 'Connection test failed.',
+            details: [
+              'Update credentials or connection URL and test again.',
+              mappedConnection.type === 'postgres'
+                ? 'Check host, port, database, username, password, and SSL requirements.'
+                : 'Check host, port, database, username, password, and network access.',
+            ],
+            connection: {
+              id: mappedConnection.id,
+              name: mappedConnection.name,
+              type: mappedConnection.type,
+              status: mappedConnection.status,
+            },
+            probe: {
+              attempted: false,
+            },
+          };
+        }
+      }
+
+      if (input.toolName === 'web_search' && !hasProcessEnvKey('TAVILY_API_KEY') && !hasAiProvider) {
+        return {
+          toolName: input.toolName,
+          status: 'needs_setup' as const,
+          checkType: 'connection' as const,
+          summary: 'web_search requires Tavily API key or an AI provider fallback.',
+          details: getToolVerificationNextSteps({
+            toolName: input.toolName,
+            status: 'needs_setup',
+            reason: 'No search backend available.',
+            hasAiProvider,
+            expectedConnectionType: parsed.connectionType,
+            expectedConnectionSlug: parsed.connectionSlug,
+          }),
+          probe: {
+            attempted: false,
+          },
+        };
+      }
+
+      const probeArgs = buildToolProbeArgs(input.toolName);
+      const sideEffectingTools = new Set([
+        'spawn_baleybot',
+        'send_notification',
+        'schedule_task',
+        'create_agent',
+        'create_tool',
+      ]);
+
+      if (sideEffectingTools.has(input.toolName)) {
+        return {
+          toolName: input.toolName,
+          status: 'manual_review' as const,
+          checkType: 'static' as const,
+          summary: 'Tool is configured. Runtime probe skipped to avoid side effects.',
+          details: [
+            'Use the Test stage to run a real scenario and verify behavior.',
+          ],
+          connection: mappedConnection
+            ? {
+                id: mappedConnection.id,
+                name: mappedConnection.name,
+                type: mappedConnection.type,
+                status: mappedConnection.status,
+              }
+            : undefined,
+          probe: {
+            attempted: false,
+          },
+        };
+      }
+
+      if (!probeArgs) {
+        return {
+          toolName: input.toolName,
+          status: 'verified' as const,
+          checkType: 'static' as const,
+          summary: 'Tool configuration is valid.',
+          details: [],
+          connection: mappedConnection
+            ? {
+                id: mappedConnection.id,
+                name: mappedConnection.name,
+                type: mappedConnection.type,
+                status: mappedConnection.status,
+              }
+            : undefined,
+          probe: {
+            attempted: false,
+          },
+        };
+      }
+
+      if (hasProcessEnvKey('TAVILY_API_KEY')) {
+        configureWebSearch(process.env.TAVILY_API_KEY!);
+      }
+      initializeBuiltInToolServices();
+
+      const toolCtx: BuiltInToolContext = {
+        workspaceId: ctx.workspace.id,
+        baleybotId: 'tool-verification',
+        executionId: `tool-verification-${Date.now()}`,
+        userId: ctx.userId ?? 'tool-verification',
+      };
+
+      const { runtimeTools } = await loadExecutionTools({
+        workspaceId: ctx.workspace.id,
+        toolCtx,
+        declaredTools: [input.toolName],
+      });
+
+      const runtimeTool = runtimeTools.get(input.toolName);
+      if (!runtimeTool) {
+        return {
+          toolName: input.toolName,
+          status: 'failed' as const,
+          checkType: 'runtime' as const,
+          summary: 'Tool is not currently available at runtime.',
+          details: [
+            'Check whether the tool exists and is allowed in this workspace.',
+          ],
+          probe: {
+            attempted: true,
+            success: false,
+            message: 'Runtime tool not found',
+          },
+        };
+      }
+
+      try {
+        await runtimeTool.function(probeArgs);
+        return {
+          toolName: input.toolName,
+          status: 'verified' as const,
+          checkType: 'runtime' as const,
+          summary: 'Runtime probe passed.',
+          details: mappedConnection
+            ? [`Verified using "${mappedConnection.name}".`]
+            : ['No external connection was required for this probe.'],
+          connection: mappedConnection
+            ? {
+                id: mappedConnection.id,
+                name: mappedConnection.name,
+                type: mappedConnection.type,
+                status: mappedConnection.status,
+              }
+            : undefined,
+          probe: {
+            attempted: true,
+            success: true,
+            message: 'Runtime probe passed',
+          },
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return {
+          toolName: input.toolName,
+          status: 'failed' as const,
+          checkType: 'runtime' as const,
+          summary: `Runtime probe failed: ${errorMessage}`,
+          details: getToolVerificationNextSteps({
+            toolName: input.toolName,
+            status: 'failed',
+            reason: errorMessage,
+            hasAiProvider,
+            expectedConnectionType: parsed.connectionType,
+            expectedConnectionSlug: parsed.connectionSlug,
+          }),
+          connection: mappedConnection
+            ? {
+                id: mappedConnection.id,
+                name: mappedConnection.name,
+                type: mappedConnection.type,
+                status: mappedConnection.status,
+              }
+            : undefined,
+          probe: {
+            attempted: true,
+            success: false,
+            message: errorMessage,
+          },
+        };
+      }
+    }),
+
+  /**
    * Validate a single test output using the test_validator internal BB.
    * Uses a cheap model (gpt-4o-mini) for fast semantic validation.
    */
@@ -1458,6 +2060,7 @@ export const baleybotsRouter = router({
       input: z.union([z.string(), z.record(z.string(), z.unknown())]),
       expectedOutput: z.string(),
       actualOutput: z.string(),
+      matchStrategy: z.enum(MATCH_STRATEGIES).optional(),
       botName: z.string(),
       botGoal: z.string().optional(),
       expectedSteps: z.array(z.object({
@@ -1468,14 +2071,46 @@ export const baleybotsRouter = router({
     .mutation(async ({ ctx, input }) => {
       await checkRateLimit(
         `testValidate:${ctx.workspace.id}:${ctx.userId}`,
-        RATE_LIMITS.generate,
+        RATE_LIMITS.testValidate,
       );
+
+      const strategy: MatchStrategy = input.matchStrategy ?? 'contains';
+      const deterministic = evaluateOutputMatch(
+        input.actualOutput,
+        input.expectedOutput,
+        strategy,
+      );
+
+      // Deterministic pass always wins.
+      if (deterministic.passed) {
+        return {
+          passed: true,
+          confidence: 0.98,
+          reasoning: `${deterministic.reason} (deterministic ${strategy} match)`,
+          suggestions: [],
+        };
+      }
+
+      // For strict strategies, deterministic mismatch is authoritative.
+      if (strategy === 'exact' || strategy === 'schema' || strategy === 'structured') {
+        return {
+          passed: false,
+          confidence: 0.98,
+          reasoning: `${deterministic.reason} (deterministic ${strategy} mismatch)`,
+          suggestions: [
+            'Adjust expected output to match actual structure/content.',
+            'Use semantic or contains matching if strict structural equality is not required.',
+          ],
+        };
+      }
 
       const inputStr = typeof input.input === 'object' ? JSON.stringify(input.input) : input.input;
       const contextStr = [
         `Bot: ${input.botName}`,
         input.botGoal ? `Goal: ${input.botGoal}` : '',
         `Test: ${input.testName}`,
+        `Match Strategy: ${strategy}`,
+        `Deterministic Precheck: failed (${deterministic.reason})`,
         `Input: ${inputStr}`,
         `Expected Output: ${input.expectedOutput}`,
         `Actual Output: ${input.actualOutput}`,
@@ -1494,7 +2129,17 @@ export const baleybotsRouter = router({
       );
 
       try {
-        return testValidatorOutputSchema.parse(output);
+        const parsed = testValidatorOutputSchema.parse(output);
+        const minConfidence = strategy === 'semantic' ? 0.5 : 0.6;
+        if (parsed.passed && parsed.confidence < minConfidence) {
+          return {
+            passed: false,
+            confidence: parsed.confidence,
+            reasoning: `Validator confidence (${parsed.confidence.toFixed(2)}) was below threshold (${minConfidence.toFixed(2)}). ${parsed.reasoning}`,
+            suggestions: parsed.suggestions,
+          };
+        }
+        return parsed;
       } catch {
         log.error('test_validator returned malformed output', { output });
         return { passed: false, confidence: 0, reasoning: 'Validation returned unexpected format.', suggestions: [] };
@@ -1532,7 +2177,7 @@ export const baleybotsRouter = router({
     .mutation(async ({ ctx, input }) => {
       await checkRateLimit(
         `testAnalyze:${ctx.workspace.id}:${ctx.userId}`,
-        RATE_LIMITS.generate,
+        RATE_LIMITS.testAnalyze,
       );
 
       const contextStr = [
@@ -1580,6 +2225,287 @@ export const baleybotsRouter = router({
     }),
 
   /**
+   * Evaluate whether a BaleyBot is ready to enter Launch Prep.
+   */
+  evaluateLaunchReadiness: protectedProcedure
+    .input(z.object({
+      baleybotId: z.string().uuid(),
+      requiredPassRate: z.number().min(0).max(1).optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const existing = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.baleybotId),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots)
+        ),
+      });
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+
+      const workspaceConnections = await ctx.db.query.connections.findMany({
+        where: and(
+          eq(connections.workspaceId, ctx.workspace.id),
+          notDeleted(connections),
+        ),
+      });
+
+      const readiness = evaluateLaunchReadiness({
+        balCode: existing.balCode,
+        workspaceConnections: workspaceConnections.map((conn) => ({
+          id: conn.id,
+          type: conn.type,
+          name: conn.name,
+          status: conn.status ?? 'unknown',
+          isDefault: conn.isDefault ?? false,
+          availableModels: conn.availableModels,
+        })),
+        testCasesJson: existing.testCasesJson,
+        requiredPassRate: input.requiredPassRate,
+      });
+
+      let lifecycleStage = existing.lifecycleStage ?? 'draft';
+      if (readiness.readyForLaunchPrep && lifecycleStage === 'draft') {
+        await updateWithLock(baleybots, existing.id, existing.version, {
+          lifecycleStage: 'verified',
+        });
+        lifecycleStage = 'verified';
+      }
+
+      return {
+        lifecycleStage,
+        readiness,
+      };
+    }),
+
+  /**
+   * Generate and persist LaunchKit + runtime interface spec.
+   */
+  generateLaunchKit: protectedProcedure
+    .input(z.object({
+      baleybotId: z.string().uuid(),
+      force: z.boolean().optional().default(false),
+      requiredPassRate: z.number().min(0).max(1).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.baleybotId),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots)
+        ),
+      });
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+
+      await checkRateLimit(
+        `launchkit:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.generate,
+      );
+
+      const workspaceConnections = await ctx.db.query.connections.findMany({
+        where: and(
+          eq(connections.workspaceId, ctx.workspace.id),
+          notDeleted(connections),
+        ),
+      });
+
+      const readiness = evaluateLaunchReadiness({
+        balCode: existing.balCode,
+        workspaceConnections: workspaceConnections.map((conn) => ({
+          id: conn.id,
+          type: conn.type,
+          name: conn.name,
+          status: conn.status ?? 'unknown',
+          isDefault: conn.isDefault ?? false,
+          availableModels: conn.availableModels,
+        })),
+        testCasesJson: existing.testCasesJson,
+        requiredPassRate: input.requiredPassRate,
+      });
+
+      if (!readiness.readyForLaunchPrep && !input.force) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Launch Prep requirements not met: ${readiness.blockingIssues.join(' ')}`,
+        });
+      }
+
+      const deploymentContext = [
+        `Bot: ${existing.name}`,
+        `Topology: ${readiness.topology}`,
+        `Pass rate: ${Math.round(readiness.testPassRate * 100)}%`,
+        `Blocking issues: ${readiness.blockingIssues.join('; ') || 'none'}`,
+        '',
+        'BAL Code:',
+        existing.balCode,
+      ].join('\n');
+
+      let triggerRecommendations: Array<{
+        type: TriggerType;
+        reason: string;
+        config?: Record<string, unknown>;
+      }> | undefined;
+      let monitoringAdvice: {
+        alertsToSet?: string[];
+        metricsToWatch?: string[];
+      } | undefined;
+
+      try {
+        const { output } = await executeInternalBaleybot(
+          'deployment_advisor',
+          `Generate activation and monitoring recommendations:\n${deploymentContext}`,
+          {
+            userWorkspaceId: ctx.workspace.id,
+            triggeredBy: 'internal',
+          }
+        );
+
+        const parsedDeployment = deploymentAdvisorOutputSchema.safeParse(output);
+        if (parsedDeployment.success) {
+          triggerRecommendations = parsedDeployment.data.triggerRecommendations;
+          monitoringAdvice = parsedDeployment.data.monitoringAdvice;
+        }
+      } catch (error) {
+        log.warn('Deployment advisor failed during LaunchKit generation; using deterministic fallback', {
+          baleybotId: existing.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      const launchKit = buildLaunchKit({
+        balCode: existing.balCode,
+        readiness,
+        triggerRecommendations,
+        monitoringAdvice,
+      });
+
+      await updateWithLock(baleybots, existing.id, existing.version, {
+        launchKit,
+        runtimeInterfaceSpec: launchKit.runtimeInterface,
+        lifecycleStage: 'launch_prepared',
+        launchPreparedAt: new Date(),
+      });
+
+      return {
+        lifecycleStage: 'launch_prepared' as const,
+        readiness,
+        launchKit,
+      };
+    }),
+
+  /**
+   * Approve the generated launch plan (remains in launch_prepared stage).
+   */
+  approveLaunchPlan: protectedProcedure
+    .input(z.object({
+      baleybotId: z.string().uuid(),
+      launchKit: z.record(z.string(), z.unknown()).optional(),
+      runtimeInterfaceSpec: z.record(z.string(), z.unknown()).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.baleybotId),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots)
+        ),
+      });
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+
+      return updateWithLock(baleybots, existing.id, existing.version, {
+        lifecycleStage: 'launch_prepared',
+        launchPreparedAt: new Date(),
+        launchKit: input.launchKit ?? existing.launchKit,
+        runtimeInterfaceSpec: input.runtimeInterfaceSpec ?? existing.runtimeInterfaceSpec,
+      });
+    }),
+
+  /**
+   * Promote a launch-prepared BaleyBot to live mode.
+   */
+  promoteToLive: protectedProcedure
+    .input(z.object({ baleybotId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.baleybotId),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots)
+        ),
+      });
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+
+      if (!existing.launchKit) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'LaunchKit not found. Generate and approve Launch Prep before going live.',
+        });
+      }
+
+      return updateWithLock(baleybots, existing.id, existing.version, {
+        status: 'active',
+        lifecycleStage: 'live',
+        liveAt: new Date(),
+        pausedAt: null,
+      });
+    }),
+
+  /**
+   * Pause a live BaleyBot while preserving runtime interface artifacts.
+   */
+  pauseLiveBot: protectedProcedure
+    .input(z.object({ baleybotId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.baleybotId),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots)
+        ),
+      });
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+
+      return updateWithLock(baleybots, existing.id, existing.version, {
+        status: 'paused',
+        lifecycleStage: 'paused',
+        pausedAt: new Date(),
+      });
+    }),
+
+  /**
+   * Return the runtime interface spec for Live mode rendering.
+   */
+  getRuntimeInterface: protectedProcedure
+    .input(z.object({ baleybotId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const existing = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.baleybotId),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots)
+        ),
+      });
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+
+      if (existing.runtimeInterfaceSpec) {
+        return existing.runtimeInterfaceSpec;
+      }
+
+      return buildDefaultRuntimeInterface({ balCode: existing.balCode });
+    }),
+
+  /**
    * Analyze deployment requirements using the deployment_advisor internal BB.
    */
   analyzeDeployment: protectedProcedure
@@ -1609,15 +2535,8 @@ export const baleybotsRouter = router({
         }
       );
 
-      const schema = z.object({
-        triggerRecommendations: z.array(z.object({ type: z.string(), reason: z.string(), config: z.unknown().optional() })).optional(),
-        monitoringAdvice: z.object({ alertsToSet: z.array(z.string()).optional(), metricsToWatch: z.array(z.string()).optional() }).optional(),
-        readinessGaps: z.array(z.string()).optional(),
-        productionChecklist: z.array(z.string()).optional(),
-      });
-
       try {
-        return schema.parse(output);
+        return deploymentAdvisorOutputSchema.parse(output);
       } catch {
         log.error('deployment_advisor returned malformed output', { output, baleybotId: input.baleybotId });
         return { triggerRecommendations: [], readinessGaps: ['Deployment analysis returned unexpected format.'], productionChecklist: [] };
