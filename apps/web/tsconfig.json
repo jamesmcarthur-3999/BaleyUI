@@ -18,7 +18,11 @@
     "paths": {
       "@/*": ["./src/*"],
       "@baleyui/db": ["../../packages/db/src"],
-      "@baleyui/db/*": ["../../packages/db/src/*"]
+      "@baleyui/db/*": ["../../packages/db/src/*"],
+      "@baleybots/tools/dsl/lexer": ["../../packages/baleybots/typescript/packages/tools/dist/types/baleybots-dsl-v2/lexer.d.ts"],
+      "@baleybots/tools/dsl/parser": ["../../packages/baleybots/typescript/packages/tools/dist/types/baleybots-dsl-v2/parser.d.ts"],
+      "@baleybots/tools/dsl/types": ["../../packages/baleybots/typescript/packages/tools/dist/types/baleybots-dsl-v2/types.d.ts"],
+      "@baleybots/tools/dsl/type-builder": ["../../packages/baleybots/typescript/packages/tools/dist/types/baleybots-dsl-v2/type-builder.d.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "src/lib/voice/speech.d.ts"],

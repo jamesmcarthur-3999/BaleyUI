@@ -21,6 +21,8 @@ export default defineConfig({
       // Deep imports into @baleybots/tools DSL (not in package exports map)
       '@baleybots/tools/dsl/lexer': path.resolve(__dirname, '../../packages/baleybots/typescript/packages/tools/dist/esm/baleybots-dsl-v2/lexer.js'),
       '@baleybots/tools/dsl/parser': path.resolve(__dirname, '../../packages/baleybots/typescript/packages/tools/dist/esm/baleybots-dsl-v2/parser.js'),
+      '@baleybots/tools/dsl/types': path.resolve(__dirname, '../../packages/baleybots/typescript/packages/tools/dist/esm/baleybots-dsl-v2/types.js'),
+      '@baleybots/tools/dsl/type-builder': path.resolve(__dirname, '../../packages/baleybots/typescript/packages/tools/dist/esm/baleybots-dsl-v2/type-builder.js'),
     },
   },
 });

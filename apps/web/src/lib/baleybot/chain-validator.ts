@@ -9,12 +9,9 @@
  * their goal/prompt, so we generate warnings rather than blocking errors.
  */
 
-import {
-  tokenize,
-  parse,
-  type EntityDefNode,
-  type ExprNode,
-} from '@baleybots/tools';
+import { tokenize } from '@baleybots/tools/dsl/lexer';
+import { parse } from '@baleybots/tools/dsl/parser';
+import type { EntityDefNode, ExprNode } from '@baleybots/tools/dsl/types';
 
 /**
  * Warning about potential type incompatibility in a chain

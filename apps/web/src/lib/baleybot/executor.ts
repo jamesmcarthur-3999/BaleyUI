@@ -6,8 +6,10 @@
  */
 
 import crypto from 'crypto';
-import { parse, tokenize, buildZodSchema } from '@baleybots/tools';
-import type { OutputSchemaNode, ProgramNode } from '@baleybots/tools';
+import { tokenize } from '@baleybots/tools/dsl/lexer';
+import { parse } from '@baleybots/tools/dsl/parser';
+import type { OutputSchemaNode, ProgramNode } from '@baleybots/tools/dsl/types';
+import { buildZodSchema } from '@baleybots/tools/dsl/type-builder';
 import type {
   BaleybotStreamEvent,
   ToolCall,

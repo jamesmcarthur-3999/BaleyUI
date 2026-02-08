@@ -15,7 +15,9 @@
  *   NOTE: Must use deep import to avoid barrel export that pulls in @baleybots/core
  */
 
-// Use individual sub-path imports to avoid the DSL barrel (index.js) which imports @baleybots/core
+// Use individual sub-path imports to avoid the DSL barrel (index.js) which imports @baleybots/core.
+// The @baleybots/tools exports map doesn't expose ./dsl/* paths, so next.config.ts has a
+// webpack alias to resolve these to the actual dist files.
 import { tokenize } from '@baleybots/tools/dsl/lexer';
 import { parse } from '@baleybots/tools/dsl/parser';
 
@@ -167,11 +169,6 @@ export function parseBalCode(balCode: string): ParseResult {
           tools: entity.tools ?? [],
           output: entity.output ? outputSchemaToRecord(entity.output as { fields: Array<{ name: string; fieldType: { kind: string } }> }) : undefined,
           history: entity.history,
-          temperature: entity.temperature,
-          reasoning: entity.reasoning,
-          stopWhen: entity.stopWhen,
-          retries: entity.retries,
-          needsApproval: entity.needsApproval,
           maxTokens: entity.maxTokens,
         },
       });
