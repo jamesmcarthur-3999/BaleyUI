@@ -1,35 +1,38 @@
 import { describe, it, expect } from 'vitest';
 import { balToVisual } from '../bal-parser-pure';
 
+// NOTE: The SDK lexer uses { } brace syntax for tools arrays (not [ ] brackets).
+// TODO: Switch to bracket syntax after SDK lexer adds [ ] support.
+
 const FIVE_AGENT_HUB_BAL = `
 coordinator {
   "goal": "Coordinate and distribute work across specialists",
   "model": "anthropic:claude-sonnet-4-20250514",
-  "tools": ["spawn_baleybot", "store_memory"]
+  "tools": { "spawn_baleybot", "store_memory" }
 }
 
 researcher {
   "goal": "Research topics using web search",
   "model": "openai:gpt-4o-mini",
-  "tools": ["web_search", "store_memory"]
+  "tools": { "web_search", "store_memory" }
 }
 
 fetcher {
   "goal": "Fetch and parse web content",
   "model": "openai:gpt-4o-mini",
-  "tools": ["fetch_url", "store_memory"]
+  "tools": { "fetch_url", "store_memory" }
 }
 
 analyzer {
   "goal": "Analyze collected data",
   "model": "anthropic:claude-sonnet-4-20250514",
-  "tools": ["store_memory", "shared_storage"]
+  "tools": { "store_memory", "shared_storage" }
 }
 
 reporter {
   "goal": "Generate summary reports",
   "model": "anthropic:claude-sonnet-4-20250514",
-  "tools": ["send_notification", "store_memory"]
+  "tools": { "send_notification", "store_memory" }
 }
 
 chain { coordinator researcher fetcher analyzer reporter }
@@ -122,9 +125,9 @@ describe('5-node hub-and-spoke layout', () => {
 });
 
 describe('edge cases', () => {
-  it('handles single entity', () => {
+  it('handles single entity with tools', () => {
     const result = balToVisual(`
-      solo { "goal": "Stand alone", "tools": ["web_search"] }
+      solo { "goal": "Stand alone", "tools": { "web_search" } }
     `);
     expect(result.graph.nodes).toHaveLength(1);
     expect(result.graph.edges).toHaveLength(0);
@@ -156,8 +159,8 @@ describe('edge cases', () => {
 
   it('handles exactly 2 nodes sharing store_memory (no star pattern)', () => {
     const result = balToVisual(`
-      a { "goal": "First", "tools": ["store_memory"] }
-      b { "goal": "Second", "tools": ["store_memory"] }
+      a { "goal": "First", "tools": { "store_memory" } }
+      b { "goal": "Second", "tools": { "store_memory" } }
     `);
     const sharedEdges = result.graph.edges.filter(e => e.type === 'shared_data');
     expect(sharedEdges).toHaveLength(1);

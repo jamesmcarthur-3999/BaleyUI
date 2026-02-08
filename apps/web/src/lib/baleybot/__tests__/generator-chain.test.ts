@@ -68,7 +68,7 @@ describe('parseBalCode chain extraction', () => {
       analyzer {
         "goal": "Analyze",
         "model": "anthropic:claude-sonnet-4-20250514",
-        "tools": ["web_search"]
+        "tools": { "web_search" }
       }
       reporter {
         "goal": "Report"
