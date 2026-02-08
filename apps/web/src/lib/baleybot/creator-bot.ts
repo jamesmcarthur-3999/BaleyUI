@@ -18,6 +18,9 @@ import {
   getToolCatalog,
   formatToolCatalogForCreatorBot,
 } from './tools/catalog-service';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('creator-bot');
 
 // ============================================================================
 // OUTPUT RESOLUTION
@@ -34,6 +37,17 @@ import {
  * 3. String with markdown fences around JSON (extract and parse)
  */
 function resolveCreatorOutput(output: unknown): unknown {
+  logger.info('resolveCreatorOutput received', {
+    type: typeof output,
+    isNull: output === null,
+    isUndefined: output === undefined,
+    preview: typeof output === 'string'
+      ? output.slice(0, 300)
+      : typeof output === 'object' && output !== null
+        ? JSON.stringify(output).slice(0, 300)
+        : String(output),
+  });
+
   // Already an object with entities — pass through
   if (output && typeof output === 'object' && !Array.isArray(output)) {
     return output;
@@ -45,13 +59,17 @@ function resolveCreatorOutput(output: unknown): unknown {
 
     // Try direct JSON parse
     try {
-      return JSON.parse(text);
+      const parsed = JSON.parse(text);
+      logger.info('Direct JSON parse succeeded');
+      return parsed;
     } catch {
       // Try extracting from markdown code fences
       const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
       if (jsonMatch?.[1]) {
         try {
-          return JSON.parse(jsonMatch[1].trim());
+          const parsed = JSON.parse(jsonMatch[1].trim());
+          logger.info('Markdown fence JSON extraction succeeded');
+          return parsed;
         } catch {
           // Fall through
         }
@@ -62,11 +80,19 @@ function resolveCreatorOutput(output: unknown): unknown {
       const braceEnd = text.lastIndexOf('}');
       if (braceStart !== -1 && braceEnd > braceStart) {
         try {
-          return JSON.parse(text.slice(braceStart, braceEnd + 1));
+          const parsed = JSON.parse(text.slice(braceStart, braceEnd + 1));
+          logger.info('Brace extraction JSON parse succeeded');
+          return parsed;
         } catch {
           // Fall through
         }
       }
+
+      logger.error('All JSON extraction methods failed', {
+        textLength: text.length,
+        firstChars: text.slice(0, 200),
+        lastChars: text.slice(-200),
+      });
     }
   }
 
@@ -211,7 +237,6 @@ export async function processCreatorMessage(
   }
 
   // Log for debugging, throw user-friendly error
-  const logger = await import('@/lib/logger').then(m => m.createLogger('creator-bot'));
   logger.error('Creator bot output validation failed', {
     zodErrors: result.error.issues,
     outputType: typeof output,

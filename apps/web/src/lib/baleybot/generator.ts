@@ -246,8 +246,8 @@ Please refine the BAL code based on this feedback.`;
   const resolved = resolveOutput(output);
   const result = generateResultSchema.safeParse(resolved);
   if (!result.success) {
-    const logger = await import('@/lib/logger').then(m => m.createLogger('bal-generator'));
-    logger.error('BAL generator output validation failed', {
+    const genLogger = await import('@/lib/logger').then(m => m.createLogger('bal-generator'));
+    genLogger.error('BAL generator output validation failed', {
       zodErrors: result.error.issues,
       outputType: typeof output,
       outputPreview: typeof output === 'string'
