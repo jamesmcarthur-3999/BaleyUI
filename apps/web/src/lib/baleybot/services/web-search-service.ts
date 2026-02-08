@@ -39,7 +39,11 @@ export interface WebSearchService {
   /**
    * Basic search returning simplified results (backward compatible)
    */
-  search(query: string, numResults?: number): Promise<SearchResult[]>;
+  search(
+    query: string,
+    numResults?: number,
+    options?: { workspaceId?: string }
+  ): Promise<SearchResult[]>;
 
   /**
    * Full search exposing all @baleybots/tools features
@@ -57,7 +61,8 @@ export interface WebSearchService {
  */
 async function searchWithAI(
   query: string,
-  numResults: number
+  numResults: number,
+  workspaceId?: string
 ): Promise<SearchResult[]> {
   try {
     const input = `Search the web for: ${query}
@@ -65,9 +70,14 @@ async function searchWithAI(
 Return ${numResults} relevant search results as a JSON array.
 Each result should have: title, url, snippet.`;
 
-    const { output } = await executeInternalBaleybot('web_search_fallback', input, {
-      triggeredBy: 'internal',
-    });
+    const { output } = await executeInternalBaleybot(
+      'web_search_fallback',
+      input,
+      {
+        triggeredBy: 'internal',
+        ...(workspaceId ? { userWorkspaceId: workspaceId } : {}),
+      }
+    );
 
     // Parse the result
     if (Array.isArray(output)) {
@@ -80,6 +90,26 @@ Each result should have: title, url, snippet.`;
           snippet: String(obj.snippet || ''),
         };
       });
+    }
+
+    if (output && typeof output === 'object') {
+      const record = output as Record<string, unknown>;
+      const nestedResults = Array.isArray(record.results)
+        ? record.results
+        : Array.isArray(record.searchResults)
+          ? record.searchResults
+          : null;
+
+      if (nestedResults) {
+        return nestedResults.slice(0, numResults).map((item: unknown) => {
+          const obj = item as Record<string, unknown>;
+          return {
+            title: String(obj.title || ''),
+            url: String(obj.url || ''),
+            snippet: String(obj.snippet || obj.content || ''),
+          };
+        });
+      }
     }
 
     // Handle string or other result types
@@ -147,7 +177,11 @@ class WebSearchServiceImpl implements WebSearchService {
   /**
    * Basic search returning simplified results (backward compatible)
    */
-  async search(query: string, numResults: number = 5): Promise<SearchResult[]> {
+  async search(
+    query: string,
+    numResults: number = 5,
+    options?: { workspaceId?: string }
+  ): Promise<SearchResult[]> {
     if (!query?.trim()) {
       throw new Error('Search query cannot be empty');
     }
@@ -183,7 +217,7 @@ class WebSearchServiceImpl implements WebSearchService {
           message.includes('Invalid Tavily')
         ) {
           logger.warn('Tavily auth failed, falling back to AI search');
-          return searchWithAI(query, sanitizedNumResults);
+          return searchWithAI(query, sanitizedNumResults, options?.workspaceId);
         }
 
         throw error;
@@ -191,7 +225,7 @@ class WebSearchServiceImpl implements WebSearchService {
     }
 
     // No Tavily key -> use AI fallback
-    return searchWithAI(query, sanitizedNumResults);
+    return searchWithAI(query, sanitizedNumResults, options?.workspaceId);
   }
 
   /**

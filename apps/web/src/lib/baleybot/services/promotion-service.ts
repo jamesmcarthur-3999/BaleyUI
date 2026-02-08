@@ -153,7 +153,7 @@ export async function promoteAgentToWorkspace(
 
   // Generate BAL code from agent config
   const toolsList = agentConfig.tools && agentConfig.tools.length > 0
-    ? `  "tools": [${agentConfig.tools.map((t) => `"${t}"`).join(', ')}],\n`
+    ? `  "tools": { ${agentConfig.tools.map((t) => `"${t}"`).join(', ')} },\n`
     : '';
 
   const modelLine = agentConfig.model

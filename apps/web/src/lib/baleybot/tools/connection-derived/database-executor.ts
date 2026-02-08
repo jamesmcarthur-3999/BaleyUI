@@ -6,6 +6,8 @@
  */
 
 import postgres from 'postgres';
+import mysql from 'mysql2/promise';
+import type { Pool as MySQLPool } from 'mysql2/promise';
 import type { DatabaseConnectionConfig } from '@/lib/connections/providers';
 import { createLogger } from '@/lib/logger';
 
@@ -151,7 +153,8 @@ export interface ExecutorOptions {
 // ============================================================================
 
 // Cache for connection pools to avoid creating multiple connections
-const connectionPools = new Map<string, postgres.Sql>();
+const postgresPools = new Map<string, postgres.Sql>();
+const mysqlPools = new Map<string, MySQLPool>();
 
 /**
  * Generate a unique key for a connection configuration
@@ -178,7 +181,7 @@ export function createPostgresExecutor(
 
   // Check for cached connection
   const connectionKey = getConnectionKey('postgres', config);
-  let sql = connectionPools.get(connectionKey);
+  let sql = postgresPools.get(connectionKey);
 
   if (!sql) {
     // Create new connection
@@ -205,7 +208,7 @@ export function createPostgresExecutor(
       });
     }
 
-    connectionPools.set(connectionKey, sql);
+    postgresPools.set(connectionKey, sql);
   }
 
   const executor: DatabaseExecutor = {
@@ -283,7 +286,7 @@ export function createPostgresExecutor(
 
     async close(): Promise<void> {
       if (sql) {
-        connectionPools.delete(connectionKey);
+        postgresPools.delete(connectionKey);
         await sql.end();
       }
     },
@@ -304,44 +307,140 @@ export function createPostgresExecutor(
 }
 
 // ============================================================================
-// MYSQL EXECUTOR (Not Yet Supported)
+// MYSQL EXECUTOR
 // ============================================================================
-
-const MYSQL_NOT_SUPPORTED_ERROR =
-  'MySQL connections are not yet supported. ' +
-  'Please use PostgreSQL for database connections. ' +
-  'If MySQL support is required for your use case, please contact support.';
 
 /**
  * Create a MySQL database executor
- *
- * Note: MySQL is not currently supported. This function exists to provide
- * a clear error message when MySQL connections are attempted.
  */
 export function createMySQLExecutor(
-  _config: MySQLConfig | { connectionUrl: string },
-  _options: ExecutorOptions = {}
+  config: MySQLConfig | { connectionUrl: string },
+  options: ExecutorOptions = {}
 ): DatabaseExecutor {
-  // Return an executor that throws clear error on any operation
+  const { timeout = 30000, maxRows = 10000, debug = false } = options;
+
+  const connectionKey = getConnectionKey('mysql', config);
+  let pool = mysqlPools.get(connectionKey);
+
+  if (!pool) {
+    if ('connectionUrl' in config && config.connectionUrl) {
+      pool = mysql.createPool(config.connectionUrl);
+    } else {
+      const myConfig = config as MySQLConfig;
+      pool = mysql.createPool({
+        host: myConfig.host,
+        port: myConfig.port,
+        database: myConfig.database,
+        user: myConfig.username,
+        password: myConfig.password,
+        ssl: myConfig.ssl ? {} : undefined,
+        waitForConnections: true,
+        connectionLimit: 5,
+        queueLimit: 0,
+        connectTimeout: 10_000,
+        enableKeepAlive: true,
+      });
+    }
+
+    mysqlPools.set(connectionKey, pool);
+  }
+
   const executor: DatabaseExecutor = {
-    async query<T extends Record<string, unknown>>(_sqlQuery: string): Promise<T[]> {
-      throw new Error(MYSQL_NOT_SUPPORTED_ERROR);
+    async query<T extends Record<string, unknown>>(sqlQuery: string): Promise<T[]> {
+      if (!pool) {
+        throw new Error('Database connection not initialized');
+      }
+
+      const validation = validateSQLQuery(sqlQuery, { allowOnlySelect: true });
+      if (!validation.safe) {
+        throw new Error(
+          `Potentially unsafe SQL detected: ${validation.reason}. ` +
+            `Use queryWithParams() for parameterized queries.`
+        );
+      }
+
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Query timeout exceeded')), timeout);
+        });
+
+        const queryPromise = pool.query(sqlQuery).then(([rows]) => rows);
+        const rows = await Promise.race([queryPromise, timeoutPromise]);
+        const normalizedRows = Array.isArray(rows)
+          ? (rows as unknown[] as T[])
+          : [];
+
+        if (normalizedRows.length > maxRows) {
+          logger.warn(`Query returned ${normalizedRows.length} rows, limiting to ${maxRows}`);
+          return normalizedRows.slice(0, maxRows);
+        }
+
+        return normalizedRows;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        if (debug) {
+          logger.error('MySQL raw query failed', { sqlQuery, message });
+        }
+        throw new Error(`MySQL query failed: ${message}`);
+      }
     },
 
     async queryWithParams<T extends Record<string, unknown>>(
-      _sqlQuery: string,
-      _params: unknown[]
+      sqlQuery: string,
+      params: unknown[]
     ): Promise<T[]> {
-      throw new Error(MYSQL_NOT_SUPPORTED_ERROR);
+      if (!pool) {
+        throw new Error('Database connection not initialized');
+      }
+
+      const validation = validateSQLQuery(sqlQuery);
+      if (!validation.safe) {
+        throw new Error(
+          `Potentially unsafe SQL detected: ${validation.reason}`
+        );
+      }
+
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Query timeout exceeded')), timeout);
+        });
+
+        const queryPromise = pool.execute(sqlQuery, params).then(([rows]) => rows);
+        const rows = await Promise.race([queryPromise, timeoutPromise]);
+        const normalizedRows = Array.isArray(rows)
+          ? (rows as unknown[] as T[])
+          : [];
+
+        if (normalizedRows.length > maxRows) {
+          return normalizedRows.slice(0, maxRows);
+        }
+
+        return normalizedRows;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        if (debug) {
+          logger.error('MySQL parameterized query failed', { sqlQuery, message });
+        }
+        throw new Error(`MySQL query failed: ${message}`);
+      }
     },
 
     async close(): Promise<void> {
-      // No connection to close
+      if (pool) {
+        mysqlPools.delete(connectionKey);
+        await pool.end();
+      }
     },
 
     async ping(): Promise<boolean> {
-      // MySQL not supported, so connection is never valid
-      return false;
+      if (!pool) return false;
+
+      try {
+        await pool.query('SELECT 1');
+        return true;
+      } catch {
+        return false;
+      }
     },
   };
 
@@ -408,23 +507,34 @@ export function createDatabaseExecutor(
  * Call this on application shutdown
  */
 export async function closeAllConnections(): Promise<void> {
-  const closePromises = Array.from(connectionPools.entries()).map(
-    async ([key, sql]) => {
+  const closePostgresPromises = Array.from(postgresPools.entries()).map(
+    async ([key, sqlClient]) => {
       try {
-        await sql.end();
-        connectionPools.delete(key);
+        await sqlClient.end();
+        postgresPools.delete(key);
       } catch (error) {
         logger.error(`Error closing connection ${key}`, error);
       }
     }
   );
 
-  await Promise.all(closePromises);
+  const closeMySQLPromises = Array.from(mysqlPools.entries()).map(
+    async ([key, pool]) => {
+      try {
+        await pool.end();
+        mysqlPools.delete(key);
+      } catch (error) {
+        logger.error(`Error closing connection ${key}`, error);
+      }
+    }
+  );
+
+  await Promise.all([...closePostgresPromises, ...closeMySQLPromises]);
 }
 
 /**
  * Get the number of active connection pools
  */
 export function getActiveConnectionCount(): number {
-  return connectionPools.size;
+  return postgresPools.size + mysqlPools.size;
 }

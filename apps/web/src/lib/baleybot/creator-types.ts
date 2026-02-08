@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import type { BalSkillId } from './bal-skills';
 
 // ============================================================================
 // VISUAL ENTITY TYPES
@@ -98,6 +99,9 @@ export interface MessageMetadata {
   /** Whether this message represents an error */
   isError?: boolean;
 
+  /** BAL composition/capability patterns detected in generated code */
+  balSkills?: BalSkillId[];
+
   // -- Rich Chat Components -------------------------------------------------
 
   /** Interactive option cards for user choices */
@@ -158,6 +162,43 @@ export interface MessageMetadata {
       name: string;
       status: 'pending' | 'running' | 'complete' | 'error';
     }>;
+  };
+
+  /** Creator workflow stage and handoff guidance */
+  creatorLifecycle?: {
+    stage: 'discovery' | 'design' | 'connections' | 'testing' | 'launch' | 'review';
+    whatIDid?: string;
+    nextStage?: string;
+    nextAction?: string;
+    iteration?: number;
+    requiredQuestions?: Array<{
+      id: string;
+      label: string;
+      description: string;
+      requiredNow?: boolean;
+    }>;
+    optionalQuestions?: Array<{
+      id: string;
+      label: string;
+      description: string;
+      requiredNow?: boolean;
+    }>;
+  };
+
+  /** User-submitted discovery intake summary for chat rendering/retry */
+  discoveryIntake?: {
+    requiredTotal: number;
+    requiredProvided: number;
+    optionalProvided: number;
+    answers: Array<{
+      id: string;
+      label: string;
+      valuePreview: string;
+      requiredNow: boolean;
+      isSensitive: boolean;
+    }>;
+    additionalContext?: string;
+    modelMessage?: string;
   };
 }
 
@@ -274,47 +315,97 @@ export interface CreationProgress {
  * Schema for the creator AI's structured output.
  * Defines the shape of data returned when AI generates/updates a BaleyBot.
  */
+const creatorEntitySchema = z.object({
+  /** Entity identifier — auto-generated if any validation fails */
+  id: z.string().min(1).catch(() => crypto.randomUUID()),
+  /** Display name — falls back if null/missing */
+  name: z.string().min(1).catch('Unnamed Entity'),
+  /** Icon (emoji or icon name) — catches null, wrong type, empty */
+  icon: z.string().min(1).catch('🤖'),
+  /** Purpose/description of the entity */
+  purpose: z.string().catch(''),
+  /** Tools assigned to this entity */
+  tools: z.array(z.string()).catch([]),
+});
+
+const creatorConnectionSchema = z.object({
+  /** Source entity ID */
+  from: z.string().catch(''),
+  /** Target entity ID */
+  to: z.string().catch(''),
+  /** Optional connection label */
+  label: z.string().optional().catch(undefined),
+});
+
+const creatorDiscoveryQuestionSchema = z.object({
+  id: z.string().min(1).catch(() => crypto.randomUUID()),
+  label: z.string().min(1),
+  description: z.string().min(1),
+  icon: z.string().optional().catch(undefined),
+  /** True when this detail is required before generation can continue */
+  requiredNow: z.boolean().optional().catch(undefined),
+});
+
 export const creatorOutputSchema = z.object({
   /** AI's thinking/reasoning (shown to user) */
   thinking: z.string().optional().catch(undefined),
+  /** Primary assistant message to show in chat */
+  message: z.string().optional().catch(undefined),
+  /** Follow-up questions when additional discovery is required */
+  questions: z.array(creatorDiscoveryQuestionSchema).max(8).optional().catch(undefined),
   /** Entities to create/update */
-  entities: z
-    .array(
-      z.object({
-        /** Entity identifier — auto-generated if any validation fails */
-        id: z.string().min(1).catch(() => crypto.randomUUID()),
-        /** Display name — falls back if null/missing */
-        name: z.string().min(1).catch('Unnamed Entity'),
-        /** Icon (emoji or icon name) — catches null, wrong type, empty */
-        icon: z.string().min(1).catch('🤖'),
-        /** Purpose/description of the entity */
-        purpose: z.string().catch(''),
-        /** Tools assigned to this entity */
-        tools: z.array(z.string()).catch([]),
-      })
-    )
-    .min(1, 'At least one entity is required'),
+  entities: z.array(creatorEntitySchema).catch([]),
   /** Connections between entities — defaults to empty if missing/null */
-  connections: z.array(
-    z.object({
-      /** Source entity ID */
-      from: z.string().catch(''),
-      /** Target entity ID */
-      to: z.string().catch(''),
-      /** Optional connection label */
-      label: z.string().optional().catch(undefined),
-    })
-  ).catch([]),
-  /** Generated BAL code — truly required, no fallback */
-  balCode: z.string().min(1, 'BAL code is required'),
+  connections: z.array(creatorConnectionSchema).catch([]),
+  /** Generated BAL code (required only when status is ready) */
+  balCode: z.string().catch(''),
   /** Suggested name for the BaleyBot */
-  name: z.string().min(1).catch('Unnamed BaleyBot'),
+  name: z.string().catch('Unnamed BaleyBot'),
   /** Auto-generated description of what the bot does */
   description: z.string().max(200).catch(''),
   /** Suggested icon (emoji) — catches invalid values */
-  icon: z.string().min(1).catch('🤖'),
+  icon: z.string().catch('🤖'),
   /** Creation status — catches unexpected values like "complete" */
   status: z.enum(['building', 'ready']).catch('ready'),
+}).superRefine((data, ctx) => {
+  if (data.status === 'ready') {
+    if (data.entities.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'At least one entity is required when status is ready',
+        path: ['entities'],
+      });
+    }
+    if (!data.balCode.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'BAL code is required when status is ready',
+        path: ['balCode'],
+      });
+    }
+    if (!data.name.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Name is required when status is ready',
+        path: ['name'],
+      });
+    }
+  }
+
+  if (data.status === 'building') {
+    const hasDiscoveryPrompt =
+      Boolean(data.message?.trim()) ||
+      Boolean(data.thinking?.trim()) ||
+      Boolean(data.questions && data.questions.length > 0);
+
+    if (!hasDiscoveryPrompt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Building responses must include a prompt, message, or follow-up questions',
+        path: ['message'],
+      });
+    }
+  }
 });
 
 /**

@@ -10,8 +10,13 @@ type ConnectionData = {
   isDefault: boolean;
 };
 
-function conn(type: string, status: string = 'connected'): ConnectionData {
-  return { id: `c-${type}`, type, name: `My ${type}`, status, isDefault: false };
+function conn(
+  type: string,
+  status: string = 'connected',
+  name?: string
+): ConnectionData {
+  const resolvedName = name ?? `My ${type}`;
+  return { id: `c-${type}-${resolvedName}`, type, name: resolvedName, status, isDefault: false };
 }
 
 describe('getToolReadinessStatus', () => {
@@ -45,14 +50,19 @@ describe('getToolReadinessStatus', () => {
       expect(result.note).toContain('PostgreSQL');
     });
 
-    it('returns ready for postgres tool with connected postgres', () => {
-      const result = getToolReadinessStatus('query_postgres_users', [conn('postgres')]);
+    it('returns ready for postgres tool when the exact source is connected', () => {
+      const result = getToolReadinessStatus('query_postgres_users', [conn('postgres', 'connected', 'users')]);
       expect(result.status).toBe('ready');
     });
 
     it('returns needs-setup for postgres tool with errored connection', () => {
-      const result = getToolReadinessStatus('query_postgres_users', [conn('postgres', 'error')]);
+      const result = getToolReadinessStatus('query_postgres_users', [conn('postgres', 'error', 'users')]);
       expect(result.status).toBe('needs-setup');
+    });
+
+    it('returns limited when postgres exists but does not match tool source name', () => {
+      const result = getToolReadinessStatus('query_postgres_users', [conn('postgres', 'connected', 'analytics')]);
+      expect(result.status).toBe('limited');
     });
 
     it('returns needs-setup for mysql tool without connection', () => {
@@ -61,13 +71,13 @@ describe('getToolReadinessStatus', () => {
       expect(result.note).toContain('MySQL');
     });
 
-    it('returns ready for mysql tool with connected mysql', () => {
-      const result = getToolReadinessStatus('query_mysql_orders', [conn('mysql')]);
+    it('returns ready for mysql tool when the exact source is connected', () => {
+      const result = getToolReadinessStatus('query_mysql_orders', [conn('mysql', 'connected', 'orders')]);
       expect(result.status).toBe('ready');
     });
 
     it('handles query_pg_ prefix', () => {
-      const result = getToolReadinessStatus('query_pg_users', [conn('postgres')]);
+      const result = getToolReadinessStatus('query_pg_users', [conn('postgres', 'connected', 'users')]);
       expect(result.status).toBe('ready');
     });
   });

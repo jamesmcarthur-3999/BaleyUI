@@ -18,6 +18,8 @@ interface InlineConnectionFormProps {
   mode: FormMode;
   /** Pre-select a database provider (e.g. when user clicks "Add" on a mysql requirement) */
   defaultDbProvider?: DbProvider;
+  /** Suggested connection name (for exact tool-to-source binding) */
+  suggestedName?: string;
   /** Existing connection names, used to deduplicate auto-generated names */
   existingNames?: string[];
   onSuccess?: () => void;
@@ -62,6 +64,7 @@ function autoName(provider: string, existingNames: string[]): string {
 export function InlineConnectionForm({
   mode,
   defaultDbProvider,
+  suggestedName,
   existingNames = [],
   onSuccess,
   onCancel,
@@ -70,6 +73,10 @@ export function InlineConnectionForm({
   // Provider selection
   const [aiProvider, setAiProvider] = useState<AiProvider>('openai');
   const [dbProvider, setDbProvider] = useState<DbProvider>(defaultDbProvider ?? 'postgres');
+  const [connectionName, setConnectionName] = useState(() => {
+    if (suggestedName?.trim()) return suggestedName.trim();
+    return autoName(mode === 'ai' ? 'openai' : defaultDbProvider ?? 'postgres', existingNames);
+  });
 
   // Form fields
   const [apiKey, setApiKey] = useState('');
@@ -123,6 +130,8 @@ export function InlineConnectionForm({
   }
 
   function isValid(): boolean {
+    if (!connectionName.trim()) return false;
+
     if (mode === 'ai') {
       // Ollama doesn't require an API key
       if (aiProvider === 'ollama') return true;
@@ -154,7 +163,7 @@ export function InlineConnectionForm({
       // Create the connection
       await createMutation.mutateAsync({
         type: provider,
-        name: autoName(provider, existingNames),
+        name: connectionName.trim(),
         config: buildConfig(),
         initialStatus: 'connected',
       });
@@ -207,8 +216,22 @@ export function InlineConnectionForm({
             variant={provider === p.value ? 'default' : 'outline'}
             size="sm"
             onClick={() => {
-              if (mode === 'ai') setAiProvider(p.value as AiProvider);
-              else setDbProvider(p.value as DbProvider);
+              if (mode === 'ai') {
+                setAiProvider(p.value as AiProvider);
+              } else {
+                setDbProvider(p.value as DbProvider);
+              }
+              const nextProvider = p.value;
+              if (
+                mode === 'database' &&
+                suggestedName?.trim() &&
+                defaultDbProvider &&
+                nextProvider === defaultDbProvider
+              ) {
+                setConnectionName(suggestedName.trim());
+              } else {
+                setConnectionName(autoName(nextProvider, existingNames));
+              }
               setStatus('idle');
               setErrorMessage('');
             }}
@@ -216,6 +239,19 @@ export function InlineConnectionForm({
             {p.label}
           </Button>
         ))}
+      </div>
+
+      {/* Connection name */}
+      <div className="space-y-1.5">
+        <Label htmlFor="connection-name" className="text-xs">
+          Connection Name
+        </Label>
+        <Input
+          id="connection-name"
+          value={connectionName}
+          onChange={(e) => setConnectionName(e.target.value)}
+          placeholder={autoName(provider, existingNames)}
+        />
       </div>
 
       {/* Main field */}

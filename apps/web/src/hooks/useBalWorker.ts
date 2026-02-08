@@ -15,6 +15,7 @@ import type { VisualGraph } from '@/lib/baleybot/visual/types';
 
 export interface WorkerParseResult {
   entities: Array<{ name: string; config: Record<string, unknown> }>;
+  chain?: string[];
   graph: VisualGraph;
   errors: string[];
 }
@@ -27,6 +28,7 @@ interface WorkerResponse {
   type: 'parsed' | 'validated';
   id: number;
   entities?: Array<{ name: string; config: Record<string, unknown> }>;
+  chain?: string[];
   graph?: VisualGraph;
   errors: string[];
 }
@@ -100,6 +102,7 @@ export function useBalWorker() {
           worker.removeEventListener('message', handler);
           resolve({
             entities: e.data.entities || [],
+            chain: e.data.chain,
             graph: e.data.graph || { nodes: [], edges: [] },
             errors: e.data.errors,
           });

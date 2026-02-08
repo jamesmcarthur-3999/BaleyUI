@@ -1,7 +1,7 @@
 'use client';
 
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Zap, Clock, Globe, Wrench, Target, Shield, Thermometer, Brain, RotateCcw } from 'lucide-react';
+import { Zap, Clock, Globe, Wrench, Target, Shield, Thermometer, Brain, RotateCcw, Database, Puzzle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { VisualNode } from '@/lib/baleybot/visual/types';
 
@@ -22,6 +22,10 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
         return <Globe className="h-3 w-3 text-blue-500" />;
       case 'other_bb':
         return <Zap className="h-3 w-3 text-emerald-500" />;
+      case 'db_event':
+        return <Database className="h-3 w-3 text-cyan-500" />;
+      case 'mcp_event':
+        return <Puzzle className="h-3 w-3 text-violet-500" />;
       default:
         return null;
     }
@@ -36,6 +40,23 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
         return 'Webhook';
       case 'other_bb':
         return `On ${nodeData.trigger.completionType || 'completion'}`;
+      case 'db_event': {
+        const table = nodeData.trigger.dbTable?.trim();
+        const dbEvent = nodeData.trigger.dbEvent?.trim();
+        if (table && dbEvent) return `${table}:${dbEvent}`;
+        if (table) return table;
+        if (dbEvent) return `DB ${dbEvent}`;
+        return 'DB event';
+      }
+      case 'mcp_event': {
+        const server = nodeData.trigger.mcpServer?.trim();
+        const tool = nodeData.trigger.mcpTool?.trim();
+        const resource = nodeData.trigger.mcpResource?.trim();
+        if (server && tool) return `${server}/${tool}`;
+        if (server && resource) return `${server}:${resource}`;
+        if (server) return `MCP ${server}`;
+        return 'MCP event';
+      }
       default:
         return null;
     }

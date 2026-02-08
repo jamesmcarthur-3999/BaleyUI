@@ -1,0 +1,192 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - link "B" [ref=e6] [cursor=pointer]:
+          - /url: /dashboard
+          - generic [ref=e7]: B
+        - generic [ref=e8]:
+          - navigation [ref=e9]:
+            - link [ref=e10] [cursor=pointer]:
+              - /url: /dashboard/baleybots
+              - img [ref=e11]
+            - link [ref=e14] [cursor=pointer]:
+              - /url: /dashboard/activity
+              - img [ref=e15]
+          - navigation [ref=e17]:
+            - link [ref=e18] [cursor=pointer]:
+              - /url: /dashboard/connections
+              - img [ref=e19]
+            - link [ref=e21] [cursor=pointer]:
+              - /url: /dashboard/tools
+              - img [ref=e22]
+          - navigation [ref=e24]:
+            - link [ref=e25] [cursor=pointer]:
+              - /url: /dashboard/analytics
+              - img [ref=e26]
+            - link [ref=e28] [cursor=pointer]:
+              - /url: /dashboard/settings/workspace
+              - img [ref=e29]
+            - link [ref=e32] [cursor=pointer]:
+              - /url: /dashboard/settings/api-keys
+              - img [ref=e33]
+          - navigation [ref=e37]:
+            - link [ref=e38] [cursor=pointer]:
+              - /url: /dashboard/admin/baleybots
+              - img [ref=e39]
+        - generic [ref=e41]:
+          - button [ref=e43] [cursor=pointer]:
+            - img
+          - generic [ref=e44]:
+            - button "Open user menu" [ref=e46] [cursor=pointer]:
+              - img "James McArthur's logo" [ref=e49]
+            - button "Toggle theme" [ref=e51] [cursor=pointer]:
+              - img
+              - generic [ref=e52]: Toggle theme
+    - generic [ref=e53]:
+      - banner [ref=e54]:
+        - button "Search... ⌘K" [ref=e57] [cursor=pointer]:
+          - generic [ref=e58]: Search...
+          - generic [ref=e59]: ⌘K
+      - main [ref=e60]:
+        - generic [ref=e61]:
+          - generic [ref=e62]:
+            - generic [ref=e63]:
+              - button "Go back to BaleyBots list" [ref=e64] [cursor=pointer]:
+                - img
+              - generic [ref=e65]:
+                - generic [ref=e66]: 📰
+                - heading "News Article Summarizer" [level=1] [ref=e148]
+              - generic [ref=e68]:
+                - button "Undo" [disabled]:
+                  - img
+                - button "Redo" [disabled]:
+                  - img
+                - button "Keyboard shortcuts" [ref=e70] [cursor=pointer]:
+                  - img
+              - generic [ref=e71]:
+                - button "Save" [disabled]:
+                  - img
+                  - generic: Save
+            - generic [ref=e153]:
+              - paragraph [ref=e154]: No description
+              - button "Edit description" [ref=e155] [cursor=pointer]:
+                - img [ref=e156]
+          - generic [ref=e73]:
+            - tablist [ref=e76]:
+              - tab "Visual" [ref=e77] [cursor=pointer]:
+                - img [ref=e78]
+                - generic [ref=e83]: Visual
+              - tab "Code" [ref=e84] [cursor=pointer]:
+                - img [ref=e85]
+                - generic [ref=e89]: Code
+              - tab "Schema" [ref=e90] [cursor=pointer]:
+                - img [ref=e91]
+                - generic [ref=e94]: Schema
+              - tab "Triggers" [ref=e95] [cursor=pointer]:
+                - img [ref=e96]
+                - generic [ref=e98]: Triggers
+              - tab "Analytics" [selected] [ref=e99] [cursor=pointer]:
+                - img [ref=e100]
+                - generic [ref=e102]: Analytics
+            - generic [ref=e342]:
+              - generic [ref=e344]:
+                - generic [ref=e345]:
+                  - paragraph [ref=e346]: "0"
+                  - paragraph [ref=e347]: Total Runs
+                - generic [ref=e348]:
+                  - paragraph [ref=e349]: 0.0%
+                  - paragraph [ref=e350]: Success Rate
+                - generic [ref=e351]:
+                  - paragraph [ref=e352]: 0ms
+                  - paragraph [ref=e353]: Avg Duration
+              - generic [ref=e354]:
+                - generic [ref=e355]:
+                  - paragraph [ref=e356]: "0"
+                  - paragraph [ref=e357]: Total Tokens
+                - generic [ref=e358]:
+                  - paragraph [ref=e359]: "0"
+                  - paragraph [ref=e360]: Failures
+              - paragraph [ref=e361]: No executions in the last 30 days. Run this BaleyBot to see analytics.
+          - generic [ref=e122]:
+            - generic [ref=e198]:
+              - button "Conversation 2 messages" [expanded] [ref=e199]:
+                - generic [ref=e200]:
+                  - img [ref=e201]
+                  - text: Conversation
+                  - generic [ref=e204]: 2 messages
+                - img [ref=e206]
+              - generic [ref=e210]:
+                - generic [ref=e211]:
+                  - img [ref=e213]
+                  - generic [ref=e216]:
+                    - paragraph [ref=e217]: Create a bot that summarizes news articles from URLs I give it
+                    - time [ref=e218]: 7:32 PM
+                - generic [ref=e219]:
+                  - img [ref=e221]
+                  - generic [ref=e224]:
+                    - paragraph [ref=e225]: I've created "News Article Summarizer" with 1 entity.
+                    - time [ref=e226]: 7:32 PM
+            - generic [ref=e227]:
+              - generic [ref=e229]:
+                - button [ref=e230] [cursor=pointer]:
+                  - img
+                - textbox "Test input for BaleyBot execution" [ref=e231]:
+                  - /placeholder: Optional test input...
+              - generic [ref=e232]:
+                - button "Run BaleyBot" [ref=e234] [cursor=pointer]:
+                  - img
+                  - text: Run
+                - button "View Code" [ref=e235] [cursor=pointer]:
+                  - img
+                  - text: View Code
+              - region "Generated BAL code":
+                - generic [ref=e236]:
+                  - generic [ref=e237]:
+                    - generic [ref=e238]: BAL Code
+                    - button "Copy" [ref=e239] [cursor=pointer]:
+                      - img
+                      - text: Copy
+                  - generic [ref=e242]:
+                    - generic [ref=e243]:
+                      - generic [ref=e244]: "1"
+                      - code [ref=e245]: "news_summarizer {"
+                    - generic [ref=e246]:
+                      - generic [ref=e247]: "2"
+                      - code [ref=e248]: "\"goal\": \"Fetch content from the provided URL and create a clear, concise summary of the news article, including the main points, key facts, and any important context. Format the summary to be easily readable and highlight the most significant information.\","
+                    - generic [ref=e249]:
+                      - generic [ref=e250]: "3"
+                      - code [ref=e251]: "\"model\": \"openai:gpt-4o\","
+                    - generic [ref=e252]:
+                      - generic [ref=e253]: "4"
+                      - code [ref=e254]: "\"tools\": [\"fetch_url\"]"
+                    - generic [ref=e255]:
+                      - generic [ref=e256]: "5"
+                      - code [ref=e257]: "}"
+            - generic [ref=e123]:
+              - generic [ref=e124]:
+                - textbox "Message to BaleyBot creator" [ref=e125]:
+                  - /placeholder: Ask anything or describe changes...
+                - button "Send message" [disabled]:
+                  - img
+              - paragraph [ref=e126]: Press Enter to send, Shift+Enter for new line
+    - generic [ref=e128]:
+      - generic [ref=e129]:
+        - button [ref=e130] [cursor=pointer]:
+          - img
+        - button [ref=e131] [cursor=pointer]:
+          - img
+        - button [ref=e132] [cursor=pointer]:
+          - img
+        - button [ref=e133] [cursor=pointer]:
+          - img
+      - button [ref=e134] [cursor=pointer]:
+        - img [ref=e135]
+    - region "Notifications (F8)":
+      - list
+  - region "Notifications (F8)":
+    - list
+  - alert [ref=e147]
+  - generic [ref=e312]:
+    - alert
+    - alert

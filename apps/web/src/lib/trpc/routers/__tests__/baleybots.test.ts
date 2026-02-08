@@ -27,6 +27,11 @@ vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: vi.fn(),
   RATE_LIMITS: {
     execute: { maxRequests: 10, windowMs: 60000 },
+    executeTest: { maxRequests: 60, windowMs: 60000 },
+    testValidate: { maxRequests: 120, windowMs: 60000 },
+    testAnalyze: { maxRequests: 20, windowMs: 60000 },
+    generate: { maxRequests: 5, windowMs: 60000 },
+    creatorMessage: { maxRequests: 10, windowMs: 60000 },
   },
 }));
 

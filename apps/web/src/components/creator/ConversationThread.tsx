@@ -1,9 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ChevronUp, ChevronDown, User, Bot, Brain, Loader2, Eye, Code2, Play } from 'lucide-react';
+import { ChevronUp, ChevronDown, User, Bot, Brain, Loader2, Eye, Code2, Play, Copy, Check, AlertCircle, CheckCircle2, Circle, Info, ArrowRight, CircleDashed } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CreatorMessage, CreationProgress } from '@/lib/baleybot/creator-types';
+import { getBalSkillDescriptor } from '@/lib/baleybot/bal-skills';
+import {
+  DiscoveryIntakeForm,
+  type DiscoveryIntakeSubmission,
+} from './DiscoveryIntakeForm';
 
 // Swipe threshold for gesture detection (Phase 4.7)
 const SWIPE_THRESHOLD = 50;
@@ -30,6 +35,10 @@ interface ConversationThreadProps {
   onViewAction?: (action: ViewAction) => void;
   /** Callback when user selects an option card */
   onOptionSelect?: (optionId: string) => void;
+  /** Callback when user submits structured discovery intake */
+  onDiscoverySubmit?: (message: string | DiscoveryIntakeSubmission) => void;
+  /** Disable embedded discovery intake submissions */
+  disableDiscoverySubmit?: boolean;
 }
 
 /**
@@ -55,6 +64,8 @@ export function ConversationThread({
   creationProgress,
   onViewAction,
   onOptionSelect,
+  onDiscoverySubmit,
+  disableDiscoverySubmit = false,
 }: ConversationThreadProps) {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -154,6 +165,8 @@ export function ConversationThread({
                 isLatest={index === messages.length - 1}
                 onViewAction={onViewAction}
                 onOptionSelect={onOptionSelect}
+                onDiscoverySubmit={onDiscoverySubmit}
+                disableDiscoverySubmit={disableDiscoverySubmit}
               />
             )
           )}
@@ -230,6 +243,8 @@ export function ConversationThread({
                   isLatest={index === messages.length - 1}
                   onViewAction={onViewAction}
                   onOptionSelect={onOptionSelect}
+                  onDiscoverySubmit={onDiscoverySubmit}
+                  disableDiscoverySubmit={disableDiscoverySubmit}
                 />
               )
             )}
@@ -298,6 +313,31 @@ function renderLineBreaks(text: string, keyPrefix: string): React.ReactNode[] {
   return nodes;
 }
 
+type CreatorLifecycle = NonNullable<
+  NonNullable<CreatorMessage['metadata']>['creatorLifecycle']
+>;
+
+function getLifecycleStageLabel(
+  stage: CreatorLifecycle['stage']
+): string {
+  switch (stage) {
+    case 'discovery':
+      return 'Discovery';
+    case 'design':
+      return 'Design';
+    case 'connections':
+      return 'Connections';
+    case 'testing':
+      return 'Testing';
+    case 'launch':
+      return 'Launch';
+    case 'review':
+      return 'Review';
+    default:
+      return 'Workflow';
+  }
+}
+
 // ============================================================================
 // USER MESSAGE
 // ============================================================================
@@ -308,6 +348,64 @@ interface UserMessageProps {
 }
 
 function UserMessage({ message, isLatest }: UserMessageProps) {
+  const discoveryIntake = message.metadata?.discoveryIntake;
+
+  if (discoveryIntake) {
+    return (
+      <div
+        className={cn(
+          'flex items-start gap-2 flex-row-reverse',
+          isLatest && 'animate-fade-in-up'
+        )}
+      >
+        <div
+          className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-primary text-primary-foreground"
+          aria-hidden="true"
+        >
+          <User className="h-4 w-4" />
+        </div>
+
+        <div className="max-w-[88%] rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">
+          <p className="font-medium text-foreground">Discovery intake submitted</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Required outcomes: {discoveryIntake.requiredProvided}/{discoveryIntake.requiredTotal} provided
+            {discoveryIntake.optionalProvided > 0
+              ? `, optional provided: ${discoveryIntake.optionalProvided}.`
+              : '.'}
+          </p>
+
+          {discoveryIntake.answers.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              {discoveryIntake.answers.map((answer) => (
+                <p key={answer.id} className="text-xs text-foreground/90 flex items-center gap-1.5">
+                  {answer.requiredNow ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                  ) : (
+                    <Circle className="h-3.5 w-3.5 text-muted-foreground/70" />
+                  )}
+                  <span className="font-medium">{answer.label}:</span> {answer.valuePreview}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {discoveryIntake.additionalContext && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Context: {discoveryIntake.additionalContext}
+            </p>
+          )}
+
+          <time
+            className="text-[10px] mt-2 block text-muted-foreground/70"
+            dateTime={message.timestamp.toISOString()}
+          >
+            {formatTime(message.timestamp)}
+          </time>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -324,7 +422,7 @@ function UserMessage({ message, isLatest }: UserMessageProps) {
       </div>
 
       {/* Message bubble */}
-      <div className="max-w-[80%] px-3 py-2 rounded-xl text-sm bg-primary text-primary-foreground rounded-tr-sm">
+      <div className="max-w-[88%] px-3 py-2 rounded-xl text-sm bg-primary text-primary-foreground rounded-tr-sm">
         <p className="whitespace-pre-wrap break-words">{message.content}</p>
         <time
           className="text-[10px] mt-1 block text-primary-foreground/70"
@@ -346,13 +444,76 @@ interface AssistantMessageProps {
   isLatest: boolean;
   onViewAction?: (action: ViewAction) => void;
   onOptionSelect?: (optionId: string) => void;
+  onDiscoverySubmit?: (message: string | DiscoveryIntakeSubmission) => void;
+  disableDiscoverySubmit?: boolean;
 }
 
-function AssistantMessage({ message, isLatest, onViewAction, onOptionSelect }: AssistantMessageProps) {
+function AssistantMessage({
+  message,
+  isLatest,
+  onViewAction,
+  onOptionSelect,
+  onDiscoverySubmit,
+  disableDiscoverySubmit = false,
+}: AssistantMessageProps) {
   const [showThinking, setShowThinking] = useState(false);
+  const [didCopyMessage, setDidCopyMessage] = useState(false);
+  const [didCopyCode, setDidCopyCode] = useState(false);
   const isError = message.metadata?.isError;
   const entities = message.metadata?.entities;
   const hasEntities = entities && entities.length > 0;
+  const balSkills = message.metadata?.balSkills ?? [];
+  const diagnosticLevel = message.metadata?.diagnostic?.level;
+  const lifecycle = message.metadata?.creatorLifecycle;
+  const hasLifecycleSummary = Boolean(
+    lifecycle &&
+      (lifecycle.whatIDid ||
+        lifecycle.nextAction ||
+        lifecycle.nextStage ||
+        (lifecycle.requiredQuestions && lifecycle.requiredQuestions.length > 0))
+  );
+  const discoveryQuestions = lifecycle?.stage === 'discovery'
+    ? [
+        ...(lifecycle.requiredQuestions ?? []).map((question) => ({
+          ...question,
+          requiredNow: question.requiredNow ?? true,
+        })),
+        ...(lifecycle.optionalQuestions ?? []).map((question) => ({
+          ...question,
+          requiredNow: question.requiredNow ?? false,
+        })),
+      ]
+    : [];
+
+  const handleCopy = async (text: string, target: 'message' | 'code') => {
+    if (!text.trim()) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      if (target === 'message') {
+        setDidCopyMessage(true);
+        setTimeout(() => setDidCopyMessage(false), 1200);
+      } else {
+        setDidCopyCode(true);
+        setTimeout(() => setDidCopyCode(false), 1200);
+      }
+    } catch {
+      // Clipboard can fail in restricted browsers; ignore silently.
+    }
+  };
+
+  const diagnosticBadge = diagnosticLevel
+    ? {
+        level: diagnosticLevel,
+        label:
+          diagnosticLevel === 'success'
+            ? 'Success'
+            : diagnosticLevel === 'error'
+              ? 'Issue'
+              : diagnosticLevel === 'warning'
+                ? 'Warning'
+                : 'Info',
+      }
+    : null;
 
   return (
     <div className={cn('relative pl-3', isLatest && 'animate-fade-in-up')}>
@@ -366,10 +527,105 @@ function AssistantMessage({ message, isLatest, onViewAction, onOptionSelect }: A
 
       {/* Content */}
       <div className="space-y-3">
-        {/* Message text with simple markdown */}
-        <div className="text-sm text-foreground leading-relaxed">
-          {renderSimpleMarkdown(message.content)}
+        <div className="rounded-xl border border-border/50 bg-card/40 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Bot className="h-3.5 w-3.5" />
+                BaleyBot
+              </span>
+              {diagnosticBadge && (
+                <span
+                  className={cn(
+                    'text-[10px] px-1.5 py-0.5 rounded-full border',
+                    diagnosticBadge.level === 'success' &&
+                      'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400',
+                    diagnosticBadge.level === 'warning' &&
+                      'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
+                    diagnosticBadge.level === 'error' &&
+                      'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400',
+                    diagnosticBadge.level === 'info' &&
+                      'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400'
+                  )}
+                >
+                  {diagnosticBadge.label}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => handleCopy(message.content, 'message')}
+              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Copy assistant message"
+            >
+              {didCopyMessage ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {didCopyMessage ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+
+          {/* Message text with simple markdown */}
+          <div className="text-sm text-foreground leading-relaxed mt-2">
+            {renderSimpleMarkdown(message.content)}
+          </div>
+
+          {hasLifecycleSummary && lifecycle && (
+            <div className="mt-2 rounded-lg border border-border/60 bg-background/60 p-2.5 space-y-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border/60 bg-muted/30 text-muted-foreground">
+                  {getLifecycleStageLabel(lifecycle.stage)}
+                </span>
+                {typeof lifecycle.iteration === 'number' && lifecycle.iteration > 0 && (
+                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-border/60 bg-muted/30 text-muted-foreground">
+                    <CircleDashed className="h-3 w-3" />
+                    Iteration {lifecycle.iteration}
+                  </span>
+                )}
+                {lifecycle.requiredQuestions && lifecycle.requiredQuestions.length > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                    {lifecycle.requiredQuestions.length} blocking detail
+                    {lifecycle.requiredQuestions.length === 1 ? '' : 's'}
+                  </span>
+                )}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-md border border-border/40 bg-muted/20 px-2 py-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">What changed</p>
+                  <p className="text-[11px] mt-1 text-foreground/90">
+                    {lifecycle.whatIDid ?? 'Creator progressed the workflow.'}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border/40 bg-muted/20 px-2 py-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Next</p>
+                  <p className="text-[11px] mt-1 text-foreground/90">
+                    {lifecycle.nextAction ?? lifecycle.nextStage ?? 'Continue to the next stage.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
+
+        {balSkills.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {balSkills.map((skillId) => {
+              const descriptor = getBalSkillDescriptor(skillId);
+              return (
+                <span
+                  key={skillId}
+                  className={cn(
+                    'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                    skillId === 'loop'
+                      ? 'border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300'
+                      : 'border-border/60 bg-muted/30 text-muted-foreground'
+                  )}
+                  title={descriptor.description}
+                >
+                  {descriptor.label}
+                </span>
+              );
+            })}
+          </div>
+        )}
 
         {/* Entity mini-cards */}
         {hasEntities && (
@@ -395,6 +651,15 @@ function AssistantMessage({ message, isLatest, onViewAction, onOptionSelect }: A
         )}
 
         {/* Rich chat components */}
+        {isLatest && onDiscoverySubmit && discoveryQuestions.length > 0 && (
+          <DiscoveryIntakeForm
+            questions={discoveryQuestions}
+            onSubmit={onDiscoverySubmit}
+            disabled={disableDiscoverySubmit}
+            className="border-dashed border-primary/30 bg-primary/5"
+          />
+        )}
+
         {message.metadata?.options && (
           <OptionCards options={message.metadata.options} onSelect={onOptionSelect} />
         )}
@@ -412,11 +677,20 @@ function AssistantMessage({ message, isLatest, onViewAction, onOptionSelect }: A
         )}
         {message.metadata?.codeBlock && (
           <div className="rounded-lg border border-border/50 bg-muted/50 overflow-hidden">
-            {message.metadata.codeBlock.filename && (
-              <div className="text-[10px] text-muted-foreground px-3 py-1 border-b border-border/30 bg-muted/30">
-                {message.metadata.codeBlock.filename}
+            <div className="flex items-center justify-between gap-2 px-3 py-1 border-b border-border/30 bg-muted/30">
+              <div className="text-[10px] text-muted-foreground truncate">
+                {message.metadata.codeBlock.filename ?? 'Generated code'}
               </div>
-            )}
+              <button
+                type="button"
+                onClick={() => handleCopy(message.metadata?.codeBlock?.code ?? '', 'code')}
+                className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Copy code block"
+              >
+                {didCopyCode ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                {didCopyCode ? 'Copied' : 'Copy code'}
+              </button>
+            </div>
             <pre className="p-3 text-xs font-mono overflow-x-auto">
               <code>{message.metadata.codeBlock.code}</code>
             </pre>
@@ -443,28 +717,34 @@ function AssistantMessage({ message, isLatest, onViewAction, onOptionSelect }: A
 
         {/* Quick actions — only for non-error messages with entities */}
         {!isError && hasEntities && onViewAction && (
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => onViewAction('visual')}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/70 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
             >
               <Eye className="h-3 w-3" />
               View Visual
             </button>
             <button
               onClick={() => onViewAction('code')}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/70 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
             >
               <Code2 className="h-3 w-3" />
               Edit Code
             </button>
             <button
               onClick={() => onViewAction('run')}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs text-primary hover:bg-primary/10 transition-colors"
             >
               <Play className="h-3 w-3" />
               Run
             </button>
+            {lifecycle?.nextAction && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                <ArrowRight className="h-3 w-3" />
+                {lifecycle.nextAction}
+              </span>
+            )}
           </div>
         )}
 
@@ -709,20 +989,54 @@ function DiagnosticCard({
     error: 'border-red-500/30 bg-red-500/5',
     success: 'border-green-500/30 bg-green-500/5',
   };
-  const icons: Record<string, string> = { info: '\u2139\uFE0F', warning: '\u26A0\uFE0F', error: '\u274C', success: '\u2705' };
+  const Icon =
+    diagnostic.level === 'success'
+      ? CheckCircle2
+      : diagnostic.level === 'warning'
+        ? AlertCircle
+        : diagnostic.level === 'error'
+          ? AlertCircle
+          : Info;
+
+  const parsedSuggestions = (diagnostic.suggestions ?? []).map((suggestion) => {
+    const match = suggestion.match(/^\[(required|later)\]\s*(.*)$/i);
+    if (!match) {
+      return {
+        urgency: null as null | 'required' | 'later',
+        text: suggestion,
+      };
+    }
+    return {
+      urgency: match[1]?.toLowerCase() === 'required' ? 'required' : 'later',
+      text: match[2] || suggestion,
+    };
+  });
+
   return (
     <div className={cn('rounded-lg border p-3', styles[diagnostic.level])}>
       <div className="flex items-start gap-2">
-        <span className="shrink-0">{icons[diagnostic.level]}</span>
+        <Icon className="h-4 w-4 shrink-0 mt-0.5" />
         <div className="min-w-0 space-y-1">
           <p className="text-sm font-medium">{diagnostic.title}</p>
           {diagnostic.details && <p className="text-xs text-muted-foreground">{diagnostic.details}</p>}
-          {diagnostic.suggestions && diagnostic.suggestions.length > 0 && (
+          {parsedSuggestions.length > 0 && (
             <ul className="text-xs text-muted-foreground space-y-0.5 mt-1">
-              {diagnostic.suggestions.map((s, i) => (
+              {parsedSuggestions.map((suggestion, i) => (
                 <li key={i} className="flex gap-1.5">
                   <span className="shrink-0">&rarr;</span>
-                  <span>{s}</span>
+                  {suggestion.urgency && (
+                    <span
+                      className={cn(
+                        'text-[10px] px-1 py-0.5 rounded-full border capitalize',
+                        suggestion.urgency === 'required'
+                          ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                          : 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400'
+                      )}
+                    >
+                      {suggestion.urgency}
+                    </span>
+                  )}
+                  <span>{suggestion.text}</span>
                 </li>
               ))}
             </ul>

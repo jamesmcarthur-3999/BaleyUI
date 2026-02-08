@@ -18,6 +18,21 @@ describe('balToVisual edge generation', () => {
     expect(chains[0]?.target).toBe('b');
   });
 
+  it('generates loop edges for loop compositions', () => {
+    const result = balToVisual(`
+      validator { "goal": "Validate output quality" }
+      loop ("until": "result.passed == true", "max": 3) {
+        validator
+      }
+    `);
+
+    const loops = result.graph.edges.filter((edge) => edge.type === 'loop');
+    expect(loops).toHaveLength(1);
+    expect(loops[0]?.source).toBe('validator');
+    expect(loops[0]?.target).toBe('validator');
+    expect(loops[0]?.label).toContain('max 3');
+  });
+
   it('generates spawn edges for hub entities', () => {
     const result = balToVisual(`
       coordinator {
@@ -243,6 +258,19 @@ describe('balToVisualFromParsed entity data extraction', () => {
     const result = balToVisualFromParsed('invalid', parsed);
     expect(result.graph.nodes).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
+  });
+
+  it('keeps rendering nodes when parsed entities are recoverable despite parser errors', () => {
+    const parsed = {
+      entities: [
+        { name: 'recoverable_bot', config: { goal: 'Continue rendering', tools: ['web_search'] } },
+      ],
+      errors: ['Unknown entity property: reasoning'],
+    };
+    const result = balToVisualFromParsed('recoverable_bot { "goal": "Continue rendering" }', parsed);
+    expect(result.graph.nodes).toHaveLength(1);
+    expect(result.graph.nodes[0]?.id).toBe('recoverable_bot');
+    expect(result.errors).toContain('Unknown entity property: reasoning');
   });
 
   it('generates edges correctly with pre-parsed chain', () => {

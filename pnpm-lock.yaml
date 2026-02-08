@@ -228,6 +228,9 @@ importers:
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.2.3)
+      mysql2:
+        specifier: ^3.16.3
+        version: 3.16.3
       next:
         specifier: 15.5.12
         version: 15.5.12(@opentelemetry/api@1.9.0)(@playwright/test@1.58.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -486,17 +489,17 @@ importers:
         specifier: 1.0.0-alpha.71
         version: 1.0.0-alpha.71
       '@baleybots/chat':
-        specifier: 0.0.1-alpha.104
-        version: 0.0.1-alpha.104(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(@baleybots/core@0.0.1-alpha.104(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(zod@4.3.6)
+        specifier: 0.0.1-alpha.110
+        version: 0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(@baleybots/core@0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(zod@4.3.6)
       '@baleybots/core':
-        specifier: 0.0.1-alpha.104
-        version: 0.0.1-alpha.104(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
+        specifier: 0.0.1-alpha.110
+        version: 0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
       '@baleybots/mcp':
-        specifier: 0.0.1-alpha.104
-        version: 0.0.1-alpha.104(@baleybots/core@0.0.1-alpha.104(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+        specifier: 0.0.1-alpha.110
+        version: 0.0.1-alpha.110(@baleybots/core@0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@baleybots/tools':
-        specifier: 0.0.1-alpha.104
-        version: 0.0.1-alpha.104(@baleybots/core@0.0.1-alpha.104(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(zod@4.3.6)
+        specifier: 0.0.1-alpha.110
+        version: 0.0.1-alpha.110(@baleybots/core@0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(zod@4.3.6)
       '@xterm/headless':
         specifier: ^5.5.0
         version: 5.5.0
@@ -755,7 +758,7 @@ importers:
     dependencies:
       drizzle-orm:
         specifier: ^0.38.2
-        version: 0.38.4(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(@types/react@19.2.7)(better-sqlite3@12.6.2)(bun-types@1.3.8)(postgres@3.4.7)(react@19.2.3)
+        version: 0.38.4(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(@types/react@19.2.7)(better-sqlite3@12.6.2)(bun-types@1.3.8)(mysql2@3.16.3)(postgres@3.4.7)(react@19.2.3)
       postgres:
         specifier: ^3.4.5
         version: 3.4.7
@@ -1014,6 +1017,16 @@ packages:
       ai: ^5.0.0
       zod: ^4.3.6
 
+  '@baleybots/chat@0.0.1-alpha.110':
+    resolution: {integrity: sha512-Ibp1nyBkzgrMTvQjUBH775RWm8WSqbsKUiwCJXuM+ujvE9xLfpDPfbBi/+W4dH3d7iy+dlkRk6W9TOWfR8aD4Q==, tarball: https://npm.pkg.github.com/download/@baleybots/chat/0.0.1-alpha.110/f9687fd2b9f0e53d1861726b25036505cd5b17dc}
+    engines: {node: '>=18.0.0', typescript: '>=5.0.0'}
+    peerDependencies:
+      '@ai-sdk/anthropic': ^2.0.49
+      '@ai-sdk/openai': ^1.0.0
+      '@baleybots/core': 0.0.1-alpha.110
+      ai: ^5.0.0
+      zod: ^4.3.6
+
   '@baleybots/core@0.0.1-alpha.104':
     resolution: {integrity: sha512-Qtjq768NONAL3AGYXuomQcT5a58L+5UiAHoWTnq+AYB0nHszSakqtOBftys/XcV8Ym7H3zf9OchPZ1L0Jrh+5Q==, tarball: https://npm.pkg.github.com/download/@baleybots/core/0.0.1-alpha.104/6d4b78065d75c5594237436c0ec19d810729dbe1}
     engines: {node: '>=18.0.0', typescript: '>=5.0.0'}
@@ -1025,18 +1038,29 @@ packages:
       ws: ^8.18.0
       zod: ^4.3.6
 
-  '@baleybots/mcp@0.0.1-alpha.104':
-    resolution: {integrity: sha512-hTNjM2I3L8xTUcTVd8BHetTT5vNT1CiMAKZ+QZf5j72CyLTOT9TdBbcSQQRviNc+RxID4WLizePnFZB/wbEnQg==, tarball: https://npm.pkg.github.com/download/@baleybots/mcp/0.0.1-alpha.104/1327462de05cfa703216fd14457a384bfb3e09e8}
+  '@baleybots/core@0.0.1-alpha.110':
+    resolution: {integrity: sha512-5HQEymygHN76zadraj2wH6tGOQE7TS+oLpR/rpNKdHwOtWHILoCJgQXf7I/Jsidq/NaqHRQmgTJ6bvZg5pFP/w==, tarball: https://npm.pkg.github.com/download/@baleybots/core/0.0.1-alpha.110/543524319a8573dc4e93476e2de0628f2f4c37ef}
     engines: {node: '>=18.0.0', typescript: '>=5.0.0'}
     peerDependencies:
-      '@baleybots/core': 0.0.1-alpha.104
+      '@ai-sdk/anthropic': ^3.0.0
+      '@ai-sdk/openai': ^3.0.0
+      ai: ^6.0.0
+      ollama-ai-provider: ^1.0.0
+      ws: ^8.18.0
       zod: ^4.3.6
 
-  '@baleybots/tools@0.0.1-alpha.104':
-    resolution: {integrity: sha512-Xf0XyTXqRqH4nEyj/irna46kGTvhvmD1ZI5QJpFzWA0sz1YtiFeBoCUxDnCxAED33Xqnl6hZzv1C65ULAz5smg==, tarball: https://npm.pkg.github.com/download/@baleybots/tools/0.0.1-alpha.104/9e62990d3d06a49ad90ccee5f1cc99cfd7983b22}
+  '@baleybots/mcp@0.0.1-alpha.110':
+    resolution: {integrity: sha512-GzObjqws+OADWQ4r4zyc4D/J8JExnX4wyb4VT9TcgcPakJVM0QGSRIDCzKv1sxd3pmuDnGoAYiYaORfHGLreVQ==, tarball: https://npm.pkg.github.com/download/@baleybots/mcp/0.0.1-alpha.110/270d67d76ca517eafddc994e5025cdd54e1aed4d}
     engines: {node: '>=18.0.0', typescript: '>=5.0.0'}
     peerDependencies:
-      '@baleybots/core': 0.0.1-alpha.104
+      '@baleybots/core': 0.0.1-alpha.110
+      zod: ^4.3.6
+
+  '@baleybots/tools@0.0.1-alpha.110':
+    resolution: {integrity: sha512-B0tvnHmRZINPDZaBiuIRIibaGuJaBOeThLm81YO9A7M0bmJYSMwzckebKgEWGNxNgplNMC0G/UttEmEVh9t8UA==, tarball: https://npm.pkg.github.com/download/@baleybots/tools/0.0.1-alpha.110/498a5190edb31221356ff0650bfc469b5111a908}
+    engines: {node: '>=18.0.0', typescript: '>=5.0.0'}
+    peerDependencies:
+      '@baleybots/core': 0.0.1-alpha.110
       zod: ^4.3.6
 
   '@bcoe/v8-coverage@1.0.2':
@@ -4593,6 +4617,10 @@ packages:
     resolution: {integrity: sha512-wvUjBtSGN7+7SjNpq/9M2Tg350UZD3q62IFZLbRAR1bSMlCo1ZaeW+BJ+D090e4hIIZLBcTDWe4Mh4jvUDajzQ==}
     engines: {node: '>= 0.4'}
 
+  aws-ssl-profiles@1.1.2:
+    resolution: {integrity: sha512-NZKeq9AfyQvEeNlN0zSYAaWrmBffJh3IELMZfRpJVWgrpEbtEpnjvzqBPf+mxoI287JohRDoa+/nsfqqiZmF6g==}
+    engines: {node: '>= 6.0.0'}
+
   axe-core@4.11.0:
     resolution: {integrity: sha512-ilYanEU8vxxBexpJd8cWM4ElSQq4QctCLKih0TSfjIfCQTeyH/6zVrmIJfLPrKTKJRbiG+cfnZbQIjAlJmF1jQ==}
     engines: {node: '>=4'}
@@ -5177,6 +5205,10 @@ packages:
   delayed-stream@1.0.0:
     resolution: {integrity: sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ==}
     engines: {node: '>=0.4.0'}
+
+  denque@2.1.0:
+    resolution: {integrity: sha512-HVQE3AAb/pxF8fQAoiqpvg9i3evqug3hoiwakOyZAwJm+6vZehbkYXZ0l4JxS+I3QxM97v5aaRNhj8v5oBhekw==}
+    engines: {node: '>=0.10'}
 
   depd@2.0.0:
     resolution: {integrity: sha512-g7nH6P6dyDioJogAAGprGpCtVImJhpPk/roCzdb3fIh61/s/nPsfR6onyMwkCAR/OlC3yBC0lESvUoQEAssIrw==}
@@ -5859,6 +5891,9 @@ packages:
     engines: {node: '>= 18.0.0'}
     hasBin: true
 
+  generate-function@2.3.1:
+    resolution: {integrity: sha512-eeB5GfMNeevm/GRYq20ShmsaGcmI81kIX2K9XQx5miC8KdHaC6Jm0qQ8ZNeGOi7wYB8OsdxKs+Y2oVuTFuVwKQ==}
+
   generator-function@2.0.1:
     resolution: {integrity: sha512-SFdFmIJi+ybC0vjlHN0ZGVGHc3lgE0DxPAT0djjVg+kjOnSqclqmj0KQ7ykTOLP6YxoqOvuAODGdcHJn+43q3g==}
     engines: {node: '>= 0.4'}
@@ -6308,6 +6343,9 @@ packages:
   is-promise@4.0.0:
     resolution: {integrity: sha512-hvpoI6korhJMnej285dSg6nu1+e6uxs7zG3BYAm5byqDsgJNWwxzM6z6iZiAgQR4TJ30JmBTOwqZUw3WlyH3AQ==}
 
+  is-property@1.0.2:
+    resolution: {integrity: sha512-Ks/IoX00TtClbGQr4TWXemAnktAQvYB7HzcCxDGqEZU6oCmb2INHuOoKxbtR+HFkmYWBKv/dOZtGRiAjDhj92g==}
+
   is-reference@1.2.1:
     resolution: {integrity: sha512-U82MsXXiFIrjCK4otLT+o2NA2Cd2g5MLoOVXUZjIOhLurrRxpEXzI8O0KZHr3IjLvlAH1kTPYSuqer5T9ZVBKQ==}
 
@@ -6616,6 +6654,10 @@ packages:
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
 
+  lru.min@1.1.4:
+    resolution: {integrity: sha512-DqC6n3QQ77zdFpCMASA1a3Jlb64Hv2N2DciFGkO/4L9+q/IpIAuRlKOvCXabtRW6cQf8usbmM6BE/TOPysCdIA==}
+    engines: {bun: '>=1.0.0', deno: '>=1.30.0', node: '>=8.0.0'}
+
   lucide-react@0.468.0:
     resolution: {integrity: sha512-6koYRhnM2N0GGZIdXzSeiNwguv1gt/FAjZOiPl76roBi3xKEXa4WmfpxgQwTTL4KipXjefrnf3oV4IsYhi4JFA==}
     peerDependencies:
@@ -6809,8 +6851,16 @@ packages:
     resolution: {integrity: sha512-WWdIxpyjEn+FhQJQQv9aQAYlHoNVdzIzUySNV1gHUPDSdZJ3yZn7pAAbQcV7B56Mvu881q9FZV+0Vx2xC44VWA==}
     engines: {node: ^18.17.0 || >=20.5.0}
 
+  mysql2@3.16.3:
+    resolution: {integrity: sha512-+3XhQEt4FEFuvGV0JjIDj4eP2OT/oIj/54dYvqhblnSzlfcxVOuj+cd15Xz6hsG4HU1a+A5+BA9gm0618C4z7A==}
+    engines: {node: '>= 8.0'}
+
   mz@2.7.0:
     resolution: {integrity: sha512-z81GNO7nnYMEhrGh9LeymoE4+Yr0Wn5McHIZMK5cfQCl+NDX08sCZgUc9/6MHni9IWuFLm1Z3HTCXu2z9fN62Q==}
+
+  named-placeholders@1.1.6:
+    resolution: {integrity: sha512-Tz09sEL2EEuv5fFowm419c1+a/jSMiBjI9gHxVLrVdbUkkNUUfjsVYs9pVZu5oCon/kmRh9TfLEObFtkVxmY0w==}
+    engines: {node: '>=8.0.0'}
 
   nan@2.25.0:
     resolution: {integrity: sha512-0M90Ag7Xn5KMLLZ7zliPWP3rT90P6PN+IzVFS0VqmnPktBk3700xUVv8Ikm9EUaUE5SDWdp/BIxdENzVznpm1g==}
@@ -7702,6 +7752,9 @@ packages:
     resolution: {integrity: sha512-1gnZf7DFcoIcajTjTwjwuDjzuz4PPcY2StKPlsGAQ1+YH20IRVrBaXSWmdjowTJ6u8Rc01PoYOGHXfP1mYcZNQ==}
     engines: {node: '>= 18'}
 
+  seq-queue@0.0.5:
+    resolution: {integrity: sha512-hr3Wtp/GZIc/6DAGPDcV4/9WoZhjrkXsi5B/07QgX8tsdc6ilr7BFM6PM6rbdAX1kFSDYeZGLipIZZKyQP0O5Q==}
+
   serialize-error@8.1.0:
     resolution: {integrity: sha512-3NnuWfM6vBYoy5gZFvHiYsVbafvI9vZv/+jlIigFn4oP4zjNPK3LhcY0xSCgeb1a5L8jO71Mit9LlNoi2UfDDQ==}
     engines: {node: '>=10'}
@@ -7841,6 +7894,10 @@ packages:
 
   sprintf-js@1.0.3:
     resolution: {integrity: sha512-D9cPgkvLlV3t3IzL0D0YLvGA9Ahk4PcvVwUbN0dSGr1aP0Nrt4AEnTUbuGvquEC0mA64Gqt1fzirlRs5ibXx8g==}
+
+  sqlstring@2.3.3:
+    resolution: {integrity: sha512-qC9iz2FlN7DQl3+wjwn3802RTyjCx7sDvfQEXchwa6CWOx07/WVfh91gBmQ9fahw8snwGEWU3xGzOt4tFyHLxg==}
+    engines: {node: '>= 0.6'}
 
   ssh-remote-port-forward@1.0.4:
     resolution: {integrity: sha512-x0LV1eVDwjf1gmG7TTnfqIzf+3VPRz7vrNIjX6oYLbeCrf/PeVY6hkT68Mg+q02qXxQhrLjB0jfgvhevoCRmLQ==}
@@ -9200,6 +9257,14 @@ snapshots:
       '@baleybots/core': 0.0.1-alpha.104(@ai-sdk/anthropic@3.0.35(zod@4.3.6))(@ai-sdk/openai@3.0.25(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
       zod: 4.3.6
 
+  '@baleybots/chat@0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(@baleybots/core@0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(zod@4.3.6)':
+    dependencies:
+      '@ai-sdk/anthropic': 2.0.58(zod@4.3.6)
+      '@ai-sdk/openai': 1.3.24(zod@4.3.6)
+      '@baleybots/core': 0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
+      ai: 5.0.114(zod@4.3.6)
+      zod: 4.3.6
+
   '@baleybots/core@0.0.1-alpha.104(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)':
     dependencies:
       '@ai-sdk/anthropic': 2.0.58(zod@4.3.6)
@@ -9226,9 +9291,22 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@baleybots/mcp@0.0.1-alpha.104(@baleybots/core@0.0.1-alpha.104(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(@cfworker/json-schema@4.1.1)(zod@4.3.6)':
+  '@baleybots/core@0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)':
     dependencies:
-      '@baleybots/core': 0.0.1-alpha.104(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
+      '@ai-sdk/anthropic': 2.0.58(zod@4.3.6)
+      '@ai-sdk/openai': 1.3.24(zod@4.3.6)
+      '@baleybots/auth': 1.0.0-alpha.71
+      '@cfworker/json-schema': 4.1.1
+      ai: 5.0.114(zod@4.3.6)
+      ollama-ai-provider: 1.2.0(zod@4.3.6)
+      ws: 8.19.0
+      zod: 4.3.6
+    transitivePeerDependencies:
+      - supports-color
+
+  '@baleybots/mcp@0.0.1-alpha.110(@baleybots/core@0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(@cfworker/json-schema@4.1.1)(zod@4.3.6)':
+    dependencies:
+      '@baleybots/core': 0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
       '@modelcontextprotocol/sdk': 1.25.3(@cfworker/json-schema@4.1.1)(hono@4.11.1)(zod@4.3.6)
       zod: 4.3.6
     transitivePeerDependencies:
@@ -9236,9 +9314,9 @@ snapshots:
       - hono
       - supports-color
 
-  '@baleybots/tools@0.0.1-alpha.104(@baleybots/core@0.0.1-alpha.104(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(zod@4.3.6)':
+  '@baleybots/tools@0.0.1-alpha.110(@baleybots/core@0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(zod@4.3.6)':
     dependencies:
-      '@baleybots/core': 0.0.1-alpha.104(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
+      '@baleybots/core': 0.0.1-alpha.110(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@5.0.114(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
       zod: 4.3.6
 
   '@bcoe/v8-coverage@1.0.2': {}
@@ -13126,6 +13204,8 @@ snapshots:
     dependencies:
       possible-typed-array-names: 1.1.0
 
+  aws-ssl-profiles@1.1.2: {}
+
   axe-core@4.11.0: {}
 
   axios@1.13.2:
@@ -13693,6 +13773,8 @@ snapshots:
 
   delayed-stream@1.0.0: {}
 
+  denque@2.1.0: {}
+
   depd@2.0.0: {}
 
   dequal@2.0.3: {}
@@ -13789,13 +13871,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.38.4(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(@types/react@19.2.7)(better-sqlite3@12.6.2)(bun-types@1.3.8)(postgres@3.4.7)(react@19.2.3):
+  drizzle-orm@0.38.4(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(@types/react@19.2.7)(better-sqlite3@12.6.2)(bun-types@1.3.8)(mysql2@3.16.3)(postgres@3.4.7)(react@19.2.3):
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       '@types/pg': 8.6.1
       '@types/react': 19.2.7
       better-sqlite3: 12.6.2
       bun-types: 1.3.8
+      mysql2: 3.16.3
       postgres: 3.4.7
       react: 19.2.3
 
@@ -14632,6 +14715,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  generate-function@2.3.1:
+    dependencies:
+      is-property: 1.0.2
+
   generator-function@2.0.1: {}
 
   gensync@1.0.0-beta.2: {}
@@ -15104,6 +15191,8 @@ snapshots:
 
   is-promise@4.0.0: {}
 
+  is-property@1.0.2: {}
+
   is-reference@1.2.1:
     dependencies:
       '@types/estree': 1.0.8
@@ -15418,6 +15507,8 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
+  lru.min@1.1.4: {}
+
   lucide-react@0.468.0(react@19.2.3):
     dependencies:
       react: 19.2.3
@@ -15626,11 +15717,27 @@ snapshots:
 
   mute-stream@2.0.0: {}
 
+  mysql2@3.16.3:
+    dependencies:
+      aws-ssl-profiles: 1.1.2
+      denque: 2.1.0
+      generate-function: 2.3.1
+      iconv-lite: 0.7.2
+      long: 5.3.2
+      lru.min: 1.1.4
+      named-placeholders: 1.1.6
+      seq-queue: 0.0.5
+      sqlstring: 2.3.3
+
   mz@2.7.0:
     dependencies:
       any-promise: 1.3.0
       object-assign: 4.1.1
       thenify-all: 1.6.0
+
+  named-placeholders@1.1.6:
+    dependencies:
+      lru.min: 1.1.4
 
   nan@2.25.0:
     optional: true
@@ -16564,6 +16671,8 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  seq-queue@0.0.5: {}
+
   serialize-error@8.1.0:
     dependencies:
       type-fest: 0.20.2
@@ -16754,6 +16863,8 @@ snapshots:
   split-ca@1.0.1: {}
 
   sprintf-js@1.0.3: {}
+
+  sqlstring@2.3.3: {}
 
   ssh-remote-port-forward@1.0.4:
     dependencies:

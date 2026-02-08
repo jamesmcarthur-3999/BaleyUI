@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Clock, Globe, Zap, Hand, Info, ChevronDown, Copy, Check } from 'lucide-react';
+import { Clock, Globe, Zap, Hand, Info, ChevronDown, Copy, Check, Database, Puzzle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TriggerConfig, TriggerType } from '@/lib/baleybot/types';
 
@@ -9,6 +9,7 @@ interface TriggerConfigProps {
   value: TriggerConfig | undefined;
   onChange: (config: TriggerConfig | undefined) => void;
   availableBaleybots?: Array<{ id: string; name: string }>;
+  availableConnections?: Array<{ id: string; name: string; type: string; status?: string }>;
   baleybotId?: string;
   className?: string;
 }
@@ -43,7 +44,26 @@ const TRIGGER_OPTIONS: Array<{
     description: 'Triggered when another BaleyBot completes',
     Icon: Zap,
   },
+  {
+    type: 'db_event',
+    label: 'DB Event',
+    description: 'Triggered by database changes',
+    Icon: Database,
+  },
+  {
+    type: 'mcp_event',
+    label: 'MCP Event',
+    description: 'Triggered by MCP tool/resource events',
+    Icon: Puzzle,
+  },
 ];
+
+const CORE_TRIGGER_TYPES: TriggerType[] = ['manual', 'schedule', 'webhook'];
+const ADVANCED_TRIGGER_TYPES: TriggerType[] = ['other_bb', 'db_event', 'mcp_event'];
+
+function isAdvancedTriggerType(type: TriggerType): boolean {
+  return ADVANCED_TRIGGER_TYPES.includes(type);
+}
 
 const COMMON_SCHEDULES = [
   { label: 'Every minute', value: '* * * * *' },
@@ -58,17 +78,36 @@ export function TriggerConfig({
   value,
   onChange,
   availableBaleybots = [],
+  availableConnections = [],
   baleybotId,
   className,
 }: TriggerConfigProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [customSchedule, setCustomSchedule] = useState(value?.schedule || '');
   const [copied, setCopied] = useState(false);
+  const [showAdvancedTriggerTypes, setShowAdvancedTriggerTypes] = useState(() =>
+    value?.type ? isAdvancedTriggerType(value.type) : false
+  );
 
   const selectedType = value?.type || 'manual';
   const selectedOption = TRIGGER_OPTIONS.find((opt) => opt.type === selectedType);
+  const selectedAdvancedOption = TRIGGER_OPTIONS.find(
+    (opt) => opt.type === selectedType && isAdvancedTriggerType(opt.type)
+  );
+  const triggerOptionsForDropdown = showAdvancedTriggerTypes
+    ? TRIGGER_OPTIONS
+    : [
+        ...TRIGGER_OPTIONS.filter((opt) => CORE_TRIGGER_TYPES.includes(opt.type)),
+        ...(selectedAdvancedOption ? [selectedAdvancedOption] : []),
+      ];
+  const dbConnections = availableConnections.filter(
+    (conn) => (conn.type === 'postgres' || conn.type === 'mysql')
+  );
 
   const handleTypeChange = (type: TriggerType) => {
+    if (isAdvancedTriggerType(type)) {
+      setShowAdvancedTriggerTypes(true);
+    }
     if (type === 'manual') {
       onChange(undefined); // Manual is default, no config needed
     } else {
@@ -77,6 +116,7 @@ export function TriggerConfig({
         enabled: true,
         ...(type === 'schedule' && { schedule: '0 9 * * *' }),
         ...(type === 'other_bb' && { completionType: 'success' as const }),
+        ...(type === 'db_event' && { dbEvent: 'insert' as const }),
       });
     }
     setIsOpen(false);
@@ -96,7 +136,7 @@ export function TriggerConfig({
     onChange({
       ...value,
       type: 'other_bb',
-      sourceBaleybotId,
+      sourceBaleybotId: sourceBaleybotId || undefined,
       enabled: true,
     });
   };
@@ -115,6 +155,60 @@ export function TriggerConfig({
       ...value,
       type: 'webhook',
       webhookPath: webhookPath || undefined,
+      enabled: true,
+    });
+  };
+
+  const handleDbConnectionChange = (dbConnectionId: string) => {
+    onChange({
+      ...value,
+      type: 'db_event',
+      dbConnectionId: dbConnectionId || undefined,
+      enabled: true,
+    });
+  };
+
+  const handleDbTableChange = (dbTable: string) => {
+    onChange({
+      ...value,
+      type: 'db_event',
+      dbTable: dbTable || undefined,
+      enabled: true,
+    });
+  };
+
+  const handleDbEventChange = (dbEvent: 'insert' | 'update' | 'delete' | 'change') => {
+    onChange({
+      ...value,
+      type: 'db_event',
+      dbEvent,
+      enabled: true,
+    });
+  };
+
+  const handleMcpServerChange = (mcpServer: string) => {
+    onChange({
+      ...value,
+      type: 'mcp_event',
+      mcpServer: mcpServer || undefined,
+      enabled: true,
+    });
+  };
+
+  const handleMcpToolChange = (mcpTool: string) => {
+    onChange({
+      ...value,
+      type: 'mcp_event',
+      mcpTool: mcpTool || undefined,
+      enabled: true,
+    });
+  };
+
+  const handleMcpResourceChange = (mcpResource: string) => {
+    onChange({
+      ...value,
+      type: 'mcp_event',
+      mcpResource: mcpResource || undefined,
       enabled: true,
     });
   };
@@ -163,7 +257,7 @@ export function TriggerConfig({
           {/* Dropdown */}
           {isOpen && (
             <div className="absolute top-full left-0 right-0 mt-2 z-50 rounded-xl border border-border/50 bg-card shadow-lg overflow-hidden">
-              {TRIGGER_OPTIONS.map((option) => (
+              {triggerOptionsForDropdown.map((option) => (
                 <button
                   key={option.type}
                   type="button"
@@ -184,6 +278,19 @@ export function TriggerConfig({
               ))}
             </div>
           )}
+        </div>
+
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <p className="text-muted-foreground">
+            Start simple with Manual, Schedule, or Webhook.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowAdvancedTriggerTypes((prev) => !prev)}
+            className="text-primary hover:underline"
+          >
+            {showAdvancedTriggerTypes ? 'Hide advanced trigger types' : 'Show advanced trigger types'}
+          </button>
         </div>
       </div>
 
@@ -365,6 +472,125 @@ export function TriggerConfig({
           </div>
         </div>
       )}
+
+      {/* Database Event Configuration */}
+      {selectedType === 'db_event' && (
+        <div className="space-y-4 p-4 rounded-xl bg-muted/30 border border-border/30">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Database className="h-4 w-4 text-cyan-500" />
+              Database Connection
+            </label>
+
+            {dbConnections.length > 0 ? (
+              <select
+                value={value?.dbConnectionId || ''}
+                onChange={(e) => handleDbConnectionChange(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-border/50 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="">Select a database connection...</option>
+                {dbConnections.map((connection) => (
+                  <option key={connection.id} value={connection.id}>
+                    {connection.name} ({connection.type})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="text-sm text-muted-foreground italic">
+                No database connections found. Add a Postgres or MySQL connection first.
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Table / Collection</label>
+            <input
+              type="text"
+              value={value?.dbTable || ''}
+              onChange={(e) => handleDbTableChange(e.target.value)}
+              placeholder="users"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-border/50 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Event Type</label>
+            <div className="flex gap-2 flex-wrap">
+              {(['insert', 'update', 'delete', 'change'] as const).map((eventType) => (
+                <button
+                  key={eventType}
+                  type="button"
+                  onClick={() => handleDbEventChange(eventType)}
+                  className={cn(
+                    'px-3 py-2 text-xs rounded-lg border transition-colors capitalize',
+                    value?.dbEvent === eventType
+                      ? 'bg-primary/10 border-primary/30 text-primary'
+                      : 'border-border/50 hover:bg-muted/50'
+                  )}
+                >
+                  {eventType}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2 text-xs text-muted-foreground">
+            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+              Use DB event triggers for near-real-time automations. Pair with a clear table and event signal.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* MCP Event Configuration */}
+      {selectedType === 'mcp_event' && (
+        <div className="space-y-4 p-4 rounded-xl bg-muted/30 border border-border/30">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Puzzle className="h-4 w-4 text-indigo-500" />
+              MCP Server
+            </label>
+            <input
+              type="text"
+              value={value?.mcpServer || ''}
+              onChange={(e) => handleMcpServerChange(e.target.value)}
+              placeholder="workspace-mcp-server"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-border/50 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Tool</label>
+              <input
+                type="text"
+                value={value?.mcpTool || ''}
+                onChange={(e) => handleMcpToolChange(e.target.value)}
+                placeholder="tool_name"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-border/50 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Resource</label>
+              <input
+                type="text"
+                value={value?.mcpResource || ''}
+                onChange={(e) => handleMcpResourceChange(e.target.value)}
+                placeholder="resource://path"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-border/50 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2 text-xs text-muted-foreground">
+            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+              MCP triggers run this BaleyBot when a specific MCP tool or resource event is emitted.
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -396,6 +622,10 @@ export function TriggerBadge({
         return 'Webhook';
       case 'other_bb':
         return `On ${trigger.completionType || 'completion'}`;
+      case 'db_event':
+        return `DB ${trigger.dbEvent || 'change'}`;
+      case 'mcp_event':
+        return 'MCP Event';
       default:
         return config.label;
     }
@@ -408,6 +638,8 @@ export function TriggerBadge({
         'bg-amber-500/10 text-amber-600 border border-amber-500/20',
         trigger.type === 'webhook' && 'bg-blue-500/10 text-blue-600 border-blue-500/20',
         trigger.type === 'other_bb' && 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
+        trigger.type === 'db_event' && 'bg-cyan-500/10 text-cyan-600 border-cyan-500/20',
+        trigger.type === 'mcp_event' && 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20',
         className
       )}
     >

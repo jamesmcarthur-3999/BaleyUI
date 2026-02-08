@@ -204,7 +204,13 @@ describe('Built-in Tool Implementations', () => {
       const tool = getTool('web_search');
       const result = await tool.function({ query: 'custom search' });
 
-      expect(customSearchFn).toHaveBeenCalledWith('custom search', 5);
+      expect(customSearchFn).toHaveBeenCalledWith(
+        'custom search',
+        5,
+        expect.objectContaining({
+          workspaceId: makeCtx().workspaceId,
+        })
+      );
       expect(result).toHaveLength(1);
     });
 
@@ -214,7 +220,13 @@ describe('Built-in Tool Implementations', () => {
       const tool = getTool('web_search');
       await tool.function({ query: 'test', num_results: 50 });
 
-      expect(mockSearch).toHaveBeenCalledWith('test', 20);
+      expect(mockSearch).toHaveBeenCalledWith(
+        'test',
+        20,
+        expect.objectContaining({
+          workspaceId: makeCtx().workspaceId,
+        })
+      );
     });
 
     it('should default num_results to 5', async () => {
@@ -223,7 +235,13 @@ describe('Built-in Tool Implementations', () => {
       const tool = getTool('web_search');
       await tool.function({ query: 'test' });
 
-      expect(mockSearch).toHaveBeenCalledWith('test', 5);
+      expect(mockSearch).toHaveBeenCalledWith(
+        'test',
+        5,
+        expect.objectContaining({
+          workspaceId: makeCtx().workspaceId,
+        })
+      );
     });
 
     it('should propagate errors from search service', async () => {

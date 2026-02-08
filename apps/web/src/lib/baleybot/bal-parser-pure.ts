@@ -36,7 +36,7 @@ export interface ParseResult {
   errors: string[];
 }
 
-export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'other_bb';
+export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'db_event' | 'mcp_event';
 
 export interface TriggerConfig {
   type: TriggerType;
@@ -44,6 +44,12 @@ export interface TriggerConfig {
   sourceBaleybotId?: string;
   completionType?: 'success' | 'failure' | 'completion';
   webhookPath?: string;
+  dbConnectionId?: string;
+  dbTable?: string;
+  dbEvent?: 'insert' | 'update' | 'delete' | 'change';
+  mcpServer?: string;
+  mcpTool?: string;
+  mcpResource?: string;
   enabled?: boolean;
 }
 
@@ -66,7 +72,7 @@ export interface VisualEdge {
   id: string;
   source: string;
   target: string;
-  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel' | 'spawn' | 'shared_data' | 'trigger';
+  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel' | 'loop' | 'spawn' | 'shared_data' | 'trigger';
   label?: string;
   animated?: boolean;
 }
@@ -114,6 +120,427 @@ function outputSchemaToRecord(output: { fields: Array<{ name: string; fieldType:
   return result;
 }
 
+/**
+ * Normalize legacy JSON-array tools syntax into BAL tools-set syntax.
+ *
+ * Example:
+ *   "tools": ["web_search", "fetch_url"]
+ * becomes
+ *   "tools": { "web_search", "fetch_url" }
+ */
+function normalizeToolsSyntax(balCode: string): string {
+  return balCode.replace(
+    /("tools"\s*:\s*)\[(.*?)\]/gs,
+    (_match, prefix: string, contents: string) => `${prefix}{ ${contents.trim()} }`
+  );
+}
+
+function cleanupDanglingCommas(balCode: string): string {
+  return balCode
+    .replace(/,\s*([}\]])/g, '$1')
+    .replace(/(\{\s*),/g, '$1')
+    .replace(/,\s*,/g, ',');
+}
+
+/**
+ * Strip entity properties that are not yet supported by the current SDK parser.
+ * These are preserved by loose parsing below, but removed for strict AST parsing.
+ */
+function stripUnsupportedEntityProperties(balCode: string): string {
+  let normalized = balCode;
+
+  const unsupportedKeys = [
+    'temperature',
+    'reasoning',
+    'stopWhen',
+    'retries',
+    'can_request',
+    'trigger',
+  ];
+
+  for (const key of unsupportedKeys) {
+    // Supports scalar values plus multiline object/array values.
+    // Example matches:
+    //   "reasoning": "high",
+    //   "reasoning": { "effort": "high" },
+    //   "can_request": [ "send_notification" ],
+    //   "trigger": { ... }
+    const linePattern = new RegExp(
+      `^[ \\t]*"${key}"\\s*:\\s*(?:\\{[\\s\\S]*?\\}|\\[[\\s\\S]*?\\]|"(?:\\\\.|[^"\\\\])*"|[^,\\n\\r}]+)\\s*,?\\s*(?:\\n|$)`,
+      'gm'
+    );
+    normalized = normalized.replace(linePattern, '');
+  }
+
+  return normalized;
+}
+
+/**
+ * Normalize generated BAL into compatibility mode for the current SDK parser/runtime.
+ * - Converts legacy tools array syntax to BAL set syntax
+ * - Removes unsupported entity properties emitted by some generator prompts
+ * - Cleans up dangling commas created during property stripping
+ */
+export function normalizeBalCodeForCompatibility(balCode: string): string {
+  const toolsNormalized = normalizeToolsSyntax(balCode);
+  const unsupportedStripped = stripUnsupportedEntityProperties(toolsNormalized);
+  return cleanupDanglingCommas(unsupportedStripped);
+}
+
+function decodeEscapedString(value: string): string {
+  return value
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\r/g, '\r')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\');
+}
+
+function extractStringList(raw: string): string[] {
+  const quoted: string[] = [];
+  const quotedRegex = /"((?:\\.|[^"\\])*)"/g;
+  let quotedMatch: RegExpExecArray | null;
+
+  while ((quotedMatch = quotedRegex.exec(raw)) !== null) {
+    quoted.push(decodeEscapedString(quotedMatch[1] || ''));
+  }
+
+  if (quoted.length > 0) {
+    return quoted;
+  }
+
+  const identifiers: string[] = [];
+  const idRegex = /\b[a-zA-Z_][a-zA-Z0-9_]*\b/g;
+  let idMatch: RegExpExecArray | null;
+
+  while ((idMatch = idRegex.exec(raw)) !== null) {
+    if (idMatch[0]) {
+      identifiers.push(idMatch[0]);
+    }
+  }
+
+  return identifiers;
+}
+
+function propertyKeyPattern(key: string): string {
+  return `(?:"${key}"|${key})\\s*:\\s*`;
+}
+
+function matchStringProperty(body: string, key: string): string | undefined {
+  const match = body.match(new RegExp(`${propertyKeyPattern(key)}"((?:\\\\.|[^"\\\\])*)"`, 's'));
+  return match?.[1] ? decodeEscapedString(match[1]) : undefined;
+}
+
+function matchNumberProperty(body: string, key: string): number | undefined {
+  const match = body.match(new RegExp(`${propertyKeyPattern(key)}(-?\\d+(?:\\.\\d+)?)`));
+  if (!match?.[1]) return undefined;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function matchBooleanProperty(body: string, key: string): boolean | undefined {
+  const match = body.match(new RegExp(`${propertyKeyPattern(key)}(true|false)`));
+  if (!match?.[1]) return undefined;
+  return match[1] === 'true';
+}
+
+function matchStringListProperty(body: string, key: string): string[] | undefined {
+  const setMatch = body.match(new RegExp(`${propertyKeyPattern(key)}\\{([\\s\\S]*?)\\}`, 's'));
+  if (setMatch?.[1] !== undefined) {
+    return extractStringList(setMatch[1]);
+  }
+
+  const arrayMatch = body.match(new RegExp(`${propertyKeyPattern(key)}\\[([\\s\\S]*?)\\]`, 's'));
+  if (arrayMatch?.[1] !== undefined) {
+    return extractStringList(arrayMatch[1]);
+  }
+
+  const singleString = matchStringProperty(body, key);
+  return singleString ? [singleString] : undefined;
+}
+
+function matchOutputProperty(body: string): Record<string, string> | undefined {
+  const outputMatch = body.match(/"output"\s*:\s*\{([\s\S]*?)\}/);
+  if (!outputMatch?.[1]) return undefined;
+
+  const fields: Record<string, string> = {};
+  const fieldRegex = /"([^"\\]+)"\s*:\s*"([^"\\]+)"/g;
+  let fieldMatch: RegExpExecArray | null;
+
+  while ((fieldMatch = fieldRegex.exec(outputMatch[1])) !== null) {
+    const key = fieldMatch[1];
+    const value = fieldMatch[2];
+    if (key && value) {
+      fields[key] = value;
+    }
+  }
+
+  return Object.keys(fields).length > 0 ? fields : undefined;
+}
+
+function findMatchingDelimiter(
+  source: string,
+  startIndex: number,
+  open: '{' | '[' | '(',
+  close: '}' | ']' | ')'
+): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = startIndex; i < source.length; i++) {
+    const char = source[i];
+    if (!char) break;
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === open) {
+      depth++;
+      continue;
+    }
+
+    if (char === close) {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+
+  return -1;
+}
+
+function extractObjectPropertyRaw(body: string, key: string): string | undefined {
+  const match = new RegExp(`${propertyKeyPattern(key)}\\{`, 's').exec(body);
+  if (!match) return undefined;
+
+  const openIndex = body.indexOf('{', match.index + match[0].length - 1);
+  if (openIndex === -1) return undefined;
+
+  const closeIndex = findMatchingDelimiter(body, openIndex, '{', '}');
+  if (closeIndex === -1) return undefined;
+
+  return body.slice(openIndex, closeIndex + 1);
+}
+
+function parseJsonLikeObject(raw: string): Record<string, unknown> | undefined {
+  const candidates = [
+    raw,
+    raw.replace(/,\s*([}\]])/g, '$1'),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Keep trying candidates
+    }
+  }
+
+  return undefined;
+}
+
+function matchObjectProperty(body: string, key: string): Record<string, unknown> | undefined {
+  const raw = extractObjectPropertyRaw(body, key);
+  return raw ? parseJsonLikeObject(raw) : undefined;
+}
+
+function extractLooseEntityConfig(entityBody: string): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+
+  const goal = matchStringProperty(entityBody, 'goal');
+  const model = matchStringProperty(entityBody, 'model');
+  const tools = matchStringListProperty(entityBody, 'tools');
+  const output = matchOutputProperty(entityBody);
+  const history = matchStringProperty(entityBody, 'history');
+  const maxTokens = matchNumberProperty(entityBody, 'maxTokens');
+  const temperature = matchNumberProperty(entityBody, 'temperature');
+  const retries = matchNumberProperty(entityBody, 'retries');
+  const stopWhen = matchStringProperty(entityBody, 'stopWhen');
+  const canRequest =
+    matchStringListProperty(entityBody, 'can_request') ??
+    matchStringListProperty(entityBody, 'needsApproval');
+  const triggerString = matchStringProperty(entityBody, 'trigger');
+  const triggerObject = matchObjectProperty(entityBody, 'trigger');
+  const reasoningString = matchStringProperty(entityBody, 'reasoning');
+  const reasoningBoolean = matchBooleanProperty(entityBody, 'reasoning');
+  const reasoningObject = matchObjectProperty(entityBody, 'reasoning');
+
+  if (goal !== undefined) config.goal = goal;
+  if (model !== undefined) config.model = model;
+  if (tools !== undefined) config.tools = tools;
+  if (output !== undefined) config.output = output;
+  if (history !== undefined) config.history = history;
+  if (maxTokens !== undefined) config.maxTokens = maxTokens;
+  if (temperature !== undefined) config.temperature = temperature;
+  if (retries !== undefined) config.retries = retries;
+  if (stopWhen !== undefined) config.stopWhen = stopWhen;
+  if (canRequest !== undefined) config.can_request = canRequest;
+  if (triggerString !== undefined) config.trigger = triggerString;
+  else if (triggerObject !== undefined) config.trigger = triggerObject;
+  if (reasoningString !== undefined) config.reasoning = { effort: reasoningString };
+  else if (reasoningObject !== undefined) config.reasoning = reasoningObject;
+  else if (reasoningBoolean !== undefined) config.reasoning = reasoningBoolean;
+
+  return config;
+}
+
+function extractEntitiesLoosely(balCode: string): ParsedEntity[] {
+  const entities: ParsedEntity[] = [];
+  const reservedNames = new Set([
+    'chain',
+    'parallel',
+    'if',
+    'else',
+    'loop',
+    'run',
+    'select',
+    'merge',
+    'map',
+    'with',
+    'try',
+    'catch',
+    'finally',
+    'route',
+    'gate',
+    'filter',
+    'processor',
+    'when',
+  ]);
+
+  let i = 0;
+  while (i < balCode.length) {
+    const char = balCode[i];
+    if (!char || !/[a-zA-Z_]/.test(char)) {
+      i++;
+      continue;
+    }
+
+    const nameStart = i;
+    i++;
+    while (i < balCode.length && /[a-zA-Z0-9_]/.test(balCode[i] || '')) {
+      i++;
+    }
+    const name = balCode.slice(nameStart, i);
+
+    if (reservedNames.has(name)) {
+      continue;
+    }
+
+    let cursor = i;
+    while (cursor < balCode.length && /\s/.test(balCode[cursor] || '')) {
+      cursor++;
+    }
+
+    if (balCode[cursor] !== '{') {
+      i = nameStart + 1;
+      continue;
+    }
+
+    const blockEnd = findMatchingDelimiter(balCode, cursor, '{', '}');
+    if (blockEnd === -1) {
+      break;
+    }
+
+    const entityBody = balCode.slice(cursor + 1, blockEnd);
+    const config = extractLooseEntityConfig(entityBody);
+    const hasRecognizedConfig = Object.keys(config).length > 0;
+    const goal = config.goal;
+
+    if (
+      (typeof goal === 'string' && goal.trim().length > 0) ||
+      hasRecognizedConfig
+    ) {
+      entities.push({ name, config });
+    }
+
+    i = blockEnd + 1;
+  }
+
+  return entities;
+}
+
+function extractChainLoosely(balCode: string, entityNames: Set<string>): string[] | undefined {
+  const chainRegex = /\bchain\s*\{/g;
+  let chainMatch: RegExpExecArray | null;
+
+  while ((chainMatch = chainRegex.exec(balCode)) !== null) {
+    const braceIndex = balCode.indexOf('{', chainMatch.index);
+    if (braceIndex === -1) continue;
+
+    const endIndex = findMatchingDelimiter(balCode, braceIndex, '{', '}');
+    if (endIndex === -1) continue;
+
+    const body = balCode.slice(braceIndex + 1, endIndex);
+    const names: string[] = [];
+    const seen = new Set<string>();
+
+    const idRegex = /\b[a-zA-Z_][a-zA-Z0-9_]*\b/g;
+    let idMatch: RegExpExecArray | null;
+    while ((idMatch = idRegex.exec(body)) !== null) {
+      const name = idMatch[0];
+      if (name && entityNames.has(name) && !seen.has(name)) {
+        names.push(name);
+        seen.add(name);
+      }
+    }
+
+    if (names.length > 0) {
+      return names;
+    }
+  }
+
+  return undefined;
+}
+
+function mergeLooseCompatProperties(
+  parsedEntities: ParsedEntity[],
+  balCode: string
+): ParsedEntity[] {
+  const looseByName = new Map(
+    extractEntitiesLoosely(balCode).map((entity) => [entity.name, entity] as const)
+  );
+
+  return parsedEntities.map((entity) => {
+    const loose = looseByName.get(entity.name);
+    if (!loose) return entity;
+
+    return {
+      ...entity,
+      config: {
+        ...entity.config,
+        temperature: loose.config.temperature ?? entity.config.temperature,
+        reasoning: loose.config.reasoning ?? entity.config.reasoning,
+        stopWhen: loose.config.stopWhen ?? entity.config.stopWhen,
+        retries: loose.config.retries ?? entity.config.retries,
+        can_request: loose.config.can_request ?? entity.config.can_request,
+        trigger: loose.config.trigger ?? entity.config.trigger,
+      },
+    };
+  });
+}
+
 // ============================================================================
 // PARSE BAL CODE (extracted from generator.ts)
 // ============================================================================
@@ -154,35 +581,71 @@ function extractPipelineFromAst(
  * Pure function with no server dependencies.
  */
 export function parseBalCode(balCode: string): ParseResult {
-  const entities: ParsedEntity[] = [];
+  const parseProgram = (source: string) => {
+    const tokens = tokenize(source);
+    return parse(tokens, source);
+  };
 
-  try {
-    const tokens = tokenize(balCode);
-    const ast = parse(tokens, balCode);
-
+  const strictToParsedEntities = (ast: ReturnType<typeof parseProgram>): ParsedEntity[] => {
+    const parsedEntities: ParsedEntity[] = [];
     for (const entity of ast.entities.values()) {
-      entities.push({
+      parsedEntities.push({
         name: entity.name,
         config: {
           goal: entity.goal,
           model: entity.model,
           tools: entity.tools ?? [],
-          output: entity.output ? outputSchemaToRecord(entity.output as { fields: Array<{ name: string; fieldType: { kind: string } }> }) : undefined,
+          output: entity.output
+            ? outputSchemaToRecord(
+                entity.output as { fields: Array<{ name: string; fieldType: { kind: string } }> }
+              )
+            : undefined,
           history: entity.history,
           maxTokens: entity.maxTokens,
         },
       });
     }
+    return parsedEntities;
+  };
 
-    const pipeline = extractPipelineFromAst(ast.root as { type: string; [key: string]: unknown } | null);
-    return { entities, chain: pipeline?.order, errors: [] };
-  } catch (error) {
+  const normalizedCode = normalizeToolsSyntax(balCode);
+  const compatibilityCode = normalizeBalCodeForCompatibility(balCode);
+  const parseCandidates = [...new Set([balCode, normalizedCode, compatibilityCode])];
+
+  let lastError: unknown;
+  for (const candidate of parseCandidates) {
+    try {
+      const ast = parseProgram(candidate);
+      const strictEntities = strictToParsedEntities(ast);
+      const mergedEntities = mergeLooseCompatProperties(strictEntities, balCode);
+      const pipeline = extractPipelineFromAst(ast.root as { type: string; [key: string]: unknown } | null);
+      const looseChain = extractChainLoosely(balCode, new Set(mergedEntities.map((e) => e.name)));
+      return {
+        entities: mergedEntities,
+        chain: pipeline?.order ?? looseChain,
+        errors: [],
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  // Last-resort mode: pull entities/config from raw BAL so Visual stays usable.
+  const looseEntities = extractEntitiesLoosely(balCode);
+  if (looseEntities.length > 0) {
+    const looseChain = extractChainLoosely(balCode, new Set(looseEntities.map((e) => e.name)));
     return {
-      entities: [],
-      chain: undefined,
-      errors: [error instanceof Error ? error.message : String(error)],
+      entities: looseEntities,
+      chain: looseChain,
+      errors: [],
     };
   }
+
+  return {
+    entities: [],
+    chain: undefined,
+    errors: [lastError instanceof Error ? lastError.message : String(lastError)],
+  };
 }
 
 // ============================================================================
@@ -204,14 +667,51 @@ function parseTriggerString(trigger: string): TriggerConfig | null {
     return { type: 'webhook' };
   }
 
+  if (trimmed.startsWith('webhook:')) {
+    const webhookPath = trigger.slice('webhook:'.length).trim();
+    return { type: 'webhook', webhookPath };
+  }
+
   if (trimmed.startsWith('schedule:')) {
     const schedule = trigger.slice('schedule:'.length).trim();
     return { type: 'schedule', schedule };
   }
 
   if (trimmed.startsWith('bb_completion:')) {
-    const sourceBaleybotId = trigger.slice('bb_completion:'.length).trim();
-    return { type: 'other_bb', sourceBaleybotId };
+    const parts = trigger.slice('bb_completion:'.length).trim().split(':');
+    const sourceBaleybotId = parts[0]?.trim();
+    const completionType = parts[1]?.trim() as TriggerConfig['completionType'] | undefined;
+    return {
+      type: 'other_bb',
+      ...(sourceBaleybotId ? { sourceBaleybotId } : {}),
+      ...(completionType ? { completionType } : {}),
+    };
+  }
+
+  if (trimmed.startsWith('db_event:')) {
+    const parts = trigger.slice('db_event:'.length).trim().split(':');
+    const dbConnectionId = parts[0]?.trim();
+    const dbTable = parts[1]?.trim();
+    const dbEvent = parts[2]?.trim() as TriggerConfig['dbEvent'] | undefined;
+    return {
+      type: 'db_event',
+      ...(dbConnectionId ? { dbConnectionId } : {}),
+      ...(dbTable ? { dbTable } : {}),
+      ...(dbEvent ? { dbEvent } : {}),
+    };
+  }
+
+  if (trimmed.startsWith('mcp_event:')) {
+    const parts = trigger.slice('mcp_event:'.length).trim().split(':');
+    const mcpServer = parts[0]?.trim();
+    const mcpTool = parts[1]?.trim();
+    const mcpResource = parts[2]?.trim();
+    return {
+      type: 'mcp_event',
+      ...(mcpServer ? { mcpServer } : {}),
+      ...(mcpTool ? { mcpTool } : {}),
+      ...(mcpResource ? { mcpResource } : {}),
+    };
   }
 
   return { type: 'manual' };
@@ -312,6 +812,91 @@ function parseConditionalEdges(
       target: failMatch[1],
       type: 'conditional_fail',
       label: 'fail',
+    });
+  }
+
+  return edges;
+}
+
+function parseLoopEdges(
+  balCode: string,
+  nodes: VisualNode[]
+): VisualEdge[] {
+  const edges: VisualEdge[] = [];
+  const nodeNames = new Set(nodes.map((node) => node.id));
+  const loopRegex = /\bloop\b/g;
+  let loopMatch: RegExpExecArray | null;
+  let loopIndex = 0;
+
+  while ((loopMatch = loopRegex.exec(balCode)) !== null) {
+    let cursor = loopMatch.index + loopMatch[0].length;
+    while (cursor < balCode.length && /\s/.test(balCode[cursor] || '')) {
+      cursor++;
+    }
+
+    let params = '';
+    if (balCode[cursor] === '(') {
+      const paramsEnd = findMatchingDelimiter(balCode, cursor, '(', ')');
+      if (paramsEnd === -1) {
+        continue;
+      }
+      params = balCode.slice(cursor + 1, paramsEnd);
+      cursor = paramsEnd + 1;
+      while (cursor < balCode.length && /\s/.test(balCode[cursor] || '')) {
+        cursor++;
+      }
+    }
+
+    if (balCode[cursor] !== '{') {
+      continue;
+    }
+
+    const bodyEnd = findMatchingDelimiter(balCode, cursor, '{', '}');
+    if (bodyEnd === -1) {
+      continue;
+    }
+
+    const body = balCode.slice(cursor + 1, bodyEnd);
+    const names: string[] = [];
+    const seen = new Set<string>();
+    const idRegex = /\b[a-zA-Z_][a-zA-Z0-9_]*\b/g;
+    let idMatch: RegExpExecArray | null;
+
+    while ((idMatch = idRegex.exec(body)) !== null) {
+      const name = idMatch[0];
+      if (name && nodeNames.has(name) && !seen.has(name)) {
+        names.push(name);
+        seen.add(name);
+      }
+    }
+
+    if (names.length === 0) {
+      continue;
+    }
+
+    const source = names[names.length - 1];
+    const target = names[0];
+    if (!source || !target) {
+      continue;
+    }
+
+    const labelParts: string[] = [];
+    const untilMatch = params.match(/(?:"until"|until)\s*:\s*"((?:\\.|[^"\\])*)"/i);
+    const maxMatch = params.match(/(?:"max"|max)\s*:\s*(\d+)/i);
+    if (untilMatch?.[1]) {
+      labelParts.push(`until ${decodeEscapedString(untilMatch[1])}`);
+    }
+    if (maxMatch?.[1]) {
+      labelParts.push(`max ${maxMatch[1]}`);
+    }
+
+    edges.push({
+      id: `loop-${source}->${target}-${loopIndex++}`,
+      source,
+      target,
+      type: 'loop',
+      animated: true,
+      label: labelParts.length > 0 ? `loop (${labelParts.join(', ')})` : 'loop',
     });
   }
 
@@ -528,7 +1113,7 @@ function autoLayout(nodes: VisualNode[], edges: VisualEdge[]): VisualNode[] {
 export function balToVisual(balCode: string): BalToVisualResult {
   const { entities, chain, errors } = parseBalCode(balCode);
 
-  if (errors.length > 0 || entities.length === 0) {
+  if (entities.length === 0) {
     return { graph: { nodes: [], edges: [] }, errors };
   }
 
@@ -584,8 +1169,9 @@ export function balToVisual(balCode: string): BalToVisualResult {
 
   const parallelEdges = parseParallelEdges(balCode, nodes);
   const conditionalEdges = parseConditionalEdges(balCode, nodes);
+  const loopEdges = parseLoopEdges(balCode, nodes);
 
-  edges.push(...parallelEdges, ...conditionalEdges);
+  edges.push(...parallelEdges, ...conditionalEdges, ...loopEdges);
 
   // Generate relationship edges from entity data
   edges.push(...generateSpawnEdges(nodes));
@@ -595,5 +1181,5 @@ export function balToVisual(balCode: string): BalToVisualResult {
   // Apply layout based on edges
   const layoutedNodes = autoLayout(nodes, edges);
 
-  return { graph: { nodes: layoutedNodes, edges }, errors: [] };
+  return { graph: { nodes: layoutedNodes, edges }, errors };
 }

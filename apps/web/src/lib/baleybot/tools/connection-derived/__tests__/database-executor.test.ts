@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createPostgresExecutor,
+  createMySQLExecutor,
   validateSQLQuery,
   SQL_INJECTION_PATTERNS,
 } from '../database-executor';
@@ -22,6 +23,21 @@ vi.mock('postgres', () => {
   );
   return {
     default: vi.fn(() => mockSql),
+  };
+});
+
+// Mock mysql2/promise
+vi.mock('mysql2/promise', () => {
+  const mockPool = {
+    query: vi.fn(() => Promise.resolve([[]])),
+    execute: vi.fn(() => Promise.resolve([[]])),
+    end: vi.fn(() => Promise.resolve()),
+  };
+
+  return {
+    default: {
+      createPool: vi.fn(() => mockPool),
+    },
   };
 });
 
@@ -172,5 +188,92 @@ describe('PostgresExecutor', () => {
         executor.query("SELECT * FROM users; DROP TABLE users;--")
       ).rejects.toThrow(/unsafe|injection|forbidden|multiple/i);
     });
+  });
+});
+
+describe('MySQLExecutor', () => {
+  let executor: ReturnType<typeof createMySQLExecutor>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    executor = createMySQLExecutor({
+      host: 'localhost',
+      port: 3306,
+      database: 'test',
+      username: 'root',
+      password: 'test',
+    });
+  });
+
+  afterEach(async () => {
+    await executor.close();
+  });
+
+  it('executes safe SELECT queries', async () => {
+    const mysqlModule = await import('mysql2/promise');
+    const mockCreatePool = vi.mocked(mysqlModule.default.createPool);
+    const mockPool = mockCreatePool.mock.results[0]?.value;
+
+    if (!mockPool) {
+      throw new Error('Expected mysql2 createPool mock to be called');
+    }
+
+    mockPool.query.mockResolvedValue([
+      [{ id: 1, email: 'test@example.com' }],
+    ]);
+
+    const result = await executor.query<{ id: number; email: string }>(
+      'SELECT id, email FROM users LIMIT 1'
+    );
+
+    expect(result).toEqual([{ id: 1, email: 'test@example.com' }]);
+    expect(mockPool.query).toHaveBeenCalledWith('SELECT id, email FROM users LIMIT 1');
+  });
+
+  it('rejects unsafe raw queries', async () => {
+    await expect(
+      executor.query('SELECT * FROM users; DROP TABLE users;')
+    ).rejects.toThrow(/unsafe|forbidden|multiple/i);
+  });
+
+  it('executes parameterized queries with provided params', async () => {
+    const mysqlModule = await import('mysql2/promise');
+    const mockCreatePool = vi.mocked(mysqlModule.default.createPool);
+    const mockPool = mockCreatePool.mock.results[0]?.value;
+
+    if (!mockPool) {
+      throw new Error('Expected mysql2 createPool mock to be called');
+    }
+
+    mockPool.execute.mockResolvedValue([
+      [{ id: 1, name: 'Alice' }],
+    ]);
+
+    const result = await executor.queryWithParams<{ id: number; name: string }>(
+      'SELECT id, name FROM users WHERE id = ?',
+      [1]
+    );
+
+    expect(result).toEqual([{ id: 1, name: 'Alice' }]);
+    expect(mockPool.execute).toHaveBeenCalledWith(
+      'SELECT id, name FROM users WHERE id = ?',
+      [1]
+    );
+  });
+
+  it('ping returns true when query succeeds', async () => {
+    const mysqlModule = await import('mysql2/promise');
+    const mockCreatePool = vi.mocked(mysqlModule.default.createPool);
+    const mockPool = mockCreatePool.mock.results[0]?.value;
+
+    if (!mockPool) {
+      throw new Error('Expected mysql2 createPool mock to be called');
+    }
+
+    mockPool.query.mockResolvedValue([[{ ok: 1 }]]);
+
+    const result = await executor.ping();
+    expect(result).toBe(true);
   });
 });
