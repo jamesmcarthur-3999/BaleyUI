@@ -156,17 +156,11 @@ interface ControlStructure {
 
 type ExecuteBALCodeOptions = Parameters<typeof executeBALCode>[1];
 type CompileBALCodeOptions = Parameters<typeof compileBALCode>[1];
-type BALExecutionEvent = ExecuteBALCodeOptions extends
-  | {
-      onEvent?: ((event: infer Event) => void) | undefined;
-    }
-  | undefined
-  ? Event
-  : {
-      type: string;
-      event?: BaleybotStreamEvent;
-      [key: string]: unknown;
-    };
+type BALExecutionEvent = {
+  type: string;
+  event?: BaleybotStreamEvent;
+  [key: string]: unknown;
+};
 
 // ============================================================================
 // HELPERS
@@ -465,7 +459,7 @@ export async function executeBaleybot(
           }
         : undefined,
       onEvent: (event: BALExecutionEvent) => {
-        if (event.type === 'token') {
+        if (event.type === 'token' && event.event) {
           segments.push(event.event);
           options?.onSegment?.(event.event);
         }
