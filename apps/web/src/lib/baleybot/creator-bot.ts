@@ -228,8 +228,8 @@ export async function processCreatorMessage(
     }
   );
 
-  // The creator_bot has no BAL output schema, so the model returns JSON as
-  // text (guided by the CRITICAL instruction in the goal). Parse it here.
+  // Resolve the raw output (may be object, JSON string, or markdown-fenced
+  // JSON) and validate with the detailed Zod schema.
   const resolved = resolveCreatorOutput(output);
   const result = creatorOutputSchema.safeParse(resolved);
   if (result.success) {

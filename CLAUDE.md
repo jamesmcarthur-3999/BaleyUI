@@ -122,6 +122,34 @@ const { output, executionId } = await executeInternalBaleybot('creator_bot', use
 
 All internal BaleyBot executions are tracked in `baleybotExecutions`.
 
+## BAL Output Type Rules
+
+### Supported types in `"output": { ... }` blocks:
+| BAL type | Zod schema | Use for |
+|----------|-----------|---------|
+| `"string"` | `z.string()` | Text fields |
+| `"number"` | `z.number()` | Numeric fields |
+| `"boolean"` | `z.boolean()` | True/false fields |
+| `"array"` | `z.array(z.string())` | Arrays of strings |
+| `"array<object>"` | `z.array(z.record(z.string(), z.unknown()))` | Arrays of objects |
+| `"array<number>"` | `z.array(z.number())` | Arrays of numbers |
+| `"array<string>"` | `z.array(z.string())` | Same as bare `"array"` |
+| `"array<boolean>"` | `z.array(z.boolean())` | Arrays of booleans |
+| `"object"` | `z.record(z.string(), z.unknown())` | Nested objects |
+
+### When to use `"array"` vs `"array<object>"`
+- Use `"array"` for simple string lists (e.g., `warnings`, `recommendations`, `nextSteps`)
+- Use `"array<object>"` for arrays of structured items (e.g., `entities`, `tests`, `suggestions` with inner fields)
+
+### The `resolveOutput()` pattern
+Internal bot callers should wrap `output` in a `resolveOutput()` helper before `.parse()`:
+```typescript
+// Handles: object passthrough, JSON string, markdown-fenced JSON
+const resolved = resolveOutput(output);
+const result = schema.parse(resolved);
+```
+See `creator-bot.ts:resolveCreatorOutput()` and `pattern-learner.ts:resolveOutput()` for examples.
+
 ## BAL Syntax Reference
 
 ```bal

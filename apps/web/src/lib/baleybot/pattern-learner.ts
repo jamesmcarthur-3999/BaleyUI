@@ -8,12 +8,15 @@
 
 import { z } from 'zod';
 import { executeInternalBaleybot } from './internal-baleybots';
+import { createLogger } from '@/lib/logger';
 import type {
   ApprovalRequest,
   ApprovalPattern,
   TrustLevel,
   WorkspacePolicies,
 } from './types';
+
+const logger = createLogger('pattern-learner');
 
 // ============================================================================
 // SCHEMAS
@@ -77,6 +80,59 @@ export interface LearnerContext {
   existingPatterns: ApprovalPattern[];
   policies: WorkspacePolicies | null;
   learningManual?: string;
+}
+
+// ============================================================================
+// OUTPUT RESOLUTION
+// ============================================================================
+
+/**
+ * Resolve raw output from executeInternalBaleybot into a valid object.
+ * Handles object passthrough, JSON-from-text extraction, and markdown fences.
+ */
+function resolveOutput(output: unknown): unknown {
+  // Already an object — pass through
+  if (output && typeof output === 'object' && !Array.isArray(output)) {
+    return output;
+  }
+
+  // String output — try to extract JSON
+  if (typeof output === 'string') {
+    const text = output.trim();
+
+    // Try direct JSON parse
+    try {
+      return JSON.parse(text);
+    } catch {
+      // Try extracting from markdown code fences
+      const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+      if (jsonMatch?.[1]) {
+        try {
+          return JSON.parse(jsonMatch[1].trim());
+        } catch {
+          // Fall through
+        }
+      }
+
+      // Try finding the first { ... } block
+      const braceStart = text.indexOf('{');
+      const braceEnd = text.lastIndexOf('}');
+      if (braceStart !== -1 && braceEnd > braceStart) {
+        try {
+          return JSON.parse(text.slice(braceStart, braceEnd + 1));
+        } catch {
+          // Fall through
+        }
+      }
+
+      logger.error('Pattern learner: all JSON extraction methods failed', {
+        textLength: text.length,
+        preview: text.slice(0, 200),
+      });
+    }
+  }
+
+  return output;
 }
 
 // ============================================================================
@@ -165,7 +221,7 @@ Remember to be conservative - it's better to require approval than to auto-appro
     triggeredBy: 'internal',
   });
 
-  return learnPatternResultSchema.parse(output);
+  return learnPatternResultSchema.parse(resolveOutput(output));
 }
 
 /**
@@ -206,7 +262,7 @@ ${requestSummaries}
     triggeredBy: 'internal',
   });
 
-  return learnPatternResultSchema.parse(output);
+  return learnPatternResultSchema.parse(resolveOutput(output));
 }
 
 /**
@@ -258,7 +314,7 @@ Consider:
   });
 
   // Extract the first suggestion as the generalization
-  const typedResult = learnPatternResultSchema.parse(output);
+  const typedResult = learnPatternResultSchema.parse(resolveOutput(output));
   if (typedResult.suggestions.length > 0) {
     const suggestion = typedResult.suggestions[0];
     if (!suggestion) {
@@ -327,7 +383,7 @@ export async function validatePattern(
     triggeredBy: 'internal',
   });
 
-  const typedResult = learnPatternResultSchema.parse(output);
+  const typedResult = learnPatternResultSchema.parse(resolveOutput(output));
 
   return {
     isValid: typedResult.warnings.length === 0,
