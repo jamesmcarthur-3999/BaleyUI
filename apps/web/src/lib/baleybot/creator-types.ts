@@ -281,16 +281,16 @@ export const creatorOutputSchema = z.object({
   entities: z
     .array(
       z.object({
-        /** Entity identifier */
-        id: z.string().min(1, 'Entity ID is required'),
+        /** Entity identifier — auto-generated if missing */
+        id: z.string().min(1).default(() => crypto.randomUUID()),
         /** Display name */
         name: z.string().min(1, 'Entity name is required'),
-        /** Icon (emoji or icon name) */
-        icon: z.string().min(1, 'Entity icon is required'),
+        /** Icon (emoji or icon name) — defaults to robot emoji */
+        icon: z.string().default('🤖'),
         /** Purpose/description of the entity */
-        purpose: z.string().min(1, 'Entity purpose is required'),
+        purpose: z.string().default(''),
         /** Tools assigned to this entity */
-        tools: z.array(z.string()),
+        tools: z.array(z.string()).default([]),
       })
     )
     .min(1, 'At least one entity is required'),
@@ -310,11 +310,11 @@ export const creatorOutputSchema = z.object({
   /** Suggested name for the BaleyBot */
   name: z.string().min(1, 'Name is required').max(255),
   /** Auto-generated description of what the bot does */
-  description: z.string().max(200).optional(),
-  /** Suggested icon (emoji) */
-  icon: z.string().min(1, 'Icon is required'),
-  /** Creation status */
-  status: z.enum(['building', 'ready']),
+  description: z.string().max(200).optional().default(''),
+  /** Suggested icon (emoji) — defaults to robot emoji */
+  icon: z.string().default('🤖'),
+  /** Creation status — defaults to ready */
+  status: z.enum(['building', 'ready']).default('ready'),
 });
 
 /**

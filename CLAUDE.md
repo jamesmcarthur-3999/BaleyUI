@@ -150,6 +150,9 @@ const result = schema.parse(resolved);
 ```
 See `creator-bot.ts:resolveCreatorOutput()` and `pattern-learner.ts:resolveOutput()` for examples.
 
+### Resilient Schemas for BAL Output
+BAL `array<object>` produces `z.array(z.record(z.string(), z.unknown()))` — the model doesn't know which inner fields are required. When consuming BAL output in caller schemas, use Zod `.default()` coercions for non-critical fields instead of strict `.min(1)` requirements. Only keep `.min(1)` on truly unrecoverable fields (e.g., `name`, `balCode`).
+
 ## BAL Syntax Reference
 
 ```bal

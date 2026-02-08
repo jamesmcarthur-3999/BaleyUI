@@ -25,21 +25,21 @@ import { buildToolCatalog, formatToolCatalogForAI, categorizeToolName } from './
  */
 const generateResultSchema = z.object({
   balCode: z.string().describe('The generated BAL code'),
-  explanation: z.string().describe('Human-readable explanation of what the BaleyBot does'),
+  explanation: z.string().default('').describe('Human-readable explanation of what the BaleyBot does'),
   entities: z.array(
     z.object({
       name: z.string().describe('Entity name (e.g., activity_poller)'),
-      goal: z.string().describe('The goal/purpose of this entity'),
+      goal: z.string().default('').describe('The goal/purpose of this entity'),
       model: z.string().optional().describe('AI model to use (e.g., openai:gpt-4o-mini)'),
-      tools: z.array(z.string()).describe('Tools assigned to the entity (approvals handled at runtime)'),
+      tools: z.array(z.string()).default([]).describe('Tools assigned to the entity (approvals handled at runtime)'),
       canRequest: z.array(z.string()).default([]).describe('Tools that require approval'),
       output: z.record(z.string(), z.string()).optional().describe('Output schema'),
       history: z.enum(['none', 'inherit']).optional().describe('Conversation history mode'),
     })
   ),
-  toolRationale: z.record(z.string(), z.string()).describe('Explanation for each tool assignment'),
+  toolRationale: z.record(z.string(), z.string()).default({}).describe('Explanation for each tool assignment'),
   suggestedName: z.string().describe('Suggested name for the BaleyBot'),
-  suggestedIcon: z.string().describe('Suggested emoji icon'),
+  suggestedIcon: z.string().default('🤖').describe('Suggested emoji icon'),
 });
 
 // ============================================================================
