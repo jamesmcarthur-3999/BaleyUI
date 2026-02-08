@@ -276,45 +276,45 @@ export interface CreationProgress {
  */
 export const creatorOutputSchema = z.object({
   /** AI's thinking/reasoning (shown to user) */
-  thinking: z.string().optional(),
+  thinking: z.string().optional().catch(undefined),
   /** Entities to create/update */
   entities: z
     .array(
       z.object({
-        /** Entity identifier — auto-generated if missing */
-        id: z.string().min(1).default(() => crypto.randomUUID()),
-        /** Display name */
-        name: z.string().min(1, 'Entity name is required'),
-        /** Icon (emoji or icon name) — defaults to robot emoji */
-        icon: z.string().default('🤖'),
+        /** Entity identifier — auto-generated if any validation fails */
+        id: z.string().min(1).catch(() => crypto.randomUUID()),
+        /** Display name — falls back if null/missing */
+        name: z.string().min(1).catch('Unnamed Entity'),
+        /** Icon (emoji or icon name) — catches null, wrong type, empty */
+        icon: z.string().min(1).catch('🤖'),
         /** Purpose/description of the entity */
-        purpose: z.string().default(''),
+        purpose: z.string().catch(''),
         /** Tools assigned to this entity */
-        tools: z.array(z.string()).default([]),
+        tools: z.array(z.string()).catch([]),
       })
     )
     .min(1, 'At least one entity is required'),
-  /** Connections between entities */
+  /** Connections between entities — defaults to empty if missing/null */
   connections: z.array(
     z.object({
       /** Source entity ID */
-      from: z.string().min(1, 'Connection source is required'),
+      from: z.string().catch(''),
       /** Target entity ID */
-      to: z.string().min(1, 'Connection target is required'),
+      to: z.string().catch(''),
       /** Optional connection label */
-      label: z.string().optional(),
+      label: z.string().optional().catch(undefined),
     })
-  ),
-  /** Generated BAL code */
+  ).catch([]),
+  /** Generated BAL code — truly required, no fallback */
   balCode: z.string().min(1, 'BAL code is required'),
   /** Suggested name for the BaleyBot */
-  name: z.string().min(1, 'Name is required').max(255),
+  name: z.string().min(1).catch('Unnamed BaleyBot'),
   /** Auto-generated description of what the bot does */
-  description: z.string().max(200).optional().default(''),
-  /** Suggested icon (emoji) — defaults to robot emoji */
-  icon: z.string().default('🤖'),
-  /** Creation status — defaults to ready */
-  status: z.enum(['building', 'ready']).default('ready'),
+  description: z.string().max(200).catch(''),
+  /** Suggested icon (emoji) — catches invalid values */
+  icon: z.string().min(1).catch('🤖'),
+  /** Creation status — catches unexpected values like "complete" */
+  status: z.enum(['building', 'ready']).catch('ready'),
 });
 
 /**
