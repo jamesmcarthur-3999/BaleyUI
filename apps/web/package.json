@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "cd ../../packages/baleybots/typescript/packages/tools && pnpm build",
+    "prebuild": "if [ -f ../../packages/baleybots/typescript/packages/tools/package.json ]; then cd ../../packages/baleybots/typescript/packages/tools && pnpm build; else echo \"Skipping @baleybots/tools prebuild (tools package not present in this checkout).\"; fi",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
