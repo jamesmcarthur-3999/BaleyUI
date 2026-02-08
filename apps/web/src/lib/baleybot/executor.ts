@@ -16,7 +16,6 @@ import type {
   ProviderConfig,
 } from '@baleybots/core';
 import { compileBALCode, executeBALCode } from '@baleyui/sdk';
-import type { BALExecutionOptions, BALExecutionEvent } from '@baleyui/sdk';
 import { createLogger } from '@/lib/logger';
 import type {
   ExecuteOptions,
@@ -154,6 +153,20 @@ interface ControlStructure {
   condition?: string;
   branches?: Record<string, string>;
 }
+
+type ExecuteBALCodeOptions = Parameters<typeof executeBALCode>[1];
+type CompileBALCodeOptions = Parameters<typeof compileBALCode>[1];
+type BALExecutionEvent = ExecuteBALCodeOptions extends
+  | {
+      onEvent?: ((event: infer Event) => void) | undefined;
+    }
+  | undefined
+  ? Event
+  : {
+      type: string;
+      event?: BaleybotStreamEvent;
+      [key: string]: unknown;
+    };
 
 // ============================================================================
 // HELPERS
@@ -458,7 +471,7 @@ export async function executeBaleybot(
         }
       },
       signal: options?.signal,
-    } as unknown as BALExecutionOptions;
+    } as unknown as ExecuteBALCodeOptions;
 
     const result = await executeBALCode(balCode, executionOptions);
 
@@ -613,9 +626,9 @@ export function canExecute(
   errors: string[];
 } {
   const { entities, errors } = compileBALCode(
-    balCode,
-    availableTools
-      ? { availableTools: buildAvailableTools(availableTools) } as unknown as BALExecutionOptions
+      balCode,
+      availableTools
+      ? { availableTools: buildAvailableTools(availableTools) } as unknown as CompileBALCodeOptions
       : {}
   );
 
@@ -638,9 +651,9 @@ export function getEntityNames(
   availableTools?: Map<string, RuntimeToolDefinition>
 ): string[] {
   const { entities } = compileBALCode(
-    balCode,
-    availableTools
-      ? { availableTools: buildAvailableTools(availableTools) } as unknown as BALExecutionOptions
+      balCode,
+      availableTools
+      ? { availableTools: buildAvailableTools(availableTools) } as unknown as CompileBALCodeOptions
       : {}
   );
   return entities;
