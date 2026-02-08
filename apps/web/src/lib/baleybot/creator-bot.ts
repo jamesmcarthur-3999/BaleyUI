@@ -202,13 +202,26 @@ export async function processCreatorMessage(
     }
   );
 
-  // The SDK's buildZodSchema marks all fields optional, so the model may
-  // return partial/malformed structured output. Handle multiple cases:
-  // 1. output is already a valid object (structured output worked)
-  // 2. output is a string containing JSON (model returned text)
-  // 3. output is partially valid (needs coercion)
+  // The creator_bot has no BAL output schema, so the model returns JSON as
+  // text (guided by the CRITICAL instruction in the goal). Parse it here.
   const resolved = resolveCreatorOutput(output);
-  return creatorOutputSchema.parse(resolved);
+  const result = creatorOutputSchema.safeParse(resolved);
+  if (result.success) {
+    return result.data;
+  }
+
+  // Log for debugging, throw user-friendly error
+  const logger = await import('@/lib/logger').then(m => m.createLogger('creator-bot'));
+  logger.error('Creator bot output validation failed', {
+    zodErrors: result.error.issues,
+    outputType: typeof output,
+    outputPreview: typeof output === 'string'
+      ? output.slice(0, 500)
+      : JSON.stringify(output).slice(0, 500),
+  });
+  throw new Error(
+    'The AI returned an incomplete response. Please try again with a simpler description.'
+  );
 }
 
 // ============================================================================

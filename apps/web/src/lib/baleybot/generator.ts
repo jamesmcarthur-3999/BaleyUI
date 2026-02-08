@@ -242,9 +242,23 @@ Please refine the BAL code based on this feedback.`;
     triggeredBy: 'internal',
   });
 
-  // Resolve output — may be text JSON when no BAL output schema is set
+  // Resolve output — model returns JSON as text (no BAL output schema)
   const resolved = resolveOutput(output);
-  const parsed = generateResultSchema.parse(resolved);
+  const result = generateResultSchema.safeParse(resolved);
+  if (!result.success) {
+    const logger = await import('@/lib/logger').then(m => m.createLogger('bal-generator'));
+    logger.error('BAL generator output validation failed', {
+      zodErrors: result.error.issues,
+      outputType: typeof output,
+      outputPreview: typeof output === 'string'
+        ? output.slice(0, 500)
+        : JSON.stringify(output).slice(0, 500),
+    });
+    throw new Error(
+      'The AI returned an incomplete response. Please try again with a simpler description.'
+    );
+  }
+  const parsed = result.data;
 
   // Validate tool assignments against policies
   const validatedEntities = validateToolAssignments(ctx, parsed.entities);

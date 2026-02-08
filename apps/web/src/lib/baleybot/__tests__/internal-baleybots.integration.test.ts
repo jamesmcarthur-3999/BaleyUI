@@ -124,7 +124,6 @@ describe('internal-baleybots integration', () => {
       expect(def).toBeDefined();
       expect(def!.balCode).toContain('"goal"');
       expect(def!.balCode).toContain('"model"');
-      expect(def!.balCode).toContain('"output"');
     });
 
     it('SQL bots are configured for different databases', () => {
