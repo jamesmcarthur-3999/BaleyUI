@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getConnectionSummary, scanToolRequirements } from '@/lib/baleybot/tools/requirements-scanner';
+import { getBuiltInToolMetadata } from '@/lib/baleybot/tools/built-in';
 import { InlineConnectionForm } from './InlineConnectionForm';
 import { ROUTES } from '@/lib/routes';
 import Link from 'next/link';
@@ -99,6 +100,31 @@ function StatusDot({ status }: { status: ToolReadinessInfo['status'] }) {
         status === 'limited' && 'bg-yellow-500'
       )}
     />
+  );
+}
+
+const CATEGORY_COLORS: Record<string, string> = {
+  information: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
+  orchestration: 'bg-purple-500/10 text-purple-700 dark:text-purple-400',
+  notification: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
+  storage: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+  scheduling: 'bg-orange-500/10 text-orange-700 dark:text-orange-400',
+};
+
+function CategoryBadge({ category }: { category: string }) {
+  const colors = CATEGORY_COLORS[category] ?? 'bg-muted text-muted-foreground';
+  return (
+    <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-medium', colors)}>
+      {category}
+    </span>
+  );
+}
+
+function CapabilityBadge({ capability }: { capability: string }) {
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+      {capability}
+    </span>
   );
 }
 
@@ -303,13 +329,34 @@ export function ConnectionsPanel({
           <div className="rounded-lg border border-border/50 divide-y divide-border/30">
             {requirements.map((req) => {
               const readiness = getToolReadinessStatus(req.toolName, connections);
+              const metadata = getBuiltInToolMetadata(req.toolName);
               return (
-                <div key={req.toolName} className="flex items-center gap-2 px-3 py-2 text-sm">
-                  <StatusDot status={readiness.status} />
-                  <span className="font-mono text-xs">{req.toolName}</span>
-                  <span className="text-xs text-muted-foreground ml-auto">
-                    {readiness.note}
-                  </span>
+                <div key={req.toolName} className="px-3 py-2.5 space-y-1">
+                  <div className="flex items-center gap-2 text-sm">
+                    <StatusDot status={readiness.status} />
+                    <span className="font-mono text-xs">{req.toolName}</span>
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {readiness.note}
+                    </span>
+                  </div>
+                  {metadata && (
+                    <div className="ml-4 space-y-1">
+                      <p className="text-xs text-muted-foreground line-clamp-1">
+                        {metadata.description}
+                      </p>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <CategoryBadge category={metadata.category} />
+                        {metadata.capabilities.map((cap) => (
+                          <CapabilityBadge key={cap} capability={cap} />
+                        ))}
+                        {metadata.approvalRequired && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-700 dark:text-red-400 font-medium">
+                            approval
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

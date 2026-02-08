@@ -48,6 +48,7 @@ import {
   ephemeralToolService,
   type EphemeralToolConfig,
 } from '../../services/ephemeral-tool-service';
+import { promoteToolToWorkspace } from '../../services/promotion-service';
 
 // ============================================================================
 // WEB SEARCH
@@ -418,6 +419,16 @@ async function createToolImpl(
     if (tool) {
       parentToolsStore.set(args.name, tool);
     }
+  }
+
+  // Auto-promote to workspace so tool persists across executions
+  if (result.created) {
+    promoteToolToWorkspace(ctx.workspaceId, config).catch((err) => {
+      logger.warn('Failed to auto-promote ephemeral tool', {
+        name: args.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   return result;

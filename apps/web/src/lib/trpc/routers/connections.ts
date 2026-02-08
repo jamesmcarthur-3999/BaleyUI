@@ -226,6 +226,7 @@ export const connectionsRouter = router({
         type: providerTypeSchema,
         name: nameSchema,
         config: connectionConfigSchema,
+        initialStatus: z.enum(['connected', 'unconfigured']).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -252,7 +253,8 @@ export const connectionsRouter = router({
           name: input.name,
           config: encryptedConfig,
           isDefault: isFirstOfType,
-          status: 'unconfigured',
+          status: input.initialStatus ?? 'unconfigured',
+          lastCheckedAt: input.initialStatus === 'connected' ? new Date() : undefined,
           createdAt: new Date(),
           updatedAt: new Date(),
         })

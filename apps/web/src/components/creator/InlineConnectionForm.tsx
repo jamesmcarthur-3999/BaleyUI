@@ -156,6 +156,7 @@ export function InlineConnectionForm({
         type: provider,
         name: autoName(provider, existingNames),
         config: buildConfig(),
+        initialStatus: 'connected',
       });
 
       setStatus('success');
