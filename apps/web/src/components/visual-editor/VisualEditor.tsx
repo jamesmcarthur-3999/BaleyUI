@@ -21,6 +21,8 @@ interface VisualEditorProps {
   className?: string;
   /** Hide the internal Visual/Code/Split toolbar (when page-level tabs handle view switching) */
   hideToolbar?: boolean;
+  /** Optional list of valid tool names to suggest in node editor */
+  toolSuggestions?: string[];
 }
 
 type ViewMode = 'visual' | 'code' | 'split';
@@ -31,6 +33,7 @@ export function VisualEditor({
   readOnly = false,
   className,
   hideToolbar = false,
+  toolSuggestions = [],
 }: VisualEditorProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('visual');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -244,6 +247,7 @@ export function VisualEditor({
                   node={selectedNode}
                   onUpdate={handleNodeUpdate}
                   onApplyIntent={handleNodeIntent}
+                  toolSuggestions={toolSuggestions}
                   onClose={() => setSelectedNodeId(null)}
                 />
               </div>

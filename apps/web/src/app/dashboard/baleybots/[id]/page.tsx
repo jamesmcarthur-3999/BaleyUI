@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { trpc } from '@/lib/trpc/client';
@@ -81,6 +81,7 @@ import {
 import type { DiscoveryIntakeSubmission } from '@/components/creator/DiscoveryIntakeForm';
 
 const ADVANCED_EDITOR_TABS: AdaptiveTab[] = ['code', 'analytics'];
+const POST_DESIGN_TABS: AdaptiveTab[] = ['connections', 'test', 'triggers', 'monitor', 'launch'];
 
 function isAdvancedEditorTab(tab: AdaptiveTab): boolean {
   return ADVANCED_EDITOR_TABS.includes(tab);
@@ -245,6 +246,7 @@ export default function BaleybotPage() {
   // View mode state (adaptive based on readiness)
   const [viewMode, setViewMode] = useState<AdaptiveTab>('visual');
   const [showAdvancedUI, setShowAdvancedUI] = useState(false);
+  const [isDesignConfirmed, setIsDesignConfirmed] = useState(!isNew);
 
   // Runtime/live interaction state
   const [runtimeInput, setRuntimeInput] = useState('');
@@ -277,6 +279,7 @@ export default function BaleybotPage() {
 
   // Ref to track if initial prompt was sent (avoids effect dependency issues)
   const initialPromptSentRef = useRef(false);
+  const designGateReminderShownRef = useRef(false);
 
   // =====================================================================
   // UNDO/REDO HISTORY (Phase 3.5)
@@ -440,6 +443,21 @@ export default function BaleybotPage() {
     status: c.status ?? 'unconfigured',
     isDefault: c.isDefault ?? false,
   }));
+  const connectionToolSuggestions = useMemo(() => {
+    return (normalizedConnections ?? [])
+      .filter(
+        (connection) =>
+          connection.status === 'connected' &&
+          (connection.type === 'postgres' || connection.type === 'mysql')
+      )
+      .map((connection) =>
+        `query_${connection.type}_${connection.name
+          .toLowerCase()
+          .trim()
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '')}`
+      );
+  }, [normalizedConnections]);
 
   // =====================================================================
   // TEST EXECUTION HOOK
@@ -449,9 +467,48 @@ export default function BaleybotPage() {
     setMessages(prev => [...prev, message]);
   };
 
-  const navigateToTab = (tab: AdaptiveTab) => {
+  const isDesignReviewRequired =
+    status === 'ready' && entities.length > 0 && !isDesignConfirmed;
+  const requiresDesignReviewForTab = (tab: AdaptiveTab) =>
+    isDesignReviewRequired && POST_DESIGN_TABS.includes(tab);
+
+  const promptDesignReview = () => {
+    if (designGateReminderShownRef.current) return;
+    designGateReminderShownRef.current = true;
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `msg-${Date.now()}-design-gate`,
+        role: 'assistant',
+        content:
+          'Before setup, review the Visual layout and confirm it looks right. Then continue to connections or testing.',
+        timestamp: new Date(),
+        metadata: {
+          options: [
+            {
+              id: 'confirm-design',
+              label: 'Confirm Design',
+              description: 'Lock this design and continue to setup',
+              icon: '✅',
+            },
+          ],
+        },
+      },
+    ]);
+  };
+
+  const navigateToTab = (tab: AdaptiveTab, options?: { bypassDesignGate?: boolean }) => {
+    if (!options?.bypassDesignGate && requiresDesignReviewForTab(tab)) {
+      setViewMode('visual');
+      setMobileView('editor');
+      promptDesignReview();
+      return false;
+    }
+
     setViewMode(tab);
     setMobileView('editor');
+    return true;
   };
 
   const {
@@ -767,12 +824,10 @@ export default function BaleybotPage() {
       const missingRequiredConnectionTypes = toolSummary.required
         .filter((req) => !wsConns.some((c) => c.type === req.connectionType && c.status === 'connected'))
         .map((req) => req.connectionType);
-      const nextLifecycleStage =
-        !hasAiProviderConnected || missingRequiredConnectionTypes.length > 0
-          ? 'connections'
-          : 'testing';
-      const nextLifecycleAction =
-        nextLifecycleStage === 'connections'
+      const needsConnectionStage = !hasAiProviderConnected || missingRequiredConnectionTypes.length > 0;
+      const nextLifecycleAction = isInitialCreation
+        ? 'Review the visual design and confirm it before moving into setup.'
+        : needsConnectionStage
           ? missingRequiredConnectionTypes.length > 0
             ? `Connect required services (${[...new Set(missingRequiredConnectionTypes)].join(', ')}) and verify tools.`
             : 'Connect an AI provider and verify tool requirements.'
@@ -781,7 +836,11 @@ export default function BaleybotPage() {
       metadata.creatorLifecycle = {
         stage: 'design',
         whatIDid: `Designed ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}, mapped ${totalEntityTools} ${totalEntityTools === 1 ? 'tool' : 'tools'}, generated BAL code, and applied ${balSkillSummary}.`,
-        nextStage: nextLifecycleStage === 'connections' ? 'Connections' : 'Testing',
+        nextStage: isInitialCreation
+          ? 'Visual Review'
+          : needsConnectionStage
+            ? 'Connections'
+            : 'Testing',
         nextAction: nextLifecycleAction,
       };
 
@@ -794,52 +853,21 @@ export default function BaleybotPage() {
           suggestions: [],
         };
 
-        // Compute post-creation readiness to determine next steps
-        const postCreationReadiness = computeReadiness({
-          hasBalCode: true,
-          hasEntities: true,
-          tools: visualEntities.flatMap(e => e.tools),
-          connectionsMet: false,
-          hasConnections: (workspaceConnections ?? []).length > 0,
-          testsPassed: false,
-          hasTestRuns: 0,
-          hasTrigger: false,
-          hasMonitoring: false,
-        });
-
         const nextSteps: Array<{ id: string; label: string; description: string; icon: string }> = [];
 
         nextSteps.push({
           id: 'review-design',
           label: 'Review Design',
-          description: 'Check the visual layout and entities',
+          description: 'Inspect the visual layout and key tools',
           icon: '👁️',
         });
 
-        if (postCreationReadiness.connected === 'incomplete') {
-          nextSteps.push({
-            id: 'setup-connections',
-            label: 'Set Up Connections',
-            description: 'Connect AI provider and required services',
-            icon: '🔌',
-          });
-        }
-
         nextSteps.push({
-          id: 'run-tests',
-          label: 'Generate Tests',
-          description: 'Auto-generate and run test cases',
-          icon: '🧪',
+          id: 'confirm-design',
+          label: 'Confirm Design',
+          description: 'Lock this design and continue to guided setup',
+          icon: '✅',
         });
-
-        if (postCreationReadiness.activated === 'incomplete') {
-          nextSteps.push({
-            id: 'setup-triggers',
-            label: 'Set Up Triggers',
-            description: 'Configure automatic execution',
-            icon: '⚡',
-          });
-        }
 
         metadata.options = nextSteps;
       }
@@ -865,6 +893,10 @@ export default function BaleybotPage() {
 
       // 9. Set status to 'ready'
       setStatus('ready');
+      if (isInitialCreation) {
+        setIsDesignConfirmed(false);
+        designGateReminderShownRef.current = false;
+      }
       setCreationProgress({ phase: 'complete', message: 'Ready!' });
       setTimeout(() => setCreationProgress(null), 1000);
     } catch (error) {
@@ -1369,9 +1401,17 @@ export default function BaleybotPage() {
       for (const dim of dims) {
         if (prev[dim] !== 'complete' && newReadiness[dim] === 'complete') {
           const { completed: c, total: t } = countCompleted(newReadiness);
-          const nextAction = getRecommendedAction(newReadiness);
+          const nextAction =
+            dim === 'designed' && !isDesignConfirmed
+              ? {
+                  dimension: 'designed' as const,
+                  label: 'Confirm Design',
+                  description: 'Review visual layout, then confirm before setup',
+                  tabTarget: 'visual' as const,
+                  optionId: 'confirm-design',
+                }
+              : getRecommendedAction(newReadiness);
           const autoAdvanceTargets: Partial<Record<ReadinessDimension, AdaptiveTab>> = {
-            designed: 'connections',
             connected: 'test',
             tested: 'triggers',
             activated: 'monitor',
@@ -1423,7 +1463,22 @@ export default function BaleybotPage() {
     workspaceConnections,
     analyticsData,
     status,
+    isDesignConfirmed,
   ]);
+
+  // Once user has progressed past design, don't block stage tabs again.
+  useEffect(() => {
+    if (isDesignConfirmed) return;
+    const hasProgressedBeyondDesign =
+      readiness.connected === 'complete' ||
+      readiness.tested !== 'incomplete' ||
+      readiness.activated === 'complete' ||
+      readiness.monitored === 'complete';
+    if (hasProgressedBeyondDesign) {
+      setIsDesignConfirmed(true);
+      designGateReminderShownRef.current = false;
+    }
+  }, [isDesignConfirmed, readiness]);
 
   // Auto-switch to a visible tab if current tab becomes hidden
   useEffect(() => {
@@ -1442,9 +1497,12 @@ export default function BaleybotPage() {
     ) {
       nextVisibleTabs.push('runtime');
     }
-    const visibleTabs = showAdvancedUI
+    const baseVisibleTabs = showAdvancedUI
       ? nextVisibleTabs
       : nextVisibleTabs.filter((tab) => !isAdvancedEditorTab(tab));
+    const visibleTabs = isDesignReviewRequired
+      ? baseVisibleTabs.filter((tab) => !POST_DESIGN_TABS.includes(tab))
+      : baseVisibleTabs;
 
     if (!showAdvancedUI && isAdvancedEditorTab(viewMode)) {
       setViewMode('visual');
@@ -1460,6 +1518,7 @@ export default function BaleybotPage() {
     savedBaleybotId,
     existingBaleybot?.lifecycleStage,
     existingBaleybot?.runtimeInterfaceSpec,
+    isDesignReviewRequired,
   ]);
 
   // Auto-save trigger config when it changes (debounced)
@@ -1520,8 +1579,7 @@ export default function BaleybotPage() {
     }
     const editMatch = optionId.match(/^edit-test-(.+)$/);
     if (editMatch) {
-      setViewMode('test');
-      setMobileView('editor');
+      navigateToTab('test');
       return;
     }
     const retryMatch = optionId.match(/^retry-test-(.+)$/);
@@ -1534,8 +1592,26 @@ export default function BaleybotPage() {
       return;
     }
     if (optionId === 'review-mismatches') {
-      setViewMode('test');
-      setMobileView('editor');
+      navigateToTab('test');
+      return;
+    }
+
+    if (optionId === 'confirm-design') {
+      setIsDesignConfirmed(true);
+      designGateReminderShownRef.current = false;
+      const postConfirmTarget: AdaptiveTab =
+        readiness.connected === 'not-applicable' ? 'test' : 'connections';
+      navigateToTab(postConfirmTarget, { bypassDesignGate: true });
+      const followUpMessage: CreatorMessage = {
+        id: `msg-${Date.now()}-design-confirmed`,
+        role: 'assistant',
+        content:
+          postConfirmTarget === 'connections'
+            ? 'Design confirmed. Next, connect runtime and data sources, then verify tools.'
+            : 'Design confirmed. Next, run your tests to validate behavior.',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, followUpMessage]);
       return;
     }
 
@@ -1550,11 +1626,13 @@ export default function BaleybotPage() {
 
     const tabTarget = optionToTab[optionId];
     if (tabTarget) {
-      setViewMode(tabTarget);
-      setMobileView('editor');
+      const navigated = navigateToTab(tabTarget);
+      if (!navigated) {
+        return;
+      }
 
       const guideMessages: Record<string, string> = {
-        'review-design': 'Take a look at the visual layout. You can drag nodes to rearrange, or switch to the **Code** tab to edit the BAL directly.',
+        'review-design': 'Take a look at the visual layout. Confirm the design when it looks right, then continue to guided setup.',
         'setup-connections': 'Check which connections your bot needs. Make sure an **AI provider** is connected, and set up any tool-specific connections.',
         'run-tests': 'Click **Auto-generate** to create test cases from your bot\'s configuration, then run them to verify everything works.',
         'setup-triggers': 'Choose how your bot should be triggered — on a schedule, via webhook, or when another bot completes.',
@@ -1603,6 +1681,8 @@ export default function BaleybotPage() {
       setIcon(existingBaleybot.icon || '');
       setBalCode(existingBaleybot.balCode);
       setStatus('ready');
+      setIsDesignConfirmed(true);
+      designGateReminderShownRef.current = false;
       if (existingBaleybot.lifecycleStage === 'live' || existingBaleybot.lifecycleStage === 'paused') {
         setViewMode('runtime');
       }
@@ -1801,7 +1881,12 @@ export default function BaleybotPage() {
     ) {
       tabs.push('runtime');
     }
-    return showAdvancedUI ? tabs : tabs.filter((tab) => !isAdvancedEditorTab(tab));
+    const tabsAfterDesignGate = isDesignReviewRequired
+      ? tabs.filter((tab) => !POST_DESIGN_TABS.includes(tab))
+      : tabs;
+    return showAdvancedUI
+      ? tabsAfterDesignGate
+      : tabsAfterDesignGate.filter((tab) => !isAdvancedEditorTab(tab));
   })();
 
   // Compute save button disabled reason for tooltip (Phase 1.8)
@@ -2127,11 +2212,10 @@ export default function BaleybotPage() {
                 executions={!isNew && existingBaleybot?.executions ? existingBaleybot.executions : undefined}
                 onExecutionClick={(executionId) => router.push(ROUTES.activity.execution(executionId))}
                 onViewAction={(action) => {
-                  if (action === 'visual') { setViewMode('visual'); setMobileView('editor'); }
+                  if (action === 'visual') { navigateToTab('visual', { bypassDesignGate: true }); }
                   else if (action === 'code') {
                     setShowAdvancedUI(true);
-                    setViewMode('code');
-                    setMobileView('editor');
+                    navigateToTab('code', { bypassDesignGate: true });
                   }
                   else if (action === 'run') { handleRun(''); }
                 }}
@@ -2147,7 +2231,7 @@ export default function BaleybotPage() {
             )}>
               {/* Adaptive Tab bar */}
               <div className="flex items-center px-4 py-2 border-b border-border/30">
-                <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as AdaptiveTab)} className="w-auto">
+                <Tabs value={viewMode} onValueChange={(v) => navigateToTab(v as AdaptiveTab)} className="w-auto">
                   <TabsList className="h-9 bg-muted/50">
                     {availableTabs.map((tab) => {
                       const tabConfig: Record<AdaptiveTab, { icon: React.ReactNode; label: string }> = {
@@ -2181,7 +2265,7 @@ export default function BaleybotPage() {
                       activated: 'triggers',
                       monitored: 'monitor',
                     };
-                    setViewMode(tabMap[dim] ?? 'visual');
+                    navigateToTab(tabMap[dim] ?? 'visual');
                   }}
                   onActionClick={(optionId) => handleOptionSelect(optionId)}
                   className="ml-3"
@@ -2207,13 +2291,34 @@ export default function BaleybotPage() {
                 >
                   {/* Visual Editor View */}
                   {viewMode === 'visual' && (
-                    <VisualEditor
-                      balCode={balCode}
-                      onChange={handleCodeChange}
-                      readOnly={status === 'building' || status === 'running'}
-                      className="h-full"
-                      hideToolbar
-                    />
+                    <div className="h-full flex flex-col gap-3">
+                      {isDesignReviewRequired && (
+                        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium">Confirm Visual Design</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Review entities, tools, and data-source mappings here first. Once confirmed, guided setup unlocks.
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            onClick={() => handleOptionSelect('confirm-design')}
+                            className="shrink-0"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                            Confirm Design
+                          </Button>
+                        </div>
+                      )}
+                      <VisualEditor
+                        balCode={balCode}
+                        onChange={handleCodeChange}
+                        readOnly={status === 'building' || status === 'running'}
+                        className="flex-1 min-h-0"
+                        hideToolbar
+                        toolSuggestions={connectionToolSuggestions}
+                      />
+                    </div>
                   )}
 
                   {/* Code Editor View */}
@@ -2367,21 +2472,41 @@ export default function BaleybotPage() {
                   )}
                   {/* Connections View */}
                   {viewMode === 'connections' && (
-                    <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                      <ConnectionsPanel
-                        tools={entities.flatMap(e => e.tools)}
-                        connections={normalizedConnections ?? []}
-                        baleybotId={savedBaleybotId ?? undefined}
-                        balCode={balCode}
-                        entitySummaries={entities.map((entity) => ({
-                          name: entity.name,
-                          tools: entity.tools,
-                        }))}
-                        isLoading={isLoadingConnections}
-                        onConnectionCreated={() => utils.connections.list.invalidate()}
-                        onApplyToolRemap={handleApplyToolRemap}
-                        onNavigateToTest={() => setViewMode('test')}
-                      />
+                    <div className="h-full min-h-0 grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-4">
+                      <div className="h-full overflow-auto bg-background rounded-lg border p-4">
+                        <ConnectionsPanel
+                          tools={entities.flatMap(e => e.tools)}
+                          connections={normalizedConnections ?? []}
+                          baleybotId={savedBaleybotId ?? undefined}
+                          balCode={balCode}
+                          entitySummaries={entities.map((entity) => ({
+                            name: entity.name,
+                            tools: entity.tools,
+                          }))}
+                          isLoading={isLoadingConnections}
+                          onConnectionCreated={() => utils.connections.list.invalidate()}
+                          onApplyToolRemap={handleApplyToolRemap}
+                          onNavigateToTest={() => navigateToTab('test')}
+                        />
+                      </div>
+                      <div className="h-full min-h-0 bg-background rounded-lg border overflow-hidden">
+                        <div className="px-4 py-2 border-b border-border/40 bg-muted/20">
+                          <p className="text-sm font-medium">Visual Tool and Source Map</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Edit tools and data-source mappings directly on nodes while configuring connections.
+                          </p>
+                        </div>
+                        <div className="h-[calc(100%-3.5rem)] min-h-0">
+                          <VisualEditor
+                            balCode={balCode}
+                            onChange={handleCodeChange}
+                            readOnly={status === 'building' || status === 'running'}
+                            className="h-full"
+                            hideToolbar
+                            toolSuggestions={connectionToolSuggestions}
+                          />
+                        </div>
+                      </div>
                     </div>
                   )}
 

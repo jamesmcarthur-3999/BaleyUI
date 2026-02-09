@@ -207,4 +207,26 @@ loop ("until": "result.passed == true", "max": 3) {
     expect(updated).toContain('"model": "openai:gpt-4o-mini"');
     expect(updated).toContain('loop ("until": "result.passed == true", "max": 3)');
   });
+
+  it('updates approval-required tools when canRequest changes', () => {
+    const parsed: ParsedEntities = {
+      entities: [
+        {
+          name: 'notifier',
+          config: {
+            goal: 'Send updates',
+            tools: ['send_notification'],
+          },
+        },
+      ],
+      errors: [],
+    };
+
+    const updated = applyNodeChangeFromParsed(parsed, {
+      nodeId: 'notifier',
+      changes: { canRequest: ['send_notification'] },
+    });
+
+    expect(updated).toContain('"can_request": ["send_notification"]');
+  });
 });

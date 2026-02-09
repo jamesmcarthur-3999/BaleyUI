@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { X, Target, Cpu, Zap, Wrench, Braces, Info } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { X, Target, Cpu, Zap, Wrench, Braces, Info, Plus } from 'lucide-react';
 import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
 import { cn } from '@/lib/utils';
 import type { VisualNode } from '@/lib/baleybot/visual/types';
@@ -13,6 +13,7 @@ interface NodeEditorProps {
   onApplyIntent?: (instruction: string) => NodeIntentResult;
   onClose: () => void;
   className?: string;
+  toolSuggestions?: string[];
 }
 
 const AVAILABLE_MODELS = [
@@ -22,15 +23,41 @@ const AVAILABLE_MODELS = [
   { value: 'anthropic:claude-3-5-haiku-20241022', label: 'Claude Haiku' },
 ];
 
+const DEFAULT_TOOL_SUGGESTIONS = [
+  'web_search',
+  'fetch_url',
+  'send_notification',
+  'schedule_task',
+  'store_memory',
+  'shared_storage',
+  'spawn_baleybot',
+  'create_agent',
+  'create_tool',
+];
+
+type ToolMode = 'tools' | 'canRequest';
+
 export function NodeEditor({
   node,
   onUpdate,
   onApplyIntent,
   onClose,
   className,
+  toolSuggestions = [],
 }: NodeEditorProps) {
   const [intentInput, setIntentInput] = useState('');
   const [intentFeedback, setIntentFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [toolDraft, setToolDraft] = useState('');
+  const [toolMode, setToolMode] = useState<ToolMode>('tools');
+  const [toolFeedback, setToolFeedback] = useState<string | null>(null);
+
+  const runtimeTools = node.data.tools ?? [];
+  const approvalTools = node.data.canRequest ?? [];
+  const outputSchema = node.data.output ?? {};
+  const mergedToolSuggestions = useMemo(
+    () => [...new Set([...toolSuggestions, ...DEFAULT_TOOL_SUGGESTIONS])],
+    [toolSuggestions]
+  );
 
   const handleGoalChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onUpdate({ goal: e.target.value });
@@ -44,6 +71,53 @@ export function NodeEditor({
     // Pass {} for empty schemas — rebuildBAL skips output when keys are empty,
     // and applyNodeChangeFromParsed only triggers on !== undefined
     onUpdate({ output: newSchema });
+  };
+
+  const updateToolAssignments = (nextTools: string[], nextCanRequest: string[]) => {
+    onUpdate({
+      tools: nextTools,
+      canRequest: nextCanRequest,
+    });
+  };
+
+  const handleRemoveTool = (tool: string, mode: ToolMode) => {
+    const nextTools = mode === 'tools' ? runtimeTools.filter((value) => value !== tool) : runtimeTools;
+    const nextCanRequest =
+      mode === 'canRequest' ? approvalTools.filter((value) => value !== tool) : approvalTools;
+    updateToolAssignments(nextTools, nextCanRequest);
+    setToolFeedback(null);
+  };
+
+  const addTool = (value: string, mode: ToolMode) => {
+    const normalizedTool = normalizeToolName(value);
+    if (!normalizedTool) {
+      setToolFeedback('Enter a tool name first.');
+      return;
+    }
+
+    const alreadyExists =
+      (mode === 'tools' ? runtimeTools : approvalTools).includes(normalizedTool);
+    if (alreadyExists) {
+      setToolFeedback(`"${normalizedTool}" is already listed.`);
+      return;
+    }
+
+    const nextTools =
+      mode === 'tools'
+        ? [...runtimeTools, normalizedTool]
+        : runtimeTools.filter((tool) => tool !== normalizedTool);
+    const nextCanRequest =
+      mode === 'canRequest'
+        ? [...approvalTools, normalizedTool]
+        : approvalTools.filter((tool) => tool !== normalizedTool);
+
+    updateToolAssignments(nextTools, nextCanRequest);
+    setToolFeedback(null);
+  };
+
+  const handleAddTool = () => {
+    addTool(toolDraft, toolMode);
+    setToolDraft('');
   };
 
   const handleApplyIntent = () => {
@@ -67,12 +141,10 @@ export function NodeEditor({
     });
   };
 
-  const outputSchema = node.data.output ?? {};
-
   return (
     <div
       className={cn(
-        'w-96 bg-card border border-border rounded-2xl shadow-xl flex flex-col max-h-[calc(100vh-8rem)]',
+        'w-[28rem] bg-card border border-border rounded-2xl shadow-xl flex flex-col max-h-[calc(100vh-8rem)]',
         className
       )}
     >
@@ -144,33 +216,108 @@ export function NodeEditor({
           </select>
         </div>
 
-        {/* Tools (read-only display) */}
-        {(node.data.tools.length > 0 || node.data.canRequest.length > 0) && (
-          <div className="space-y-1.5">
-            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <Wrench className="h-3.5 w-3.5" />
-              Tools
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {node.data.tools.map((tool) => (
-                <span
-                  key={tool}
-                  className="px-2 py-0.5 text-xs rounded-full bg-emerald-500/10 text-emerald-600"
-                >
-                  {tool}
-                </span>
-              ))}
-              {node.data.canRequest.map((tool) => (
-                <span
-                  key={tool}
-                  className="px-2 py-0.5 text-xs rounded-full bg-amber-500/10 text-amber-600"
-                >
-                  {tool} (approval)
-                </span>
-              ))}
+        {/* Tools */}
+        <div className="space-y-2.5">
+          <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <Wrench className="h-3.5 w-3.5" />
+            Tool Access
+          </label>
+
+          <div className="rounded-lg border border-border/70 bg-muted/20 p-2.5 space-y-2.5">
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium text-muted-foreground">Runtime tools</p>
+              <div className="flex flex-wrap gap-1.5">
+                {runtimeTools.length === 0 && (
+                  <span className="text-[11px] text-muted-foreground">No runtime tools yet.</span>
+                )}
+                {runtimeTools.map((tool) => (
+                  <ToolPill
+                    key={`runtime-${tool}`}
+                    label={tool}
+                    tone="runtime"
+                    onRemove={() => handleRemoveTool(tool, 'tools')}
+                  />
+                ))}
+              </div>
             </div>
+
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium text-muted-foreground">Approval required</p>
+              <div className="flex flex-wrap gap-1.5">
+                {approvalTools.length === 0 && (
+                  <span className="text-[11px] text-muted-foreground">No approval-only tools yet.</span>
+                )}
+                {approvalTools.map((tool) => (
+                  <ToolPill
+                    key={`approval-${tool}`}
+                    label={tool}
+                    tone="approval"
+                    onRemove={() => handleRemoveTool(tool, 'canRequest')}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+              <input
+                value={toolDraft}
+                onChange={(e) => setToolDraft(e.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    handleAddTool();
+                  }
+                }}
+                placeholder="tool name (e.g. web_search)"
+                className={cn(
+                  'px-2.5 py-1.5 text-xs rounded-md',
+                  'border border-border bg-background',
+                  'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50'
+                )}
+              />
+              <select
+                value={toolMode}
+                onChange={(e) => setToolMode(e.target.value as ToolMode)}
+                className={cn(
+                  'px-2 py-1.5 text-xs rounded-md',
+                  'border border-border bg-background',
+                  'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50'
+                )}
+              >
+                <option value="tools">Runtime</option>
+                <option value="canRequest">Approval</option>
+              </select>
+              <button
+                type="button"
+                onClick={handleAddTool}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+              >
+                <Plus className="h-3 w-3" />
+                Add
+              </button>
+            </div>
+
+            {mergedToolSuggestions.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted-foreground">Suggestions</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {mergedToolSuggestions.slice(0, 16).map((tool) => (
+                    <button
+                      key={tool}
+                      type="button"
+                      onClick={() => addTool(tool, toolMode)}
+                      className="px-2 py-0.5 text-[11px] rounded-full border border-border/60 bg-background hover:bg-muted transition-colors"
+                    >
+                      {tool}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {toolFeedback && <p className="text-[11px] text-amber-600 dark:text-amber-400">{toolFeedback}</p>}
           </div>
-        )}
+        </div>
 
         {/* Output Schema (editable) */}
         <div className="space-y-1.5">
@@ -254,6 +401,44 @@ export function NodeEditor({
       </div>
     </div>
   );
+}
+
+function ToolPill({
+  label,
+  tone,
+  onRemove,
+}: {
+  label: string;
+  tone: 'runtime' | 'approval';
+  onRemove: () => void;
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full border',
+        tone === 'runtime'
+          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+          : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30'
+      )}
+    >
+      {label}
+      <button
+        type="button"
+        aria-label={`Remove ${label}`}
+        onClick={onRemove}
+        className="inline-flex items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </span>
+  );
+}
+
+function normalizeToolName(value: string): string {
+  return value
+    .trim()
+    .replace(/\s+/g, '_')
+    .toLowerCase();
 }
 
 function formatNodeName(name: string): string {

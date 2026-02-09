@@ -485,6 +485,9 @@ export function applyNodeChangeFromParsed(
   if (change.changes.tools !== undefined) {
     updatedConfig.tools = change.changes.tools;
   }
+  if (change.changes.canRequest !== undefined) {
+    updatedConfig.can_request = change.changes.canRequest;
+  }
   if (change.changes.output !== undefined) {
     updatedConfig.output = change.changes.output;
   }
@@ -758,6 +761,7 @@ export function visualToBAL(graph: VisualGraph): string {
       goal: node.data.goal,
       model: node.data.model,
       tools: node.data.tools,
+      can_request: node.data.canRequest,
       output: node.data.output,
       trigger: node.data.trigger
         ? serializeTrigger(node.data.trigger)

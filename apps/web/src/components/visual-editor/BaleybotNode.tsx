@@ -12,6 +12,7 @@ type BaleybotNodeType = Node<BaleybotNodeData, 'baleybot'>;
 
 export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
   const nodeData = data;
+  const dataSources = extractDataSources(nodeData.tools ?? []);
 
   const getTriggerIcon = () => {
     if (!nodeData.trigger) return null;
@@ -124,6 +125,27 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
                   >
                     <span>{getToolIcon(tool)}</span>
                     {formatToolName(tool)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {dataSources.length > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <Database className="h-3 w-3 text-cyan-500 shrink-0" />
+                <span className="text-[10px] font-medium text-cyan-700 dark:text-cyan-300 uppercase tracking-wider">
+                  Data Sources
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {dataSources.map((source) => (
+                  <span
+                    key={source.id}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border border-cyan-500/20"
+                  >
+                    {source.label}
                   </span>
                 ))}
               </div>
@@ -264,4 +286,40 @@ function getToolStyle(tool: string): string {
 
 function formatToolName(tool: string): string {
   return tool.replace(/_/g, ' ');
+}
+
+function extractDataSources(
+  tools: string[]
+): Array<{ id: string; label: string }> {
+  const sources = new Map<string, { id: string; label: string }>();
+
+  for (const tool of tools) {
+    const postgresMatch = tool.match(/^query_postgres_(.+)$/);
+    if (postgresMatch?.[1]) {
+      const slug = postgresMatch[1];
+      sources.set(tool, {
+        id: tool,
+        label: `Postgres: ${formatSourceSlug(slug)}`,
+      });
+      continue;
+    }
+
+    const mysqlMatch = tool.match(/^query_mysql_(.+)$/);
+    if (mysqlMatch?.[1]) {
+      const slug = mysqlMatch[1];
+      sources.set(tool, {
+        id: tool,
+        label: `MySQL: ${formatSourceSlug(slug)}`,
+      });
+    }
+  }
+
+  return Array.from(sources.values());
+}
+
+function formatSourceSlug(slug: string): string {
+  return slug
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }

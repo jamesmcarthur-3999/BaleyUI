@@ -25,7 +25,6 @@ import { cn } from '@/lib/utils';
 import {
   connectionNameToSlug,
   evaluateToolConnectionBinding,
-  getConnectionSummary,
   parseConnectionTool,
   scanToolRequirements,
 } from '@/lib/baleybot/tools/requirements-scanner';
@@ -197,19 +196,6 @@ export function getToolReadinessStatus(
 // STATUS BADGES
 // ============================================================================
 
-function StatusDot({ status }: { status: ToolReadinessInfo['status'] }) {
-  return (
-    <span
-      className={cn(
-        'w-2 h-2 rounded-full shrink-0',
-        status === 'ready' && 'bg-green-500',
-        status === 'needs-setup' && 'bg-amber-500',
-        status === 'limited' && 'bg-blue-500'
-      )}
-    />
-  );
-}
-
 function StatusPill({ status }: { status: ToolReadinessInfo['status'] }) {
   return (
     <span
@@ -361,7 +347,6 @@ export function ConnectionsPanel({
   const uniqueTools = useMemo(() => [...new Set(tools)], [tools]);
 
   const requirements = useMemo(() => scanToolRequirements(uniqueTools), [uniqueTools]);
-  const summary = useMemo(() => getConnectionSummary(uniqueTools), [uniqueTools]);
 
   const aiProviders = connections.filter(
     (c) => ['openai', 'anthropic', 'ollama'].includes(c.type) && c.status === 'connected'
@@ -413,18 +398,6 @@ export function ConnectionsPanel({
   const nonDatabaseToolWiring = toolWiring.filter(
     (tool) => tool.expectedType !== 'postgres' && tool.expectedType !== 'mysql'
   );
-
-  const requiredStatus = summary.required.map((req) => {
-    const match = connections.find(
-      (c) => c.type === req.connectionType && c.status === 'connected'
-    );
-
-    return {
-      ...req,
-      met: !!match,
-      connectionName: match?.name,
-    };
-  });
 
   const workspaceConnectionHealth = connections.map((conn) => ({
     ...conn,
@@ -484,7 +457,6 @@ export function ConnectionsPanel({
     : 0;
   const hasAdvancedSections =
     workspaceConnectionHealth.length > 0 ||
-    requiredStatus.length > 0 ||
     requirements.length > 0;
   const advisorRecommendations = advisorResult?.recommendations ?? [];
   const advisorWarnings = advisorResult?.warnings ?? [];
@@ -632,6 +604,18 @@ export function ConnectionsPanel({
   }
 
   const guidedActions = buildGuidedActions({ advisor: advisorResult });
+  const primaryGuidedAction = guidedActions[0] ?? null;
+  const secondaryGuidedActions = guidedActions.slice(1, 3);
+  const unresolvedChecklist: string[] = [];
+  if (!hasAiProvider) {
+    unresolvedChecklist.push('Connect an AI runtime provider');
+  }
+  if (unresolvedToolWiring.length > 0) {
+    unresolvedChecklist.push(`Resolve ${unresolvedToolWiring.length} tool wiring issue${unresolvedToolWiring.length === 1 ? '' : 's'}`);
+  }
+  if (uniqueTools.length > 0 && verifiedToolCount < uniqueTools.length) {
+    unresolvedChecklist.push(`Verify ${uniqueTools.length - verifiedToolCount} remaining tool${uniqueTools.length - verifiedToolCount === 1 ? '' : 's'}`);
+  }
 
   async function runAdvisorAnalysis(): Promise<ConnectionAdvisorResult | null> {
     if (!baleybotId || !balCode || !entitySummaries || entitySummaries.length === 0) {
@@ -713,13 +697,19 @@ export function ConnectionsPanel({
   useEffect(() => {
     if (!baleybotId || !balCode || !entitySummaries || entitySummaries.length === 0) return;
 
-    const signature = `${baleybotId}:${balCode}`;
+    const entitySignature = entitySummaries
+      .map((entity) => `${entity.name}:${entity.tools.join(',')}`)
+      .join('|');
+    const connectionSignature = connections
+      .map((connection) => `${connection.id}:${connection.type}:${connection.status}`)
+      .join('|');
+    const signature = `${baleybotId}:${balCode}:${entitySignature}:${connectionSignature}`;
     if (analyzedSignatureRef.current === signature) return;
     analyzedSignatureRef.current = signature;
 
     void runAdvisorAnalysis();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baleybotId, balCode, entitySummaries]);
+  }, [baleybotId, balCode, connections, entitySummaries]);
 
   async function handleTestConnection(connectionId: string) {
     setTestingConnectionId(connectionId);
@@ -861,7 +851,7 @@ export function ConnectionsPanel({
 
   return (
     <div className={cn('space-y-6', className)}>
-      {/* Status header */}
+      {/* Stage summary */}
       <div
         className={cn(
           'rounded-lg border p-4',
@@ -870,30 +860,41 @@ export function ConnectionsPanel({
             : 'border-amber-500/30 bg-amber-500/5'
         )}
       >
-        <div className="flex items-center gap-2">
-          {allMet ? (
-            <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
-          ) : (
-            <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-          )}
-          <p className="text-sm font-medium">
-            {allMet ? 'All connections are ready' : 'Some connections need attention'}
-          </p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {allMet ? (
+              <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            )}
+            <div>
+              <p className="text-sm font-medium">
+                {allMet ? 'Connections and tools are ready' : 'Setup still needs attention'}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Stage 2 of 4: Runtime and data connections
+              </p>
+            </div>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {completedSetupSteps}/{setupProgress.length} complete
+          </span>
         </div>
-        {!allMet && (
-          <p className="text-xs text-muted-foreground mt-1 ml-7">
-            {!hasAiProvider ? 'No AI provider connected. ' : ''}
-            {unresolvedToolWiring.length > 0
-              ? `${unresolvedToolWiring.length} tool binding(s) need setup.`
-              : ''}
-          </p>
+        {!allMet && unresolvedChecklist.length > 0 && (
+          <div className="mt-3 ml-7 space-y-1">
+            {unresolvedChecklist.map((item) => (
+              <p key={item} className="text-xs text-muted-foreground">
+                - {item}
+              </p>
+            ))}
+          </div>
         )}
         {allMet && onNavigateToTest && (
           <button
             onClick={onNavigateToTest}
-            className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline mt-1 ml-7"
+            className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline mt-2 ml-7"
           >
-            Proceed to Testing
+            Continue to Testing
             <ArrowRight className="h-3 w-3" />
           </button>
         )}
@@ -904,10 +905,10 @@ export function ConnectionsPanel({
           <div>
             <p className="text-sm font-medium flex items-center gap-1.5">
               <Sparkles className="h-4 w-4 text-primary" />
-              AI-Guided Resolution
+              AI Setup Assistant
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Stage 2 of 4: connect required services, validate tool wiring, then move to testing.
+              BaleyBot analyzes this bot, your tools, and workspace connections to recommend the next best fix.
             </p>
           </div>
           <Button
@@ -926,48 +927,69 @@ export function ConnectionsPanel({
             {isRunningGuidedPass ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                Running guided check
+                Running
               </>
             ) : (
               <>
                 <ShieldCheck className="h-3.5 w-3.5 mr-1" />
-                Run AI Health Check
+                Analyze Setup
               </>
             )}
           </Button>
         </div>
 
-        {guidedActions.length > 0 ? (
-          <div className="space-y-2">
-            {guidedActions.slice(0, 4).map((action, index) => (
-              <div
-                key={action.id}
-                className="rounded-md border border-border/50 bg-background/70 px-3 py-2 flex items-start justify-between gap-3"
-              >
-                <div className="min-w-0">
-                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
-                    Next action {index + 1}
-                  </p>
-                  <p className="text-sm font-medium">{action.title}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{action.description}</p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-[11px] shrink-0"
-                  onClick={() => handleGuidedAction(action)}
-                >
-                  {actionVerb(action)}
-                </Button>
+        {primaryGuidedAction ? (
+          <div className="rounded-md border border-primary/30 bg-background/80 px-3 py-2.5">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Recommended next action</p>
+            <div className="flex items-start justify-between gap-3 mt-1">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{primaryGuidedAction.title}</p>
+                <p className="text-xs text-muted-foreground mt-1">{primaryGuidedAction.description}</p>
               </div>
-            ))}
+              <Button
+                size="sm"
+                className="h-7 text-[11px] shrink-0"
+                onClick={() => handleGuidedAction(primaryGuidedAction)}
+              >
+                {actionVerb(primaryGuidedAction)}
+              </Button>
+            </div>
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">
             {allMet
-              ? 'Connections are healthy. You can continue to testing.'
-              : 'Run AI Health Check to get prioritized next actions for unresolved setup issues.'}
+              ? 'No blockers detected. Continue to testing.'
+              : 'Run Analyze Setup to get a prioritized recommendation.'}
           </p>
+        )}
+
+        {secondaryGuidedActions.length > 0 && (
+          <details className="rounded-md border border-border/50 bg-background/60 px-3 py-2">
+            <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+              Additional suggestions
+            </summary>
+            <div className="space-y-2 pt-2">
+              {secondaryGuidedActions.map((action) => (
+                <div
+                  key={action.id}
+                  className="rounded-md border border-border/40 bg-background/70 px-2.5 py-2 flex items-start justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium">{action.title}</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">{action.description}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px] shrink-0"
+                    onClick={() => handleGuidedAction(action)}
+                  >
+                    {actionVerb(action)}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
 
         {advisorError && (
@@ -1033,7 +1055,7 @@ export function ConnectionsPanel({
               Guided Setup
             </p>
             <p className="text-xs text-muted-foreground">
-              Progress through runtime, wiring, and verification before moving to tests.
+              Work in order: runtime provider, tool/data wiring, then verification.
             </p>
           </div>
           <span className="text-xs font-medium text-muted-foreground">
@@ -1050,7 +1072,7 @@ export function ConnectionsPanel({
           />
         </div>
         <div className="grid gap-2 sm:grid-cols-3">
-          {setupProgress.map((step) => (
+          {setupProgress.map((step, index) => (
             <div
               key={step.id}
               className={cn(
@@ -1066,7 +1088,7 @@ export function ConnectionsPanel({
                 ) : (
                   <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
                 )}
-                {step.label}
+                {`Step ${index + 1}: ${step.label}`}
               </p>
               <p className="text-[11px] text-muted-foreground mt-1">{step.detail}</p>
             </div>
@@ -1125,33 +1147,9 @@ export function ConnectionsPanel({
         </div>
       </div>
 
-      {/* Blueprint summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-        <div className="rounded-lg border border-border/50 p-3">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Tools</p>
-          <p className="text-sm font-semibold mt-1">{uniqueTools.length}</p>
-        </div>
-        <div className="rounded-lg border border-border/50 p-3">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Data Sources</p>
-          <p className="text-sm font-semibold mt-1">{summary.required.length}</p>
-        </div>
-        <div className="rounded-lg border border-border/50 p-3">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Connected</p>
-          <p className="text-sm font-semibold mt-1">
-            {connections.filter((c) => c.status === 'connected').length}
-          </p>
-        </div>
-        <div className="rounded-lg border border-border/50 p-3">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Needs Setup</p>
-          <p className="text-sm font-semibold mt-1">
-            {unresolvedToolWiring.length + (hasAiProvider ? 0 : 1)}
-          </p>
-        </div>
-      </div>
-
       {/* AI Provider section */}
       <div>
-        <h3 className="text-sm font-medium mb-2">AI Provider Runtime</h3>
+        <h3 className="text-sm font-medium mb-2">Step 1: AI Provider Runtime</h3>
         <div className="rounded-lg border border-border/50 p-3">
           {hasAiProvider ? (
             <div className="space-y-2">
@@ -1204,7 +1202,7 @@ export function ConnectionsPanel({
         <div>
           <h3 className="text-sm font-medium mb-2 flex items-center gap-1.5">
             <Sparkles className="h-4 w-4 text-muted-foreground" />
-            Tool Controls
+            Step 2A: Tool Controls
           </h3>
           <p className="text-xs text-muted-foreground mb-2.5">
             Review each tool, confirm its purpose, and verify behavior before testing.
@@ -1320,7 +1318,7 @@ export function ConnectionsPanel({
       {/* Data source wiring section */}
       {databaseToolWiring.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium mb-2">Data Source Wiring</h3>
+          <h3 className="text-sm font-medium mb-2">Step 2B: Data Source Wiring</h3>
           <div className="space-y-2">
             {databaseToolWiring.map((tool) => {
               const expectedLabel = tool.expectedSlug
@@ -1541,10 +1539,10 @@ export function ConnectionsPanel({
             <div>
               <p className="text-sm font-medium flex items-center gap-1.5">
                 <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-                Advanced Controls
+                Diagnostics
               </p>
               <p className="text-xs text-muted-foreground">
-                Detailed tool contracts, source inventories, and low-level verification controls.
+                Manual checks for workspace connections and low-level troubleshooting.
               </p>
             </div>
             <Button
@@ -1630,203 +1628,6 @@ export function ConnectionsPanel({
                 )}
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* Required source types summary */}
-      {showAdvancedDetails && requiredStatus.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium mb-2">Required Source Types</h3>
-          <div className="space-y-2">
-            {requiredStatus.map((req) => (
-              <div key={req.connectionType} className="rounded-lg border border-border/50 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={cn(
-                        'w-2 h-2 rounded-full shrink-0',
-                        req.met ? 'bg-green-500' : 'bg-amber-500'
-                      )}
-                    />
-                    <div>
-                      <p className="text-sm font-medium capitalize">{req.connectionType}</p>
-                      <p className="text-xs text-muted-foreground">Used by: {req.tools.join(', ')}</p>
-                    </div>
-                  </div>
-                  {req.met ? (
-                    <span className="text-xs text-green-600 dark:text-green-400">{req.connectionName}</span>
-                  ) : (
-                    <span className="text-xs text-amber-600 dark:text-amber-400">Not connected</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Tool detail table */}
-      {showAdvancedDetails && requirements.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium mb-2">Tools and Configuration Detail</h3>
-          <div className="rounded-lg border border-border/50 divide-y divide-border/30">
-            {requirements.map((req) => {
-              const readiness = getToolReadinessStatus(req.toolName, connections);
-              const metadata = getBuiltInToolMetadata(req.toolName);
-              const parsed = parseConnectionTool(req.toolName);
-              const expectedSource = parsed.connectionSlug
-                ? displaySourceNameFromSlug(parsed.connectionSlug)
-                : null;
-              const wiring = toolWiringByName.get(req.toolName);
-              const selectedConnectionId = wiring?.expectedType
-                ? selectedConnectionByTool[req.toolName] ??
-                  wiring.exactConnection?.id ??
-                  undefined
-                : undefined;
-              const verificationResult = toolVerificationByName[req.toolName];
-
-              return (
-                <div key={req.toolName} className="px-3 py-2.5 space-y-1">
-                  <div className="flex items-start gap-2 text-sm">
-                    <StatusDot status={readiness.status} />
-                    <Wrench className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs">{req.toolName}</span>
-                        <StatusPill status={readiness.status} />
-                        {verificationResult && <VerificationPill status={verificationResult.status} />}
-                      </div>
-                      <span className="text-xs text-muted-foreground block">{readiness.note}</span>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-[11px] shrink-0"
-                      onClick={() => handleVerifyTool(req.toolName, selectedConnectionId)}
-                      disabled={verifyingToolName === req.toolName}
-                    >
-                      {verifyingToolName === req.toolName ? (
-                        <>
-                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                          Verifying
-                        </>
-                      ) : (
-                        'Verify'
-                      )}
-                    </Button>
-                  </div>
-                  {expectedSource && (
-                    <p className="text-xs text-muted-foreground ml-4">
-                      Expected source name:{' '}
-                      <span className="font-medium text-foreground">{expectedSource}</span>
-                    </p>
-                  )}
-                  {metadata && (
-                    <div className="ml-4 space-y-1">
-                      <p className="text-xs text-muted-foreground line-clamp-1">
-                        {metadata.description}
-                      </p>
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <CategoryBadge category={metadata.category} />
-                        {metadata.capabilities.map((capability) => (
-                          <CapabilityBadge key={capability} capability={capability} />
-                        ))}
-                        {metadata.approvalRequired && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-700 dark:text-red-400 font-medium">
-                            approval
-                          </span>
-                        )}
-                      </div>
-                      <details className="text-xs">
-                        <summary className="cursor-pointer text-muted-foreground hover:text-foreground transition-colors">
-                          View tool contract
-                        </summary>
-                        <pre className="mt-1 rounded bg-muted/40 p-2 overflow-x-auto">
-{JSON.stringify(metadata.inputSchema, null, 2)}
-                        </pre>
-                      </details>
-                    </div>
-                  )}
-                  {!metadata && (req.connectionType === 'postgres' || req.connectionType === 'mysql') && (
-                    <details className="ml-4 text-xs">
-                      <summary className="cursor-pointer text-muted-foreground hover:text-foreground transition-colors">
-                        View tool contract
-                      </summary>
-                      <pre className="mt-1 rounded bg-muted/40 p-2 overflow-x-auto">
-{JSON.stringify({
-  type: 'object',
-  properties: {
-    query: { type: 'string', description: 'Natural-language database question' },
-    table: { type: 'string', description: 'Optional target table' },
-    limit: { type: 'number', description: 'Optional max rows' },
-  },
-  required: ['query'],
-}, null, 2)}
-                      </pre>
-                    </details>
-                  )}
-                  {verificationResult && (
-                    <div
-                      className={cn(
-                        'ml-4 rounded-md border p-2 space-y-1',
-                        verificationResult.status === 'verified' &&
-                          'border-green-500/30 bg-green-500/5',
-                        verificationResult.status === 'needs_setup' &&
-                          'border-amber-500/30 bg-amber-500/5',
-                        verificationResult.status === 'failed' &&
-                          'border-red-500/30 bg-red-500/5',
-                        verificationResult.status === 'manual_review' &&
-                          'border-blue-500/30 bg-blue-500/5'
-                      )}
-                    >
-                      <p className="text-xs">{verificationResult.summary}</p>
-                      {verificationResult.details && verificationResult.details.length > 0 && (
-                        <ul className="space-y-0.5">
-                          {verificationResult.details.map((detail, index) => (
-                            <li key={index} className="text-[11px] text-muted-foreground">
-                              - {detail}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      {(verificationResult.status === 'needs_setup' || verificationResult.connection) && (
-                        <div className="flex items-center gap-2 pt-1">
-                          {verificationResult.status === 'needs_setup' && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-[11px]"
-                              onClick={() => handleVerificationSetupAction(req.toolName)}
-                            >
-                              Resolve Setup
-                            </Button>
-                          )}
-                          {verificationResult.connection && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-[11px]"
-                              disabled={testingConnectionId === verificationResult.connection.id}
-                              onClick={() => handleTestConnection(verificationResult.connection!.id)}
-                            >
-                              {testingConnectionId === verificationResult.connection.id ? (
-                                <>
-                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                  Testing
-                                </>
-                              ) : (
-                                'Test Connection'
-                              )}
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
           </div>
         </div>
       )}
