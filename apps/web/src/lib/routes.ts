@@ -10,6 +10,7 @@ export const ROUTES = {
   // BaleyBots (primary feature)
   baleybots: {
     list: '/dashboard/baleybots',
+    library: '/dashboard/baleybots/library',
     create: '/dashboard/baleybots/new',
     detail: (id: string) => `/dashboard/baleybots/${id}`,
     execute: (id: string) => `/dashboard/baleybots/${id}/execute`,

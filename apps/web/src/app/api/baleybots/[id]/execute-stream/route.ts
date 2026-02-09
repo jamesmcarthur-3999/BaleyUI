@@ -25,8 +25,6 @@ import {
 } from '@baleyui/db';
 import {
   streamBALExecution,
-  type BALExecutionEvent,
-  type BALExecutionResult,
 } from '@baleyui/sdk';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { createLogger } from '@/lib/logger';
@@ -49,6 +47,21 @@ const executeStreamBodySchema = z.object({
   triggeredBy: z.enum(['manual', 'schedule', 'webhook', 'other_bb']).default('manual'),
   triggerSource: z.string().optional(),
 }).strict();
+
+/**
+ * Local stream event/result typing for API route safety.
+ * We intentionally keep these structural to avoid hard coupling to SDK d.ts generation in CI.
+ */
+type BALExecutionEvent = {
+  type: string;
+  [key: string]: unknown;
+};
+
+type BALExecutionResult = {
+  status: 'success' | 'error' | 'cancelled' | 'timeout' | string;
+  result?: unknown;
+  error?: string;
+};
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
