@@ -1,0 +1,93 @@
+{
+  "generatedAt": "2026-02-09T19:03:41.598257Z",
+  "baseline": "/Users/jamesmcarthur/Documents/GitHub/BaleyUI",
+  "entries": [
+    {
+      "worktree": "/private/tmp/baleyui-main-deploy",
+      "branch": "main",
+      "head": "01f346a",
+      "dirty_entries": 1,
+      "conflicts": [],
+      "staged_patch": "docs/audits/patches/main--staged.patch",
+      "staged_patch_bytes": 0,
+      "unstaged_patch": "docs/audits/patches/main--unstaged.patch",
+      "unstaged_patch_bytes": 1912,
+      "untracked_count": 0,
+      "untracked_archive": "",
+      "submodule_status": "f894164dee10091655d430f57b1750036212ce25 packages/baleybots (@baleybots/cli@0.0.1-alpha.110-1-gf894164)"
+    },
+    {
+      "worktree": "/private/tmp/BaleyUI-merge-check",
+      "branch": "codex/perf-merge-check",
+      "head": "db2ddd0",
+      "dirty_entries": 9,
+      "conflicts": [
+        "apps/web/src/components/visual-editor/VisualEditor.tsx",
+        "apps/web/src/lib/trpc/routers/baleybots.ts"
+      ],
+      "staged_patch": "docs/audits/patches/codex__perf-merge-check--staged.patch",
+      "staged_patch_bytes": 13233,
+      "unstaged_patch": "docs/audits/patches/codex__perf-merge-check--unstaged.patch",
+      "unstaged_patch_bytes": 5656,
+      "untracked_count": 0,
+      "untracked_archive": "",
+      "submodule_status": "-878f9c63d78bfcd1bbb26e7b2377a66001099b65 packages/baleybots"
+    },
+    {
+      "worktree": "/private/tmp/BaleyUI-merge-main",
+      "branch": "codex/perf-merge-main",
+      "head": "5c9ac5e",
+      "dirty_entries": 2,
+      "conflicts": [],
+      "staged_patch": "docs/audits/patches/codex__perf-merge-main--staged.patch",
+      "staged_patch_bytes": 0,
+      "unstaged_patch": "docs/audits/patches/codex__perf-merge-main--unstaged.patch",
+      "unstaged_patch_bytes": 265,
+      "untracked_count": 1,
+      "untracked_archive": "docs/audits/patches/codex__perf-merge-main--untracked.tar.gz",
+      "submodule_status": "+4a97247cded875c7fd85ac0d27f7e6efcb149bc3 packages/baleybots (@baleybots/tools@0.0.1-alpha.98-2-g4a97247)"
+    },
+    {
+      "worktree": "/private/tmp/BaleyUI-perf",
+      "branch": "codex/perf-investigation",
+      "head": "a84110c",
+      "dirty_entries": 7,
+      "conflicts": [],
+      "staged_patch": "docs/audits/patches/codex__perf-investigation--staged.patch",
+      "staged_patch_bytes": 0,
+      "unstaged_patch": "docs/audits/patches/codex__perf-investigation--unstaged.patch",
+      "unstaged_patch_bytes": 3915,
+      "untracked_count": 4,
+      "untracked_archive": "docs/audits/patches/codex__perf-investigation--untracked.tar.gz",
+      "submodule_status": "+4a97247cded875c7fd85ac0d27f7e6efcb149bc3 packages/baleybots (@baleybots/tools@0.0.1-alpha.98-2-g4a97247)"
+    },
+    {
+      "worktree": "/private/tmp/BaleyUI-perf-validate",
+      "branch": "codex/perf-validate",
+      "head": "a84110c",
+      "dirty_entries": 12,
+      "conflicts": [],
+      "staged_patch": "docs/audits/patches/codex__perf-validate--staged.patch",
+      "staged_patch_bytes": 19386,
+      "unstaged_patch": "docs/audits/patches/codex__perf-validate--unstaged.patch",
+      "unstaged_patch_bytes": 265,
+      "untracked_count": 2,
+      "untracked_archive": "docs/audits/patches/codex__perf-validate--untracked.tar.gz",
+      "submodule_status": "+4a97247cded875c7fd85ac0d27f7e6efcb149bc3 packages/baleybots (@baleybots/tools@0.0.1-alpha.98-2-g4a97247)"
+    },
+    {
+      "worktree": "/Users/jamesmcarthur/.codex/worktrees/10c3/BaleyUI",
+      "branch": "codex/perf-patch",
+      "head": "a84110c",
+      "dirty_entries": 103,
+      "conflicts": [],
+      "staged_patch": "docs/audits/patches/codex__perf-patch--staged.patch",
+      "staged_patch_bytes": 501267,
+      "unstaged_patch": "docs/audits/patches/codex__perf-patch--unstaged.patch",
+      "unstaged_patch_bytes": 18509,
+      "untracked_count": 2,
+      "untracked_archive": "docs/audits/patches/codex__perf-patch--untracked.tar.gz",
+      "submodule_status": "+4a97247cded875c7fd85ac0d27f7e6efcb149bc3 packages/baleybots (@baleybots/tools@0.0.1-alpha.98-2-g4a97247)"
+    }
+  ]
+}

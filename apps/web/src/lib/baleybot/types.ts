@@ -262,6 +262,192 @@ export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | '
  */
 export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'db_event' | 'mcp_event' | 'file_upload';
 
+export const TRIGGER_CORE_TYPES: TriggerType[] = ['manual', 'schedule', 'webhook', 'file_upload'];
+export const TRIGGER_ADVANCED_TYPES: TriggerType[] = ['other_bb', 'db_event', 'mcp_event'];
+
+export interface TriggerNormalizationResult {
+  normalized: TriggerConfig | null;
+  issues: string[];
+  valid: boolean;
+}
+
+function trimOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeMimeTypes(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const mimeTypes = value
+    .map((entry) => trimOptionalString(entry))
+    .filter((entry): entry is string => Boolean(entry));
+  return mimeTypes.length > 0 ? mimeTypes : undefined;
+}
+
+function normalizePositiveNumber(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  return value > 0 ? value : undefined;
+}
+
+function sanitizeCronExpression(value: unknown): string | undefined {
+  const schedule = trimOptionalString(value);
+  if (!schedule) return undefined;
+  return schedule.replace(/\s+/g, ' ');
+}
+
+function isValidCronExpression(schedule: string): boolean {
+  return schedule.trim().split(/\s+/).length === 5;
+}
+
+/**
+ * One-way normalization for trigger configs used by wizard UI + persistence layer.
+ * Manual trigger is represented as `null` to keep storage simple.
+ */
+export function normalizeTriggerConfig(input: unknown): TriggerConfig | null {
+  if (!input || typeof input !== 'object') return null;
+
+  const raw = input as Partial<TriggerConfig>;
+  const type = raw.type;
+  if (!type || type === 'manual') return null;
+
+  const enabled = raw.enabled ?? true;
+
+  if (type === 'schedule') {
+    return {
+      type,
+      enabled,
+      schedule: sanitizeCronExpression(raw.schedule) ?? '0 9 * * *',
+    };
+  }
+
+  if (type === 'webhook') {
+    const webhookPath = trimOptionalString(raw.webhookPath);
+    return {
+      type,
+      enabled,
+      ...(webhookPath ? { webhookPath } : {}),
+    };
+  }
+
+  if (type === 'file_upload') {
+    return {
+      type,
+      enabled,
+      acceptedMimeTypes:
+        normalizeMimeTypes(raw.acceptedMimeTypes) ?? [
+          'application/pdf',
+          'image/png',
+          'image/jpeg',
+        ],
+      maxFileSizeMb: normalizePositiveNumber(raw.maxFileSizeMb) ?? 10,
+      multiple: typeof raw.multiple === 'boolean' ? raw.multiple : false,
+      payloadMode: raw.payloadMode === 'inline_base64' ? 'inline_base64' : 'metadata',
+    };
+  }
+
+  if (type === 'other_bb') {
+    return {
+      type,
+      enabled,
+      sourceBaleybotId: trimOptionalString(raw.sourceBaleybotId),
+      completionType:
+        raw.completionType === 'success' ||
+        raw.completionType === 'failure' ||
+        raw.completionType === 'completion'
+          ? raw.completionType
+          : 'completion',
+    };
+  }
+
+  if (type === 'db_event') {
+    return {
+      type,
+      enabled,
+      dbConnectionId: trimOptionalString(raw.dbConnectionId),
+      dbTable: trimOptionalString(raw.dbTable),
+      dbEvent:
+        raw.dbEvent === 'insert' ||
+        raw.dbEvent === 'update' ||
+        raw.dbEvent === 'delete' ||
+        raw.dbEvent === 'change'
+          ? raw.dbEvent
+          : 'insert',
+    };
+  }
+
+  if (type === 'mcp_event') {
+    return {
+      type,
+      enabled,
+      mcpServer: trimOptionalString(raw.mcpServer),
+      mcpTool: trimOptionalString(raw.mcpTool),
+      mcpResource: trimOptionalString(raw.mcpResource),
+    };
+  }
+
+  return null;
+}
+
+export function validateAndNormalizeTriggerConfig(input: unknown): TriggerNormalizationResult {
+  const normalized = normalizeTriggerConfig(input);
+  if (!normalized) {
+    return { normalized: null, issues: [], valid: true };
+  }
+
+  const issues: string[] = [];
+
+  if (normalized.type === 'schedule') {
+    if (!normalized.schedule || !isValidCronExpression(normalized.schedule)) {
+      issues.push('Schedule must be a valid 5-part cron expression.');
+    }
+  }
+
+  if (normalized.type === 'webhook' && normalized.webhookPath) {
+    if (!normalized.webhookPath.startsWith('/')) {
+      issues.push('Webhook path must start with "/".');
+    }
+  }
+
+  if (normalized.type === 'other_bb') {
+    if (!normalized.sourceBaleybotId) {
+      issues.push('Choose the source bot that should trigger this bot.');
+    }
+  }
+
+  if (normalized.type === 'db_event') {
+    if (!normalized.dbConnectionId) {
+      issues.push('Select a database connection for DB event trigger.');
+    }
+    if (!normalized.dbTable) {
+      issues.push('Enter the database table/collection to watch.');
+    }
+  }
+
+  if (normalized.type === 'mcp_event') {
+    if (!normalized.mcpServer) {
+      issues.push('Enter the MCP server that should emit this trigger.');
+    }
+  }
+
+  if (normalized.type === 'file_upload') {
+    if (!normalized.acceptedMimeTypes || normalized.acceptedMimeTypes.length === 0) {
+      issues.push('At least one accepted file type is required.');
+    } else if (normalized.acceptedMimeTypes.some((type) => !type.includes('/'))) {
+      issues.push('Accepted file types must use MIME format like "image/png".');
+    }
+    if (!normalized.maxFileSizeMb || normalized.maxFileSizeMb <= 0) {
+      issues.push('Max file size must be greater than 0MB.');
+    }
+  }
+
+  return {
+    normalized,
+    issues,
+    valid: issues.length === 0,
+  };
+}
+
 /**
  * A BaleyBot execution record
  */

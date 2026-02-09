@@ -76,6 +76,8 @@ import type {
   AdaptiveTab,
   CreatorOutput,
   CreatorPlanDelta,
+  BuilderPresentationMode,
+  TriggerSetupStep,
 } from '@/lib/baleybot/creator-types';
 import type { LaunchKit, RuntimeInterfaceSpec } from '@/lib/baleybot/types';
 import { computeReadiness, createInitialReadiness, getVisibleTabs, countCompleted, getRecommendedAction } from '@/lib/baleybot/readiness';
@@ -214,7 +216,7 @@ interface DataSourceSummaryItem {
   label: string;
   status: 'connected' | 'needs_setup';
   usedBy: string[];
-  kind: 'database' | 'storage' | 'upload';
+  kind: 'data' | 'storage' | 'upload';
 }
 
 function formatSlugLabel(slug: string): string {
@@ -316,6 +318,7 @@ function buildDataSourceSummary(args: {
   entities: VisualEntity[];
   connections: Array<{ id: string; type: string; name: string; status: string }> | undefined;
   triggerConfig: TriggerConfigType | undefined;
+  graphSidecar?: BalGraphSidecarMetadata;
 }): DataSourceSummaryItem[] {
   const map = new Map<string, DataSourceSummaryItem>();
 
@@ -344,25 +347,59 @@ function buildDataSourceSummary(args: {
           label,
           status,
           usedBy: [entity.name],
-          kind: 'database',
+          kind: 'data',
         });
       }
     }
+  }
 
-    if (entity.tools.includes('shared_storage')) {
-      const storage = map.get('shared_storage');
-      if (storage) {
-        if (!storage.usedBy.includes(entity.name)) storage.usedBy.push(entity.name);
-      } else {
-        map.set('shared_storage', {
-          id: 'shared_storage',
-          label: 'Shared workspace storage',
-          status: 'connected',
-          usedBy: [entity.name],
-          kind: 'storage',
-        });
+  for (const binding of args.graphSidecar?.datasourceBindings ?? []) {
+    const matchingConnection = args.connections?.find(
+      (connection) => connection.id === binding.connectionId
+    );
+    const id = binding.connectionId || `${binding.entity}:${binding.tool}`;
+    const label =
+      matchingConnection?.name ??
+      binding.connectionLabel ??
+      (binding.connectionType
+        ? `${formatSlugLabel(binding.connectionType)} source`
+        : 'Data source');
+    const status = matchingConnection?.status === 'connected' ? 'connected' : 'needs_setup';
+    const existing = map.get(id);
+    if (existing) {
+      if (!existing.usedBy.includes(binding.entity)) existing.usedBy.push(binding.entity);
+      if (existing.status !== 'connected' || status !== 'connected') {
+        existing.status = 'needs_setup';
       }
+    } else {
+      map.set(id, {
+        id,
+        label,
+        status,
+        usedBy: [binding.entity],
+        kind: 'data',
+      });
     }
+  }
+
+  const sharedStorageParticipants = new Set<string>();
+  for (const entity of args.entities) {
+    if (entity.tools.includes('shared_storage')) {
+      sharedStorageParticipants.add(entity.name);
+    }
+  }
+  for (const link of args.graphSidecar?.sharedStorageLinks ?? []) {
+    sharedStorageParticipants.add(link.producer);
+    sharedStorageParticipants.add(link.consumer);
+  }
+  if (sharedStorageParticipants.size > 0) {
+    map.set('shared_storage', {
+      id: 'shared_storage',
+      label: 'Shared workspace storage',
+      status: 'connected',
+      usedBy: Array.from(sharedStorageParticipants),
+      kind: 'storage',
+    });
   }
 
   if (args.triggerConfig?.type === 'file_upload') {
@@ -471,6 +508,48 @@ function getStreamEventErrorMessage(error: unknown): string {
     }
   }
   return 'Streaming request failed.';
+}
+
+function formatRuntimeNodeName(value: string | undefined): string {
+  if (!value) return 'This step';
+  return value
+    .split(/[_:-]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function summarizeRuntimeIssue(error: string | undefined): string {
+  const lower = error?.toLowerCase() ?? '';
+  if (!lower) return 'Review the node details and rerun this test.';
+  if (lower.includes('provider') || lower.includes('api key')) {
+    return 'Connect an AI provider before running again.';
+  }
+  if (lower.includes('rate limit') || lower.includes('429')) {
+    return 'Wait a moment, then retry this run.';
+  }
+  if (lower.includes('timeout')) {
+    return 'Try a smaller input or simplify this step to avoid timeouts.';
+  }
+  if (lower.includes('json') || lower.includes('parse')) {
+    return 'Check input formatting for this step before rerunning.';
+  }
+  return 'Open this step and review its prompt, tools, and input data.';
+}
+
+function getRuntimeFailureGuidance(events: GraphRuntimeEvent[]): string | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (!event || event.type !== 'node_failed') continue;
+    const nodeLabel = formatRuntimeNodeName(
+      event.nodeId ?? event.entityName ?? event.toNodeId ?? event.toEntityName
+    );
+    if (event.hint && event.hint.trim().length > 0) {
+      return `${nodeLabel}: ${event.hint}`;
+    }
+    return `${nodeLabel}: ${summarizeRuntimeIssue(event.error)}`;
+  }
+  return null;
 }
 
 function appendGraphRuntimeEvent(
@@ -809,8 +888,10 @@ export default function BaleybotPage() {
 
   // View mode state (adaptive based on readiness)
   const [viewMode, setViewMode] = useState<AdaptiveTab>('visual');
-  const [showAdvancedUI, setShowAdvancedUI] = useState(false);
+  const [builderMode, setBuilderMode] = useState<BuilderPresentationMode>('simple');
+  const showAdvancedUI = builderMode === 'advanced';
   const [isDesignConfirmed, setIsDesignConfirmed] = useState(!isNew);
+  const [triggerSetupStep, setTriggerSetupStep] = useState<TriggerSetupStep>('start');
 
   // Runtime/live interaction state
   const [runtimeInput, setRuntimeInput] = useState('');
@@ -1165,8 +1246,13 @@ export default function BaleybotPage() {
         entities,
         connections: normalizedConnections,
         triggerConfig,
+        graphSidecar,
       }),
-    [entities, normalizedConnections, triggerConfig]
+    [entities, normalizedConnections, triggerConfig, graphSidecar]
+  );
+  const runtimeFailureGuidance = useMemo(
+    () => getRuntimeFailureGuidance(runtimeGraphEvents),
+    [runtimeGraphEvents]
   );
   const creatorGuidanceInput = useMemo(
     () => ({
@@ -3629,7 +3715,7 @@ export default function BaleybotPage() {
                 onViewAction={(action) => {
                   if (action === 'visual') { navigateToTab('visual', { bypassDesignGate: true }); }
                   else if (action === 'code') {
-                    setShowAdvancedUI(true);
+                    setBuilderMode('advanced');
                     navigateToTab('code', { bypassDesignGate: true });
                   }
                   else if (action === 'run') { handleRun(''); }
@@ -3671,15 +3757,15 @@ export default function BaleybotPage() {
                       <TabsList className="h-9 bg-muted/50">
                         {availableTabs.map((tab) => {
                           const tabConfig: Record<AdaptiveTab, { icon: React.ReactNode; label: string }> = {
-                            visual: { icon: <LayoutGrid className="h-3.5 w-3.5" />, label: 'Visual' },
+                            visual: { icon: <LayoutGrid className="h-3.5 w-3.5" />, label: 'Builder' },
                             code: { icon: <Code2 className="h-3.5 w-3.5" />, label: 'Code' },
-                            connections: { icon: <Cable className="h-3.5 w-3.5" />, label: 'Connections' },
-                            test: { icon: <FlaskConical className="h-3.5 w-3.5" />, label: 'Test' },
-                            triggers: { icon: <Zap className="h-3.5 w-3.5" />, label: 'Triggers' },
-                            analytics: { icon: <BarChart3 className="h-3.5 w-3.5" />, label: 'Analytics' },
-                            monitor: { icon: <Activity className="h-3.5 w-3.5" />, label: 'Monitor' },
-                            launch: { icon: <Rocket className="h-3.5 w-3.5" />, label: 'Launch' },
-                            runtime: { icon: <CirclePlay className="h-3.5 w-3.5" />, label: 'Runtime' },
+                            connections: { icon: <Cable className="h-3.5 w-3.5" />, label: 'Data' },
+                            test: { icon: <FlaskConical className="h-3.5 w-3.5" />, label: 'Try' },
+                            triggers: { icon: <Zap className="h-3.5 w-3.5" />, label: 'Start & Input' },
+                            analytics: { icon: <BarChart3 className="h-3.5 w-3.5" />, label: 'Insights' },
+                            monitor: { icon: <Activity className="h-3.5 w-3.5" />, label: 'Health' },
+                            launch: { icon: <Rocket className="h-3.5 w-3.5" />, label: 'Go Live' },
+                            runtime: { icon: <CirclePlay className="h-3.5 w-3.5" />, label: 'Run' },
                           };
                           const config = tabConfig[tab];
                           return (
@@ -3691,7 +3777,20 @@ export default function BaleybotPage() {
                         })}
                       </TabsList>
                     </Tabs>
-                    <div className="ml-auto" />
+                    <div className="ml-auto">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        onClick={() =>
+                          setBuilderMode((previous) =>
+                            previous === 'simple' ? 'advanced' : 'simple'
+                          )
+                        }
+                      >
+                        {builderMode === 'simple' ? 'Advanced Mode' : 'Simple Mode'}
+                      </Button>
+                    </div>
                   </>
                 )}
               </div>
@@ -3899,6 +3998,7 @@ export default function BaleybotPage() {
                           triggerConfig={triggerConfig}
                           graphSidecar={graphSidecar}
                           runtimeEvents={runtimeGraphEvents}
+                          presentationMode={builderMode}
                         />
                       </div>
                     )
@@ -3952,7 +4052,11 @@ export default function BaleybotPage() {
                           <TriggerConfig
                             value={triggerConfig}
                             onChange={setTriggerConfig}
+                            workspaceId={existingBaleybot?.workspaceId}
                             baleybotId={savedBaleybotId ?? undefined}
+                            presentationMode={builderMode}
+                            setupStep={triggerSetupStep}
+                            onSetupStepChange={setTriggerSetupStep}
                             availableBaleybots={
                               availableBaleybots
                                 ?.filter((bb) => bb.id !== savedBaleybotId)
@@ -3992,6 +4096,13 @@ export default function BaleybotPage() {
                                       </span>
                                     </div>
                                     <p className="text-[11px] text-muted-foreground mt-0.5">
+                                      {source.kind === 'storage'
+                                        ? 'Shared storage'
+                                        : source.kind === 'upload'
+                                          ? 'Upload input'
+                                          : 'Data source'}
+                                    </p>
+                                    <p className="text-[11px] text-muted-foreground mt-0.5">
                                       Used by: {source.usedBy.join(', ')}
                                     </p>
                                   </div>
@@ -4001,7 +4112,7 @@ export default function BaleybotPage() {
                           </div>
                         </div>
 
-                        <div className="h-full min-h-0 bg-background rounded-lg border overflow-hidden">
+                        <div className="h-full min-h-0 bg-background rounded-lg border overflow-hidden flex flex-col">
                           <div className="px-4 py-2 border-b border-border/40 bg-muted/20">
                             <p className="text-sm font-medium">Trigger and data flow map</p>
                           </div>
@@ -4016,6 +4127,7 @@ export default function BaleybotPage() {
                               triggerConfig={triggerConfig}
                               graphSidecar={graphSidecar}
                               runtimeEvents={runtimeGraphEvents}
+                              presentationMode={builderMode}
                             />
                           </div>
                         </div>
@@ -4186,6 +4298,7 @@ export default function BaleybotPage() {
                               triggerConfig={triggerConfig}
                               graphSidecar={graphSidecar}
                               runtimeEvents={runtimeGraphEvents}
+                              presentationMode={builderMode}
                             />
                           </div>
                         </div>
@@ -4245,7 +4358,12 @@ export default function BaleybotPage() {
                               </span>
                             )}
                           </div>
-                          <div className="h-[calc(100%-3.5rem)] min-h-0">
+                          {runtimeFailureGuidance && (
+                            <div className="mx-3 mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                              {runtimeFailureGuidance}
+                            </div>
+                          )}
+                          <div className="flex-1 min-h-0">
                             <VisualEditor
                               balCode={balCode}
                               onChange={handleCodeChange}
@@ -4256,6 +4374,7 @@ export default function BaleybotPage() {
                               triggerConfig={triggerConfig}
                               graphSidecar={graphSidecar}
                               runtimeEvents={runtimeGraphEvents}
+                              presentationMode={builderMode}
                             />
                           </div>
                         </div>
@@ -4616,8 +4735,13 @@ export default function BaleybotPage() {
                               )}
 
                               {runtimeError ? (
-                                <div className="text-sm whitespace-pre-wrap bg-red-500/5 border border-red-500/20 text-red-700 dark:text-red-300 rounded-lg p-3">
-                                  {runtimeError}
+                                <div className="space-y-2">
+                                  <div className="text-sm whitespace-pre-wrap bg-red-500/5 border border-red-500/20 text-red-700 dark:text-red-300 rounded-lg p-3">
+                                    {runtimeError}
+                                  </div>
+                                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                                    Next step: {summarizeRuntimeIssue(runtimeError)}
+                                  </div>
                                 </div>
                               ) : isMessageRuntime ? (
                                 <>

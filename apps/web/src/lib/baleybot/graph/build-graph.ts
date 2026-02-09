@@ -282,12 +282,12 @@ function addFallbackChainEdges(state: TraverseState, chain: string[]) {
 function parseDatasourceFromTool(tool: string): { id: string; label: string } | null {
   const postgres = tool.match(/^query_postgres_(.+)$/);
   if (postgres?.[1]) {
-    return { id: `datasource:${tool}`, label: `Postgres ${postgres[1].replace(/_/g, ' ')}` };
+    return { id: `datasource:${tool}`, label: `Postgres source: ${postgres[1].replace(/_/g, ' ')}` };
   }
 
   const mysql = tool.match(/^query_mysql_(.+)$/);
   if (mysql?.[1]) {
-    return { id: `datasource:${tool}`, label: `MySQL ${mysql[1].replace(/_/g, ' ')}` };
+    return { id: `datasource:${tool}`, label: `MySQL source: ${mysql[1].replace(/_/g, ' ')}` };
   }
 
   return null;
@@ -297,6 +297,12 @@ function formatConnectionLabel(connectionId: string): string {
   if (!connectionId) return 'Data source';
   if (connectionId.length <= 12) return connectionId;
   return `Source ${connectionId.slice(0, 8)}`;
+}
+
+function modeToDataLabel(mode: 'read' | 'write' | 'read_write' | undefined): string {
+  if (mode === 'write') return 'writes to';
+  if (mode === 'read_write') return 'reads and writes';
+  return 'reads from';
 }
 
 function addRelationshipNodesAndEdges(
@@ -348,7 +354,31 @@ function addRelationshipNodesAndEdges(
         target: agent.id,
         kind: 'trigger',
         animated: true,
+        label: 'starts this bot',
       });
+
+      if (trigger.type === 'file_upload') {
+        const uploadSourceId = `datasource:file_upload:${agent.id}`;
+        addNodeIfMissing({
+          id: uploadSourceId,
+          kind: 'datasource',
+          position: { x: agent.position.x - 250, y: agent.position.y - 10 },
+          data: {
+            label: 'Uploaded files',
+            meta: {
+              source: 'trigger_input',
+              triggerType: 'file_upload',
+            },
+          },
+        });
+        addEdgeIfMissing({
+          id: `data:${uploadSourceId}->${agent.id}`,
+          source: uploadSourceId,
+          target: agent.id,
+          kind: 'data',
+          label: 'file input',
+        });
+      }
     }
 
     // Data source nodes from explicit sidecar bindings
@@ -361,7 +391,9 @@ function addRelationshipNodesAndEdges(
           kind: 'datasource',
           position: { x: agent.position.x - 210, y: agent.position.y + 140 + datasourceNodes.size * 12 },
           data: {
-            label: binding.connectionLabel ?? formatConnectionLabel(binding.connectionId),
+            label:
+              binding.connectionLabel ??
+              `${binding.connectionType ? `${binding.connectionType} source` : 'Data source'}: ${formatConnectionLabel(binding.connectionId)}`,
             meta: {
               source: 'sidecar',
               connectionId: binding.connectionId,
@@ -379,7 +411,14 @@ function addRelationshipNodesAndEdges(
         source: nodeId,
         target: agent.id,
         kind: 'data',
-        label: binding.mode ? `${binding.mode.replace(/_/g, ' ')}` : 'data',
+        label:
+          binding.keyPattern && binding.keyPattern.trim().length > 0
+            ? `${modeToDataLabel(binding.mode)} ${binding.keyPattern}`
+            : modeToDataLabel(binding.mode),
+        meta: {
+          keyPattern: binding.keyPattern,
+          required: binding.required ?? false,
+        },
       });
     }
 
@@ -405,7 +444,7 @@ function addRelationshipNodesAndEdges(
         source: source.id,
         target: agent.id,
         kind: 'data',
-        label: tool,
+        label: 'reads from source',
       });
     }
 
@@ -413,7 +452,7 @@ function addRelationshipNodesAndEdges(
     if (tools.includes('shared_storage') || tools.includes('store_memory')) {
       const usesShared = tools.includes('shared_storage');
       const storageId = usesShared ? 'storage:shared' : 'storage:memory';
-      const label = usesShared ? 'Shared Storage' : 'Memory';
+      const label = usesShared ? 'Shared memory' : 'Bot memory';
       addNodeIfMissing({
         id: storageId,
         kind: 'storage_bucket',
@@ -425,7 +464,7 @@ function addRelationshipNodesAndEdges(
         source: agent.id,
         target: storageId,
         kind: 'data',
-        label: usesShared ? 'shared_storage' : 'store_memory',
+        label: usesShared ? 'uses shared memory' : 'uses memory',
       });
     }
 
@@ -467,7 +506,7 @@ function addRelationshipNodesAndEdges(
       source: edge.producer,
       target: edge.consumer,
       kind: 'data',
-      label: edge.keyPattern ? `shared:${edge.keyPattern}` : 'shared',
+      label: edge.keyPattern ? `shares ${edge.keyPattern}` : 'shares memory',
       animated: Boolean(edge.required),
       meta: { required: edge.required ?? false },
     });

@@ -23,7 +23,7 @@ export interface VisualNode {
     reasoning?: boolean | { effort?: 'low' | 'medium' | 'high' };
     stopWhen?: string;
     retries?: number;
-    runtimeStatus?: 'idle' | 'running' | 'success' | 'failed';
+    runtimeStatus?: 'idle' | 'running' | 'completed' | 'needs_attention';
     kind?: string;
     parentId?: string;
     collapsed?: boolean;

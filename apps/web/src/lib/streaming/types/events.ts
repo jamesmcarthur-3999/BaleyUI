@@ -128,8 +128,14 @@ export interface GraphRuntimeEvent {
   executionId: string;
   timestamp: number;
   entityName?: string;
+  fromEntityName?: string;
+  toEntityName?: string;
   nodeId?: string;
+  fromNodeId?: string;
+  toNodeId?: string;
+  runtimeStatus?: 'idle' | 'running' | 'completed' | 'needs_attention';
   nodeKind?: string;
   edgeId?: string;
   error?: string;
+  hint?: string;
 }

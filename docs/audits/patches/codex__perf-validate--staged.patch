@@ -1,0 +1,460 @@
+diff --git a/apps/web/src/app/dashboard/baleybots/[id]/actions.ts b/apps/web/src/app/dashboard/baleybots/[id]/actions.ts
+index c160e2e..a799ef8 100644
+--- a/apps/web/src/app/dashboard/baleybots/[id]/actions.ts
++++ b/apps/web/src/app/dashboard/baleybots/[id]/actions.ts
+@@ -1,13 +1,24 @@
+ 'use server';
+ 
+-import { balToVisual } from '@/lib/baleybot/visual/bal-to-nodes';
++import { balToVisual, balToVisualFromParsed, type BalToVisualResult } from '@/lib/baleybot/visual/bal-to-nodes';
+ import { parseBalCode } from '@/lib/baleybot/generator';
+-import type { VisualGraph, ParsedEntities } from '@/lib/baleybot/visual/types';
++import type { ParsedEntities } from '@/lib/baleybot/visual/types';
+ 
+-export async function parseBalToVisualGraph(balCode: string): Promise<VisualGraph> {
++export async function parseBalToVisualGraph(balCode: string): Promise<BalToVisualResult> {
+   return balToVisual(balCode);
+ }
+ 
+ export async function parseBalEntities(balCode: string): Promise<ParsedEntities> {
+   return parseBalCode(balCode);
+ }
++
++export async function parseBalGraphAndEntities(balCode: string): Promise<{
++  graphResult: BalToVisualResult;
++  parsed: ParsedEntities;
++}> {
++  const parsed = parseBalCode(balCode);
++  return {
++    parsed,
++    graphResult: balToVisualFromParsed(balCode, parsed),
++  };
++}
+diff --git a/apps/web/src/app/dashboard/baleybots/[id]/page.tsx b/apps/web/src/app/dashboard/baleybots/[id]/page.tsx
+index 92a2689..834ad09 100644
+--- a/apps/web/src/app/dashboard/baleybots/[id]/page.tsx
++++ b/apps/web/src/app/dashboard/baleybots/[id]/page.tsx
+@@ -6,13 +6,24 @@ import dynamic from 'next/dynamic';
+ import { motion } from 'framer-motion';
+ import { trpc } from '@/lib/trpc/client';
+ import { ChatInput, ActionBar, ConversationThread, ExecutionHistory, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError } from '@/components/creator';
+-import { BalCodeEditor, SchemaBuilder } from '@/components/baleybot';
++import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
+ 
+ // Dynamic import to avoid bundling @baleybots/core server-only modules in client
+ const VisualEditor = dynamic(
+   () => import('@/components/visual-editor/VisualEditor').then(mod => ({ default: mod.VisualEditor })),
+   { ssr: false }
+ );
++const BalCodeEditor = dynamic(
++  () => import('@/components/baleybot/BalCodeEditor').then(mod => ({ default: mod.BalCodeEditor })),
++  {
++    ssr: false,
++    loading: () => (
++      <div className="h-full flex items-center justify-center bg-muted/20 rounded-2xl">
++        <span className="text-sm text-muted-foreground">Loading editor...</span>
++      </div>
++    ),
++  }
++);
+ import { TriggerConfig } from '@/components/baleybots/TriggerConfig';
+ import type { TriggerConfig as TriggerConfigType } from '@/lib/baleybot/types';
+ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+diff --git a/apps/web/src/app/dashboard/page.tsx b/apps/web/src/app/dashboard/page.tsx
+index 3120720..fd67a86 100644
+--- a/apps/web/src/app/dashboard/page.tsx
++++ b/apps/web/src/app/dashboard/page.tsx
+@@ -101,7 +101,6 @@ export default function HomePage() {
+         ? new Date(execution.completedAt)
+         : null,
+       durationMs: execution.durationMs,
+-      output: execution.output,
+     })) || [];
+ 
+   return (
+diff --git a/apps/web/src/components/WorkspaceGuard.tsx b/apps/web/src/components/WorkspaceGuard.tsx
+index 34d0514..03e9d94 100644
+--- a/apps/web/src/components/WorkspaceGuard.tsx
++++ b/apps/web/src/components/WorkspaceGuard.tsx
+@@ -22,23 +22,16 @@ export function WorkspaceGuard({ children }: WorkspaceGuardProps) {
+     staleTime: 60000, // Cache for 1 minute
+   });
+ 
++  const shouldRedirect = !isLoading && data && !data.hasWorkspace;
++
+   useEffect(() => {
+-    if (!isLoading && data && !data.hasWorkspace) {
++    if (shouldRedirect) {
+       router.push(ROUTES.onboarding);
+     }
+-  }, [data, isLoading, router]);
+-
+-  // Show loading while checking
+-  if (isLoading) {
+-    return (
+-      <div className="h-screen flex items-center justify-center">
+-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+-      </div>
+-    );
+-  }
++  }, [router, shouldRedirect]);
+ 
+   // If no workspace, don't render children (will redirect)
+-  if (!data?.hasWorkspace) {
++  if (shouldRedirect) {
+     return (
+       <div className="h-screen flex items-center justify-center">
+         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+@@ -47,5 +40,17 @@ export function WorkspaceGuard({ children }: WorkspaceGuardProps) {
+   }
+ 
+   // Workspace exists, render children
+-  return <>{children}</>;
++  return (
++    <>
++      {children}
++      {isLoading && (
++        <div className="fixed inset-x-0 top-3 z-50 flex justify-center pointer-events-none">
++          <div className="flex items-center gap-2 rounded-full border border-border bg-background/90 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
++            <Loader2 className="h-3 w-3 animate-spin" />
++            Checking workspace...
++          </div>
++        </div>
++      )}
++    </>
++  );
+ }
+diff --git a/apps/web/src/components/baleybots/RecentActivityFeed.tsx b/apps/web/src/components/baleybots/RecentActivityFeed.tsx
+index c972a08..46b8a2f 100644
+--- a/apps/web/src/components/baleybots/RecentActivityFeed.tsx
++++ b/apps/web/src/components/baleybots/RecentActivityFeed.tsx
+@@ -22,7 +22,6 @@ interface Execution {
+   startedAt: Date | null;
+   completedAt: Date | null;
+   durationMs: number | null;
+-  output: unknown;
+ }
+ 
+ interface RecentActivityFeedProps {
+@@ -73,24 +72,6 @@ export function RecentActivityFeed({
+     }
+   };
+ 
+-  const getBriefResult = (execution: Execution): string | null => {
+-    if (execution.status !== 'completed' || !execution.output) return null;
+-
+-    // Try to extract a brief summary from the output
+-    const output = execution.output;
+-    if (typeof output === 'string') {
+-      return output.slice(0, 50) + (output.length > 50 ? '...' : '');
+-    }
+-    if (output && typeof output === 'object') {
+-      const outputObj = output as Record<string, unknown>;
+-      const summary = outputObj.summary || outputObj.result || outputObj.message;
+-      if (typeof summary === 'string') {
+-        return summary.slice(0, 50) + (summary.length > 50 ? '...' : '');
+-      }
+-    }
+-    return null;
+-  };
+-
+   return (
+     <div className={`card-playful rounded-2xl overflow-hidden ${className}`}>
+       <div className="p-6">
+@@ -119,47 +100,37 @@ export function RecentActivityFeed({
+           </div>
+         ) : executions.length > 0 ? (
+           <div className="space-y-2">
+-            {executions.map((execution, index) => {
+-              const briefResult = getBriefResult(execution);
+-
+-              return (
+-                <Link
+-                  key={execution.id}
+-                  href={ROUTES.activity.execution(execution.id)}
+-                  className={`flex items-center gap-4 rounded-xl p-3 hover:bg-primary/5 transition-colors duration-200 group animate-fade-in stagger-${Math.min(index + 1, 6)}`}
+-                >
+-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 text-xl shrink-0 transition-transform group-hover:scale-105">
+-                    {execution.baleybotIcon || '🤖'}
++            {executions.map((execution, index) => (
++              <Link
++                key={execution.id}
++                href={ROUTES.activity.execution(execution.id)}
++                className={`flex items-center gap-4 rounded-xl p-3 hover:bg-primary/5 transition-colors duration-200 group animate-fade-in stagger-${Math.min(index + 1, 6)}`}
++              >
++                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 text-xl shrink-0 transition-transform group-hover:scale-105">
++                  {execution.baleybotIcon || '🤖'}
++                </div>
++                <div className="flex-1 min-w-0">
++                  <div className="flex items-center gap-2 mb-0.5">
++                    <span className="font-medium text-sm">
++                      {execution.baleybotName}
++                    </span>
++                    <StatusIcon status={execution.status} />
+                   </div>
+-                  <div className="flex-1 min-w-0">
+-                    <div className="flex items-center gap-2 mb-0.5">
+-                      <span className="font-medium text-sm">
+-                        {execution.baleybotName}
++                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
++                    {execution.startedAt && (
++                      <span>{formatTimeAgo(execution.startedAt)}</span>
++                    )}
++                    {execution.durationMs && (
++                      <span className="flex items-center gap-1">
++                        <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
++                        {formatDuration(execution.durationMs)}
+                       </span>
+-                      <StatusIcon status={execution.status} />
+-                    </div>
+-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+-                      {execution.startedAt && (
+-                        <span>{formatTimeAgo(execution.startedAt)}</span>
+-                      )}
+-                      {execution.durationMs && (
+-                        <span className="flex items-center gap-1">
+-                          <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
+-                          {formatDuration(execution.durationMs)}
+-                        </span>
+-                      )}
+-                      {briefResult && (
+-                        <span className="truncate flex items-center gap-1">
+-                          <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
+-                          {briefResult}
+-                        </span>
+-                      )}
+-                    </div>
++                    )}
+                   </div>
+-                  <ArrowRight className="h-4 w-4 text-muted-foreground/50 transition-[color,transform] group-hover:text-primary group-hover:translate-x-1" />
+-                </Link>
+-              );
+-            })}
++                </div>
++                <ArrowRight className="h-4 w-4 text-muted-foreground/50 transition-[color,transform] group-hover:text-primary group-hover:translate-x-1" />
++              </Link>
++            ))}
+           </div>
+         ) : (
+           <div className="flex flex-col items-center justify-center py-12 text-center">
+diff --git a/apps/web/src/components/visual-editor/VisualEditor.tsx b/apps/web/src/components/visual-editor/VisualEditor.tsx
+index b86b29a..e50ace7 100644
+--- a/apps/web/src/components/visual-editor/VisualEditor.tsx
++++ b/apps/web/src/components/visual-editor/VisualEditor.tsx
+@@ -4,9 +4,10 @@ import { useState, useEffect, useRef } from 'react';
+ import { Code, LayoutGrid, Loader2 } from 'lucide-react';
+ import { ClusterDiagram } from './ClusterDiagram';
+ import { NodeEditor } from './NodeEditor';
+-import { parseBalToVisualGraph, parseBalEntities } from '@/app/dashboard/baleybots/[id]/actions';
++import { parseBalGraphAndEntities } from '@/app/dashboard/baleybots/[id]/actions';
+ import { applyNodeChangeFromParsed } from '@/lib/baleybot/visual/visual-to-bal';
+ import type { VisualGraph, ParsedEntities } from '@/lib/baleybot/visual/types';
++import { createBalParserClient, type BalParserClient } from '@/lib/workers/bal-parser-client';
+ import { cn } from '@/lib/utils';
+ 
+ interface VisualEditorProps {
+@@ -27,24 +28,61 @@ export function VisualEditor({
+   const [viewMode, setViewMode] = useState<ViewMode>('visual');
+   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+   const [visualGraph, setVisualGraph] = useState<VisualGraph>({ nodes: [], edges: [] });
+-  const [isParsing, setIsParsing] = useState(true);
++  const [parseErrors, setParseErrors] = useState<string[]>([]);
++  const [isParsing, setIsParsing] = useState(false);
+   const parsedEntitiesRef = useRef<ParsedEntities | null>(null);
+   const latestBalCodeRef = useRef(balCode);
++  const parserClientRef = useRef<BalParserClient | null>(null);
++  const parseRequestIdRef = useRef(0);
+ 
+   useEffect(() => {
++    parserClientRef.current = createBalParserClient();
++
++    return () => {
++      parserClientRef.current?.terminate();
++      parserClientRef.current = null;
++    };
++  }, []);
++
++  useEffect(() => {
++    if (viewMode === 'code') {
++      setIsParsing(false);
++      return;
++    }
++
+     let cancelled = false;
+     latestBalCodeRef.current = balCode;
++    const requestId = ++parseRequestIdRef.current;
+ 
+     const timeoutId = setTimeout(async () => {
+       setIsParsing(true);
+-      const [graph, entities] = await Promise.all([
+-        parseBalToVisualGraph(balCode),
+-        parseBalEntities(balCode),
+-      ]);
+-      if (!cancelled && latestBalCodeRef.current === balCode) {
+-        setVisualGraph(graph);
+-        parsedEntitiesRef.current = entities;
+-        setIsParsing(false);
++      try {
++        if (parserClientRef.current) {
++          const result = await parserClientRef.current.parse(balCode);
++          if (!cancelled && latestBalCodeRef.current === balCode && requestId === parseRequestIdRef.current) {
++            setVisualGraph(result.graphResult.graph);
++            setParseErrors(result.graphResult.errors);
++            parsedEntitiesRef.current = result.parsed;
++            setIsParsing(false);
++          }
++          return;
++        }
++
++        const result = await parseBalGraphAndEntities(balCode);
++
++        if (!cancelled && latestBalCodeRef.current === balCode && requestId === parseRequestIdRef.current) {
++          setVisualGraph(result.graphResult.graph);
++          setParseErrors(result.graphResult.errors);
++          parsedEntitiesRef.current = result.parsed;
++          setIsParsing(false);
++        }
++      } catch (error) {
++        if (!cancelled && latestBalCodeRef.current === balCode && requestId === parseRequestIdRef.current) {
++          setVisualGraph({ nodes: [], edges: [] });
++          setParseErrors([error instanceof Error ? error.message : String(error)]);
++          parsedEntitiesRef.current = null;
++          setIsParsing(false);
++        }
+       }
+     }, 300);
+ 
+@@ -52,7 +90,7 @@ export function VisualEditor({
+       cancelled = true;
+       clearTimeout(timeoutId);
+     };
+-  }, [balCode]);
++  }, [balCode, viewMode]);
+ 
+   const selectedNode = selectedNodeId
+     ? visualGraph.nodes.find((n) => n.id === selectedNodeId)
+@@ -144,6 +182,7 @@ export function VisualEditor({
+           >
+             <ClusterDiagram
+               graph={visualGraph}
++              parseErrors={parseErrors}
+               isParsing={isParsing}
+               onNodeClick={handleNodeClick}
+               readOnly={readOnly}
+diff --git a/apps/web/src/hooks/useDirtyState.ts b/apps/web/src/hooks/useDirtyState.ts
+index 4bc0dc8..977d7a8 100644
+--- a/apps/web/src/hooks/useDirtyState.ts
++++ b/apps/web/src/hooks/useDirtyState.ts
+@@ -79,8 +79,22 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
+       return;
+     }
+ 
+-    const dirty = !deepEqual(currentState, savedStateRef.current);
+-    setIsDirty(dirty);
++    const saved = savedStateRef.current;
++    const basicDiff =
++      currentState.name !== saved.name ||
++      currentState.description !== saved.description ||
++      currentState.icon !== saved.icon ||
++      currentState.balCode !== saved.balCode;
++
++    const entitiesChanged =
++      currentState.entities !== saved.entities ||
++      currentState.entities.length !== saved.entities.length;
++
++    const connectionsChanged =
++      currentState.connections !== saved.connections ||
++      currentState.connections.length !== saved.connections.length;
++
++    setIsDirty(basicDiff || entitiesChanged || connectionsChanged);
+   }, [currentState]);
+ 
+   // Mark current state as clean (after save)
+diff --git a/apps/web/src/lib/baleybot/visual/bal-to-nodes.ts b/apps/web/src/lib/baleybot/visual/bal-to-nodes.ts
+index 2d91e78..6858bba 100644
+--- a/apps/web/src/lib/baleybot/visual/bal-to-nodes.ts
++++ b/apps/web/src/lib/baleybot/visual/bal-to-nodes.ts
+@@ -8,7 +8,7 @@
+ import { parseBalCode } from '../generator';
+ import type { TriggerConfig } from '../types';
+ export type { VisualNode, VisualEdge, VisualGraph } from './types';
+-import type { VisualNode, VisualEdge, VisualGraph } from './types';
++import type { VisualNode, VisualEdge, VisualGraph, ParsedEntities } from './types';
+ 
+ // ============================================================================
+ // TRIGGER PARSING (moved inline after generator refactor)
+@@ -63,14 +63,33 @@ const HORIZONTAL_GAP = 100;
+ // CONVERTER
+ // ============================================================================
+ 
++/**
++ * Result of converting BAL code to a visual graph.
++ * Includes parse errors alongside partial/empty results.
++ */
++export interface BalToVisualResult {
++  graph: VisualGraph;
++  errors: string[];
++}
++
+ /**
+  * Convert BAL code to a visual graph representation
+  */
+-export function balToVisual(balCode: string): VisualGraph {
+-  const { entities, chain, errors } = parseBalCode(balCode);
++export function balToVisual(balCode: string): BalToVisualResult {
++  return balToVisualFromParsed(balCode, parseBalCode(balCode));
++}
++
++/**
++ * Convert BAL code to a visual graph using pre-parsed entities.
++ */
++export function balToVisualFromParsed(
++  balCode: string,
++  parsed: ParsedEntities
++): BalToVisualResult {
++  const { entities, chain, errors } = parsed;
+ 
+   if (errors.length > 0 || entities.length === 0) {
+-    return { nodes: [], edges: [] };
++    return { graph: { nodes: [], edges: [] }, errors };
+   }
+ 
+   const nodes: VisualNode[] = [];
+@@ -133,7 +152,7 @@ export function balToVisual(balCode: string): VisualGraph {
+ 
+   edges.push(...parallelEdges, ...conditionalEdges);
+ 
+-  return { nodes, edges };
++  return { graph: { nodes, edges }, errors: [] };
+ }
+ 
+ /**
+diff --git a/apps/web/src/lib/trpc/routers/baleybots.ts b/apps/web/src/lib/trpc/routers/baleybots.ts
+index 40d4f17..404d128 100644
+--- a/apps/web/src/lib/trpc/routers/baleybots.ts
++++ b/apps/web/src/lib/trpc/routers/baleybots.ts
+@@ -139,6 +139,16 @@ export const baleybotsRouter = router({
+         ),
+         with: {
+           executions: {
++            columns: {
++              id: true,
++              status: true,
++              error: true,
++              triggeredBy: true,
++              startedAt: true,
++              completedAt: true,
++              durationMs: true,
++              createdAt: true,
++            },
+             limit: 10,
+             orderBy: [desc(baleybotExecutions.createdAt)],
+           },
+@@ -705,7 +715,6 @@ export const baleybotsRouter = router({
+           startedAt: baleybotExecutions.startedAt,
+           completedAt: baleybotExecutions.completedAt,
+           durationMs: baleybotExecutions.durationMs,
+-          output: baleybotExecutions.output,
+           createdAt: baleybotExecutions.createdAt,
+           baleybotName: baleybots.name,
+           baleybotIcon: baleybots.icon,

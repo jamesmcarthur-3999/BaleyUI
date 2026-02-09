@@ -63,6 +63,7 @@ import {
   parseConnectionTool,
   connectionNameToSlug,
 } from '@/lib/baleybot/tools/requirements-scanner';
+import { validateAndNormalizeTriggerConfig } from '@/lib/baleybot/types';
 import {
   evaluateOutputMatch,
   MATCH_STRATEGIES,
@@ -1303,6 +1304,14 @@ export const baleybotsRouter = router({
       });
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
 
+      const triggerValidation = validateAndNormalizeTriggerConfig(input.triggerConfig);
+      if (!triggerValidation.valid) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: triggerValidation.issues.join(' '),
+        });
+      }
+
       // Touch updatedAt to signal a change
       await updateWithLock(baleybots, input.id, existing.version, {
         updatedAt: new Date(),
@@ -1316,19 +1325,20 @@ export const baleybotsRouter = router({
         ));
 
       // Create new trigger entry if config provided
-      if (input.triggerConfig) {
+      if (triggerValidation.normalized) {
+        const normalized = triggerValidation.normalized;
         await ctx.db.insert(baleybotTriggers).values({
           id: crypto.randomUUID(),
-          sourceBaleybotId: input.triggerConfig.type === 'other_bb' && input.triggerConfig.sourceBaleybotId
-            ? input.triggerConfig.sourceBaleybotId
+          sourceBaleybotId: normalized.type === 'other_bb' && normalized.sourceBaleybotId
+            ? normalized.sourceBaleybotId
             : input.id, // Self-reference for non-BB triggers
           targetBaleybotId: input.id,
-          triggerType: input.triggerConfig.type === 'other_bb'
-            ? input.triggerConfig.completionType ?? 'completion'
-            : input.triggerConfig.type,
+          triggerType: normalized.type === 'other_bb'
+            ? normalized.completionType ?? 'completion'
+            : normalized.type,
           workspaceId: ctx.workspace.id,
-          enabled: input.triggerConfig.enabled ?? true,
-          staticInput: input.triggerConfig, // Store full config as JSON
+          enabled: normalized.enabled ?? true,
+          staticInput: normalized, // Store normalized config as JSON
         });
       }
 
@@ -1354,13 +1364,13 @@ export const baleybotsRouter = router({
       // Return the stored trigger config from staticInput, or reconstruct from fields
       const trigger = triggers[0]!;
       if (trigger.staticInput && typeof trigger.staticInput === 'object') {
-        return trigger.staticInput as Record<string, unknown>;
+        return validateAndNormalizeTriggerConfig(trigger.staticInput).normalized;
       }
-      return {
+      return validateAndNormalizeTriggerConfig({
         type: trigger.triggerType,
         enabled: trigger.enabled,
         sourceBaleybotId: trigger.sourceBaleybotId,
-      };
+      }).normalized;
     }),
 
   /**

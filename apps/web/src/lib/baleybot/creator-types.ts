@@ -74,6 +74,31 @@ export interface Connection {
 }
 
 // ============================================================================
+// BUILDER EXPERIENCE TYPES
+// ============================================================================
+
+/**
+ * Presentation mode for the visual builder.
+ * - simple: novice-first labels and guided setup
+ * - advanced: exposes low-level and power-user controls
+ */
+export type BuilderPresentationMode = 'simple' | 'advanced';
+
+/**
+ * Guided trigger setup steps for novice-first trigger configuration.
+ */
+export type TriggerSetupStep = 'start' | 'input' | 'review';
+
+/**
+ * UI state snapshot for builder presentation and trigger setup flow.
+ */
+export interface BuilderExperienceState {
+  mode: BuilderPresentationMode;
+  triggerStep: TriggerSetupStep;
+  showAdvancedTriggerTypes: boolean;
+}
+
+// ============================================================================
 // MESSAGE TYPES
 // ============================================================================
 

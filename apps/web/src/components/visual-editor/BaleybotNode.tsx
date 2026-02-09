@@ -73,18 +73,18 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
   const runtimeTone =
     nodeData.runtimeStatus === 'running'
       ? 'border-sky-500/40 ring-2 ring-sky-500/30'
-      : nodeData.runtimeStatus === 'success'
+      : nodeData.runtimeStatus === 'completed'
         ? 'border-emerald-500/40 ring-2 ring-emerald-500/30'
-        : nodeData.runtimeStatus === 'failed'
+        : nodeData.runtimeStatus === 'needs_attention'
           ? 'border-red-500/40 ring-2 ring-red-500/30'
           : '';
 
   const runtimeLabel =
     nodeData.runtimeStatus === 'running'
       ? 'Running'
-      : nodeData.runtimeStatus === 'success'
+      : nodeData.runtimeStatus === 'completed'
         ? 'Completed'
-        : nodeData.runtimeStatus === 'failed'
+        : nodeData.runtimeStatus === 'needs_attention'
           ? 'Needs attention'
           : null;
 
@@ -124,8 +124,8 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
               <span className={cn(
                 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium',
                 nodeData.runtimeStatus === 'running' && 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
-                nodeData.runtimeStatus === 'success' && 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-                nodeData.runtimeStatus === 'failed' && 'bg-red-500/15 text-red-700 dark:text-red-300'
+                nodeData.runtimeStatus === 'completed' && 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+                nodeData.runtimeStatus === 'needs_attention' && 'bg-red-500/15 text-red-700 dark:text-red-300'
               )}>
                 <Activity className="h-2.5 w-2.5" />
                 {runtimeLabel}
@@ -149,7 +149,7 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
             <div className="space-y-1.5">
               <div className="flex items-center gap-1.5">
                 <Wrench className="h-3 w-3 text-muted-foreground shrink-0" />
-                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Tools</span>
+                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Actions</span>
               </div>
               <div className="flex flex-wrap gap-1">
                 {nodeData.tools.map((tool) => (
@@ -173,7 +173,7 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
               <div className="flex items-center gap-1.5">
                 <Database className="h-3 w-3 text-cyan-500 shrink-0" />
                 <span className="text-[10px] font-medium text-cyan-700 dark:text-cyan-300 uppercase tracking-wider">
-                  Data Sources
+                  Connected Inputs
                 </span>
               </div>
               <div className="flex flex-wrap gap-1">
@@ -194,7 +194,7 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
             <div className="space-y-1">
               <div className="flex items-center gap-1.5">
                 <Shield className="h-3 w-3 text-amber-500 shrink-0" />
-                <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider">Approval</span>
+                <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider">Needs Approval</span>
               </div>
               <div className="flex flex-wrap gap-1">
                 {nodeData.canRequest.map((tool) => (
@@ -237,7 +237,7 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
           {nodeData.trigger && nodeData.trigger.type !== 'manual' && (
             <div className="flex items-center gap-1.5">
               {getTriggerIcon()}
-              <span className="text-xs text-muted-foreground">{getTriggerLabel()}</span>
+              <span className="text-xs text-muted-foreground">Start: {getTriggerLabel()}</span>
             </div>
           )}
         </div>
@@ -323,10 +323,10 @@ function getToolStyle(tool: string): string {
 
 function formatToolName(tool: string): string {
   if (tool.startsWith('query_postgres_')) {
-    return `read postgres ${tool.replace(/^query_postgres_/, '').replace(/_/g, ' ')}`;
+    return `postgres data: ${tool.replace(/^query_postgres_/, '').replace(/_/g, ' ')}`;
   }
   if (tool.startsWith('query_mysql_')) {
-    return `read mysql ${tool.replace(/^query_mysql_/, '').replace(/_/g, ' ')}`;
+    return `mysql data: ${tool.replace(/^query_mysql_/, '').replace(/_/g, ' ')}`;
   }
   return tool.replace(/_/g, ' ');
 }

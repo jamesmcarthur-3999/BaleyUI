@@ -11,35 +11,35 @@ function getKindMeta(kind?: string) {
   switch (kind) {
     case 'trigger':
       return {
-        title: 'Start condition',
+        title: 'Start',
         Icon: PlayCircle,
         accent: 'text-emerald-600 dark:text-emerald-300',
         background: 'bg-emerald-500/10 border-emerald-500/30',
       };
     case 'datasource':
       return {
-        title: 'Data source',
+        title: 'Input source',
         Icon: Database,
         accent: 'text-cyan-700 dark:text-cyan-300',
         background: 'bg-cyan-500/10 border-cyan-500/30',
       };
     case 'storage_bucket':
       return {
-        title: 'Shared storage',
+        title: 'Shared memory',
         Icon: FolderKanban,
         accent: 'text-amber-700 dark:text-amber-300',
         background: 'bg-amber-500/10 border-amber-500/30',
       };
     case 'bb_cluster':
       return {
-        title: 'Workflow group',
+        title: 'Bot group',
         Icon: Workflow,
         accent: 'text-violet-700 dark:text-violet-300',
         background: 'bg-violet-500/10 border-violet-500/30',
       };
     default:
       return {
-        title: 'Flow helper',
+        title: 'Helper',
         Icon: Activity,
         accent: 'text-muted-foreground',
         background: 'bg-muted/40 border-border/60',
@@ -49,8 +49,8 @@ function getKindMeta(kind?: string) {
 
 function getRuntimeTone(status?: VisualNode['data']['runtimeStatus']) {
   if (status === 'running') return 'ring-2 ring-sky-500/40 border-sky-500/40';
-  if (status === 'success') return 'ring-2 ring-emerald-500/40 border-emerald-500/40';
-  if (status === 'failed') return 'ring-2 ring-red-500/40 border-red-500/40';
+  if (status === 'completed') return 'ring-2 ring-emerald-500/40 border-emerald-500/40';
+  if (status === 'needs_attention') return 'ring-2 ring-red-500/40 border-red-500/40';
   return '';
 }
 

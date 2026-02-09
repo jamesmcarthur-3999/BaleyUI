@@ -1,0 +1,82 @@
+diff --git a/apps/web/src/app/page.tsx b/apps/web/src/app/page.tsx
+index 8f9a6c3..4a7016d 100644
+--- a/apps/web/src/app/page.tsx
++++ b/apps/web/src/app/page.tsx
+@@ -6,6 +6,50 @@ import { Button } from '@/components/ui/button';
+ import { ArrowRight, Sparkles, Workflow, Zap } from 'lucide-react';
+ 
+ export default async function HomePage() {
++  if (process.env.SKIP_CLERK_AUTH === 'true') {
++    return (
++      <main className="relative min-h-screen overflow-hidden bg-background">
++        {/* Ambient background effects */}
++        <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-accent/5" />
++        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] rounded-full opacity-50" style={{ background: 'radial-gradient(circle, hsl(var(--primary) / 0.1) 0%, transparent 60%)' }} />
++        <div className="absolute bottom-0 right-0 w-[400px] h-[400px] rounded-full opacity-40" style={{ background: 'radial-gradient(circle, hsl(var(--accent) / 0.1) 0%, transparent 60%)' }} />
++
++        {/* Noise texture overlay */}
++        <div className="absolute inset-0 noise pointer-events-none" />
++
++        <div className="relative z-10">
++          <nav className="container flex items-center justify-between py-6">
++            <Link href="/" className="flex items-center gap-2">
++              <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
++                <Sparkles className="h-4 w-4 text-primary-foreground" />
++              </div>
++              <span className="text-xl font-semibold tracking-tight">
++                <span className="text-primary">Baley</span>UI
++              </span>
++            </Link>
++          </nav>
++          <section className="container pt-24 pb-32">
++            <div className="max-w-4xl mx-auto text-center space-y-8">
++              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 text-sm text-primary">
++                <Zap className="h-4 w-4" />
++                <span>AI-first development platform</span>
++              </div>
++              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.1]">
++                Build intelligent systems,{' '}
++                <span className="text-gradient">not just chatbots</span>
++              </h1>
++              <p className="max-w-2xl mx-auto text-lg sm:text-xl text-muted-foreground leading-relaxed">
++                BaleyUI is the visual development platform for AI workflows.
++                Design, test, and deploy sophisticated AI agents that actually
++                understand your business logic.
++              </p>
++            </div>
++          </section>
++        </div>
++      </main>
++    );
++  }
++
+   const { userId } = await auth();
+ 
+   // If signed in, redirect to dashboard
+diff --git a/apps/web/src/middleware.ts b/apps/web/src/middleware.ts
+index bc770c5..1cbbf8e 100644
+--- a/apps/web/src/middleware.ts
++++ b/apps/web/src/middleware.ts
+@@ -22,7 +22,14 @@ const isCsrfExempt = createRouteMatcher([
+   '/api/cron(.*)',      // Bearer token auth
+ ]);
+ 
+-export default clerkMiddleware(async (auth, request) => {
++const skipClerk = process.env.SKIP_CLERK_AUTH === 'true';
++
++export default skipClerk
++  ? function middleware() {
++      return NextResponse.next();
++    }
++  : clerkMiddleware(async (auth, request) => {
++
+   // Add request ID for tracing (use existing header or generate new one)
+   const requestId = request.headers.get('x-request-id') ?? globalThis.crypto.randomUUID();
+   const requestHeaders = new Headers(request.headers);
+diff --git a/packages/baleybots b/packages/baleybots
+index 878f9c6..4a97247 160000
+--- a/packages/baleybots
++++ b/packages/baleybots
+@@ -1 +1 @@
+-Subproject commit 878f9c63d78bfcd1bbb26e7b2377a66001099b65
++Subproject commit 4a97247cded875c7fd85ac0d27f7e6efcb149bc3-dirty

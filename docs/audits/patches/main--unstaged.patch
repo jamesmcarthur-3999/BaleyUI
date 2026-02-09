@@ -1,0 +1,45 @@
+diff --git a/apps/web/src/lib/baleybot/readiness.ts b/apps/web/src/lib/baleybot/readiness.ts
+index 23faf2c..4bf3b4c 100644
+--- a/apps/web/src/lib/baleybot/readiness.ts
++++ b/apps/web/src/lib/baleybot/readiness.ts
+@@ -54,6 +54,7 @@ export function computeApplicability(
+ export function computeReadiness(params: {
+   hasBalCode: boolean;
+   hasEntities: boolean;
++  designConfirmed?: boolean;
+   tools: string[];
+   connectionsMet: boolean;
+   hasConnections: boolean;
+@@ -62,9 +63,17 @@ export function computeReadiness(params: {
+   hasTrigger: boolean;
+   hasMonitoring: boolean;
+ }): ReadinessState {
++  const designConfirmed = params.designConfirmed ?? true;
++  const hasDesignArtifacts = params.hasBalCode && params.hasEntities;
+   const applicability = computeApplicability(params.tools, params.hasConnections);
+   return {
+-    designed: params.hasBalCode && params.hasEntities ? 'complete' : params.hasBalCode ? 'in-progress' : 'incomplete',
++    designed: hasDesignArtifacts
++      ? designConfirmed
++        ? 'complete'
++        : 'in-progress'
++      : params.hasBalCode
++        ? 'in-progress'
++        : 'incomplete',
+     connected: !applicability.connected
+       ? 'not-applicable'
+       : params.connectionsMet ? 'complete' : 'incomplete',
+@@ -189,12 +198,10 @@ export function getRecommendedAction(state: ReadinessState): RecommendedAction |
+ 
+ export function getVisibleTabs(readiness: ReadinessState): AdaptiveTab[] {
+   const tabs: AdaptiveTab[] = ['visual', 'code'];
+-  if (readiness.designed === 'complete' || readiness.designed === 'in-progress') {
++  if (readiness.designed === 'complete') {
+     if (readiness.connected !== 'not-applicable') {
+       tabs.push('connections');
+     }
+-  }
+-  if (readiness.designed === 'complete' || readiness.designed === 'in-progress') {
+     tabs.push('test');
+   }
+   if (readiness.connected === 'complete' || readiness.tested !== 'incomplete') {

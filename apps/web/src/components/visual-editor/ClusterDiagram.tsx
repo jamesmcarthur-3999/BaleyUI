@@ -215,11 +215,11 @@ export function ClusterDiagram({
       >
         {parseErrors.length > 0 ? (
           <>
-            <span className="text-destructive font-medium">Could not parse BAL code</span>
+            <span className="text-destructive font-medium">We could not read this flow yet</span>
             <span className="text-xs max-w-md text-center">{parseErrors[0]}</span>
           </>
         ) : (
-          'No entities found in BAL code'
+          'Add your first step to start building this flow'
         )}
       </div>
     );
@@ -259,21 +259,21 @@ export function ClusterDiagram({
         {/* Edge legend */}
         {edgeTypes.size > 0 && (
           <div className="absolute top-3 left-3 z-10 bg-card/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 space-y-1.5">
-            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Relationships</p>
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Flow Map</p>
             {edgeTypes.has('chain') && (
               <LegendItem color="hsl(var(--primary))" dashed={false} label="Step order" />
             )}
             {edgeTypes.has('spawn') && (
-              <LegendItem color="hsl(280, 80%, 55%)" dashed label="Creates helper step" />
+              <LegendItem color="hsl(280, 80%, 55%)" dashed label="Creates another step" />
             )}
             {edgeTypes.has('shared_data') && (
-              <LegendItem color="hsl(45, 90%, 50%)" dashed label="Shares data" />
+              <LegendItem color="hsl(45, 90%, 50%)" dashed label="Data link" />
             )}
             {edgeTypes.has('trigger') && (
-              <LegendItem color="hsl(142.1, 76.2%, 36.3%)" dashed={false} label="Starts this flow" />
+              <LegendItem color="hsl(142.1, 76.2%, 36.3%)" dashed={false} label="Start signal" />
             )}
             {edgeTypes.has('parallel') && (
-              <LegendItem color="hsl(217.2, 91.2%, 59.8%)" dashed label="Runs together" />
+              <LegendItem color="hsl(217.2, 91.2%, 59.8%)" dashed label="Runs at the same time" />
             )}
             {edgeTypes.has('loop') && (
               <LegendItem color="hsl(33, 95%, 55%)" dashed label="Repeats until done" />

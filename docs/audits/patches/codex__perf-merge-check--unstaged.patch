@@ -1,0 +1,141 @@
+diff --cc apps/web/src/components/visual-editor/VisualEditor.tsx
+index d781c0c,e50ace7..0000000
+--- a/apps/web/src/components/visual-editor/VisualEditor.tsx
++++ b/apps/web/src/components/visual-editor/VisualEditor.tsx
+@@@ -4,10 -4,10 +4,15 @@@ import { useState, useEffect, useRef } 
+  import { Code, LayoutGrid, Loader2 } from 'lucide-react';
+  import { ClusterDiagram } from './ClusterDiagram';
+  import { NodeEditor } from './NodeEditor';
+++<<<<<<< ours
+ +import { parseBalToVisualGraph, parseBalEntities } from '@/app/dashboard/baleybots/[id]/actions';
+ +import { useBalWorker } from '@/hooks/useBalWorker';
+++=======
++ import { parseBalGraphAndEntities } from '@/app/dashboard/baleybots/[id]/actions';
+++>>>>>>> theirs
+  import { applyNodeChangeFromParsed } from '@/lib/baleybot/visual/visual-to-bal';
+  import type { VisualGraph, ParsedEntities } from '@/lib/baleybot/visual/types';
++ import { createBalParserClient, type BalParserClient } from '@/lib/workers/bal-parser-client';
+  import { cn } from '@/lib/utils';
+  
+  interface VisualEditorProps {
+@@@ -29,42 -29,58 +34,90 @@@ export function VisualEditor(
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+    const [visualGraph, setVisualGraph] = useState<VisualGraph>({ nodes: [], edges: [] });
+    const [parseErrors, setParseErrors] = useState<string[]>([]);
+-   const [isParsing, setIsParsing] = useState(true);
++   const [isParsing, setIsParsing] = useState(false);
+    const parsedEntitiesRef = useRef<ParsedEntities | null>(null);
+    const latestBalCodeRef = useRef(balCode);
+++<<<<<<< ours
+ +  const balWorker = useBalWorker();
+++=======
++   const parserClientRef = useRef<BalParserClient | null>(null);
++   const parseRequestIdRef = useRef(0);
+++>>>>>>> theirs
+  
+    useEffect(() => {
++     parserClientRef.current = createBalParserClient();
++ 
++     return () => {
++       parserClientRef.current?.terminate();
++       parserClientRef.current = null;
++     };
++   }, []);
++ 
++   useEffect(() => {
++     if (viewMode === 'code') {
++       setIsParsing(false);
++       return;
++     }
++ 
+      let cancelled = false;
+      latestBalCodeRef.current = balCode;
++     const requestId = ++parseRequestIdRef.current;
+  
+      const timeoutId = setTimeout(async () => {
+        setIsParsing(true);
+++<<<<<<< ours
+ +
+ +      // Try worker first (off main thread), fall back to server actions
+ +      const workerResult = await balWorker.parseBalCode(balCode);
+ +
+ +      if (workerResult) {
+ +        // Worker succeeded -- use its result
+ +        if (!cancelled && latestBalCodeRef.current === balCode) {
+ +          setVisualGraph(workerResult.graph);
+ +          setParseErrors(workerResult.errors);
+ +          parsedEntitiesRef.current = {
+ +            entities: workerResult.entities,
+ +            errors: workerResult.errors,
+ +          };
+ +          setIsParsing(false);
+ +        }
+ +      } else {
+ +        // Worker unavailable -- fall back to server actions
+ +        const [result, entities] = await Promise.all([
+ +          parseBalToVisualGraph(balCode),
+ +          parseBalEntities(balCode),
+ +        ]);
+ +        if (!cancelled && latestBalCodeRef.current === balCode) {
+ +          setVisualGraph(result.graph);
+ +          setParseErrors(result.errors);
+ +          parsedEntitiesRef.current = entities;
+++=======
++       try {
++         if (parserClientRef.current) {
++           const result = await parserClientRef.current.parse(balCode);
++           if (!cancelled && latestBalCodeRef.current === balCode && requestId === parseRequestIdRef.current) {
++             setVisualGraph(result.graphResult.graph);
++             setParseErrors(result.graphResult.errors);
++             parsedEntitiesRef.current = result.parsed;
++             setIsParsing(false);
++           }
++           return;
++         }
++ 
++         const result = await parseBalGraphAndEntities(balCode);
++ 
++         if (!cancelled && latestBalCodeRef.current === balCode && requestId === parseRequestIdRef.current) {
++           setVisualGraph(result.graphResult.graph);
++           setParseErrors(result.graphResult.errors);
++           parsedEntitiesRef.current = result.parsed;
++           setIsParsing(false);
++         }
++       } catch (error) {
++         if (!cancelled && latestBalCodeRef.current === balCode && requestId === parseRequestIdRef.current) {
++           setVisualGraph({ nodes: [], edges: [] });
++           setParseErrors([error instanceof Error ? error.message : String(error)]);
++           parsedEntitiesRef.current = null;
+++>>>>>>> theirs
+            setIsParsing(false);
+          }
+        }
+@@@ -74,8 -90,7 +127,12 @@@
+        cancelled = true;
+        clearTimeout(timeoutId);
+      };
+++<<<<<<< ours
+ +    // eslint-disable-next-line react-hooks/exhaustive-deps
+ +  }, [balCode]);
+++=======
++   }, [balCode, viewMode]);
+++>>>>>>> theirs
+  
+    const selectedNode = selectedNodeId
+      ? visualGraph.nodes.find((n) => n.id === selectedNodeId)
+diff --cc apps/web/src/lib/trpc/routers/baleybots.ts
+index 8547701,404d128..0000000
+--- a/apps/web/src/lib/trpc/routers/baleybots.ts
++++ b/apps/web/src/lib/trpc/routers/baleybots.ts
+@@@ -706,8 -715,6 +716,11 @@@ export const baleybotsRouter = router(
+            startedAt: baleybotExecutions.startedAt,
+            completedAt: baleybotExecutions.completedAt,
+            durationMs: baleybotExecutions.durationMs,
+++<<<<<<< ours
+ +          output: baleybotExecutions.output,
+ +          error: baleybotExecutions.error,
+++=======
+++>>>>>>> theirs
+            createdAt: baleybotExecutions.createdAt,
+            baleybotName: baleybots.name,
+            baleybotIcon: baleybots.icon,

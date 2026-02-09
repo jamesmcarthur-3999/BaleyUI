@@ -37,7 +37,7 @@ export interface BalGraphNodeData {
   canRequest?: string[];
   output?: Record<string, string>;
   collapsed?: boolean;
-  runtimeStatus?: 'idle' | 'running' | 'success' | 'failed';
+  runtimeStatus?: 'idle' | 'running' | 'completed' | 'needs_attention';
   meta?: Record<string, unknown>;
 }
 
@@ -73,6 +73,8 @@ export interface BalGraphSidecarDatasourceBinding {
   mode?: 'read' | 'write' | 'read_write';
   connectionLabel?: string;
   connectionType?: string;
+  keyPattern?: string;
+  required?: boolean;
 }
 
 export interface BalGraphSidecarSpawnBinding {

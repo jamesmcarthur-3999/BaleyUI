@@ -214,8 +214,21 @@ export const creatorDiscoveryOutputSchema = z.object({
   questions: z.array(discoveryQuestionSchema).max(8).default([]),
   contextNotes: z.array(z.string()).max(16).default([]),
   delta: z
-    .object({
-      summary: z.string().min(1).max(400),
+    .preprocess((value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return value;
+      }
+
+      const record = value as Record<string, unknown>;
+      const rawSummary =
+        typeof record.summary === 'string' ? record.summary.trim() : '';
+
+      return {
+        ...record,
+        summary: rawSummary.length > 0 ? rawSummary : 'Discovery state updated.',
+      };
+    }, z.object({
+      summary: z.string().min(1).max(400).default('Discovery state updated.'),
       goal: z.string().max(220).optional(),
       stage: z.string().max(80).optional(),
       resolvedDecisions: z.array(discoveryQuestionSchema).max(10).optional(),
@@ -223,7 +236,7 @@ export const creatorDiscoveryOutputSchema = z.object({
       assumptions: z.array(discoveryAssumptionSchema).max(10).optional(),
       nextQuestion: discoveryQuestionSchema.nullable().optional(),
       runnableConfidence: z.number().min(0).max(1).optional(),
-    })
+    }))
     .optional(),
 });
 

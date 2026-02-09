@@ -1,0 +1,7 @@
+diff --git a/packages/baleybots b/packages/baleybots
+index 878f9c6..4a97247 160000
+--- a/packages/baleybots
++++ b/packages/baleybots
+@@ -1 +1 @@
+-Subproject commit 878f9c63d78bfcd1bbb26e7b2377a66001099b65
++Subproject commit 4a97247cded875c7fd85ac0d27f7e6efcb149bc3

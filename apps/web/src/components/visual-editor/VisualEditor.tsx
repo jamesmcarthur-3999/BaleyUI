@@ -22,6 +22,7 @@ import type {
 import type { VisualGraph, ParsedEntities } from '@/lib/baleybot/visual/types';
 import type { TriggerConfig } from '@/lib/baleybot/types';
 import type { GraphRuntimeEvent } from '@/lib/streaming/types/events';
+import type { BuilderPresentationMode } from '@/lib/baleybot/creator-types';
 import { cn } from '@/lib/utils';
 
 interface VisualEditorProps {
@@ -39,6 +40,8 @@ interface VisualEditorProps {
   graphSidecar?: BalGraphSidecarMetadata;
   /** Optional runtime execution events for live node highlighting */
   runtimeEvents?: GraphRuntimeEvent[];
+  /** Builder presentation mode (simple = novice-first, advanced = power controls) */
+  presentationMode?: BuilderPresentationMode;
 }
 
 type ViewMode = 'visual' | 'code' | 'split';
@@ -203,28 +206,38 @@ function applyRuntimeOverlay(
   }
 
   const next = cloneGraphModel(model);
-  const nodeStatus = new Map<string, 'idle' | 'running' | 'success' | 'failed'>();
+  const nodeStatus = new Map<string, 'idle' | 'running' | 'completed' | 'needs_attention'>();
   const traversedEdges = new Set<string>();
 
   const sorted = [...runtimeEvents].sort((a, b) => a.timestamp - b.timestamp);
 
   for (const event of sorted) {
-    const nodeId = event.nodeId ?? event.entityName;
+    const nodeId = event.nodeId ?? event.entityName ?? event.toNodeId ?? event.toEntityName;
+    if (event.runtimeStatus && nodeId) {
+      nodeStatus.set(nodeId, event.runtimeStatus);
+      continue;
+    }
     if (event.type === 'node_started' && nodeId) {
       nodeStatus.set(nodeId, 'running');
       continue;
     }
     if (event.type === 'node_succeeded' && nodeId) {
-      nodeStatus.set(nodeId, 'success');
+      nodeStatus.set(nodeId, 'completed');
       continue;
     }
     if (event.type === 'node_failed' && nodeId) {
-      nodeStatus.set(nodeId, 'failed');
+      nodeStatus.set(nodeId, 'needs_attention');
       continue;
     }
     if (event.type === 'edge_traversed') {
       if (event.edgeId) {
         traversedEdges.add(event.edgeId);
+      } else if (event.fromNodeId && event.toNodeId) {
+        for (const edge of next.edges) {
+          if (edge.source === event.fromNodeId && edge.target === event.toNodeId) {
+            traversedEdges.add(edge.id);
+          }
+        }
       } else if (nodeId) {
         for (const edge of next.edges) {
           if (edge.target === nodeId) {
@@ -278,6 +291,7 @@ export function VisualEditor({
   triggerConfig,
   graphSidecar,
   runtimeEvents,
+  presentationMode = 'advanced',
 }: VisualEditorProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('visual');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -296,6 +310,7 @@ export function VisualEditor({
     : null;
 
   const selectedIsAgent = selectedNode?.data.kind === 'bb_agent' || selectedNode?.type === 'baleybot';
+  const isSimpleMode = presentationMode === 'simple';
 
   const addStepDisabled = readOnly || isParsing || !canUseCanvasCommands;
   const deleteStepDisabled = readOnly || isParsing || !canUseCanvasCommands || !selectedNodeId || !selectedIsAgent;
@@ -481,10 +496,14 @@ export function VisualEditor({
 
   const builderHint = useMemo(() => {
     if (!canUseCanvasCommands) {
-      return 'This flow uses advanced logic. You can still edit each step, but add/remove should be done in code view.';
+      return isSimpleMode
+        ? 'This flow uses advanced logic. Switch to Advanced mode if you need to edit structure.'
+        : 'This flow uses advanced logic. You can still edit each step, but add/remove should be done in code view.';
     }
-    return 'Click a step to edit it. Use + Add Step to grow the flow.';
-  }, [canUseCanvasCommands]);
+    return isSimpleMode
+      ? 'Click a step to edit it. Add Step builds your flow one step at a time.'
+      : 'Click a step to edit it. Use + Add Step to grow the flow.';
+  }, [canUseCanvasCommands, isSimpleMode]);
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
