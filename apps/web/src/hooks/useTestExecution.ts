@@ -13,6 +13,8 @@ import type { Dispatch, SetStateAction } from 'react';
 import { trpc } from '@/lib/trpc/client';
 import type { TestCase } from '@/components/creator';
 import type { CreatorMessage, VisualEntity, AdaptiveTab } from '@/lib/baleybot/creator-types';
+import { streamPostSSE } from '@/lib/streaming/client-post-sse';
+import type { GraphRuntimeEvent } from '@/lib/streaming/types/events';
 import { getConnectionSummary } from '@/lib/baleybot/tools/requirements-scanner';
 import {
   evaluateOutputMatch,
@@ -81,6 +83,8 @@ export interface UseTestExecutionParams {
   workspaceConnections: WorkspaceConnection[] | undefined;
   onInjectMessage: (message: CreatorMessage) => void;
   onNavigateToTab: (tab: AdaptiveTab) => void;
+  onRuntimeGraphEvent?: (event: GraphRuntimeEvent) => void;
+  onExecutionStarted?: () => void;
 }
 
 export interface UseTestExecutionReturn {
@@ -99,6 +103,15 @@ export interface UseTestExecutionReturn {
   handleUpdateTest: (testId: string, updates: Partial<TestCase>) => void;
   handleDeleteTest: (testId: string) => void;
   handleAcceptActual: (testId: string) => void;
+}
+
+interface TestRuntimeStreamEvent {
+  type: string;
+  graphEvent?: GraphRuntimeEvent;
+  status?: string;
+  output?: unknown;
+  error?: unknown;
+  durationMs?: number;
 }
 
 // ============================================================================
@@ -311,6 +324,8 @@ export function useTestExecution({
   workspaceConnections,
   onInjectMessage,
   onNavigateToTab: _onNavigateToTab,
+  onRuntimeGraphEvent,
+  onExecutionStarted,
 }: UseTestExecutionParams): UseTestExecutionReturn {
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [isGeneratingTests, setIsGeneratingTests] = useState(false);
@@ -327,6 +342,66 @@ export function useTestExecution({
   const validateMutation = trpc.baleybots.validateTestOutput.useMutation();
   const analyzeMutation = trpc.baleybots.analyzeTestResults.useMutation();
   const preloadFixturesMutation = trpc.baleybots.preloadTestFixtures.useMutation();
+
+  const executeViaStream = async (
+    payload: unknown,
+    triggerSource: string
+  ): Promise<{
+    status: string;
+    output?: unknown;
+    error?: string;
+    durationMs?: number;
+  }> => {
+    if (!savedBaleybotId) {
+      throw new Error('Bot must be saved before running tests.');
+    }
+
+    let finalResult:
+      | {
+          status: string;
+          output?: unknown;
+          error?: string;
+          durationMs?: number;
+        }
+      | null = null;
+
+    await streamPostSSE<TestRuntimeStreamEvent>({
+      url: `/api/baleybots/${savedBaleybotId}/execute-stream`,
+      body: {
+        input: payload,
+        triggeredBy: 'manual',
+        triggerSource,
+      },
+      onEvent: (event) => {
+        if (event.type === 'graph_event' && event.graphEvent) {
+          onRuntimeGraphEvent?.(event.graphEvent);
+          return;
+        }
+
+        if (event.type === 'execution_result') {
+          const maybeError =
+            typeof event.error === 'string'
+              ? event.error
+              : event.error instanceof Error
+                ? event.error.message
+                : undefined;
+          finalResult = {
+            status: event.status ?? 'failed',
+            output: event.output,
+            error: maybeError,
+            durationMs:
+              typeof event.durationMs === 'number' ? event.durationMs : undefined,
+          };
+        }
+      },
+    });
+
+    if (!finalResult) {
+      throw new Error('Execution stream ended without a final result.');
+    }
+
+    return finalResult;
+  };
 
   // Auto-save test cases when they change (debounced)
   useEffect(() => {
@@ -632,6 +707,7 @@ export function useTestExecution({
     }
 
     // Mark as running
+    onExecutionStarted?.();
     setTestCases(prev => prev.map(t =>
       t.id === testId ? { ...t, status: 'running' as const, failureCategory: undefined, error: undefined } : t
     ));
@@ -671,12 +747,18 @@ export function useTestExecution({
       );
 
       const execution = await Promise.race([
-        executeMutation.mutateAsync({
-          id: savedBaleybotId!,
-          input: executionInput,
-          triggeredBy: 'manual',
-          triggerSource: `test_runner:${testId}`,
-        }),
+        (async () => {
+          try {
+            return await executeViaStream(executionInput, `test_runner:${testId}`);
+          } catch {
+            return executeMutation.mutateAsync({
+              id: savedBaleybotId!,
+              input: executionInput,
+              triggeredBy: 'manual',
+              triggerSource: `test_runner:${testId}`,
+            });
+          }
+        })(),
         timeoutPromise,
       ]);
 

@@ -192,6 +192,14 @@ export interface MessageMetadata {
       description: string;
       requiredNow?: boolean;
     }>;
+    /** Adaptive discovery plan ledger for chat-first ideation */
+    planLedger?: CreatorPlanLedger;
+    /** Open decisions still needed before fully runnable execution */
+    openDecisions?: CreatorPlanDecision[];
+    /** Decisions already resolved from conversation */
+    resolvedDecisions?: CreatorPlanDecision[];
+    /** Next focused question the creator will ask */
+    nextQuestion?: CreatorPlanDecision | null;
   };
 
   /** User-submitted discovery intake summary for chat rendering/retry */
@@ -212,6 +220,60 @@ export interface MessageMetadata {
 
   /** Compact streaming summary after completion */
   streamSummary?: string;
+}
+
+// ============================================================================
+// CREATOR GUIDANCE + PLAN LEDGER TYPES
+// ============================================================================
+
+export interface CreatorGuidanceAction {
+  label: string;
+  prompt: string;
+  mode?: 'send' | 'insert';
+  reason?: string;
+  priority?: number;
+}
+
+export interface CreatorPlanDecision {
+  id: string;
+  label: string;
+  description: string;
+  requiredNow?: boolean;
+}
+
+export interface CreatorPlanLedger {
+  goal?: string;
+  stage?: string;
+  resolvedDecisions: CreatorPlanDecision[];
+  openDecisions: CreatorPlanDecision[];
+  assumptions: Array<{
+    id: string;
+    label: string;
+    value: string;
+    confidence: 'low' | 'medium' | 'high';
+    requiresConfirmation?: boolean;
+  }>;
+  nextQuestion?: CreatorPlanDecision | null;
+  runnableConfidence?: number;
+  updatedAt: number;
+}
+
+export interface CreatorPlanDelta {
+  summary: string;
+  goal?: string;
+  stage?: string;
+  resolvedDecisions?: CreatorPlanDecision[];
+  openDecisions?: CreatorPlanDecision[];
+  assumptions?: CreatorPlanLedger['assumptions'];
+  nextQuestion?: CreatorPlanDecision | null;
+  runnableConfidence?: number;
+}
+
+export interface CreatorToolActivity {
+  name: string;
+  status: 'pending' | 'running' | 'success' | 'error';
+  message?: string;
+  timestamp: number;
 }
 
 /**

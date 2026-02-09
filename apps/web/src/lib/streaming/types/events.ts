@@ -116,3 +116,20 @@ export interface ServerStreamEvent {
   event: BaleybotStreamEvent;
   timestamp: number;
 }
+
+export type GraphRuntimeEventType =
+  | 'node_started'
+  | 'node_succeeded'
+  | 'node_failed'
+  | 'edge_traversed';
+
+export interface GraphRuntimeEvent {
+  type: GraphRuntimeEventType;
+  executionId: string;
+  timestamp: number;
+  entityName?: string;
+  nodeId?: string;
+  nodeKind?: string;
+  edgeId?: string;
+  error?: string;
+}

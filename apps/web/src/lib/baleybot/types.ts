@@ -195,6 +195,14 @@ export interface TriggerConfig {
   mcpTool?: string;
   /** MCP resource identifier for mcp_event triggers */
   mcpResource?: string;
+  /** Allowed MIME types for file_upload triggers */
+  acceptedMimeTypes?: string[];
+  /** Max file size in MB for file_upload triggers */
+  maxFileSizeMb?: number;
+  /** Whether multiple files are accepted */
+  multiple?: boolean;
+  /** How files are passed into execution input */
+  payloadMode?: 'metadata' | 'inline_base64';
   /** Whether the trigger is enabled */
   enabled?: boolean;
 }
@@ -252,7 +260,7 @@ export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | '
 /**
  * Trigger type for an execution
  */
-export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'db_event' | 'mcp_event';
+export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'db_event' | 'mcp_event' | 'file_upload';
 
 /**
  * A BaleyBot execution record

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Clock, Globe, Zap, Hand, Info, ChevronDown, Copy, Check, Database, Puzzle } from 'lucide-react';
+import { Clock, Globe, Zap, Hand, Info, ChevronDown, Copy, Check, Database, Puzzle, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { TriggerConfig, TriggerType } from '@/lib/baleybot/types';
 
@@ -10,6 +10,7 @@ interface TriggerConfigProps {
   onChange: (config: TriggerConfig | undefined) => void;
   availableBaleybots?: Array<{ id: string; name: string }>;
   availableConnections?: Array<{ id: string; name: string; type: string; status?: string }>;
+  workspaceId?: string;
   baleybotId?: string;
   className?: string;
 }
@@ -56,9 +57,15 @@ const TRIGGER_OPTIONS: Array<{
     description: 'Triggered by MCP tool/resource events',
     Icon: Puzzle,
   },
+  {
+    type: 'file_upload',
+    label: 'File Upload',
+    description: 'Triggered by uploaded files',
+    Icon: Upload,
+  },
 ];
 
-const CORE_TRIGGER_TYPES: TriggerType[] = ['manual', 'schedule', 'webhook'];
+const CORE_TRIGGER_TYPES: TriggerType[] = ['manual', 'schedule', 'webhook', 'file_upload'];
 const ADVANCED_TRIGGER_TYPES: TriggerType[] = ['other_bb', 'db_event', 'mcp_event'];
 
 function isAdvancedTriggerType(type: TriggerType): boolean {
@@ -79,6 +86,7 @@ export function TriggerConfig({
   onChange,
   availableBaleybots = [],
   availableConnections = [],
+  workspaceId,
   baleybotId,
   className,
 }: TriggerConfigProps) {
@@ -117,6 +125,12 @@ export function TriggerConfig({
         ...(type === 'schedule' && { schedule: '0 9 * * *' }),
         ...(type === 'other_bb' && { completionType: 'success' as const }),
         ...(type === 'db_event' && { dbEvent: 'insert' as const }),
+        ...(type === 'file_upload' && {
+          acceptedMimeTypes: ['application/pdf', 'image/png', 'image/jpeg'],
+          maxFileSizeMb: 10,
+          multiple: false,
+          payloadMode: 'metadata' as const,
+        }),
       });
     }
     setIsOpen(false);
@@ -209,6 +223,47 @@ export function TriggerConfig({
       ...value,
       type: 'mcp_event',
       mcpResource: mcpResource || undefined,
+      enabled: true,
+    });
+  };
+
+  const handleAcceptedMimeTypesChange = (raw: string) => {
+    const acceptedMimeTypes = raw
+      .split(',')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    onChange({
+      ...value,
+      type: 'file_upload',
+      acceptedMimeTypes,
+      enabled: true,
+    });
+  };
+
+  const handleMaxFileSizeChange = (raw: string) => {
+    const numeric = Number(raw);
+    onChange({
+      ...value,
+      type: 'file_upload',
+      maxFileSizeMb: Number.isFinite(numeric) && numeric > 0 ? numeric : undefined,
+      enabled: true,
+    });
+  };
+
+  const handleMultipleFilesChange = (multiple: boolean) => {
+    onChange({
+      ...value,
+      type: 'file_upload',
+      multiple,
+      enabled: true,
+    });
+  };
+
+  const handlePayloadModeChange = (payloadMode: 'metadata' | 'inline_base64') => {
+    onChange({
+      ...value,
+      type: 'file_upload',
+      payloadMode,
       enabled: true,
     });
   };
@@ -591,6 +646,92 @@ export function TriggerConfig({
           </div>
         </div>
       )}
+
+      {/* File Upload Configuration */}
+      {selectedType === 'file_upload' && (
+        <div className="space-y-4 p-4 rounded-xl bg-muted/30 border border-border/30">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Upload className="h-4 w-4 text-sky-500" />
+              Accepted MIME Types
+            </label>
+            <input
+              type="text"
+              value={(value?.acceptedMimeTypes ?? []).join(', ')}
+              onChange={(e) => handleAcceptedMimeTypesChange(e.target.value)}
+              placeholder="application/pdf, image/png, image/jpeg"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-border/50 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Max File Size (MB)</label>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={value?.maxFileSizeMb ?? 10}
+                onChange={(e) => handleMaxFileSizeChange(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-border/50 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Payload Mode</label>
+              <select
+                value={value?.payloadMode ?? 'metadata'}
+                onChange={(e) => handlePayloadModeChange((e.target.value as 'metadata' | 'inline_base64') ?? 'metadata')}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-border/50 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="metadata">Metadata only</option>
+                <option value="inline_base64">Inline base64</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background px-3 py-2">
+            <span className="text-sm text-foreground">Allow multiple files</span>
+            <button
+              type="button"
+              onClick={() => handleMultipleFilesChange(!(value?.multiple ?? false))}
+              className={cn(
+                'h-6 w-11 rounded-full transition-colors relative',
+                value?.multiple ? 'bg-primary' : 'bg-muted'
+              )}
+            >
+              <span
+                className={cn(
+                  'absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform',
+                  value?.multiple ? 'translate-x-5' : 'translate-x-0.5'
+                )}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-start gap-2 text-xs text-muted-foreground">
+            <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+              Use this trigger to ingest uploaded files directly. The endpoint validates type and size before execution.
+            </span>
+          </div>
+
+          {workspaceId && baleybotId ? (
+            <div className="rounded-lg border border-border/50 bg-background p-3">
+              <p className="text-xs text-muted-foreground mb-1">Upload endpoint</p>
+              <code className="text-xs font-mono break-all block">
+                {typeof window !== 'undefined' ? window.location.origin : ''}/api/triggers/file-upload/{workspaceId}/{baleybotId}
+              </code>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2 text-xs text-muted-foreground">
+              <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                Save this bot first to generate its upload endpoint.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -626,6 +767,8 @@ export function TriggerBadge({
         return `DB ${trigger.dbEvent || 'change'}`;
       case 'mcp_event':
         return 'MCP Event';
+      case 'file_upload':
+        return 'File Upload';
       default:
         return config.label;
     }
@@ -640,6 +783,7 @@ export function TriggerBadge({
         trigger.type === 'other_bb' && 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
         trigger.type === 'db_event' && 'bg-cyan-500/10 text-cyan-600 border-cyan-500/20',
         trigger.type === 'mcp_event' && 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20',
+        trigger.type === 'file_upload' && 'bg-sky-500/10 text-sky-600 border-sky-500/20',
         className
       )}
     >

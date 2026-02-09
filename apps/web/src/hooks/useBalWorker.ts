@@ -8,6 +8,7 @@
 
 import { useRef, useEffect } from 'react';
 import type { VisualGraph } from '@/lib/baleybot/visual/types';
+import type { ParsedExpression } from '@/lib/baleybot/graph/build-graph';
 
 // ============================================================================
 // TYPES
@@ -16,6 +17,7 @@ import type { VisualGraph } from '@/lib/baleybot/visual/types';
 export interface WorkerParseResult {
   entities: Array<{ name: string; config: Record<string, unknown> }>;
   chain?: string[];
+  expression?: ParsedExpression;
   graph: VisualGraph;
   errors: string[];
 }
@@ -29,6 +31,7 @@ interface WorkerResponse {
   id: number;
   entities?: Array<{ name: string; config: Record<string, unknown> }>;
   chain?: string[];
+  expression?: ParsedExpression;
   graph?: VisualGraph;
   errors: string[];
 }
@@ -103,6 +106,7 @@ export function useBalWorker() {
           resolve({
             entities: e.data.entities || [],
             chain: e.data.chain,
+            expression: e.data.expression,
             graph: e.data.graph || { nodes: [], edges: [] },
             errors: e.data.errors,
           });

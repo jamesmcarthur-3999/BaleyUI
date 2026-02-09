@@ -21,10 +21,11 @@ import {
   inArray,
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
-import { processCreatorMessage } from '@/lib/baleybot/creator-bot';
 import { sanitizeCreatorText } from '@/lib/baleybot/creator-sanitization';
 import { getPreferredProvider } from '@/lib/baleybot';
 import { buildCreatorRequestContext } from '@/lib/baleybot/creator-request-context';
+import { runCreatorOrchestrator } from '@/lib/baleybot/creator-orchestrator';
+import { getCreatorGuidance } from '@/lib/baleybot/creator-guidance-service';
 import { executeBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
 import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
@@ -42,7 +43,6 @@ import {
 import { createLogger } from '@/lib/logger';
 import {
   runConnectionAdvisor,
-  runCreatorActionAdvisor,
   runDeploymentAdvisor,
   runTestGenerator,
   runTestOrchestrator,
@@ -84,7 +84,7 @@ const executionStatusSchema = z.enum(['pending', 'running', 'completed', 'failed
 /**
  * Trigger types for executions
  */
-const triggerTypeSchema = z.enum(['manual', 'schedule', 'webhook', 'other_bb', 'db_event', 'mcp_event']);
+const triggerTypeSchema = z.enum(['manual', 'schedule', 'webhook', 'other_bb', 'db_event', 'mcp_event', 'file_upload']);
 
 type WorkspaceConnectionLite = {
   id: string;
@@ -1001,7 +1001,7 @@ export const baleybotsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await checkRateLimit(
-        `creator:${ctx.workspace.id}:${ctx.userId}`,
+        `creatorForeground:${ctx.workspace.id}:${ctx.userId}`,
         RATE_LIMITS.creatorMessage,
       );
 
@@ -1012,15 +1012,51 @@ export const baleybotsRouter = router({
         conversationHistory: input.conversationHistory,
       });
 
-      const result = await processCreatorMessage(
+      const orchestrated = await runCreatorOrchestrator(
         {
+          workspaceId: ctx.workspace.id,
           context: creatorContext.context,
           conversationHistory: creatorContext.conversationHistory,
+          userMessage: creatorContext.sanitizedMessage,
         },
-        creatorContext.sanitizedMessage
       );
 
-      return result;
+      return orchestrated.result;
+    }),
+
+  /**
+   * Context-aware creator guidance actions. Canonical source for next-action suggestions.
+   */
+  getCreatorGuidance: protectedProcedure
+    .input(
+      z.object({
+        status: z.enum(['empty', 'building', 'ready', 'running', 'error']),
+        messages: z.array(
+          z.object({
+            role: z.enum(['user', 'assistant']),
+            content: z.string().max(4000),
+            metadata: z.record(z.string(), z.unknown()).optional(),
+          })
+        ).max(30),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      if (input.status === 'running') {
+        return { actions: [] };
+      }
+
+      await checkRateLimit(
+        `creatorGuidanceBackground:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.creatorGuidance,
+      );
+
+      const guidance = await getCreatorGuidance({
+        workspaceId: ctx.workspace.id,
+        status: input.status,
+        messages: input.messages,
+      });
+
+      return { actions: guidance.actions };
     }),
 
   /**
@@ -1041,132 +1077,20 @@ export const baleybotsRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      // Compatibility alias: legacy UI can keep calling this endpoint.
       if (input.status === 'running') {
         return { actions: [] };
       }
-
       await checkRateLimit(
-        `creatorActions:${ctx.workspace.id}:${ctx.userId}`,
-        RATE_LIMITS.creatorMessage,
+        `creatorActionsBackground:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.creatorGuidance,
       );
-
-      const recentMessages = input.messages.slice(-12);
-      const transcript = recentMessages
-        .map((message, index) => {
-          const content = sanitizeCreatorText(message.content).slice(0, 280);
-          return `${index + 1}. ${message.role}: ${content}`;
-        })
-        .join('\n');
-
-      const latestLifecycle = [...recentMessages]
-        .reverse()
-        .find((message) => {
-          const metadata = message.metadata;
-          return Boolean(
-            message.role === 'assistant' &&
-              metadata &&
-              typeof metadata === 'object' &&
-              'creatorLifecycle' in metadata
-          );
-        })?.metadata?.creatorLifecycle as
-          | {
-              stage?: string;
-              nextStage?: string;
-              nextAction?: string;
-              blockerMode?: string;
-              runnableConfidence?: number;
-              assumptions?: unknown[];
-              requiredQuestions?: unknown[];
-              optionalQuestions?: unknown[];
-            }
-          | undefined;
-
-      const latestDiagnostic = [...recentMessages]
-        .reverse()
-        .find((message) => {
-          const metadata = message.metadata;
-          return Boolean(
-            message.role === 'assistant' &&
-              metadata &&
-              typeof metadata === 'object' &&
-              'diagnostic' in metadata
-          );
-        })?.metadata?.diagnostic as
-          | {
-              level?: string;
-              title?: string;
-              details?: string;
-            }
-          | undefined;
-
-      const requiredCount = Array.isArray(latestLifecycle?.requiredQuestions)
-        ? latestLifecycle.requiredQuestions.length
-        : 0;
-      const optionalCount = Array.isArray(latestLifecycle?.optionalQuestions)
-        ? latestLifecycle.optionalQuestions.length
-        : 0;
-      const assumptionCount = Array.isArray(latestLifecycle?.assumptions)
-        ? latestLifecycle.assumptions.length
-        : 0;
-
-      const contextStr = [
-        `Creator status: ${input.status}`,
-        latestLifecycle?.stage ? `Current stage: ${latestLifecycle.stage}` : '',
-        latestLifecycle?.nextStage ? `Next stage hint: ${latestLifecycle.nextStage}` : '',
-        latestLifecycle?.nextAction ? `Current next action: ${latestLifecycle.nextAction}` : '',
-        latestLifecycle?.blockerMode ? `Blocker mode: ${latestLifecycle.blockerMode}` : '',
-        typeof latestLifecycle?.runnableConfidence === 'number'
-          ? `Runnable confidence: ${Math.round(latestLifecycle.runnableConfidence * 100)}%`
-          : '',
-        assumptionCount > 0 ? `Active assumptions: ${assumptionCount}` : '',
-        requiredCount > 0 ? `Required discovery questions remaining: ${requiredCount}` : '',
-        optionalCount > 0 ? `Optional discovery questions remaining: ${optionalCount}` : '',
-        latestDiagnostic?.level ? `Latest diagnostic level: ${latestDiagnostic.level}` : '',
-        latestDiagnostic?.title ? `Latest diagnostic title: ${latestDiagnostic.title}` : '',
-        latestDiagnostic?.details ? `Latest diagnostic details: ${latestDiagnostic.details}` : '',
-        '',
-        'Recent conversation:',
-        transcript || '(no recent messages)',
-      ].filter(Boolean).join('\n');
-
-      try {
-        const parsed = await runCreatorActionAdvisor(
-          `Suggest up to three next actions for this creator session.\n\n${contextStr}`,
-          {
-            userWorkspaceId: ctx.workspace.id,
-            triggeredBy: 'internal',
-            repairAttempts: 2,
-            fallbackMode: 'value',
-            fallbackValue: { actions: [] },
-          }
-        );
-        const seen = new Set<string>();
-        const actions = parsed.actions
-          .map((action) => ({
-            label: sanitizeCreatorText(action.label),
-            prompt: sanitizeCreatorText(action.prompt),
-            mode: action.mode === 'insert' ? 'insert' : 'send',
-            reason: action.reason ? sanitizeCreatorText(action.reason) : undefined,
-            priority: action.priority ?? 3,
-          }))
-          .filter((action) => action.label.length > 0 && action.prompt.length > 0)
-          .filter((action) => {
-            const key = `${action.label}::${action.prompt}`.toLowerCase();
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          })
-          .sort((a, b) => a.priority - b.priority)
-          .slice(0, 3);
-
-        return { actions };
-      } catch (error) {
-        log.warn('creator_action_advisor failed, returning no suggested actions', {
-          error: error instanceof Error ? error.message : String(error),
-          workspaceId: ctx.workspace.id,
-        });
-        return { actions: [] };
-      }
+      const guidance = await getCreatorGuidance({
+        workspaceId: ctx.workspace.id,
+        status: input.status,
+        messages: input.messages,
+      });
+      return { actions: guidance.actions };
     }),
 
   /**
@@ -1351,7 +1275,7 @@ export const baleybotsRouter = router({
     .input(z.object({
       id: z.string().uuid(),
       triggerConfig: z.object({
-        type: z.enum(['manual', 'schedule', 'webhook', 'other_bb', 'db_event', 'mcp_event']),
+        type: z.enum(['manual', 'schedule', 'webhook', 'other_bb', 'db_event', 'mcp_event', 'file_upload']),
         schedule: z.string().optional(),
         webhookPath: z.string().optional(),
         sourceBaleybotId: z.string().uuid().optional(),
@@ -1362,6 +1286,10 @@ export const baleybotsRouter = router({
         mcpServer: z.string().optional(),
         mcpTool: z.string().optional(),
         mcpResource: z.string().optional(),
+        acceptedMimeTypes: z.array(z.string()).optional(),
+        maxFileSizeMb: z.number().positive().optional(),
+        multiple: z.boolean().optional(),
+        payloadMode: z.enum(['metadata', 'inline_base64']).optional(),
         enabled: z.boolean().optional(),
       }).nullable(),
     }))

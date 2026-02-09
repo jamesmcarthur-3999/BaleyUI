@@ -11,6 +11,7 @@ import type {
   StreamingProgressSnapshot,
   StreamingTool,
 } from '@/components/creator';
+import type { ChatQuickPrompt } from '@/components/creator/ChatInput';
 
 // Dynamic import to avoid bundling @baleybots/core server-only modules in client
 const VisualEditor = dynamic(
@@ -69,15 +70,23 @@ import type {
   VisualEntity,
   Connection,
   CreatorMessage,
+  CreatorGuidanceAction,
   CreationStatus,
   CreationProgress,
   AdaptiveTab,
   CreatorOutput,
+  CreatorPlanDelta,
 } from '@/lib/baleybot/creator-types';
 import type { LaunchKit, RuntimeInterfaceSpec } from '@/lib/baleybot/types';
 import { computeReadiness, createInitialReadiness, getVisibleTabs, countCompleted, getRecommendedAction } from '@/lib/baleybot/readiness';
 import type { ReadinessDimension, ReadinessState } from '@/lib/baleybot/readiness';
-import { getConnectionSummary } from '@/lib/baleybot/tools/requirements-scanner';
+import {
+  getConnectionSummary,
+  parseConnectionTool,
+  connectionNameToSlug,
+} from '@/lib/baleybot/tools/requirements-scanner';
+import type { BalGraphSidecarMetadata } from '@/lib/baleybot/graph/types';
+import type { GraphRuntimeEvent } from '@/lib/streaming/types/events';
 import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
 import { detectBalSkills, summarizeBalSkills } from '@/lib/baleybot/bal-skills';
 import {
@@ -200,6 +209,175 @@ function getPrimaryRuntimeResponse(output: unknown): string {
   return formatExecutionOutput(output);
 }
 
+interface DataSourceSummaryItem {
+  id: string;
+  label: string;
+  status: 'connected' | 'needs_setup';
+  usedBy: string[];
+  kind: 'database' | 'storage' | 'upload';
+}
+
+function formatSlugLabel(slug: string): string {
+  return slug
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function extractSidecarFromStructure(structure: unknown): BalGraphSidecarMetadata | undefined {
+  if (!structure || typeof structure !== 'object') return undefined;
+  const record = structure as Record<string, unknown>;
+  const sidecar = record.sidecar;
+  if (!sidecar || typeof sidecar !== 'object') return undefined;
+  return sidecar as BalGraphSidecarMetadata;
+}
+
+function buildDerivedGraphSidecar(args: {
+  entities: VisualEntity[];
+  connections: Array<{ id: string; type: string; name: string; status: string }> | undefined;
+  existingSidecar?: BalGraphSidecarMetadata;
+}): BalGraphSidecarMetadata | undefined {
+  const base = args.existingSidecar;
+  const datasourceBindings = [...(base?.datasourceBindings ?? [])];
+
+  const existingBindingKey = new Set(
+    datasourceBindings.map(
+      (binding) => `${binding.entity}:${binding.connectionId}:${binding.tool}`
+    )
+  );
+
+  for (const entity of args.entities) {
+    for (const tool of entity.tools) {
+      const parsed = parseConnectionTool(tool);
+      if (!parsed.connectionType || !parsed.connectionSlug) continue;
+
+      const matchingConnection = args.connections?.find(
+        (connection) =>
+          connection.type === parsed.connectionType &&
+          connectionNameToSlug(connection.name) === parsed.connectionSlug
+      );
+
+      const connectionId = matchingConnection?.id ?? `${parsed.connectionType}:${parsed.connectionSlug}`;
+      const key = `${entity.name}:${connectionId}:${tool}`;
+      if (existingBindingKey.has(key)) continue;
+      existingBindingKey.add(key);
+
+      datasourceBindings.push({
+        entity: entity.name,
+        connectionId,
+        tool,
+        mode: 'read',
+        connectionLabel: matchingConnection?.name ?? formatSlugLabel(parsed.connectionSlug),
+        connectionType: parsed.connectionType,
+      });
+    }
+  }
+
+  const storageParticipants = args.entities
+    .filter((entity) => entity.tools.includes('shared_storage'))
+    .map((entity) => entity.name);
+
+  const sharedStorageLinks = [...(base?.sharedStorageLinks ?? [])];
+  const existingSharedKey = new Set(
+    sharedStorageLinks.map((link) => `${link.producer}:${link.consumer}:${link.keyPattern ?? '*'}`)
+  );
+
+  for (const producer of storageParticipants) {
+    for (const consumer of storageParticipants) {
+      if (producer === consumer) continue;
+      const key = `${producer}:${consumer}:*`;
+      if (existingSharedKey.has(key)) continue;
+      existingSharedKey.add(key);
+      sharedStorageLinks.push({
+        producer,
+        consumer,
+        keyPattern: '*',
+        required: false,
+      });
+    }
+  }
+
+  const hasAny =
+    datasourceBindings.length > 0 ||
+    sharedStorageLinks.length > 0 ||
+    (base?.spawnBindings?.length ?? 0) > 0;
+
+  if (!hasAny) return undefined;
+
+  return {
+    ...base,
+    datasourceBindings,
+    sharedStorageLinks,
+  };
+}
+
+function buildDataSourceSummary(args: {
+  entities: VisualEntity[];
+  connections: Array<{ id: string; type: string; name: string; status: string }> | undefined;
+  triggerConfig: TriggerConfigType | undefined;
+}): DataSourceSummaryItem[] {
+  const map = new Map<string, DataSourceSummaryItem>();
+
+  for (const entity of args.entities) {
+    for (const tool of entity.tools) {
+      const parsed = parseConnectionTool(tool);
+      if (!parsed.connectionType || !parsed.connectionSlug) continue;
+
+      const matchingConnection = args.connections?.find(
+        (connection) =>
+          connection.type === parsed.connectionType &&
+          connectionNameToSlug(connection.name) === parsed.connectionSlug
+      );
+
+      const id = matchingConnection?.id ?? `${parsed.connectionType}:${parsed.connectionSlug}`;
+      const status = matchingConnection?.status === 'connected' ? 'connected' : 'needs_setup';
+      const label = matchingConnection?.name ?? formatSlugLabel(parsed.connectionSlug);
+
+      const existing = map.get(id);
+      if (existing) {
+        if (!existing.usedBy.includes(entity.name)) existing.usedBy.push(entity.name);
+        existing.status = existing.status === 'connected' && status === 'connected' ? 'connected' : 'needs_setup';
+      } else {
+        map.set(id, {
+          id,
+          label,
+          status,
+          usedBy: [entity.name],
+          kind: 'database',
+        });
+      }
+    }
+
+    if (entity.tools.includes('shared_storage')) {
+      const storage = map.get('shared_storage');
+      if (storage) {
+        if (!storage.usedBy.includes(entity.name)) storage.usedBy.push(entity.name);
+      } else {
+        map.set('shared_storage', {
+          id: 'shared_storage',
+          label: 'Shared workspace storage',
+          status: 'connected',
+          usedBy: [entity.name],
+          kind: 'storage',
+        });
+      }
+    }
+  }
+
+  if (args.triggerConfig?.type === 'file_upload') {
+    map.set('file_upload', {
+      id: 'file_upload',
+      label: 'File uploads',
+      status: 'connected',
+      usedBy: ['Trigger'],
+      kind: 'upload',
+    });
+  }
+
+  return Array.from(map.values());
+}
+
 type CreatorStreamEvent =
   | {
       type: 'creator_stream_started';
@@ -228,6 +406,28 @@ type CreatorStreamEvent =
       type: 'creator_complete';
       result?: CreatorOutput;
       summary?: string;
+      planDelta?: CreatorPlanDelta;
+      actions?: CreatorGuidanceAction[];
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_plan_delta';
+      delta?: CreatorPlanDelta;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_action_suggestions';
+      actions?: CreatorGuidanceAction[];
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_tool_activity';
+      activity?: {
+        name?: string;
+        status?: StreamingTool['status'];
+        message?: string;
+        timestamp?: number;
+      };
       timestamp?: number;
     }
   | {
@@ -253,6 +453,7 @@ type RuntimeStreamEvent = {
   output?: unknown;
   durationMs?: number;
   executionId?: string;
+  graphEvent?: GraphRuntimeEvent;
 };
 
 function getStreamEventErrorMessage(error: unknown): string {
@@ -270,6 +471,15 @@ function getStreamEventErrorMessage(error: unknown): string {
     }
   }
   return 'Streaming request failed.';
+}
+
+function appendGraphRuntimeEvent(
+  events: GraphRuntimeEvent[],
+  event: GraphRuntimeEvent,
+  maxEvents = 300
+): GraphRuntimeEvent[] {
+  const next = [...events, event];
+  return next.slice(-maxEvents);
 }
 
 function normalizeHighlightType(value: string | undefined): StreamingHighlightType {
@@ -509,6 +719,34 @@ function formatStreamingPhaseLabel(phase: string | undefined): string {
     .join(' ');
 }
 
+function buildDiscoveryQuickPrompts(
+  questions: DiscoveryQuestionSummary[]
+): ChatQuickPrompt[] {
+  if (questions.length === 0) return [];
+  const nextQuestion =
+    questions.find((question) => question.requiredNow) ?? questions[0];
+  if (!nextQuestion) return [];
+  return [
+    {
+      id: `discovery-next-${nextQuestion.id}`,
+      label: `Answer: ${nextQuestion.label}`,
+      prompt: `${nextQuestion.label}: `,
+      mode: 'insert',
+    },
+  ];
+}
+
+function buildGuidanceQuickPrompts(
+  actions: CreatorGuidanceAction[]
+): ChatQuickPrompt[] {
+  return actions.slice(0, 3).map((action, index) => ({
+    id: `guidance-${index}-${action.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    label: action.label,
+    prompt: action.prompt,
+    mode: action.mode ?? 'send',
+  }));
+}
+
 /**
  * State snapshot for undo/redo history
  */
@@ -586,6 +824,7 @@ export default function BaleybotPage() {
   const [runtimeStreamingProgress, setRuntimeStreamingProgress] =
     useState<StreamingProgressSnapshot | null>(null);
   const [runtimeLastProgressSummary, setRuntimeLastProgressSummary] = useState<string | null>(null);
+  const [runtimeGraphEvents, setRuntimeGraphEvents] = useState<GraphRuntimeEvent[]>([]);
 
   // Mobile view toggle (chat vs editor)
   type MobileView = 'editor' | 'chat';
@@ -607,6 +846,8 @@ export default function BaleybotPage() {
   const [creationProgress, setCreationProgress] = useState<CreationProgress | null>(null);
   const [creatorStreamingProgress, setCreatorStreamingProgress] =
     useState<StreamingProgressSnapshot | null>(null);
+  const [creatorPlanDelta, setCreatorPlanDelta] = useState<CreatorPlanDelta | null>(null);
+  const [creatorGuidanceActions, setCreatorGuidanceActions] = useState<CreatorGuidanceAction[]>([]);
 
   // Ref to track if initial prompt was sent (avoids effect dependency issues)
   const initialPromptSentRef = useRef(false);
@@ -641,6 +882,7 @@ export default function BaleybotPage() {
       ? 1
       : 0;
   const nextDiscoveryQuestion =
+    creatorPlanDelta?.nextQuestion ??
     latestDiscoveryQuestions.find((question) => question.requiredNow) ??
     latestDiscoveryQuestions.find((question) => !question.requiredNow);
   const isDiscoveryWorkspaceActive =
@@ -664,13 +906,22 @@ export default function BaleybotPage() {
   );
   const latestDiscoverySummary = latestDiscoveryAssistantMessage?.metadata?.streamSummary?.trim();
   const unresolvedDiscoveryLabels = useMemo(
-    () =>
-      latestDiscoveryQuestions
+    () => {
+      const openDecisions = creatorPlanDelta?.openDecisions ?? [];
+      if (openDecisions.length > 0) {
+        return openDecisions.map((question) => question.label);
+      }
+      return latestDiscoveryQuestions
         .filter((question) => question.requiredNow)
-        .map((question) => question.label),
-    [latestDiscoveryQuestions]
+        .map((question) => question.label);
+    },
+    [creatorPlanDelta, latestDiscoveryQuestions]
   );
   const resolvedDiscoveryLabels = useMemo(() => {
+    const resolvedDecisions = creatorPlanDelta?.resolvedDecisions ?? [];
+    if (resolvedDecisions.length > 0) {
+      return resolvedDecisions.map((question) => question.label);
+    }
     const askedRequired = new Map<string, string>();
     for (const message of messages) {
       if (message.role !== 'assistant') continue;
@@ -688,7 +939,7 @@ export default function BaleybotPage() {
     return [...askedRequired.entries()]
       .filter(([normalized]) => !unresolved.has(normalized))
       .map(([, label]) => label);
-  }, [messages, unresolvedDiscoveryLabels]);
+  }, [creatorPlanDelta, messages, unresolvedDiscoveryLabels]);
   const discoveryAssumptionNotes = useMemo(
     () =>
       (latestCreatorLifecycle?.assumptions ?? []).map(
@@ -696,12 +947,6 @@ export default function BaleybotPage() {
       ),
     [latestCreatorLifecycle]
   );
-  const discoveryRecentUserReplies = useMemo(() => {
-    return messages
-      .filter((message) => message.role === 'user')
-      .slice(-3)
-      .map((message) => compactDiscoveryText(message.content));
-  }, [messages]);
   const discoveryLiveHighlights = useMemo(
     () => creatorStreamingProgress?.highlights.slice(-4).reverse() ?? [],
     [creatorStreamingProgress]
@@ -714,6 +959,7 @@ export default function BaleybotPage() {
         ? 'Generating your first draft'
         : 'Discovery complete';
   const discoveryBoardSubheading =
+    creatorPlanDelta?.summary ||
     creatorStreamingProgress?.message ||
     latestCreatorLifecycle?.whatIDid ||
     latestDiscoverySummary ||
@@ -900,20 +1146,45 @@ export default function BaleybotPage() {
           .replace(/^_+|_+$/g, '')}`
       );
   }, [normalizedConnections]);
-  const discoveryCopilotInput = useMemo(
+  const savedStructureSidecar = useMemo(
+    () => extractSidecarFromStructure(existingBaleybot?.structure),
+    [existingBaleybot?.structure]
+  );
+  const graphSidecar = useMemo(
+    () =>
+      buildDerivedGraphSidecar({
+        entities,
+        connections: normalizedConnections,
+        existingSidecar: savedStructureSidecar,
+      }),
+    [entities, normalizedConnections, savedStructureSidecar]
+  );
+  const dataSourceSummary = useMemo(
+    () =>
+      buildDataSourceSummary({
+        entities,
+        connections: normalizedConnections,
+        triggerConfig,
+      }),
+    [entities, normalizedConnections, triggerConfig]
+  );
+  const creatorGuidanceInput = useMemo(
     () => ({
       status,
-      messages: messages.slice(-12).map((message) => {
+      messages: messages.slice(-30).map((message) => {
         const metadata: Record<string, unknown> = {};
         if (message.metadata?.creatorLifecycle) {
           metadata.creatorLifecycle = message.metadata.creatorLifecycle;
+        }
+        if (message.metadata?.diagnostic) {
+          metadata.diagnostic = message.metadata.diagnostic;
         }
         if (message.metadata?.streamSummary) {
           metadata.streamSummary = message.metadata.streamSummary;
         }
         return {
           role: message.role,
-          content: message.content.slice(0, 900),
+          content: message.content.slice(0, 4000),
           metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
         };
       }),
@@ -921,15 +1192,34 @@ export default function BaleybotPage() {
     [messages, status]
   );
   const {
-    data: discoveryCopilotData,
-    isFetching: isDiscoveryCopilotFetching,
-  } = trpc.baleybots.getCreatorSuggestedActions.useQuery(discoveryCopilotInput, {
-    enabled: isDiscoveryWorkspaceActive && messages.length > 0 && status !== 'running',
-    staleTime: 20_000,
+    data: creatorGuidanceData,
+    isFetching: isCreatorGuidanceFetching,
+  } = trpc.baleybots.getCreatorGuidance.useQuery(creatorGuidanceInput, {
+    enabled: messages.length > 0 && status !== 'running' && status !== 'building',
+    staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: false,
   });
-  const discoveryCopilotActions = (discoveryCopilotData?.actions ?? []).slice(0, 3);
+
+  useEffect(() => {
+    if (!creatorGuidanceData?.actions) return;
+    if (status === 'building') return;
+    setCreatorGuidanceActions(creatorGuidanceData.actions);
+  }, [creatorGuidanceData, status]);
+
+  const discoveryPending = latestCreatorLifecycle?.stage === 'discovery' || requiredDiscoveryQuestionCount > 0;
+  const quickPrompts = useMemo(() => {
+    if (discoveryPending) {
+      return buildDiscoveryQuickPrompts(latestDiscoveryQuestions);
+    }
+    return buildGuidanceQuickPrompts(creatorGuidanceActions);
+  }, [discoveryPending, latestDiscoveryQuestions, creatorGuidanceActions]);
+
+  const quickPromptContextLabel = useMemo(() => {
+    if (discoveryPending) return 'Helpful starters';
+    if (quickPrompts.length > 0) return 'Suggested next action';
+    return undefined;
+  }, [discoveryPending, quickPrompts.length]);
 
   // =====================================================================
   // TEST EXECUTION HOOK
@@ -1007,6 +1297,12 @@ export default function BaleybotPage() {
     workspaceConnections: normalizedConnections,
     onInjectMessage: injectMessage,
     onNavigateToTab: navigateToTab,
+    onRuntimeGraphEvent: (event) => {
+      setRuntimeGraphEvents((previous) => appendGraphRuntimeEvent(previous, event));
+    },
+    onExecutionStarted: () => {
+      setRuntimeGraphEvents([]);
+    },
   });
 
   // =====================================================================
@@ -1016,13 +1312,21 @@ export default function BaleybotPage() {
   const startCreatorStream = async (args: {
     message: string;
     conversationHistory: ReturnType<typeof buildCreatorHistoryPayload>;
-  }): Promise<{ result: CreatorOutput; summary?: string }> => {
+  }): Promise<{
+    result: CreatorOutput;
+    summary?: string;
+    planDelta?: CreatorPlanDelta;
+    actions?: CreatorGuidanceAction[];
+  }> => {
     const startedAt = Date.now();
     let finalResult: CreatorOutput | null = null;
     let finalSummary: string | undefined;
+    let finalPlanDelta: CreatorPlanDelta | undefined;
+    let finalActions: CreatorGuidanceAction[] | undefined;
     let latestTools: StreamingTool[] = [];
     let latestHighlights: StreamingProgressSnapshot['highlights'] = [];
 
+    setCreatorGuidanceActions([]);
     setCreatorStreamingProgress({
       phase: 'discovery',
       message: 'Starting creator workflow...',
@@ -1141,6 +1445,14 @@ export default function BaleybotPage() {
           if (event.result) {
             finalResult = event.result;
           }
+          finalPlanDelta = event.planDelta;
+          finalActions = event.actions;
+          if (event.planDelta) {
+            setCreatorPlanDelta(event.planDelta);
+          }
+          if (event.actions) {
+            setCreatorGuidanceActions(event.actions);
+          }
           finalSummary =
             event.summary?.trim() ||
             buildProgressSummary(
@@ -1161,6 +1473,76 @@ export default function BaleybotPage() {
           return;
         }
 
+        if (event.type === 'creator_plan_delta') {
+          const delta = event.delta;
+          if (delta) {
+            finalPlanDelta = delta;
+            setCreatorPlanDelta(delta);
+            if (delta.summary) {
+              setCreatorStreamingProgress((previous) => {
+                const base: StreamingProgressSnapshot =
+                  previous ?? {
+                    phase: 'discovery',
+                    message: 'Updating plan...',
+                    highlights: [],
+                    tools: [],
+                    startedAt,
+                  };
+                const nextHighlights = appendStreamingHighlight(base.highlights, {
+                  text: delta.summary,
+                  type: 'status',
+                  timestamp: event.timestamp ?? Date.now(),
+                });
+                const next: StreamingProgressSnapshot = {
+                  ...base,
+                  highlights: nextHighlights,
+                  message: delta.summary,
+                };
+                latestTools = next.tools;
+                latestHighlights = next.highlights;
+                return next;
+              });
+            }
+          }
+          return;
+        }
+
+        if (event.type === 'creator_action_suggestions') {
+          if (event.actions) {
+            setCreatorGuidanceActions(event.actions);
+            finalActions = event.actions;
+          }
+          return;
+        }
+
+        if (event.type === 'creator_tool_activity') {
+          const activity = event.activity;
+          const toolName = activity?.name?.trim();
+          if (!toolName) return;
+          setCreatorStreamingProgress((previous) => {
+            const base: StreamingProgressSnapshot =
+              previous ?? {
+                phase: 'orchestration',
+                message: 'Updating progress...',
+                highlights: [],
+                tools: [],
+                startedAt,
+              };
+            const next: StreamingProgressSnapshot = {
+              ...base,
+              tools: upsertStreamingTool(
+                base.tools,
+                toolName,
+                activity?.status ?? 'running'
+              ),
+            };
+            latestTools = next.tools;
+            latestHighlights = next.highlights;
+            return next;
+          });
+          return;
+        }
+
         if (event.type === 'creator_error') {
           throw new Error(event.message || 'Creator stream failed');
         }
@@ -1174,6 +1556,8 @@ export default function BaleybotPage() {
     return {
       result: finalResult,
       summary: finalSummary,
+      planDelta: finalPlanDelta,
+      actions: finalActions,
     };
   };
 
@@ -1184,9 +1568,11 @@ export default function BaleybotPage() {
       prevConnections: Connection[];
       prevName: string;
       streamSummary?: string;
+      planDelta?: CreatorPlanDelta;
+      actions?: CreatorGuidanceAction[];
     }
   ) => {
-    const { prevEntities, prevConnections, prevName, streamSummary } = args;
+    const { prevEntities, prevConnections, prevName, streamSummary, planDelta, actions } = args;
 
     if (result.status === 'building') {
       const lifecycleBlockMode =
@@ -1294,10 +1680,37 @@ export default function BaleybotPage() {
               description: q.description,
               requiredNow: false,
             })),
+            planLedger: {
+              goal: planDelta?.goal ?? (name || undefined),
+              stage: planDelta?.stage ?? 'discovery',
+              resolvedDecisions: planDelta?.resolvedDecisions ?? [],
+              openDecisions: planDelta?.openDecisions ?? [
+                ...requiredQuestions,
+                ...optionalQuestions,
+              ],
+              assumptions:
+                planDelta?.assumptions ??
+                discoveryAssumptions.map((assumption) => ({
+                  id: assumption.id,
+                  label: assumption.label,
+                  value: assumption.value,
+                  confidence: assumption.confidence ?? 'medium',
+                  requiresConfirmation: assumption.requiresConfirmation,
+                })),
+              nextQuestion: planDelta?.nextQuestion ?? nextRequiredQuestion ?? nextOptionalQuestion ?? null,
+              runnableConfidence: planDelta?.runnableConfidence ?? runnableConfidence,
+              updatedAt: Date.now(),
+            },
+            openDecisions: planDelta?.openDecisions,
+            resolvedDecisions: planDelta?.resolvedDecisions,
+            nextQuestion: planDelta?.nextQuestion ?? nextRequiredQuestion ?? nextOptionalQuestion ?? null,
           },
         },
       };
       setMessages((prev) => [...prev, assistantMessage]);
+      if (actions) {
+        setCreatorGuidanceActions(actions);
+      }
       setStatus('ready');
       setCreationProgress(null);
       setCreatorStreamingProgress(null);
@@ -1460,6 +1873,31 @@ export default function BaleybotPage() {
           ? 'Connections'
           : 'Testing',
       nextAction: nextLifecycleAction,
+      planLedger: {
+        goal: planDelta?.goal ?? result.name,
+        stage: planDelta?.stage ?? 'design',
+        resolvedDecisions: planDelta?.resolvedDecisions ?? [],
+        openDecisions: planDelta?.openDecisions ?? [],
+        assumptions:
+          planDelta?.assumptions ??
+          (result.assumptions ?? []).map((assumption) => ({
+            id: assumption.id,
+            label: assumption.label,
+            value: assumption.value,
+            confidence: assumption.confidence ?? 'medium',
+            requiresConfirmation: assumption.requiresConfirmation,
+          })),
+        nextQuestion: planDelta?.nextQuestion ?? null,
+        runnableConfidence:
+          planDelta?.runnableConfidence ??
+          (typeof result.runnableConfidence === 'number'
+            ? Math.max(0, Math.min(1, result.runnableConfidence))
+            : undefined),
+        updatedAt: Date.now(),
+      },
+      openDecisions: planDelta?.openDecisions,
+      resolvedDecisions: planDelta?.resolvedDecisions,
+      nextQuestion: planDelta?.nextQuestion ?? null,
     };
 
     if (isInitialCreation) {
@@ -1506,6 +1944,12 @@ export default function BaleybotPage() {
       metadata,
     };
     setMessages((prev) => [...prev, assistantMessage]);
+    if (actions) {
+      setCreatorGuidanceActions(actions);
+    }
+    if (planDelta) {
+      setCreatorPlanDelta(planDelta);
+    }
 
     setStatus('ready');
     if (isInitialCreation) {
@@ -1540,10 +1984,18 @@ export default function BaleybotPage() {
 
     // 2. Set status to 'building'
     setStatus('building');
+    setCreatorPlanDelta(null);
     setCreationProgress({ phase: 'understanding', message: 'Understanding your request...' });
 
     try {
-      let streamResult: { result: CreatorOutput; summary?: string } | null = null;
+      let streamResult:
+        | {
+            result: CreatorOutput;
+            summary?: string;
+            planDelta?: CreatorPlanDelta;
+            actions?: CreatorGuidanceAction[];
+          }
+        | null = null;
       try {
         streamResult = await startCreatorStream({
           message: sanitizedMessage,
@@ -1567,6 +2019,8 @@ export default function BaleybotPage() {
         prevConnections,
         prevName,
         streamSummary: streamResult?.summary,
+        planDelta: streamResult?.planDelta,
+        actions: streamResult?.actions,
       });
     } catch (error) {
       console.error('Creator message failed:', error);
@@ -1812,6 +2266,13 @@ export default function BaleybotPage() {
       onEvent: (event) => {
         const now = Date.now();
         const type = event.type;
+
+        if (type === 'graph_event' && event.graphEvent) {
+          setRuntimeGraphEvents((previous) =>
+            appendGraphRuntimeEvent(previous, event.graphEvent as GraphRuntimeEvent)
+          );
+          return;
+        }
 
         if (type === 'execution_started') {
           setRuntimeStreamingProgress((previous) =>
@@ -2085,6 +2546,7 @@ export default function BaleybotPage() {
     setIsRunLocked(true);
     setRuntimeError(null);
     setRuntimeLastProgressSummary(null);
+    setRuntimeGraphEvents([]);
 
     let baleybotIdToRun = savedBaleybotId;
     try {
@@ -2495,7 +2957,7 @@ export default function BaleybotPage() {
     config: TriggerConfigType | undefined
   ):
     | {
-        type: 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'db_event' | 'mcp_event';
+        type: 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'db_event' | 'mcp_event' | 'file_upload';
         schedule?: string;
         sourceBaleybotId?: string;
         completionType?: 'success' | 'failure' | 'completion';
@@ -2506,6 +2968,10 @@ export default function BaleybotPage() {
         mcpServer?: string;
         mcpTool?: string;
         mcpResource?: string;
+        acceptedMimeTypes?: string[];
+        maxFileSizeMb?: number;
+        multiple?: boolean;
+        payloadMode?: 'metadata' | 'inline_base64';
         enabled?: boolean;
       }
     | null => {
@@ -2522,6 +2988,10 @@ export default function BaleybotPage() {
       mcpServer: config.mcpServer,
       mcpTool: config.mcpTool,
       mcpResource: config.mcpResource,
+      acceptedMimeTypes: config.acceptedMimeTypes,
+      maxFileSizeMb: config.maxFileSizeMb,
+      multiple: config.multiple,
+      payloadMode: config.payloadMode,
       enabled: config.enabled,
     };
   };
@@ -3167,6 +3637,9 @@ export default function BaleybotPage() {
                 onOptionSelect={handleOptionSelect}
                 creationProgress={creationProgress}
                 streamingProgress={creatorStreamingProgress}
+                quickPrompts={quickPrompts}
+                quickPromptContextLabel={quickPromptContextLabel}
+                discoveryPending={discoveryPending}
               />
             </div>
 
@@ -3359,83 +3832,58 @@ export default function BaleybotPage() {
                               </div>
                             )}
 
-                            <div className="grid gap-3 lg:grid-cols-2">
-                              <div className="rounded-xl border border-border/50 bg-background/60 px-4 py-3">
-                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
-                                  Recent Answers
-                                </p>
-                                {discoveryRecentUserReplies.length > 0 ? (
-                                  <ul className="mt-1.5 space-y-1.5">
-                                    {discoveryRecentUserReplies.map((reply, idx) => (
-                                      <li key={`${reply}-${idx}`} className="text-sm text-foreground/90">
-                                        {reply}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <p className="mt-1.5 text-sm text-muted-foreground">
-                                    Your responses will appear here as the plan forms.
-                                  </p>
-                                )}
-                              </div>
-
+                            {discoveryContextChips.length > 0 && (
                               <div className="rounded-xl border border-border/50 bg-background/60 px-4 py-3">
                                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
                                   Plan Memory
                                 </p>
-                                {discoveryContextChips.length > 0 ? (
-                                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                    {discoveryContextChips.map((chip) => (
-                                      <span
-                                        key={chip}
-                                        className="text-[11px] rounded-full border border-border/60 bg-muted/20 px-2 py-0.5 text-muted-foreground"
+                                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                  {discoveryContextChips.slice(0, 4).map((chip) => (
+                                    <span
+                                      key={chip}
+                                      className="text-[11px] rounded-full border border-border/60 bg-muted/20 px-2 py-0.5 text-muted-foreground"
+                                    >
+                                      {chip}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {(quickPrompts.length > 0 || isCreatorGuidanceFetching) && (
+                              <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-[11px] uppercase tracking-wide text-primary font-medium">
+                                    Suggested Next Step
+                                  </p>
+                                  {isCreatorGuidanceFetching && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      updating
+                                    </span>
+                                  )}
+                                </div>
+                                {quickPrompts.length > 0 ? (
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {quickPrompts.slice(0, 2).map((prompt) => (
+                                      <button
+                                        key={prompt.id}
+                                        type="button"
+                                        onClick={() => handleSendMessage(prompt.prompt)}
+                                        disabled={status === 'building'}
+                                        className="rounded-full border border-border/60 bg-background/80 px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
                                       >
-                                        {chip}
-                                      </span>
+                                        {prompt.label}
+                                      </button>
                                     ))}
                                   </div>
                                 ) : (
-                                  <p className="mt-1.5 text-sm text-muted-foreground">
-                                    Assumptions and confirmed decisions will be tracked here.
+                                  <p className="mt-2 text-sm text-muted-foreground">
+                                    Guidance will appear when there is a clear high-impact next move.
                                   </p>
                                 )}
                               </div>
-                            </div>
-
-                            <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="text-[11px] uppercase tracking-wide text-primary font-medium">
-                                  Linked Discovery Copilot
-                                </p>
-                                {isDiscoveryCopilotFetching && (
-                                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                    analyzing
-                                  </span>
-                                )}
-                              </div>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                A secondary BB tracks planning state in parallel so guidance keeps moving while the main creator works.
-                              </p>
-                              {discoveryCopilotActions.length > 0 ? (
-                                <ul className="mt-2 space-y-1.5">
-                                  {discoveryCopilotActions.map((action, idx) => (
-                                    <li key={`${action.label}-${idx}`} className="text-sm text-foreground/90">
-                                      {action.label}
-                                      {action.reason ? (
-                                        <span className="text-xs text-muted-foreground ml-2">
-                                          {action.reason}
-                                        </span>
-                                      ) : null}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="mt-2 text-sm text-muted-foreground">
-                                  Copilot suggestions will appear as soon as enough context is available.
-                                </p>
-                              )}
-                            </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -3448,6 +3896,9 @@ export default function BaleybotPage() {
                           className="flex-1 min-h-0"
                           hideToolbar
                           toolSuggestions={connectionToolSuggestions}
+                          triggerConfig={triggerConfig}
+                          graphSidecar={graphSidecar}
+                          runtimeEvents={runtimeGraphEvents}
                         />
                       </div>
                     )
@@ -3468,25 +3919,107 @@ export default function BaleybotPage() {
 
                   {/* Triggers View */}
                   {viewMode === 'triggers' && (
-                    <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                      <TriggerConfig
-                        value={triggerConfig}
-                        onChange={setTriggerConfig}
-                        baleybotId={savedBaleybotId ?? undefined}
-                        availableBaleybots={
-                          availableBaleybots
-                            ?.filter((bb) => bb.id !== savedBaleybotId)
-                            .map((bb) => ({ id: bb.id, name: bb.name })) ?? []
-                        }
-                        availableConnections={
-                          (workspaceConnections ?? []).map((conn) => ({
-                            id: conn.id,
-                            name: conn.name,
-                            type: conn.type,
-                            status: conn.status ?? undefined,
-                          }))
-                        }
-                      />
+                    <div className="h-full min-h-0 flex flex-col gap-3">
+                      <div className="shrink-0 rounded-xl border border-border/50 bg-background/80 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">Start and Inputs</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Pick what starts this bot, then confirm its data sources.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => navigateToTab('connections', { bypassDesignGate: true })}
+                            className="h-8 text-xs"
+                          >
+                            Configure Data Sources
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => navigateToTab('test', { bypassDesignGate: true })}
+                            className="h-8 text-xs"
+                          >
+                            Run Tests
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[430px_1fr] gap-4">
+                        <div className="h-full overflow-auto bg-background rounded-lg border p-4">
+                          <TriggerConfig
+                            value={triggerConfig}
+                            onChange={setTriggerConfig}
+                            baleybotId={savedBaleybotId ?? undefined}
+                            availableBaleybots={
+                              availableBaleybots
+                                ?.filter((bb) => bb.id !== savedBaleybotId)
+                                .map((bb) => ({ id: bb.id, name: bb.name })) ?? []
+                            }
+                            availableConnections={
+                              (workspaceConnections ?? []).map((conn) => ({
+                                id: conn.id,
+                                name: conn.name,
+                                type: conn.type,
+                                status: conn.status ?? undefined,
+                              }))
+                            }
+                          />
+
+                          <div className="mt-5 rounded-xl border border-border/60 bg-muted/20 p-3.5 space-y-2.5">
+                            <p className="text-sm font-medium">Configured data sources</p>
+                            {dataSourceSummary.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                No external data source detected yet. Add one in Connections, or use a simple manual flow.
+                              </p>
+                            ) : (
+                              <div className="space-y-2">
+                                {dataSourceSummary.map((source) => (
+                                  <div key={source.id} className="rounded-lg border border-border/50 bg-background px-2.5 py-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="text-sm font-medium">{source.label}</p>
+                                      <span
+                                        className={cn(
+                                          'text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wide',
+                                          source.status === 'connected'
+                                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                            : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                                        )}
+                                      >
+                                        {source.status === 'connected' ? 'ready' : 'needs setup'}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                                      Used by: {source.usedBy.join(', ')}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="h-full min-h-0 bg-background rounded-lg border overflow-hidden">
+                          <div className="px-4 py-2 border-b border-border/40 bg-muted/20">
+                            <p className="text-sm font-medium">Trigger and data flow map</p>
+                          </div>
+                          <div className="h-[calc(100%-3.5rem)] min-h-0">
+                            <VisualEditor
+                              balCode={balCode}
+                              onChange={handleCodeChange}
+                              readOnly={status === 'building' || status === 'running'}
+                              className="h-full"
+                              hideToolbar
+                              toolSuggestions={connectionToolSuggestions}
+                              triggerConfig={triggerConfig}
+                              graphSidecar={graphSidecar}
+                              runtimeEvents={runtimeGraphEvents}
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -3650,6 +4183,9 @@ export default function BaleybotPage() {
                               className="h-full"
                               hideToolbar
                               toolSuggestions={connectionToolSuggestions}
+                              triggerConfig={triggerConfig}
+                              graphSidecar={graphSidecar}
+                              runtimeEvents={runtimeGraphEvents}
                             />
                           </div>
                         </div>
@@ -3676,24 +4212,53 @@ export default function BaleybotPage() {
                           Review Connections
                         </Button>
                       </div>
-                      <div className="flex-1 overflow-auto bg-background rounded-lg border p-4">
-                        <TestPanel
-                          testCases={testCases}
-                          topology={lastRunSummary?.topology}
-                          onRunTest={handleRunTest}
-                          onRunAll={handleRunAllTests}
-                          onRunAllWithSelfHealing={handleRunAllWithSelfHealing}
-                          onAddTest={handleAddTest}
-                          onGenerateTests={handleGenerateTests}
-                          isGenerating={isGeneratingTests}
-                          isRunningAll={isRunningAll}
-                          isSelfHealing={isSelfHealing}
-                          runAllProgress={runAllProgress}
-                          lastRunSummary={lastRunSummary}
-                          onUpdateTest={handleUpdateTest}
-                          onDeleteTest={handleDeleteTest}
-                          onAcceptActual={handleAcceptActual}
-                        />
+                      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[430px_1fr] gap-4">
+                        <div className="h-full overflow-auto bg-background rounded-lg border p-4">
+                          <TestPanel
+                            testCases={testCases}
+                            topology={lastRunSummary?.topology}
+                            onRunTest={handleRunTest}
+                            onRunAll={handleRunAllTests}
+                            onRunAllWithSelfHealing={handleRunAllWithSelfHealing}
+                            onAddTest={handleAddTest}
+                            onGenerateTests={handleGenerateTests}
+                            isGenerating={isGeneratingTests}
+                            isRunningAll={isRunningAll}
+                            isSelfHealing={isSelfHealing}
+                            runAllProgress={runAllProgress}
+                            lastRunSummary={lastRunSummary}
+                            onUpdateTest={handleUpdateTest}
+                            onDeleteTest={handleDeleteTest}
+                            onAcceptActual={handleAcceptActual}
+                          />
+                        </div>
+                        <div className="h-full min-h-0 bg-background rounded-lg border overflow-hidden">
+                          <div className="px-4 py-2 border-b border-border/40 bg-muted/20 flex items-center justify-between gap-2">
+                            <p className="text-sm font-medium">Live run map</p>
+                            {runtimeGraphEvents.length > 0 ? (
+                              <span className="text-[11px] text-muted-foreground">
+                                {runtimeGraphEvents.length} live events
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-muted-foreground">
+                                Start a test to watch this map animate
+                              </span>
+                            )}
+                          </div>
+                          <div className="h-[calc(100%-3.5rem)] min-h-0">
+                            <VisualEditor
+                              balCode={balCode}
+                              onChange={handleCodeChange}
+                              readOnly
+                              className="h-full"
+                              hideToolbar
+                              toolSuggestions={connectionToolSuggestions}
+                              triggerConfig={triggerConfig}
+                              graphSidecar={graphSidecar}
+                              runtimeEvents={runtimeGraphEvents}
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -4011,6 +4576,7 @@ export default function BaleybotPage() {
                                     setRuntimeConversation([]);
                                     setRuntimeStreamingProgress(null);
                                     setRuntimeLastProgressSummary(null);
+                                    setRuntimeGraphEvents([]);
                                   }}
                                   disabled={isRunLocked || executeMutation.isPending}
                                 >

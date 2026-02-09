@@ -51,7 +51,7 @@ describe('checkRateLimit', () => {
 
 describe('RATE_LIMITS', () => {
   it('has execute config', () => {
-    expect(RATE_LIMITS.execute.maxRequests).toBe(10);
+    expect(RATE_LIMITS.execute.maxRequests).toBe(30);
     expect(RATE_LIMITS.execute.windowMs).toBe(60000);
   });
 });

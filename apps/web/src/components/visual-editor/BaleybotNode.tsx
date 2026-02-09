@@ -1,7 +1,7 @@
 'use client';
 
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Zap, Clock, Globe, Wrench, Target, Shield, Thermometer, Brain, RotateCcw, Database, Puzzle } from 'lucide-react';
+import { Zap, Clock, Globe, Wrench, Target, Shield, Thermometer, Brain, RotateCcw, Database, Puzzle, Upload, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { VisualNode } from '@/lib/baleybot/visual/types';
 
@@ -27,6 +27,8 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
         return <Database className="h-3 w-3 text-cyan-500" />;
       case 'mcp_event':
         return <Puzzle className="h-3 w-3 text-violet-500" />;
+      case 'file_upload':
+        return <Upload className="h-3 w-3 text-sky-500" />;
       default:
         return null;
     }
@@ -58,10 +60,33 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
         if (server) return `MCP ${server}`;
         return 'MCP event';
       }
+      case 'file_upload': {
+        const types = nodeData.trigger.acceptedMimeTypes?.slice(0, 2).join(', ');
+        if (types && types.length > 0) return `Upload: ${types}`;
+        return 'File upload';
+      }
       default:
         return null;
     }
   };
+
+  const runtimeTone =
+    nodeData.runtimeStatus === 'running'
+      ? 'border-sky-500/40 ring-2 ring-sky-500/30'
+      : nodeData.runtimeStatus === 'success'
+        ? 'border-emerald-500/40 ring-2 ring-emerald-500/30'
+        : nodeData.runtimeStatus === 'failed'
+          ? 'border-red-500/40 ring-2 ring-red-500/30'
+          : '';
+
+  const runtimeLabel =
+    nodeData.runtimeStatus === 'running'
+      ? 'Running'
+      : nodeData.runtimeStatus === 'success'
+        ? 'Completed'
+        : nodeData.runtimeStatus === 'failed'
+          ? 'Needs attention'
+          : null;
 
   return (
     <>
@@ -77,7 +102,8 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
           'w-[290px] rounded-xl border bg-card shadow-lg transition-all',
           selected
             ? 'border-primary ring-2 ring-primary/20'
-            : 'border-border hover:border-primary/50'
+            : 'border-border hover:border-primary/50',
+          runtimeTone
         )}
       >
         {/* Header */}
@@ -94,6 +120,17 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
                 )}
               </div>
             </div>
+            {runtimeLabel && (
+              <span className={cn(
+                'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium',
+                nodeData.runtimeStatus === 'running' && 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
+                nodeData.runtimeStatus === 'success' && 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+                nodeData.runtimeStatus === 'failed' && 'bg-red-500/15 text-red-700 dark:text-red-300'
+              )}>
+                <Activity className="h-2.5 w-2.5" />
+                {runtimeLabel}
+              </span>
+            )}
           </div>
         </div>
 
@@ -285,6 +322,12 @@ function getToolStyle(tool: string): string {
 }
 
 function formatToolName(tool: string): string {
+  if (tool.startsWith('query_postgres_')) {
+    return `read postgres ${tool.replace(/^query_postgres_/, '').replace(/_/g, ' ')}`;
+  }
+  if (tool.startsWith('query_mysql_')) {
+    return `read mysql ${tool.replace(/^query_mysql_/, '').replace(/_/g, ' ')}`;
+  }
   return tool.replace(/_/g, ' ');
 }
 

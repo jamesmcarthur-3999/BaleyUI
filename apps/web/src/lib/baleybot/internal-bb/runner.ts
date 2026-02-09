@@ -200,11 +200,31 @@ const discoveryQuestionSchema = z.object({
   requiredNow: z.boolean().optional(),
 });
 
+const discoveryAssumptionSchema = z.object({
+  id: z.string().min(1).optional(),
+  label: z.string().min(1),
+  value: z.string().min(1),
+  confidence: z.enum(['low', 'medium', 'high']).optional(),
+  requiresConfirmation: z.boolean().optional(),
+});
+
 export const creatorDiscoveryOutputSchema = z.object({
   needsMoreInfo: z.boolean(),
   message: z.string().optional(),
   questions: z.array(discoveryQuestionSchema).max(8).default([]),
   contextNotes: z.array(z.string()).max(16).default([]),
+  delta: z
+    .object({
+      summary: z.string().min(1).max(400),
+      goal: z.string().max(220).optional(),
+      stage: z.string().max(80).optional(),
+      resolvedDecisions: z.array(discoveryQuestionSchema).max(10).optional(),
+      openDecisions: z.array(discoveryQuestionSchema).max(10).optional(),
+      assumptions: z.array(discoveryAssumptionSchema).max(10).optional(),
+      nextQuestion: discoveryQuestionSchema.nullable().optional(),
+      runnableConfidence: z.number().min(0).max(1).optional(),
+    })
+    .optional(),
 });
 
 function normalizeCreatorActionLabel(prompt: string): string {
@@ -381,6 +401,25 @@ export const connectionAdvisorOutputSchema = z.object({
     .optional(),
   recommendations: z.array(z.string()).optional(),
   warnings: z.array(z.string()).optional(),
+  remediationSteps: z
+    .array(
+      z.object({
+        title: z.string(),
+        description: z.string(),
+        actionType: z.string().optional(),
+        target: z.string().optional(),
+      })
+    )
+    .optional(),
+  verificationPlan: z
+    .array(
+      z.object({
+        target: z.string(),
+        method: z.string(),
+        expected: z.string().optional(),
+      })
+    )
+    .optional(),
 });
 
 export const testValidatorOutputSchema = z.object({

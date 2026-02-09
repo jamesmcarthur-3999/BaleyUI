@@ -7,9 +7,12 @@ import { createLogger } from '@/lib/logger';
 import { apiErrors } from '@/lib/api/error-response';
 import { getAuthenticatedWorkspace } from '@/lib/auth/workspace-lookup';
 import {
-  processCreatorMessage,
   type CreatorProgressEvent,
 } from '@/lib/baleybot/creator-bot';
+import {
+  runCreatorOrchestrator,
+  type CreatorOrchestratorEvent,
+} from '@/lib/baleybot/creator-orchestrator';
 import {
   buildCreatorRequestContext,
   type CreatorConversationHistoryInput,
@@ -178,19 +181,55 @@ export async function POST(req: NextRequest) {
         };
 
         try {
-          const result = await processCreatorMessage(
+          const orchestrated = await runCreatorOrchestrator(
             {
+              workspaceId: workspace.id,
+              userMessage: creatorContext.sanitizedMessage,
               context: creatorContext.context,
               conversationHistory: creatorContext.conversationHistory,
-              onProgress: handleProgress,
+              signal: req.signal,
+              onEvent: (event: CreatorOrchestratorEvent) => {
+                if (event.type === 'creator_progress') {
+                  handleProgress(event.payload);
+                  return;
+                }
+
+                if (event.type === 'creator_tool_activity') {
+                  sendEvent({
+                    type: 'creator_tool_activity',
+                    activity: event.payload,
+                    timestamp: Date.now(),
+                  });
+                  return;
+                }
+
+                if (event.type === 'creator_plan_delta') {
+                  sendEvent({
+                    type: 'creator_plan_delta',
+                    delta: event.payload,
+                    timestamp: Date.now(),
+                  });
+                  return;
+                }
+
+                if (event.type === 'creator_action_suggestions') {
+                  sendEvent({
+                    type: 'creator_action_suggestions',
+                    actions: event.payload.actions,
+                    timestamp: Date.now(),
+                  });
+                }
+              },
             },
-            creatorContext.sanitizedMessage
           );
+          const result = orchestrated.result;
 
           sendEvent({
             type: 'creator_complete',
             result,
             summary: compactCreatorSummary(result),
+            planDelta: orchestrated.planDelta,
+            actions: orchestrated.guidanceActions,
             timestamp: Date.now(),
           });
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));

@@ -57,6 +57,12 @@ type BALExecutionEvent = {
   [key: string]: unknown;
 };
 
+type BALTokenEnvelope = BALExecutionEvent & {
+  type: 'token';
+  botName: string;
+  event: BALExecutionEvent;
+};
+
 type BALExecutionResult = {
   status: 'success' | 'error' | 'cancelled' | 'timeout' | string;
   result?: unknown;
@@ -304,9 +310,99 @@ export async function POST(
           // Iterate through the generator, collecting events
           let iterResult = await generator.next();
           let finalResult: BALExecutionResult | undefined;
+          let lastStartedNode: string | null = null;
+
+          const emitGraphRuntimeEvent = (
+            sourceEvent: BALExecutionEvent,
+            botName: string
+          ) => {
+            const timestamp = Date.now();
+            const type = sourceEvent.type;
+
+            if (type === 'tool_execution_start') {
+              if (lastStartedNode && lastStartedNode !== botName) {
+                sendEvent({
+                  type: 'graph_event',
+                  graphEvent: {
+                    type: 'edge_traversed',
+                    executionId: execution.id,
+                    timestamp,
+                    entityName: botName,
+                    nodeId: botName,
+                    nodeKind: 'bb_agent',
+                    edgeId: `control:${lastStartedNode}->${botName}`,
+                  },
+                });
+              }
+
+              sendEvent({
+                type: 'graph_event',
+                graphEvent: {
+                  type: 'node_started',
+                  executionId: execution.id,
+                  timestamp,
+                  entityName: botName,
+                  nodeId: botName,
+                  nodeKind: 'bb_agent',
+                },
+              });
+              lastStartedNode = botName;
+              return;
+            }
+
+            if (type === 'tool_execution_output') {
+              const hasError =
+                typeof sourceEvent.error === 'string' &&
+                sourceEvent.error.trim().length > 0;
+              sendEvent({
+                type: 'graph_event',
+                graphEvent: {
+                  type: hasError ? 'node_failed' : 'node_succeeded',
+                  executionId: execution.id,
+                  timestamp,
+                  entityName: botName,
+                  nodeId: botName,
+                  nodeKind: 'bb_agent',
+                  error: hasError ? String(sourceEvent.error) : undefined,
+                },
+              });
+              return;
+            }
+
+            if (type === 'tool_call_stream_start') {
+              sendEvent({
+                type: 'graph_event',
+                graphEvent: {
+                  type: 'edge_traversed',
+                  executionId: execution.id,
+                  timestamp,
+                  entityName: botName,
+                  nodeId: botName,
+                  nodeKind: 'bb_agent',
+                },
+              });
+            }
+          };
 
           while (!iterResult.done) {
-            sendEvent(iterResult.value);
+            const streamedEvent = iterResult.value;
+
+            if (
+              streamedEvent.type === 'token' &&
+              typeof (streamedEvent as BALTokenEnvelope).botName === 'string' &&
+              (streamedEvent as BALTokenEnvelope).event
+            ) {
+              const tokenEnvelope = streamedEvent as BALTokenEnvelope;
+              const tokenEvent = tokenEnvelope.event;
+              const enrichedEvent: BALExecutionEvent = {
+                ...tokenEvent,
+                botName: tokenEnvelope.botName,
+              };
+              sendEvent(enrichedEvent);
+              emitGraphRuntimeEvent(tokenEvent, tokenEnvelope.botName);
+            } else {
+              sendEvent(streamedEvent);
+            }
 
             // Check if client disconnected
             if (req.signal.aborted) {

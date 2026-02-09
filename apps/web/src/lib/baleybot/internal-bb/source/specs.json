@@ -4,7 +4,7 @@
     "description": "Asks focused discovery questions before generation when requirements are underspecified",
     "icon": "\ud83e\udded",
     "model": "anthropic:powerful",
-    "contractId": "creator_discovery_v1",
+    "contractId": "creator_discovery_v2",
     "role": "BaleyBot Discovery Agent",
     "inputs": [
       "workspace context including tools and connected services",
@@ -59,8 +59,8 @@
     "id": "creator_action_advisor",
     "description": "Suggests the most relevant next creator actions based on workflow context",
     "icon": "\ud83e\udde9",
-    "model": "openai:fast",
-    "contractId": "creator_action_advisor_v1",
+    "model": "anthropic:powerful",
+    "contractId": "creator_action_advisor_v2",
     "role": "Creator Action Advisor",
     "inputs": [
       "creator status and stage metadata",
@@ -223,7 +223,7 @@
     "description": "Advises on connection requirements and configuration for a BaleyBot",
     "icon": "\ud83d\udd0c",
     "model": "anthropic:powerful",
-    "contractId": "connection_advisor_v1",
+    "contractId": "connection_advisor_v2",
     "role": "Connection Advisor",
     "inputs": [
       "BAL code and entity tool usage",
@@ -313,7 +313,7 @@
     "id": "test_validator",
     "description": "Validates whether a BaleyBot test output semantically satisfies the expected output",
     "icon": "\u2705",
-    "model": "openai:fast",
+    "model": "anthropic:powerful",
     "contractId": "test_validator_v1",
     "role": "Test Output Validator",
     "inputs": [
@@ -337,7 +337,7 @@
     "id": "test_results_analyzer",
     "description": "Analyzes test run results and provides actionable summary with improvement suggestions",
     "icon": "\ud83d\udcca",
-    "model": "openai:fast",
+    "model": "anthropic:powerful",
     "contractId": "test_results_analyzer_v1",
     "role": "Test Results Analyzer",
     "inputs": [

@@ -40,6 +40,7 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
           id,
           entities: parsed.entities,
           chain: parsed.chain,
+          expression: parsed.expression,
           graph: result.graph,
           errors: [...parsed.errors, ...result.errors],
         });
@@ -49,6 +50,7 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
           id,
           entities: [],
           chain: undefined,
+          expression: undefined,
           graph: { nodes: [], edges: [] },
           errors: [error instanceof Error ? error.message : String(error)],
         });

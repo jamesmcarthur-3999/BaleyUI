@@ -391,27 +391,109 @@ export async function* streamBALExecution(
     // Emit started event (show runtime input if provided, else runInput from BAL code)
     yield { type: 'started', input: options.input || compiled.runInput };
 
-    // Execute with forwarded input
-    // Prefer providerConfig over apiKey when both are provided
+    // Stream token/progress events by executing from the compiled processable.
     const resolvedProviderConfig = options.providerConfig
       ?? (options.apiKey ? { apiKey: options.apiKey } : undefined);
-
     const config: BALConfig = {
       model: options.model || 'gpt-4o-mini',
       providerConfig: resolvedProviderConfig,
       availableTools: getAvailableTools(options),
-      input: options.input, // Forward runtime input to executeBAL
+      input: options.input,
     };
 
-    const result = await executeBAL(code, config);
+    const compiledRuntime = compileBAL(code, config);
+    const executable = compiledRuntime.executable;
+    if (!executable) {
+      if (timeoutId) clearTimeout(timeoutId);
+      yield {
+        type: 'completed',
+        result: {
+          status: 'parsed',
+          message: 'Code parsed successfully. No composition to execute.',
+          entities: compiled.entities,
+        },
+      };
+      return {
+        status: 'success',
+        result: {
+          status: 'parsed',
+          entities: compiled.entities,
+        },
+        entities: compiled.entities,
+        structure: compiled.structure,
+        duration: Date.now() - startTime,
+      };
+    }
+
+    const eventQueue: Array<{ botName: string; event: BaleybotStreamEvent }> = [];
+    let finalResult: unknown;
+    let processingError: Error | null = null;
+    let completed = false;
+    let resolver: (() => void) | null = null;
+    let waitForEvent: Promise<void> = new Promise<void>((resolve) => {
+      resolver = resolve;
+    });
+
+    const notify = () => {
+      if (!resolver) return;
+      resolver();
+      waitForEvent = new Promise<void>((resolve) => {
+        resolver = resolve;
+      });
+    };
+
+    const processPromise = executable
+      .process(options.input || compiled.runInput || 'Execute your task based on your goal.', {
+        signal,
+        onToken: (botName: string, event: BaleybotStreamEvent) => {
+          eventQueue.push({ botName, event });
+          notify();
+        },
+      })
+      .then((result) => {
+        finalResult = result;
+        completed = true;
+        notify();
+      })
+      .catch((error: unknown) => {
+        processingError = error instanceof Error ? error : new Error(String(error));
+        completed = true;
+        notify();
+      });
+
+    while (!completed || eventQueue.length > 0) {
+      if (signal?.aborted || timedOut) {
+        break;
+      }
+
+      while (eventQueue.length > 0) {
+        const next = eventQueue.shift();
+        if (!next) continue;
+        yield {
+          type: 'token',
+          botName: next.botName,
+          event: next.event,
+        };
+      }
+
+      if (!completed && eventQueue.length === 0) {
+        await waitForEvent;
+      }
+    }
+
+    await processPromise;
+
+    if (processingError) {
+      throw processingError;
+    }
 
     if (timeoutId) clearTimeout(timeoutId);
 
-    yield { type: 'completed', result: result.result };
+    yield { type: 'completed', result: finalResult };
 
     return {
       status: 'success',
-      result: result.result,
+      result: finalResult,
       entities: compiled.entities,
       structure: compiled.structure,
       duration: Date.now() - startTime,

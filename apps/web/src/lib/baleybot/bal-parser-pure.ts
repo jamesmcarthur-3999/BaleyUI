@@ -20,6 +20,7 @@
 // webpack alias to resolve these to the actual dist files.
 import { tokenize } from '@baleybots/tools/dsl/lexer';
 import { parse } from '@baleybots/tools/dsl/parser';
+import { type ParsedExpression } from './graph/build-graph';
 
 // ============================================================================
 // TYPES (inlined to avoid importing from ./types which pulls @baleybots/core)
@@ -33,10 +34,11 @@ export interface ParsedEntity {
 export interface ParseResult {
   entities: ParsedEntity[];
   chain?: string[];
+  expression?: ParsedExpression;
   errors: string[];
 }
 
-export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'db_event' | 'mcp_event';
+export type TriggerType = 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'db_event' | 'mcp_event' | 'file_upload';
 
 export interface TriggerConfig {
   type: TriggerType;
@@ -50,12 +52,23 @@ export interface TriggerConfig {
   mcpServer?: string;
   mcpTool?: string;
   mcpResource?: string;
+  acceptedMimeTypes?: string[];
+  maxFileSizeMb?: number;
+  multiple?: boolean;
+  payloadMode?: 'metadata' | 'inline_base64';
   enabled?: boolean;
 }
 
 export interface VisualNode {
   id: string;
-  type: 'baleybot' | 'trigger' | 'output';
+  type:
+    | 'baleybot'
+    | 'bb_cluster'
+    | 'bb_agent'
+    | 'trigger'
+    | 'datasource'
+    | 'storage_bucket'
+    | 'output';
   data: {
     name: string;
     goal: string;
@@ -64,6 +77,11 @@ export interface VisualNode {
     tools: string[];
     canRequest: string[];
     output?: Record<string, string>;
+    runtimeStatus?: 'idle' | 'running' | 'success' | 'failed';
+    kind?: string;
+    parentId?: string;
+    collapsed?: boolean;
+    meta?: Record<string, unknown>;
   };
   position: { x: number; y: number };
 }
@@ -72,7 +90,20 @@ export interface VisualEdge {
   id: string;
   source: string;
   target: string;
-  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel' | 'loop' | 'spawn' | 'shared_data' | 'trigger';
+  type:
+    | 'chain'
+    | 'conditional_pass'
+    | 'conditional_fail'
+    | 'parallel'
+    | 'loop'
+    | 'spawn'
+    | 'shared_data'
+    | 'trigger'
+    | 'try_catch'
+    | 'route'
+    | 'gate'
+    | 'filter'
+    | 'runtime';
   label?: string;
   animated?: boolean;
 }
@@ -549,18 +580,136 @@ function mergeLooseCompatProperties(
  * Extract pipeline order from AST root expression.
  * Walks ChainExpr, ParallelExpr, EntityRef, etc.
  */
+type AstLikeNode = { type: string; [key: string]: unknown };
+
+function getSourceSnippet(node: AstLikeNode | null | undefined, source: string): string | undefined {
+  if (!node || typeof node !== 'object') return undefined;
+  const span = node.span as
+    | { start?: { offset?: number }; end?: { offset?: number } }
+    | undefined;
+  const start = span?.start?.offset;
+  const end = span?.end?.offset;
+  if (typeof start !== 'number' || typeof end !== 'number' || start < 0 || end <= start) {
+    return undefined;
+  }
+  return source.slice(start, end);
+}
+
+function normalizeConditionSnippet(snippet: string | undefined): string | undefined {
+  if (!snippet) return undefined;
+  const trimmed = snippet.trim();
+  if (!trimmed) return undefined;
+  return trimmed
+    .replace(/^if\s*\(/i, '')
+    .replace(/\)\s*\{$/, '')
+    .replace(/^"|"$/g, '')
+    .trim();
+}
+
+function astToParsedExpression(
+  node: AstLikeNode | null,
+  source: string
+): ParsedExpression | undefined {
+  if (!node) return undefined;
+
+  if (node.type === 'EntityRef' || node.type === 'EntityRefWithContext') {
+    const name = node.name;
+    if (typeof name === 'string') {
+      return { type: 'entity', name };
+    }
+    return undefined;
+  }
+
+  if (node.type === 'ChainExpr') {
+    const body = (node.body as AstLikeNode[] | undefined) ?? [];
+    return {
+      type: 'chain',
+      steps: body
+        .map((child) => astToParsedExpression(child, source))
+        .filter((child): child is ParsedExpression => Boolean(child)),
+    };
+  }
+
+  if (node.type === 'ParallelExpr') {
+    const body = (node.body as AstLikeNode[] | undefined) ?? [];
+    return {
+      type: 'parallel',
+      branches: body
+        .map((child) => astToParsedExpression(child, source))
+        .filter((child): child is ParsedExpression => Boolean(child)),
+    };
+  }
+
+  if (node.type === 'IfExpr') {
+    const thenBranch = astToParsedExpression(node.thenBranch as AstLikeNode | null, source);
+    if (!thenBranch) return undefined;
+    const elseBranch = astToParsedExpression(node.elseBranch as AstLikeNode | null, source);
+    return {
+      type: 'if',
+      condition: normalizeConditionSnippet(getSourceSnippet(node.condition as AstLikeNode | null, source)),
+      pass: thenBranch,
+      fail: elseBranch,
+    };
+  }
+
+  if (node.type === 'LoopExpr') {
+    const body = astToParsedExpression(node.body as AstLikeNode | null, source);
+    if (!body) return undefined;
+    const max = typeof node.max === 'number' ? node.max : undefined;
+    return {
+      type: 'loop',
+      body,
+      max,
+      until: normalizeConditionSnippet(getSourceSnippet(node.until as AstLikeNode | null, source)),
+    };
+  }
+
+  if (node.type === 'MapExpr') {
+    const body = astToParsedExpression(node.body as AstLikeNode | null, source);
+    if (!body) return undefined;
+    return {
+      type: 'map',
+      iterable: getSourceSnippet(node.iterable as AstLikeNode | null, source),
+      body,
+    };
+  }
+
+  if (node.type === 'SelectExpr') {
+    return {
+      type: 'select',
+      fields: ((node.fields as Array<{ name?: string }>) ?? [])
+        .map((field) => field.name)
+        .filter((name): name is string => Boolean(name)),
+    };
+  }
+
+  if (node.type === 'MergeExpr') {
+    const mappings: Record<string, string> = {};
+    for (const mapping of (node.mappings as Array<{ key?: string; path?: string }> | undefined) ?? []) {
+      if (!mapping?.key || !mapping.path) continue;
+      mappings[mapping.key] = mapping.path;
+    }
+    return {
+      type: 'merge',
+      mappings,
+    };
+  }
+
+  return undefined;
+}
+
 function extractPipelineFromAst(
-  node: { type: string; [key: string]: unknown } | null
+  node: AstLikeNode | null
 ): { type: 'chain' | 'parallel' | 'single'; order: string[] } | null {
   if (!node) return null;
 
-  const extractNames = (n: { type: string; [key: string]: unknown }): string[] => {
+  const extractNames = (n: AstLikeNode): string[] => {
     if (n.type === 'EntityRef' && typeof n.name === 'string') return [n.name];
     if (n.type === 'EntityRefWithContext' && typeof n.name === 'string') return [n.name];
-    const body = n.body as Array<{ type: string; [key: string]: unknown }> | undefined;
+    const body = n.body as AstLikeNode[] | undefined;
     if (body && Array.isArray(body)) return body.flatMap(extractNames);
-    const then = n.thenBranch as { type: string; [key: string]: unknown } | undefined;
-    const els = n.elseBranch as { type: string; [key: string]: unknown } | undefined;
+    const then = n.thenBranch as AstLikeNode | undefined;
+    const els = n.elseBranch as AstLikeNode | undefined;
     return [...(then ? extractNames(then) : []), ...(els ? extractNames(els) : [])];
   };
 
@@ -619,10 +768,12 @@ export function parseBalCode(balCode: string): ParseResult {
       const strictEntities = strictToParsedEntities(ast);
       const mergedEntities = mergeLooseCompatProperties(strictEntities, balCode);
       const pipeline = extractPipelineFromAst(ast.root as { type: string; [key: string]: unknown } | null);
+      const expression = astToParsedExpression(ast.root as AstLikeNode | null, candidate);
       const looseChain = extractChainLoosely(balCode, new Set(mergedEntities.map((e) => e.name)));
       return {
         entities: mergedEntities,
         chain: pipeline?.order ?? looseChain,
+        expression,
         errors: [],
       };
     } catch (error) {
@@ -637,6 +788,12 @@ export function parseBalCode(balCode: string): ParseResult {
     return {
       entities: looseEntities,
       chain: looseChain,
+      expression: looseChain
+        ? {
+            type: 'chain',
+            steps: looseChain.map((name) => ({ type: 'entity', name })),
+          }
+        : undefined,
       errors: [],
     };
   }
@@ -644,6 +801,7 @@ export function parseBalCode(balCode: string): ParseResult {
   return {
     entities: [],
     chain: undefined,
+    expression: undefined,
     errors: [lastError instanceof Error ? lastError.message : String(lastError)],
   };
 }
@@ -712,6 +870,10 @@ function parseTriggerString(trigger: string): TriggerConfig | null {
       ...(mcpTool ? { mcpTool } : {}),
       ...(mcpResource ? { mcpResource } : {}),
     };
+  }
+
+  if (trimmed === 'file_upload' || trimmed.startsWith('file_upload:')) {
+    return { type: 'file_upload' };
   }
 
   return { type: 'manual' };
@@ -1111,75 +1273,98 @@ function autoLayout(nodes: VisualNode[], edges: VisualEdge[]): VisualNode[] {
  * Pure function with no server dependencies.
  */
 export function balToVisual(balCode: string): BalToVisualResult {
-  const { entities, chain, errors } = parseBalCode(balCode);
+  return balToVisualFromParsed(balCode, parseBalCode(balCode));
+}
+
+/**
+ * Convert BAL + parsed entities into the legacy visual graph contract.
+ * This keeps compatibility for existing server actions/tests while V2 editor
+ * uses canonical graph primitives directly.
+ */
+export function balToVisualFromParsed(
+  balCode: string,
+  parsed: ParseResult
+): BalToVisualResult {
+  const { entities, chain, errors } = parsed;
 
   if (entities.length === 0) {
     return { graph: { nodes: [], edges: [] }, errors };
   }
 
-  const nodes: VisualNode[] = [];
-  const edges: VisualEdge[] = [];
+  const orderedNames = entities
+    .map((entity) => entity.name)
+    .filter((name): name is string => typeof name === 'string' && name.length > 0);
+  const explicitChain = (Array.isArray(chain) ? chain : [])
+    .filter((name): name is string => typeof name === 'string' && name.length > 0);
 
-  const orderedNames = chain || entities.map((e) => e.name);
+  const nodes: VisualNode[] = entities.map((entity, index) => {
+    const config = entity.config ?? {};
+    const rawTrigger = config.trigger;
+    const trigger =
+      typeof rawTrigger === 'string'
+        ? parseTriggerString(rawTrigger) ?? undefined
+        : (rawTrigger as TriggerConfig | undefined);
 
-  entities.forEach((entity, index) => {
-    const position = calculatePosition(entity.name, orderedNames, index, entities.length);
-
-    let triggerConfig: TriggerConfig | undefined;
-    if (typeof entity.config.trigger === 'string') {
-      const parsed = parseTriggerString(entity.config.trigger);
-      if (parsed) {
-        triggerConfig = parsed;
-      }
-    } else if (entity.config.trigger && typeof entity.config.trigger === 'object') {
-      triggerConfig = entity.config.trigger as TriggerConfig;
-    }
-
-    nodes.push({
+    return {
       id: entity.name,
       type: 'baleybot',
+      position: calculatePosition(entity.name, explicitChain.length > 0 ? explicitChain : orderedNames, index, entities.length),
       data: {
         name: entity.name,
-        goal: (entity.config.goal as string) || '',
-        model: entity.config.model as string | undefined,
-        trigger: triggerConfig,
-        tools: (entity.config.tools as string[]) || [],
-        canRequest: (entity.config.can_request as string[]) || [],
-        output: entity.config.output as Record<string, string> | undefined,
+        goal: typeof config.goal === 'string' ? config.goal : '',
+        model: typeof config.model === 'string' ? config.model : undefined,
+        trigger,
+        tools: Array.isArray(config.tools)
+          ? config.tools.filter((tool): tool is string => typeof tool === 'string')
+          : [],
+        canRequest: Array.isArray(config.can_request)
+          ? config.can_request.filter((value): value is string => typeof value === 'string')
+          : [],
+        output:
+          config.output && typeof config.output === 'object'
+            ? (config.output as Record<string, string>)
+            : undefined,
       },
-      position,
-    });
+    };
   });
 
-  if (chain && chain.length > 1) {
-    for (let i = 0; i < chain.length - 1; i++) {
-      const source = chain[i];
-      const target = chain[i + 1];
-      if (source && target) {
-        edges.push({
-          id: `${source}->${target}`,
-          source,
-          target,
-          type: 'chain',
-          animated: true,
-        });
-      }
+  const nodeNames = new Set(nodes.map((node) => node.id));
+  const edges: VisualEdge[] = [];
+
+  if (explicitChain.length > 1) {
+    for (let i = 0; i < explicitChain.length - 1; i++) {
+      const source = explicitChain[i];
+      const target = explicitChain[i + 1];
+      if (!source || !target || !nodeNames.has(source) || !nodeNames.has(target)) continue;
+      edges.push({
+        id: `${source}->${target}`,
+        source,
+        target,
+        type: 'chain',
+        label: 'chain',
+      });
     }
   }
 
-  const parallelEdges = parseParallelEdges(balCode, nodes);
-  const conditionalEdges = parseConditionalEdges(balCode, nodes);
-  const loopEdges = parseLoopEdges(balCode, nodes);
-
-  edges.push(...parallelEdges, ...conditionalEdges, ...loopEdges);
-
-  // Generate relationship edges from entity data
+  edges.push(...parseParallelEdges(balCode, nodes));
+  edges.push(...parseConditionalEdges(balCode, nodes));
+  edges.push(...parseLoopEdges(balCode, nodes));
   edges.push(...generateSpawnEdges(nodes));
   edges.push(...generateSharedDataEdges(nodes));
   edges.push(...generateTriggerEdges(nodes));
 
-  // Apply layout based on edges
-  const layoutedNodes = autoLayout(nodes, edges);
+  const uniqueEdges = new Map<string, VisualEdge>();
+  for (const edge of edges) {
+    if (!uniqueEdges.has(edge.id)) {
+      uniqueEdges.set(edge.id, edge);
+    }
+  }
 
-  return { graph: { nodes: layoutedNodes, edges }, errors };
+  return {
+    graph: {
+      nodes: autoLayout(nodes, Array.from(uniqueEdges.values())),
+      edges: Array.from(uniqueEdges.values()),
+    },
+    errors,
+  };
 }

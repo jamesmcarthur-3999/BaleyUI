@@ -1169,7 +1169,7 @@ export function ConnectionsPanel({
                           className="h-7 text-[11px]"
                           onClick={() => handleVerificationSetupAction(tool.toolName)}
                         >
-                          Resolve
+                          Fix with AI
                         </Button>
                       )}
                     </div>
@@ -1368,7 +1368,7 @@ export function ConnectionsPanel({
                             className="h-7 text-[11px]"
                             onClick={() => handleVerificationSetupAction(tool.toolName)}
                           >
-                            Resolve Setup
+                            Fix with AI
                           </Button>
                         )}
                         {verificationResult.connection && (

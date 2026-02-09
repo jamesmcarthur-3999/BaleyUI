@@ -185,8 +185,8 @@ describe('internal-baleybots', () => {
       expect(INTERNAL_BALEYBOTS.creator_bot!.balCode).toContain('anthropic:claude-sonnet-4-20250514');
     });
 
-    it('test_validator balCode specifies gpt-5-mini model', () => {
-      expect(INTERNAL_BALEYBOTS.test_validator!.balCode).toContain('openai:gpt-5-mini');
+    it('test_validator balCode specifies claude-sonnet model', () => {
+      expect(INTERNAL_BALEYBOTS.test_validator!.balCode).toContain('anthropic:claude-sonnet-4-20250514');
     });
 
     it('creator_action_advisor output keeps structured actions typing', () => {

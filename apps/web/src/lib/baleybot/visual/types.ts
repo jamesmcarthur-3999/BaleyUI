@@ -6,10 +6,11 @@
  */
 
 import type { TriggerConfig } from '../types';
+import type { ParsedExpression } from '@/lib/baleybot/graph/build-graph';
 
 export interface VisualNode {
   id: string;
-  type: 'baleybot' | 'trigger' | 'output';
+  type: 'baleybot' | 'bb_cluster' | 'bb_agent' | 'trigger' | 'datasource' | 'storage_bucket' | 'output';
   data: {
     name: string;
     goal: string;
@@ -22,6 +23,11 @@ export interface VisualNode {
     reasoning?: boolean | { effort?: 'low' | 'medium' | 'high' };
     stopWhen?: string;
     retries?: number;
+    runtimeStatus?: 'idle' | 'running' | 'success' | 'failed';
+    kind?: string;
+    parentId?: string;
+    collapsed?: boolean;
+    meta?: Record<string, unknown>;
   };
   position: { x: number; y: number };
 }
@@ -30,7 +36,7 @@ export interface VisualEdge {
   id: string;
   source: string;
   target: string;
-  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel' | 'loop' | 'spawn' | 'shared_data' | 'trigger' | 'try_catch' | 'route' | 'gate' | 'filter';
+  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel' | 'loop' | 'spawn' | 'shared_data' | 'trigger' | 'try_catch' | 'route' | 'gate' | 'filter' | 'runtime';
   label?: string;
   animated?: boolean;
 }
@@ -44,5 +50,6 @@ export interface VisualGraph {
 export interface ParsedEntities {
   entities: Array<{ name: string; config: Record<string, unknown> }>;
   chain?: string[];
+  expression?: ParsedExpression;
   errors: string[];
 }

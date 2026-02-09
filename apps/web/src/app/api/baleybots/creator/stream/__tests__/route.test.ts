@@ -6,13 +6,13 @@ const {
   mockCheckRateLimit,
   mockGetAuthenticatedWorkspace,
   mockBuildCreatorRequestContext,
-  mockProcessCreatorMessage,
+  mockRunCreatorOrchestrator,
 } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockCheckRateLimit: vi.fn(),
   mockGetAuthenticatedWorkspace: vi.fn(),
   mockBuildCreatorRequestContext: vi.fn(),
-  mockProcessCreatorMessage: vi.fn(),
+  mockRunCreatorOrchestrator: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({
@@ -41,7 +41,11 @@ vi.mock('@/lib/baleybot/creator-request-context', () => ({
 }));
 
 vi.mock('@/lib/baleybot/creator-bot', () => ({
-  processCreatorMessage: (...args: unknown[]) => mockProcessCreatorMessage(...args),
+  // imported only for types in route
+}));
+
+vi.mock('@/lib/baleybot/creator-orchestrator', () => ({
+  runCreatorOrchestrator: (...args: unknown[]) => mockRunCreatorOrchestrator(...args),
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -113,23 +117,29 @@ describe('POST /api/baleybots/creator/stream', () => {
         existingBaleybots: [],
       },
     });
-    mockProcessCreatorMessage.mockResolvedValue({
-      status: 'ready',
-      entities: [
-        {
-          id: 'entity-1',
-          name: 'Entity',
-          icon: '🤖',
-          purpose: 'Test',
-          tools: [],
-        },
-      ],
-      connections: [],
-      balCode: 'entity { "goal": "test" }',
-      name: 'Test Bot',
-      description: 'test',
-      icon: '🤖',
-      message: 'Done',
+    mockRunCreatorOrchestrator.mockResolvedValue({
+      result: {
+        status: 'ready',
+        entities: [
+          {
+            id: 'entity-1',
+            name: 'Entity',
+            icon: '🤖',
+            purpose: 'Test',
+            tools: [],
+          },
+        ],
+        connections: [],
+        balCode: 'entity { "goal": "test" }',
+        name: 'Test Bot',
+        description: 'test',
+        icon: '🤖',
+        message: 'Done',
+      },
+      planDelta: {
+        summary: 'ok',
+      },
+      guidanceActions: [],
     });
   });
 
@@ -141,30 +151,57 @@ describe('POST /api/baleybots/creator/stream', () => {
   });
 
   it('streams creator events and completion payload', async () => {
-    mockProcessCreatorMessage.mockImplementation(async (options: { onProgress?: (event: unknown) => void }) => {
-      options.onProgress?.({
-        phase: 'discovery',
-        message: 'Collecting required details',
-        highlight: 'Detected a missing data source',
-        highlightType: 'status',
+    mockRunCreatorOrchestrator.mockImplementation(async (options: { onEvent?: (event: unknown) => void }) => {
+      options.onEvent?.({
+        type: 'creator_progress',
+        payload: {
+          phase: 'discovery',
+          message: 'Collecting required details',
+          highlight: 'Detected a missing data source',
+          highlightType: 'status',
+        },
+      });
+      options.onEvent?.({
+        type: 'creator_plan_delta',
+        payload: {
+          summary: 'Captured one blocker',
+        },
+      });
+      options.onEvent?.({
+        type: 'creator_action_suggestions',
+        payload: {
+          actions: [
+            {
+              label: 'Answer missing source',
+              prompt: 'Activity data source: Postgres',
+              mode: 'insert',
+            },
+          ],
+        },
       });
       return {
-        status: 'ready',
-        entities: [
-          {
-            id: 'entity-1',
-            name: 'Entity',
-            icon: '🤖',
-            purpose: 'Test',
-            tools: ['web_search'],
-          },
-        ],
-        connections: [],
-        balCode: 'entity { "goal": "test" }',
-        name: 'Test Bot',
-        description: 'test',
-        icon: '🤖',
-        message: 'Done',
+        result: {
+          status: 'ready',
+          entities: [
+            {
+              id: 'entity-1',
+              name: 'Entity',
+              icon: '🤖',
+              purpose: 'Test',
+              tools: ['web_search'],
+            },
+          ],
+          connections: [],
+          balCode: 'entity { "goal": "test" }',
+          name: 'Test Bot',
+          description: 'test',
+          icon: '🤖',
+          message: 'Done',
+        },
+        planDelta: {
+          summary: 'done',
+        },
+        guidanceActions: [],
       };
     });
 
@@ -176,12 +213,14 @@ describe('POST /api/baleybots/creator/stream', () => {
     expect(payload).toContain('"type":"creator_stream_started"');
     expect(payload).toContain('"type":"creator_progress"');
     expect(payload).toContain('"type":"creator_highlight"');
+    expect(payload).toContain('"type":"creator_plan_delta"');
+    expect(payload).toContain('"type":"creator_action_suggestions"');
     expect(payload).toContain('"type":"creator_complete"');
     expect(payload).toContain('data: [DONE]');
   });
 
   it('streams creator_error when processing fails', async () => {
-    mockProcessCreatorMessage.mockRejectedValue(new Error('creator exploded'));
+    mockRunCreatorOrchestrator.mockRejectedValue(new Error('creator exploded'));
 
     const response = await POST(createRequest({ message: 'build me a bot' }));
     expect(response.status).toBe(200);
@@ -192,4 +231,3 @@ describe('POST /api/baleybots/creator/stream', () => {
     expect(payload).toContain('data: [DONE]');
   });
 });
-

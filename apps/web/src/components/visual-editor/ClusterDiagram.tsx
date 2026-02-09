@@ -16,6 +16,7 @@ import '@xyflow/react/dist/style.css';
 
 import type { VisualNode, VisualEdge, VisualGraph } from '@/lib/baleybot/visual/types';
 import { BaleybotNode } from './BaleybotNode';
+import { ContextNode } from './ContextNode';
 import { cn } from '@/lib/utils';
 
 interface ClusterDiagramProps {
@@ -31,15 +32,32 @@ interface ClusterDiagramProps {
 // Custom node types - using Record type for compatibility
 const nodeTypes = {
   baleybot: BaleybotNode,
+  trigger: ContextNode,
+  datasource: ContextNode,
+  storage_bucket: ContextNode,
+  output: ContextNode,
+  bb_cluster: ContextNode,
 } as const;
 
 /**
  * Convert VisualNode to React Flow Node
  */
 function toReactFlowNode(node: VisualNode): Node {
+  const supportedType: Node['type'] =
+    node.type === 'bb_agent'
+      ? 'baleybot'
+      : node.type === 'baleybot' ||
+          node.type === 'trigger' ||
+          node.type === 'datasource' ||
+          node.type === 'storage_bucket' ||
+          node.type === 'output' ||
+          node.type === 'bb_cluster'
+        ? node.type
+        : 'baleybot';
+
   return {
     id: node.id,
-    type: node.type,
+    type: supportedType,
     position: node.position,
     data: node.data,
   };
@@ -129,6 +147,12 @@ function toReactFlowEdge(edge: VisualEdge): Edge {
       return {
         ...baseEdge,
         style: { stroke: 'hsl(199, 89%, 48%)', strokeWidth: 1.5, strokeDasharray: '3,3' }, // cyan dashed
+      };
+    case 'runtime':
+      return {
+        ...baseEdge,
+        style: { stroke: 'hsl(205, 100%, 55%)', strokeWidth: 2.5 },
+        animated: true,
       };
     default:
       return baseEdge;
@@ -237,40 +261,43 @@ export function ClusterDiagram({
           <div className="absolute top-3 left-3 z-10 bg-card/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 space-y-1.5">
             <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Relationships</p>
             {edgeTypes.has('chain') && (
-              <LegendItem color="hsl(var(--primary))" dashed={false} label="Sequential chain" />
+              <LegendItem color="hsl(var(--primary))" dashed={false} label="Step order" />
             )}
             {edgeTypes.has('spawn') && (
-              <LegendItem color="hsl(280, 80%, 55%)" dashed label="Spawns agent" />
+              <LegendItem color="hsl(280, 80%, 55%)" dashed label="Creates helper step" />
             )}
             {edgeTypes.has('shared_data') && (
-              <LegendItem color="hsl(45, 90%, 50%)" dashed label="Shared data" />
+              <LegendItem color="hsl(45, 90%, 50%)" dashed label="Shares data" />
             )}
             {edgeTypes.has('trigger') && (
-              <LegendItem color="hsl(142.1, 76.2%, 36.3%)" dashed={false} label="Triggers on complete" />
+              <LegendItem color="hsl(142.1, 76.2%, 36.3%)" dashed={false} label="Starts this flow" />
             )}
             {edgeTypes.has('parallel') && (
-              <LegendItem color="hsl(217.2, 91.2%, 59.8%)" dashed label="Parallel execution" />
+              <LegendItem color="hsl(217.2, 91.2%, 59.8%)" dashed label="Runs together" />
             )}
             {edgeTypes.has('loop') && (
-              <LegendItem color="hsl(33, 95%, 55%)" dashed label="Loop iteration" />
+              <LegendItem color="hsl(33, 95%, 55%)" dashed label="Repeats until done" />
             )}
             {edgeTypes.has('conditional_pass') && (
-              <LegendItem color="hsl(142.1, 76.2%, 36.3%)" dashed={false} label="Condition: pass" />
+              <LegendItem color="hsl(142.1, 76.2%, 36.3%)" dashed={false} label="Condition true" />
             )}
             {edgeTypes.has('conditional_fail') && (
-              <LegendItem color="hsl(0, 84.2%, 60.2%)" dashed={false} label="Condition: fail" />
+              <LegendItem color="hsl(0, 84.2%, 60.2%)" dashed={false} label="Condition false" />
             )}
             {edgeTypes.has('try_catch') && (
-              <LegendItem color="hsl(0, 72%, 51%)" dashed label="Try/Catch fallback" />
+              <LegendItem color="hsl(0, 72%, 51%)" dashed label="Fallback path" />
             )}
             {edgeTypes.has('route') && (
-              <LegendItem color="hsl(262, 83%, 58%)" dashed={false} label="Route path" />
+              <LegendItem color="hsl(262, 83%, 58%)" dashed={false} label="Routed path" />
             )}
             {edgeTypes.has('gate') && (
-              <LegendItem color="hsl(45, 93%, 47%)" dashed label="Conditional gate" />
+              <LegendItem color="hsl(45, 93%, 47%)" dashed label="Gate check" />
             )}
             {edgeTypes.has('filter') && (
-              <LegendItem color="hsl(199, 89%, 48%)" dashed label="Filter" />
+              <LegendItem color="hsl(199, 89%, 48%)" dashed label="Filtered path" />
+            )}
+            {edgeTypes.has('runtime') && (
+              <LegendItem color="hsl(205, 100%, 55%)" dashed={false} label="Live activity" />
             )}
           </div>
         )}
