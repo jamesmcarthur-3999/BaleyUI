@@ -5,7 +5,27 @@
  * Used to initialize internal BaleyBots and built-in tool services.
  */
 
+import * as Sentry from '@sentry/nextjs';
+
+let sentryInitialized = false;
+
+function initializeSentry() {
+  if (sentryInitialized) {
+    return;
+  }
+
+  Sentry.init({
+    dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+    enabled: process.env.NODE_ENV === 'production',
+    tracesSampleRate: 0.1,
+  });
+
+  sentryInitialized = true;
+}
+
 export async function register() {
+  initializeSentry();
+
   // Only run on server
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     const { seedInternalBaleybots } = await import('@/lib/baleybot/internal-baleybots');

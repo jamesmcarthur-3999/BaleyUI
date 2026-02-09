@@ -12,13 +12,23 @@
  * for specific tasks without needing to pre-define them.
  */
 
-import { Baleybot, type ToolDefinition as CoreToolDefinition } from '@baleybots/core';
+import type { ToolDefinition as CoreToolDefinition } from '@baleybots/core';
 import type { BuiltInToolContext, CreateAgentResult } from '../tools/built-in';
 import type { RuntimeToolDefinition } from '../executor';
 import { toCoreTool } from '../tools/core-tool-adapter';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('ephemeral-agent');
+
+let baleybotCoreModulePromise: Promise<typeof import('@baleybots/core')> | null = null;
+
+async function loadBaleybotCore() {
+  if (!baleybotCoreModulePromise) {
+    baleybotCoreModulePromise = import('@baleybots/core');
+  }
+
+  return baleybotCoreModulePromise;
+}
 
 // ============================================================================
 // TYPES
@@ -105,6 +115,8 @@ export function createEphemeralAgentService(): EphemeralAgentService {
       }
 
       try {
+        const { Baleybot } = await loadBaleybotCore();
+
         // Create and execute the ephemeral agent
         const agent = Baleybot.create(
           botConfig as Parameters<typeof Baleybot.create>[0]

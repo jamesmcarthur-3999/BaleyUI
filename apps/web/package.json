@@ -7,7 +7,7 @@
     "prebuild": "if [ -f ../../packages/baleybots/typescript/packages/core/package.json ]; then (cd ../../packages/baleybots/typescript/packages/core && pnpm build); else echo \"Skipping @baleybots/core prebuild (core package not present in this checkout).\"; fi && if [ -f ../../packages/baleybots/typescript/packages/tools/package.json ]; then (cd ../../packages/baleybots/typescript/packages/tools && pnpm build); else echo \"Skipping @baleybots/tools prebuild (tools package not present in this checkout).\"; fi",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint . --max-warnings=0",
     "type-check": "tsc --noEmit",
     "internal-bb:compile": "node scripts/compile-internal-bb.mjs",
     "test": "vitest run",

@@ -24,6 +24,10 @@ const nextConfig: NextConfig = {
       '@baleybots/tools/dsl/types': path.join(dslDir, 'types.js'),
       '@baleybots/tools/dsl/type-builder': path.join(dslDir, 'type-builder.js'),
     };
+    config.infrastructureLogging = {
+      ...(config.infrastructureLogging || {}),
+      level: 'error',
+    };
     return config;
   },
   async headers() {

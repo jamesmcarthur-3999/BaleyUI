@@ -15,6 +15,12 @@ const eslintConfig = [
   },
   ...compat.extends('next/core-web-vitals', 'next/typescript'),
   {
+    files: ['next-env.d.ts'],
+    rules: {
+      '@typescript-eslint/triple-slash-reference': 'off',
+    },
+  },
+  {
     rules: {
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       // Type safety: Prevent explicit any usage
