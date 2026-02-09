@@ -64,7 +64,6 @@
     "dagre": "^0.8.5",
     "date-fns": "^4.1.0",
     "dompurify": "^3.3.1",
-    "isolated-vm": "^6.0.2",
     "lucide-react": "^0.468.0",
     "mysql2": "^3.16.3",
     "next": "15.5.12",

@@ -51,7 +51,6 @@ const nextConfig: NextConfig = {
   // child_process) that cause infinite dev compilation hangs when bundled. Since they
   // ship pre-built ESM and are only used server-side, externalizing is correct.
   serverExternalPackages: [
-    'isolated-vm',
     '@baleybots/core',
     '@baleybots/tools',
     '@baleybots/chat',
