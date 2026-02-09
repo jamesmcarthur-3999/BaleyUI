@@ -294,13 +294,21 @@ function extractLikelyTableNames(text: string): string[] {
   const matches = new Set<string>();
   const patterns = [
     /\btable\s+([a-zA-Z_][a-zA-Z0-9_]*)\b/gi,
-    /\bfrom\s+([a-zA-Z_][a-zA-Z0-9_]*)\b/gi,
     /\bcollection\s+([a-zA-Z_][a-zA-Z0-9_]*)\b/gi,
+    /\bview\s+([a-zA-Z_][a-zA-Z0-9_]*)\b/gi,
+    /\b[a-zA-Z_][a-zA-Z0-9_]*\.([a-zA-Z_][a-zA-Z0-9_]*)\b/gi,
   ];
 
   for (const pattern of patterns) {
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(text)) !== null) {
+      if (match[0]?.includes('.') && match[0].split('.').length === 2) {
+        const table = match[0].split('.')[0];
+        if (table) {
+          matches.add(table.toLowerCase());
+        }
+        continue;
+      }
       if (match[1]) {
         matches.add(match[1].toLowerCase());
       }
@@ -375,15 +383,15 @@ function isLikelyOptionalDiscoveryQuestion(question: DiscoveryQuestion): boolean
     'slack',
     'email',
     'webhook destination',
-    'database source',
-    'connection',
-    'api endpoint',
     'credential',
     'api key',
+    'auth key',
     'trigger mode',
     'schedule',
+    'cadence',
     'polling',
-    'mcp source',
+    'token',
+    'secret',
   ]);
 }
 
@@ -715,24 +723,29 @@ function isOutcomeCriticalDiscoveryQuestion(question: DiscoveryQuestion): boolea
   const setupPatterns = [
     'database source',
     'db source',
-    'connection',
-    'api endpoint',
-    'endpoint',
+    'data source',
+    'source system',
+    'signup signal',
+    'table',
+    'field',
+    'column',
+    'metrics focus',
+    'status update focus',
+    'weekly update focus',
     'credential',
     'api key',
+    'auth key',
     'token',
     'secret',
     'webhook',
     'slack',
     'email',
     'destination',
+    'channel',
     'trigger mode',
     'schedule',
     'poll',
     'mcp',
-    'table',
-    'field',
-    'column',
   ];
 
   if (includesAny(text, setupPatterns)) {
@@ -822,6 +835,54 @@ function isDiscoveryQuestionAnsweredByFreeform(params: {
     'store',
     'write back',
   ]);
+  const hasNamedTableSignal = /\b(table|view|collection|bucket)\s+[a-z_][a-z0-9_]{1,}\b/.test(
+    normalizedText
+  );
+  const hasSpecificApiSignal =
+    hasUrl ||
+    /\b(api|endpoint)\s*(is|=|:|at)\s+\S+/.test(normalizedText);
+  const hasStorageProviderSignal = includesAny(normalizedText, [
+    'postgres',
+    'mysql',
+    'mariadb',
+    'sqlite',
+    'mongodb',
+    'snowflake',
+    'bigquery',
+    's3',
+    'spreadsheet',
+    'google sheet',
+    'google sheets',
+    'csv',
+    'airtable',
+    'notion',
+    'warehouse',
+  ]);
+  const hasExplicitDataSourceHint =
+    hasDbSourceSignal ||
+    hasSpecificApiSignal ||
+    hasStorageProviderSignal ||
+    hasNamedTableSignal;
+  const hasMetricFocusSignal = includesAny(normalizedText, [
+    'kpi',
+    'kpis',
+    'metric',
+    'metrics',
+    'signups',
+    'registrations',
+    'conversions',
+    'retention',
+    'churn',
+    'active users',
+    'dau',
+    'mau',
+    'revenue',
+    'errors',
+    'incidents',
+    'uptime',
+    'latency',
+  ]) ||
+    /\b[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\b/.test(normalizedText);
 
   if (isOutcomeCriticalDiscoveryQuestion(question)) {
     const hasExplicitAssignment = /\b(?:policy|rule|behavior|outcome)\s*(?:is|=|:)\b/.test(
@@ -864,6 +925,14 @@ function isDiscoveryQuestionAnsweredByFreeform(params: {
       includesAny(normalizedText, ['mcp']) &&
       includesAny(normalizedText, ['server', 'tool', 'resource'])
     );
+  }
+
+  if (includesAny(questionText, ['activity data source', 'data source', 'source system'])) {
+    return hasExplicitDataSourceHint;
+  }
+
+  if (includesAny(questionText, ['status update focus', 'weekly update focus', 'which metrics'])) {
+    return hasMetricFocusSignal;
   }
 
   const questionTokens = new Set(tokenizeDiscoveryText(questionText));
@@ -965,19 +1034,8 @@ function mergeDiscoveryAssessments(params: {
     ...optionalResolution.answered,
   ]);
 
-  const deferredSetupQuestions = requiredResolution.remaining.filter(
-    (question) => !isOutcomeCriticalDiscoveryQuestion(question)
-  );
-  let finalRequiredNow = requiredResolution.remaining.filter((question) =>
-    isOutcomeCriticalDiscoveryQuestion(question)
-  );
-  let finalOptionalLater = dedupeDiscoveryQuestions([
-    ...optionalResolution.remaining,
-    ...deferredSetupQuestions.map((question) => ({
-      ...question,
-      requiredNow: false,
-    })),
-  ]);
+  let finalRequiredNow = requiredResolution.remaining;
+  let finalOptionalLater = optionalResolution.remaining;
   const exploratoryPrompt = isExploratoryCreatorPrompt(userMessage);
 
   if (exploratoryPrompt && finalRequiredNow.length > 0) {
@@ -1003,14 +1061,6 @@ function mergeDiscoveryAssessments(params: {
   if (resolvedQuestions.length > 0) {
     contextNotes.push(
       `Accepted discovery answers for: ${resolvedQuestions
-        .map((question) => question.label)
-        .join(', ')}.`
-    );
-  }
-
-  if (deferredSetupQuestions.length > 0) {
-    contextNotes.push(
-      `Deferred setup details to Connections stage: ${deferredSetupQuestions
         .map((question) => question.label)
         .join(', ')}.`
     );
@@ -1180,6 +1230,32 @@ function assessDiscoveryNeeds(
     'https://',
   ]);
   const hasMcpIntent = includesAny(lower, ['mcp', 'model context protocol']);
+  const hasDataIntent = includesAny(lower, [
+    'data',
+    'dataset',
+    'activity',
+    'events',
+    'event data',
+    'analytics',
+    'metrics',
+    'usage',
+    'logs',
+    'telemetry',
+    'warehouse',
+  ]);
+  const hasReportingIntent = includesAny(lower, [
+    'status update',
+    'status updates',
+    'weekly update',
+    'weekly status',
+    'report',
+    'reporting',
+    'summary',
+    'summarize',
+    'digest',
+    'brief',
+    'recap',
+  ]);
   const hasMonitoringIntent = includesAny(lower, [
     'monitor',
     'watch',
@@ -1337,6 +1413,128 @@ function assessDiscoveryNeeds(
         label: 'Output Destination',
         description:
           'What should happen after the MCP event runs (notify, write data, call webhook, etc.)?',
+        icon: '📣',
+        requiredNow: false,
+      });
+    }
+  } else if (hasDataIntent && hasReportingIntent) {
+    contextNotes.push(
+      'Intent: draft structured status updates from activity/metrics data.'
+    );
+
+    const hasStructuredDataScopeHint =
+      /\b[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\b/.test(lower) ||
+      /\b(table|collection|view|bucket)\s+[a-z_][a-z0-9_]{1,}\b/.test(lower);
+    const hasExplicitDbSourceHint =
+      includesAny(lower, [
+        'database',
+        ' db ',
+        'postgres',
+        'mysql',
+        'sql',
+        'warehouse',
+        'snowflake',
+        'bigquery',
+      ]) || hasStructuredDataScopeHint;
+    const hasSourceTypeHint =
+      hasExplicitDbSourceHint ||
+      hasApiIntent ||
+      hasMcpIntent ||
+      includesAny(lower, [
+        'spreadsheet',
+        'google sheet',
+        'google sheets',
+        'csv',
+        'airtable',
+        'notion',
+        's3',
+        'snowflake',
+        'bigquery',
+      ]);
+
+    if (!hasSourceTypeHint) {
+      questions.push({
+        id: 'status-data-source',
+        label: 'Activity Data Source',
+        description:
+          'Where does the activity data live (database, API, spreadsheet, warehouse, etc.)?',
+        icon: '🗄️',
+        requiredNow: true,
+      });
+    }
+
+    if (hasDbIntent && likelyTables.length === 0) {
+      questions.push({
+        id: 'status-db-table-scope',
+        label: 'Data Scope',
+        description:
+          'Which tables/fields should be used for the status update metrics?',
+        icon: '🧾',
+        requiredNow: true,
+      });
+    }
+
+    if (
+      hasApiIntent &&
+      !includesAny(lower, ['http://', 'https://', '/api', 'endpoint'])
+    ) {
+      questions.push({
+        id: 'status-api-endpoint',
+        label: 'API Endpoint',
+        description:
+          'Which API endpoint should provide the activity metrics for the update?',
+        icon: '🌐',
+        requiredNow: true,
+      });
+    }
+
+    const hasMetricScopeHint = includesAny(lower, [
+        'kpi',
+        'kpis',
+        'metric',
+        'metrics',
+        'signups',
+        'registrations',
+        'conversions',
+        'retention',
+        'churn',
+        'active users',
+        'dau',
+        'mau',
+        'revenue',
+        'errors',
+        'incidents',
+      ]) ||
+      /\b[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\b/.test(lower);
+
+    if (!hasMetricScopeHint) {
+      questions.push({
+        id: 'status-metrics-focus',
+        label: 'Status Update Focus',
+        description:
+          'What should the weekly update cover (for example: signups, retention, engagement, incidents, revenue)?',
+        icon: '📊',
+        requiredNow: true,
+      });
+    }
+
+    if (!hasScheduleHint) {
+      questions.push({
+        id: 'status-cadence',
+        label: 'Cadence',
+        description:
+          'How often should the update be drafted (weekly, daily, monthly)?',
+        icon: '⏱️',
+        requiredNow: false,
+      });
+    }
+
+    if (!hasDestinationHint) {
+      questions.push({
+        id: 'status-audience-destination',
+        label: 'Audience Or Destination',
+        description:
+          'Who should receive the update and where should it be delivered (chat, email, dashboard)?',
         icon: '📣',
         requiredNow: false,
       });

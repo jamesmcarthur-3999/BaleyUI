@@ -179,7 +179,7 @@ describe('creator-bot', () => {
     expect(result).toHaveProperty('status');
   });
 
-  it('returns discovery questions for underspecified database monitoring requests', async () => {
+  it('blocks generation for underspecified database monitoring requests', async () => {
     const { runCreatorDiscovery } = await import('../internal-bb/runner');
     const { executeInternalBaleybot } = await import('../internal-baleybots');
 
@@ -204,7 +204,9 @@ describe('creator-bot', () => {
       'Monitor my database for new signups'
     );
 
-    expect(result.status).toBe('ready');
+    expect(result.status).toBe('building');
+    expect(result.questions?.some((q) => q.id === 'db-source')).toBe(true);
+    expect(result.questions?.some((q) => q.id === 'signup-signal')).toBe(true);
     expect(runCreatorDiscovery).toHaveBeenCalledWith(
       'Monitor my database for new signups',
       expect.objectContaining({
@@ -212,11 +214,7 @@ describe('creator-bot', () => {
         triggeredBy: 'internal',
       })
     );
-    expect(executeInternalBaleybot).toHaveBeenCalledWith(
-      'creator_bot',
-      'Monitor my database for new signups',
-      expect.anything()
-    );
+    expect(executeInternalBaleybot).not.toHaveBeenCalled();
   });
 
   it('proceeds to generation after discovery details are present', async () => {
@@ -487,6 +485,26 @@ describe('creator-bot', () => {
 
     expect(result.status).toBe('building');
     expect(result.questions?.some((q) => q.id === 'approval-policy')).toBe(true);
+  });
+
+  it('blocks weekly status bots until data source and metric scope are explicit', async () => {
+    const { executeInternalBaleybot } = await import('../internal-baleybots');
+    const result = await processCreatorMessage(
+      {
+        context: {
+          workspaceId: 'ws-1',
+          availableTools: [],
+          existingBaleybots: [],
+          workspacePolicies: null,
+          connections: [],
+        },
+      },
+      'Build a bot that drafts weekly status updates from activity data'
+    );
+    expect(result.status).toBe('building');
+    expect(result.questions?.some((q) => q.id === 'status-data-source')).toBe(true);
+    expect(result.questions?.some((q) => q.id === 'status-metrics-focus')).toBe(true);
+    expect(executeInternalBaleybot).not.toHaveBeenCalled();
   });
 
   it('adds stage narrative to ready outputs', async () => {

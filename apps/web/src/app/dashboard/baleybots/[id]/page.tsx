@@ -52,7 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, ArrowRight, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, Zap, BarChart3, MessageSquare, PanelRight, Cable, FlaskConical, Activity, Rocket, CirclePlay, PauseCircle, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, Zap, BarChart3, MessageSquare, PanelRight, Cable, FlaskConical, Activity, Rocket, CirclePlay, PauseCircle, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory, useTestExecution } from '@/hooks';
@@ -2397,6 +2397,27 @@ export default function BaleybotPage() {
                 >
                   {showAdvancedUI ? 'Hide advanced' : 'Show advanced'}
                 </Button>
+                {viewMode === 'visual' && !isDiscoveryWorkspaceActive && (
+                  isDesignReviewRequired ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-2 h-8 text-xs"
+                      onClick={() => handleOptionSelect('confirm-design')}
+                    >
+                      Confirm design
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-2 h-8 text-xs"
+                      onClick={() => navigateToTab(postDesignTargetTab, { bypassDesignGate: true })}
+                    >
+                      Continue to {postDesignTargetLabel}
+                    </Button>
+                  )
+                )}
               </div>
 
               {/* Editor content */}
@@ -2482,51 +2503,6 @@ export default function BaleybotPage() {
                       </div>
                     ) : (
                       <div className="h-full flex flex-col gap-3">
-                        <div className="rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-medium">Step 1: Review Visual Design</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Confirm the structure, tools, and source mappings here before moving forward.
-                            </p>
-                            {latestDiscoveryIntake && latestDiscoveryIntake.answers.length > 0 && (
-                              <div className="mt-2 rounded-md border border-border/60 bg-background/70 px-2.5 py-2">
-                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                                  Generated from discovery
-                                </p>
-                                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                  {latestDiscoveryIntake.answers.slice(0, 6).map((answer) => (
-                                    <span
-                                      key={answer.id}
-                                      className="text-[11px] rounded-full border border-border/60 bg-background/80 px-2 py-0.5"
-                                    >
-                                      {answer.label}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          {isDesignReviewRequired ? (
-                            <Button
-                              size="sm"
-                              onClick={() => handleOptionSelect('confirm-design')}
-                              className="shrink-0"
-                            >
-                              <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-                              Confirm Design
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => navigateToTab(postDesignTargetTab, { bypassDesignGate: true })}
-                              className="shrink-0"
-                            >
-                              Continue to {postDesignTargetLabel}
-                              <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
-                            </Button>
-                          )}
-                        </div>
                         <VisualEditor
                           balCode={balCode}
                           onChange={handleCodeChange}
