@@ -43,6 +43,7 @@ const CREATOR_DISCOVERY_MAX_TOOL_NAMES = 32;
 const CREATOR_DISCOVERY_MAX_EXISTING_BBS = 10;
 const CREATOR_DISCOVERY_MAX_RECENT_USER_TURNS = 6;
 const CREATOR_DISCOVERY_MAX_RECENT_USER_CHARS = 320;
+const CREATOR_FALLBACK_ICON = '🤖';
 
 interface DiscoveryQuestion {
   id: string;
@@ -229,26 +230,49 @@ function validateCreatorCandidate(candidate: CreatorOutput): CreatorValidationRe
     };
   }
 
-  const normalizedBalCode = normalizeBalCodeForCompatibility(compactedCandidate.balCode);
-  const normalizedParse = parseBalCode(normalizedBalCode);
+  const validateBalCode = (
+    output: CreatorOutput,
+    signature: string
+  ): CreatorValidationResult => {
+    const normalizedBalCode = normalizeBalCodeForCompatibility(output.balCode);
+    const normalizedParse = parseBalCode(normalizedBalCode);
 
-  if (normalizedParse.entities.length === 0 || normalizedParse.errors.length > 0) {
-    return {
-      success: false,
-      signature: 'bal_compatibility_failed',
-      errorMessage: normalizedParse.errors.join('; ') || 'No entities were parsed',
-      rawPreview: normalizedBalCode.slice(0, 600),
-    };
-  }
+    if (normalizedParse.entities.length === 0 || normalizedParse.errors.length > 0) {
+      return {
+        success: false,
+        signature: 'bal_compatibility_failed',
+        errorMessage: normalizedParse.errors.join('; ') || 'No entities were parsed',
+        rawPreview: normalizedBalCode.slice(0, 600),
+      };
+    }
 
     return {
       success: true,
-      signature: 'success',
+      signature,
       output: {
-        ...compactedCandidate,
+        ...output,
         balCode: normalizedBalCode,
       },
     };
+  };
+
+  const initialValidation = validateBalCode(compactedCandidate, 'success');
+  if (initialValidation.success) {
+    return initialValidation;
+  }
+
+  const repairedOutput = autoRepairReadyOutputFromEntities(compactedCandidate);
+  if (repairedOutput) {
+    const repairedValidation = validateBalCode(repairedOutput, 'success_auto_repaired');
+    if (repairedValidation.success) {
+      logger.warn('Auto-repaired creator output BAL from entity draft', {
+        entityCount: repairedOutput.entities.length,
+      });
+      return repairedValidation;
+    }
+  }
+
+  return initialValidation;
 }
 
 function compactCreatorOutputForUser(output: CreatorOutput): CreatorOutput {
@@ -423,6 +447,240 @@ function inferDraftName(userMessage: string): string {
   return compact
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .slice(0, 64);
+}
+
+function isMalformedCreatorOutputError(error: unknown): boolean {
+  const message =
+    error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+  return (
+    message.includes('malformed output') ||
+    message.includes('response validation failed') ||
+    message.includes('schema') ||
+    message.includes('invalid json') ||
+    message.includes('unexpected token')
+  );
+}
+
+function toBalIdentifier(value: string, fallback: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  if (!normalized) return fallback;
+  if (/^[0-9]/.test(normalized)) return `${fallback}_${normalized}`;
+  return normalized;
+}
+
+function escapeBalString(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function buildSimpleBalCode(
+  entities: Array<{
+    name: string;
+    purpose: string;
+    tools: string[];
+  }>
+): string {
+  const blocks = entities.map((entity) => {
+    const goal = escapeBalString(entity.purpose.trim() || 'Execute the requested workflow.');
+    const tools = [...new Set(entity.tools.map((tool) => tool.trim()).filter(Boolean))];
+    const toolsLine =
+      tools.length > 0
+        ? `,\n  "tools": { ${tools.map((tool) => `"${escapeBalString(tool)}"`).join(', ')} }`
+        : '';
+
+    return `${entity.name} {\n  "goal": "${goal}"${toolsLine}\n}`;
+  });
+
+  if (entities.length <= 1) {
+    return blocks.join('\n\n');
+  }
+
+  const chain = `chain {\n  ${entities.map((entity) => entity.name).join('\n  ')}\n}`;
+  return `${blocks.join('\n\n')}\n\n${chain}`;
+}
+
+function normalizeEntitiesForBalDraft(
+  entities: CreatorOutput['entities']
+): {
+  entities: CreatorOutput['entities'];
+  nameMap: Map<string, string>;
+} {
+  const usedNames = new Set<string>();
+  const nameMap = new Map<string, string>();
+
+  const normalized = entities.map((entity, index) => {
+    const rawName = entity.name?.trim() || `entity_${index + 1}`;
+    const baseName = toBalIdentifier(rawName, `entity_${index + 1}`);
+    let nextName = baseName;
+    let suffix = 2;
+    while (usedNames.has(nextName)) {
+      nextName = `${baseName}_${suffix++}`;
+    }
+    usedNames.add(nextName);
+    nameMap.set(rawName, nextName);
+
+    return {
+      ...entity,
+      id: entity.id?.trim() || `entity-${index + 1}-${crypto.randomUUID()}`,
+      name: nextName,
+      icon: entity.icon?.trim() || CREATOR_FALLBACK_ICON,
+      purpose: entity.purpose?.trim() || 'Execute the requested workflow.',
+      tools: [...new Set((entity.tools ?? []).map((tool) => tool.trim()).filter(Boolean))],
+    };
+  });
+
+  return {
+    entities: normalized,
+    nameMap,
+  };
+}
+
+function autoRepairReadyOutputFromEntities(
+  output: CreatorOutput
+): CreatorOutput | null {
+  if (output.entities.length === 0) return null;
+
+  const normalized = normalizeEntitiesForBalDraft(output.entities);
+  const repairedBalCode = buildSimpleBalCode(
+    normalized.entities.map((entity) => ({
+      name: entity.name,
+      purpose: entity.purpose,
+      tools: entity.tools,
+    }))
+  );
+
+  const repairedConnections = output.connections.map((connection) => ({
+    ...connection,
+    from: normalized.nameMap.get(connection.from) ?? connection.from,
+    to: normalized.nameMap.get(connection.to) ?? connection.to,
+  }));
+
+  return {
+    ...output,
+    status: 'ready',
+    entities: normalized.entities,
+    connections: repairedConnections,
+    balCode: repairedBalCode,
+    icon: output.icon?.trim() || CREATOR_FALLBACK_ICON,
+    message:
+      output.message?.trim() ||
+      'I repaired the draft structure so this workflow is runnable now.',
+  };
+}
+
+function buildStarterEntityBlueprints(args: {
+  userMessage: string;
+  availableTools: GeneratorContext['availableTools'];
+}): Array<{ name: string; purpose: string; tools: string[]; icon: string }> {
+  const lower = args.userMessage.toLowerCase();
+  const availableToolNames = new Set(args.availableTools.map((tool) => tool.name));
+  const prefersWebResearch = /web|website|site|search|monitor|news|digest|summar/i.test(lower);
+  const includeWebSearch = prefersWebResearch && availableToolNames.has('web_search');
+  const sharedTools = includeWebSearch ? ['web_search'] : [];
+  const wantsTwoBots =
+    /\b(two|2|pair|another|and another|team of bots|multiple bots)\b/i.test(lower);
+
+  if (wantsTwoBots) {
+    return [
+      {
+        name: 'source_monitor',
+        purpose: 'Collect and organize fresh source updates for the requested goal.',
+        tools: sharedTools,
+        icon: '🛰️',
+      },
+      {
+        name: 'insight_writer',
+        purpose: 'Summarize updates into a concise action-oriented digest.',
+        tools: [],
+        icon: '📝',
+      },
+    ];
+  }
+
+  return [
+    {
+      name: 'workflow_agent',
+      purpose: 'Carry out the user request and provide a clear result.',
+      tools: sharedTools,
+      icon: CREATOR_FALLBACK_ICON,
+    },
+  ];
+}
+
+function buildDeterministicStarterOutput(args: {
+  userMessage: string;
+  context: GeneratorContext;
+  existingMessage?: string;
+}): CreatorOutput {
+  const blueprints = buildStarterEntityBlueprints({
+    userMessage: args.userMessage,
+    availableTools: args.context.availableTools,
+  });
+  const usedNames = new Set<string>();
+  const entities = blueprints.map((blueprint, index) => {
+    const baseName = toBalIdentifier(
+      blueprint.name,
+      `starter_entity_${index + 1}`
+    );
+    let nextName = baseName;
+    let suffix = 2;
+    while (usedNames.has(nextName)) {
+      nextName = `${baseName}_${suffix++}`;
+    }
+    usedNames.add(nextName);
+
+    return {
+      id: `starter-${index + 1}-${crypto.randomUUID()}`,
+      name: nextName,
+      icon: blueprint.icon,
+      purpose: blueprint.purpose,
+      tools: blueprint.tools,
+    };
+  });
+
+  const connections =
+    entities.length > 1
+      ? entities.slice(0, -1).map((entity, index) => ({
+          from: entity.id,
+          to: entities[index + 1]!.id,
+        }))
+      : [];
+  const balCode = buildSimpleBalCode(
+    entities.map((entity) => ({
+      name: entity.name,
+      purpose: entity.purpose,
+      tools: entity.tools,
+    }))
+  );
+  const draftName = inferDraftName(args.userMessage);
+  const starterMessage =
+    args.existingMessage?.trim() ||
+    'I prepared a safe starter workflow so you can run and refine it right away.';
+
+  return {
+    thinking: buildStageSummary({
+      whatIDid:
+        'Generated a resilient starter draft after recovering from an internal formatting issue.',
+      currentStage: 'Design Complete',
+      nextStage: 'Testing',
+      nextAction: 'Run a test, then adjust entities or tools in the visual editor as needed.',
+    }),
+    message: starterMessage,
+    entities,
+    connections,
+    balCode,
+    name: draftName,
+    description: 'Starter workflow generated with safe defaults.',
+    icon: CREATOR_FALLBACK_ICON,
+    status: 'ready',
+    runnableConfidence: 0.68,
+    blockMode: 'soft',
+    questions: [],
+  };
 }
 
 function buildDiscoveryMessage(params: {
@@ -2416,7 +2674,7 @@ async function assessDiscoveryNeedsWithInternalBB(
     });
     emitCreatorProgress(options, {
       phase: 'recovery',
-      message: 'Discovery analyzer response needed cleanup, using a safe fallback',
+      message: 'Discovery checks complete',
       highlightType: 'status',
     });
     const answerHistory = extractRecentUserMessages(options.conversationHistory);
@@ -2432,9 +2690,7 @@ async function assessDiscoveryNeedsWithInternalBB(
       assumptions: [],
       runnableConfidence: 0.65,
       hasAssumptionConsent: false,
-      contextNotes: [
-        'Fallback discovery mode activated due temporary analyzer failure.',
-      ],
+      contextNotes: [],
     };
 
     const mergedFallback = mergeDiscoveryAssessments({
@@ -2624,22 +2880,44 @@ export async function processCreatorMessage(
             lastRawPreview: state.lastRawPreview,
           });
 
-      const output = await runCreatorBot(prompt, {
-        userWorkspaceId: options.context.workspaceId,
-        context,
-        triggeredBy: 'internal',
-        // Keep one inline repair on first draft, then let orchestration loop drive retries.
-        repairAttempts: cycleIndex === 1 ? 1 : 0,
-        onSegment: (segment) => {
-          const normalized = toProgressEventFromSegment(segment);
-          if (!normalized) return;
-          emitCreatorProgress(options, {
-            phase: 'generation',
-            ...normalized,
-            cycle: cycleIndex,
-          });
-        },
-      });
+      let output: CreatorOutput;
+      try {
+        output = await runCreatorBot(prompt, {
+          userWorkspaceId: options.context.workspaceId,
+          context,
+          triggeredBy: 'internal',
+          // Keep one inline repair on first draft, then let orchestration loop drive retries.
+          repairAttempts: cycleIndex === 1 ? 1 : 0,
+          onSegment: (segment) => {
+            const normalized = toProgressEventFromSegment(segment);
+            if (!normalized) return;
+            emitCreatorProgress(options, {
+              phase: 'generation',
+              ...normalized,
+              cycle: cycleIndex,
+            });
+          },
+        });
+      } catch (error) {
+        if (!isMalformedCreatorOutputError(error)) {
+          throw error;
+        }
+
+        logger.warn('Creator cycle returned malformed output; using deterministic starter fallback', {
+          cycle: cycleIndex,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        emitCreatorProgress(options, {
+          phase: 'recovery',
+          message: 'Recovered from a formatting issue and prepared a starter draft',
+          highlightType: 'status',
+          cycle: cycleIndex,
+        });
+        output = buildDeterministicStarterOutput({
+          userMessage: sanitizedUserMessage,
+          context: options.context,
+        });
+      }
 
       return {
         prompt,
@@ -2783,6 +3061,34 @@ export async function processCreatorMessage(
     };
   }
 
+  // Final guardrail: always return a runnable starter draft when generation fails for
+  // non-provider reasons, so users are never blocked behind internal formatting drift.
+  const deterministicRecovery = validateCreatorCandidate(
+    buildDeterministicStarterOutput({
+      userMessage: sanitizedUserMessage,
+      context: options.context,
+      existingMessage:
+        'I prepared a starter draft after recovering from a generation issue.',
+    })
+  );
+  if (deterministicRecovery.success && deterministicRecovery.output) {
+    emitCreatorProgress(options, {
+      phase: 'recovery',
+      message: 'Recovered with a safe starter draft',
+      highlightType: 'status',
+    });
+    return {
+      ...enrichGeneratedOutputNarrative(
+        deterministicRecovery.output,
+        options,
+        loopResult.cycles.length + 1
+      ),
+      assumptions: discovery.assumptions.length > 0 ? discovery.assumptions : undefined,
+      runnableConfidence: Math.max(0.55, discovery.runnableConfidence * 0.85),
+      blockMode: 'soft',
+    };
+  }
+
   const fallbackRequired = discovery.hardBlockers;
   const fallbackOptional = discovery.softBlockers;
   const fallbackMessage =
@@ -2791,10 +3097,10 @@ export async function processCreatorMessage(
           requiredNow: fallbackRequired,
           optionalLater: fallbackOptional,
           preface: hasContractDriftError
-            ? 'I hit a formatting issue while generating, so I will continue in smaller steps.'
-            : 'I hit a temporary generation issue, so I will continue in smaller steps.',
+            ? 'I need one quick clarification so I can finalize this draft cleanly.'
+            : 'I need one quick setup detail so I can finish the first draft.',
         })
-      : 'I hit a temporary generation issue. Reply "continue with defaults" and I will retry with a simpler first version.';
+      : 'I had trouble finalizing this draft automatically. Share one key outcome and I will regenerate immediately.';
 
   emitCreatorProgress(options, {
     phase: 'recovery',
@@ -2812,7 +3118,7 @@ export async function processCreatorMessage(
       nextAction:
         fallbackRequired.length > 0
           ? 'Answer the next short question so I can regenerate reliably.'
-          : 'Reply "continue with defaults" so I can retry generation with a simplified plan.',
+          : 'Share one key outcome so I can regenerate the first draft immediately.',
     }),
     message: fallbackMessage,
     questions: discovery.questions.slice(0, 8),

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { processCreatorMessage } from '../creator-bot';
+import { parseBalCode } from '../bal-parser-pure';
 
 // Mock internal discovery runner
 vi.mock('../internal-bb/runner', () => ({
@@ -579,6 +580,108 @@ describe('creator-bot', () => {
     expect(result.balCode).toBe('');
     expect(result.message ?? '').not.toContain('Design Complete');
     expect(result.message ?? '').toContain('start with your desired outcome');
+  });
+
+  it('recovers malformed creator output with a runnable starter draft', async () => {
+    const { runCreatorBot } = await import('../internal-bb/runner');
+    vi.mocked(runCreatorBot).mockRejectedValueOnce(
+      new Error('creator_bot returned malformed output: entities: invalid')
+    );
+
+    const result = await processCreatorMessage(
+      {
+        context: {
+          workspaceId: 'ws-1',
+          availableTools: [{ name: 'web_search', description: '', inputSchema: {} }],
+          existingBaleybots: [],
+          workspacePolicies: null,
+          connections: [],
+        },
+      },
+      'Create a team of bots where one monitors websites and another writes a digest'
+    );
+
+    expect(result.status).toBe('ready');
+    expect(result.entities.length).toBeGreaterThan(0);
+    expect(result.balCode.trim().length).toBeGreaterThan(0);
+    expect((result.message ?? '').toLowerCase()).not.toContain('continue with defaults');
+  });
+
+  it('hides technical discovery fallback wording when analyzer fails', async () => {
+    const { runCreatorDiscovery } = await import('../internal-bb/runner');
+    vi.mocked(runCreatorDiscovery).mockRejectedValueOnce(
+      new Error('creator_discovery returned malformed output: delta.summary')
+    );
+
+    const result = await processCreatorMessage(
+      {
+        context: {
+          workspaceId: 'ws-1',
+          availableTools: [],
+          existingBaleybots: [],
+          workspacePolicies: null,
+          connections: [],
+        },
+      },
+      'Create a bot that summarizes support requests daily'
+    );
+
+    expect((result.message ?? '').toLowerCase()).not.toContain('fallback discovery mode');
+    expect((result.message ?? '').toLowerCase()).not.toContain('analyzer failure');
+  });
+
+  it('auto-repairs invalid BAL returned by creator output', async () => {
+    const { runCreatorBot } = await import('../internal-bb/runner');
+    vi.mocked(runCreatorBot).mockResolvedValueOnce({
+      entities: [
+        {
+          id: 'entity-1',
+          name: 'Website Monitor',
+          icon: '🛰️',
+          purpose: 'Watch websites for changes.',
+          tools: ['web_search'],
+        },
+        {
+          id: 'entity-2',
+          name: 'Digest Writer',
+          icon: '📝',
+          purpose: 'Summarize changes into a daily digest.',
+          tools: [],
+        },
+      ],
+      connections: [
+        {
+          from: 'Website Monitor',
+          to: 'Digest Writer',
+        },
+      ],
+      balCode: 'invalid bal output',
+      name: 'Website Digest Bot',
+      description: 'Monitor websites and summarize changes.',
+      icon: '🤖',
+      status: 'ready',
+      message: 'Built your workflow.',
+    });
+
+    const result = await processCreatorMessage(
+      {
+        context: {
+          workspaceId: 'ws-1',
+          availableTools: [{ name: 'web_search', description: '', inputSchema: {} }],
+          existingBaleybots: [],
+          workspacePolicies: null,
+          connections: [],
+        },
+      },
+      'Create a website monitoring digest workflow'
+    );
+
+    expect(result.status).toBe('ready');
+    expect(result.balCode).toContain('chain {');
+    expect(result.balCode).toContain('website_monitor');
+    const parsed = parseBalCode(result.balCode);
+    expect(parsed.errors).toHaveLength(0);
+    expect(parsed.entities.length).toBeGreaterThanOrEqual(2);
   });
 
   it('emits progress milestones and normalized segment highlights', async () => {

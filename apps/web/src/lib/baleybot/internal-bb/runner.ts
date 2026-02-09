@@ -32,6 +32,80 @@ function summarizeOutput(output: unknown): string {
   }
 }
 
+function tryParseJson(raw: string): unknown | undefined {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function extractJsonCodeFence(raw: string): string | undefined {
+  const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const fenced = match?.[1]?.trim();
+  return fenced && fenced.length > 0 ? fenced : undefined;
+}
+
+function extractBalancedJsonSegment(raw: string): string | undefined {
+  const openChars = new Set(['{', '[']);
+  const closeFor: Record<string, string> = {
+    '{': '}',
+    '[': ']',
+  };
+
+  let start = -1;
+  for (let i = 0; i < raw.length; i += 1) {
+    const char = raw[i];
+    if (char && openChars.has(char)) {
+      start = i;
+      break;
+    }
+  }
+  if (start === -1) return undefined;
+
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < raw.length; i += 1) {
+    const char = raw[i];
+    if (!char) continue;
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (openChars.has(char)) {
+      stack.push(closeFor[char]!);
+      continue;
+    }
+
+    if (stack.length > 0 && char === stack[stack.length - 1]) {
+      stack.pop();
+      if (stack.length === 0) {
+        return raw.slice(start, i + 1).trim();
+      }
+    }
+  }
+
+  return undefined;
+}
+
 function normalizeOutputCandidate(output: unknown): unknown {
   if (output && typeof output === 'object' && !Array.isArray(output)) {
     return output;
@@ -41,15 +115,19 @@ function normalizeOutputCandidate(output: unknown): unknown {
     const trimmed = output.trim();
     if (!trimmed) return output;
 
-    const looksLikeJsonObject = trimmed.startsWith('{') && trimmed.endsWith('}');
-    const looksLikeJsonArray = trimmed.startsWith('[') && trimmed.endsWith(']');
+    const direct = tryParseJson(trimmed);
+    if (direct !== undefined) return direct;
 
-    if (looksLikeJsonObject || looksLikeJsonArray) {
-      try {
-        return JSON.parse(trimmed);
-      } catch {
-        return output;
-      }
+    const fenced = extractJsonCodeFence(trimmed);
+    if (fenced) {
+      const parsedFence = tryParseJson(fenced);
+      if (parsedFence !== undefined) return parsedFence;
+    }
+
+    const balanced = extractBalancedJsonSegment(trimmed);
+    if (balanced) {
+      const parsedBalanced = tryParseJson(balanced);
+      if (parsedBalanced !== undefined) return parsedBalanced;
     }
   }
 

@@ -41,7 +41,7 @@ const creatorStreamBodySchema = z
 
 function compactCreatorSummary(output: CreatorOutput): string {
   if (output.status === 'building') {
-    return 'Captured discovery progress and waiting for the next detail.';
+    return 'Collecting the final setup detail before generating your workflow.';
   }
 
   const entityCount = output.entities.length;
