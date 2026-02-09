@@ -87,6 +87,41 @@ function isAdvancedEditorTab(tab: AdaptiveTab): boolean {
   return ADVANCED_EDITOR_TABS.includes(tab);
 }
 
+function computeAvailableTabs(args: {
+  readiness: ReadinessState;
+  savedBaleybotId: string | null;
+  lifecycleStage?: string;
+  hasRuntimeSpec: boolean;
+  showAdvancedUI: boolean;
+  isDesignReviewRequired: boolean;
+}): AdaptiveTab[] {
+  const tabs = [...getVisibleTabs(args.readiness)];
+
+  if (args.savedBaleybotId && !tabs.includes('launch')) {
+    tabs.push('launch');
+  }
+
+  if (
+    args.savedBaleybotId &&
+    (
+      args.lifecycleStage === 'live' ||
+      args.lifecycleStage === 'paused' ||
+      args.hasRuntimeSpec
+    ) &&
+    !tabs.includes('runtime')
+  ) {
+    tabs.push('runtime');
+  }
+
+  const tabsAfterDesignGate = args.isDesignReviewRequired
+    ? tabs.filter((tab) => !POST_DESIGN_TABS.includes(tab))
+    : tabs;
+
+  return args.showAdvancedUI
+    ? tabsAfterDesignGate
+    : tabsAfterDesignGate.filter((tab) => !isAdvancedEditorTab(tab));
+}
+
 /**
  * Example prompts shown on the /new welcome view
  */
@@ -1482,27 +1517,14 @@ export default function BaleybotPage() {
 
   // Auto-switch to a visible tab if current tab becomes hidden
   useEffect(() => {
-    const nextVisibleTabs = [...getVisibleTabs(readiness)];
-    if (savedBaleybotId && !nextVisibleTabs.includes('launch')) {
-      nextVisibleTabs.push('launch');
-    }
-    if (
-      savedBaleybotId &&
-      (
-        existingBaleybot?.lifecycleStage === 'live' ||
-        existingBaleybot?.lifecycleStage === 'paused' ||
-        !!existingBaleybot?.runtimeInterfaceSpec
-      ) &&
-      !nextVisibleTabs.includes('runtime')
-    ) {
-      nextVisibleTabs.push('runtime');
-    }
-    const baseVisibleTabs = showAdvancedUI
-      ? nextVisibleTabs
-      : nextVisibleTabs.filter((tab) => !isAdvancedEditorTab(tab));
-    const visibleTabs = isDesignReviewRequired
-      ? baseVisibleTabs.filter((tab) => !POST_DESIGN_TABS.includes(tab))
-      : baseVisibleTabs;
+    const visibleTabs = computeAvailableTabs({
+      readiness,
+      savedBaleybotId,
+      lifecycleStage: existingBaleybot?.lifecycleStage,
+      hasRuntimeSpec: Boolean(existingBaleybot?.runtimeInterfaceSpec),
+      showAdvancedUI,
+      isDesignReviewRequired,
+    });
 
     if (!showAdvancedUI && isAdvancedEditorTab(viewMode)) {
       setViewMode('visual');
@@ -1865,29 +1887,14 @@ export default function BaleybotPage() {
     approveLaunchPlanMutation.isPending ||
     promoteToLiveMutation.isPending ||
     pauseLiveBotMutation.isPending;
-  const availableTabs: AdaptiveTab[] = (() => {
-    const tabs = [...getVisibleTabs(readiness)];
-    if (savedBaleybotId && !tabs.includes('launch')) {
-      tabs.push('launch');
-    }
-    if (
-      savedBaleybotId &&
-      (
-        existingBaleybot?.lifecycleStage === 'live' ||
-        existingBaleybot?.lifecycleStage === 'paused' ||
-        !!existingBaleybot?.runtimeInterfaceSpec
-      ) &&
-      !tabs.includes('runtime')
-    ) {
-      tabs.push('runtime');
-    }
-    const tabsAfterDesignGate = isDesignReviewRequired
-      ? tabs.filter((tab) => !POST_DESIGN_TABS.includes(tab))
-      : tabs;
-    return showAdvancedUI
-      ? tabsAfterDesignGate
-      : tabsAfterDesignGate.filter((tab) => !isAdvancedEditorTab(tab));
-  })();
+  const availableTabs = computeAvailableTabs({
+    readiness,
+    savedBaleybotId,
+    lifecycleStage: existingBaleybot?.lifecycleStage,
+    hasRuntimeSpec: Boolean(existingBaleybot?.runtimeInterfaceSpec),
+    showAdvancedUI,
+    isDesignReviewRequired,
+  });
 
   // Compute save button disabled reason for tooltip (Phase 1.8)
   const saveDisabledReason = !balCode || !name

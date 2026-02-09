@@ -6,11 +6,15 @@ import { withSentryConfig } from '@sentry/nextjs';
 // The barrel import pulls in @baleybots/core → express → fs, breaking client-side bundles.
 const toolsPkgDir = path.dirname(require.resolve('@baleybots/tools/package.json'));
 const dslDir = path.join(toolsPkgDir, 'dist', 'esm', 'baleybots-dsl-v2');
+const workspaceRoot = path.join(process.cwd(), '../..');
 
 const nextConfig: NextConfig = {
   experimental: {
     reactCompiler: true,
   },
+  // Explicitly pin tracing root to this monorepo to avoid Next.js inferring
+  // a parent directory when unrelated lockfiles exist on the host machine.
+  outputFileTracingRoot: workspaceRoot,
   webpack: (config) => {
     config.resolve = config.resolve || {};
     config.resolve.alias = {

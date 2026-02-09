@@ -910,6 +910,9 @@ export function ConnectionsPanel({
             <p className="text-xs text-muted-foreground mt-1">
               BaleyBot analyzes this bot, your tools, and workspace connections to recommend the next best fix.
             </p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              AI recommendations are optional. You can always use the manual controls in the step sections below.
+            </p>
           </div>
           <Button
             size="sm"
@@ -1550,7 +1553,7 @@ export function ConnectionsPanel({
               variant="outline"
               onClick={() => setShowAdvancedDetails((prev) => !prev)}
             >
-              {showAdvancedDetails ? 'Hide' : 'Show'}
+              {showAdvancedDetails ? 'Hide' : 'Advanced troubleshooting'}
             </Button>
           </div>
           {!showAdvancedDetails && unresolvedNonDatabaseTools.length > 0 && (
