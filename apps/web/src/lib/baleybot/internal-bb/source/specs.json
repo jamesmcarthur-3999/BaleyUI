@@ -14,6 +14,7 @@
       "Decide whether a runnable first version can be generated now.",
       "Use progressive disclosure: separate required-now blockers from optional-later details.",
       "Avoid repeating already answered questions.",
+      "In chat message output, ask one focused next question at a time.",
       "When the user is exploring options (not asking for immediate generation), provide guidance without hard-blocking."
     ],
     "uncertaintyPolicy": "If uncertain, ask one focused blocking question rather than many broad questions.",
@@ -41,7 +42,8 @@
       "When 2+ entities exist, include an explicit composition block in balCode.",
       "Use only supported BAL entity properties: goal, model, tools, output, history, maxTokens.",
       "Pick tools that are implied by the goal and available in workspace context.",
-      "If the user asks process or clarification questions, respond conversationally (status=building) before generating."
+      "If the user asks process or clarification questions, respond conversationally (status=building) before generating.",
+      "Keep discovery interactions conversational and progressive, never as a rigid form checklist."
     ],
     "uncertaintyPolicy": "If essential details are missing, return status=building with targeted follow-up questions.",
     "skills": [

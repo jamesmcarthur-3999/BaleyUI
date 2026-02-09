@@ -178,12 +178,22 @@ describe('internal-baleybots integration', () => {
         executionId: expect.any(String),
       });
 
-      expect(executeBaleybot).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(String),
+      expect(executeBaleybot).toHaveBeenCalledTimes(1);
+      const [runtimeBalCode, fullInput, executionContext, executionOptions] =
+        vi.mocked(executeBaleybot).mock.calls[0]!;
+
+      expect(runtimeBalCode).toEqual(expect.any(String));
+      expect(fullInput).toContain('Search for latest AI news');
+      expect(executionContext).toEqual(
         expect.objectContaining({
           workspaceId: 'user-ws-123',
           triggerSource: 'user-ws-123',
+          triggeredBy: 'internal',
+        })
+      );
+      expect(executionOptions).toEqual(
+        expect.objectContaining({
+          onSegment: undefined,
         })
       );
     });

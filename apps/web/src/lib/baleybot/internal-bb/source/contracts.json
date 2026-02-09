@@ -19,6 +19,9 @@
       "thinking": "string",
       "message": "string",
       "questions": "array<object>",
+      "assumptions": "array<object>",
+      "runnableConfidence": "number",
+      "blockMode": "string",
       "entities": "array<object>",
       "connections": "array<object>",
       "balCode": "string",
@@ -30,7 +33,8 @@
     "rules": [
       "Return exactly one JSON object with no markdown fencing.",
       "status must be either building or ready.",
-      "When multiple entities are present, balCode must include a composition block."
+      "When multiple entities are present, balCode must include a composition block.",
+      "Discovery messages should ask one focused next question at a time."
     ]
   },
   "creator_action_advisor_v1": {

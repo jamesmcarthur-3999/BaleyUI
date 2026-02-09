@@ -109,6 +109,19 @@ const SAFE_READ_PATTERNS = [
   /^\s*with\s+.*?\s+as\s+\(/i, // CTEs
 ];
 
+const WRITE_SQL_PATTERNS = [
+  /^\s*insert\s+/i,
+  /^\s*update\s+/i,
+  /^\s*delete\s+/i,
+  /^\s*create\s+/i,
+  /^\s*alter\s+/i,
+  /^\s*drop\s+/i,
+  /^\s*truncate\s+/i,
+  /^\s*replace\s+/i,
+  /^\s*grant\s+/i,
+  /^\s*revoke\s+/i,
+];
+
 /**
  * Validate generated SQL for safety
  * Returns an error message if unsafe, or null if safe
@@ -207,6 +220,25 @@ export function detectQueryIntent(
   return 'uncertain';
 }
 
+/**
+ * Determine operation intent from generated SQL.
+ * This keeps approval gating aligned with AI-produced SQL instead of NL heuristics.
+ */
+function detectSqlIntent(sql: string): 'read' | 'write' | 'uncertain' {
+  const trimmed = sql.trim();
+  if (!trimmed) return 'uncertain';
+
+  if (SAFE_READ_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return 'read';
+  }
+
+  if (WRITE_SQL_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return 'write';
+  }
+
+  return 'uncertain';
+}
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -257,24 +289,33 @@ export function generateDatabaseRuntimeTool(
 ): RuntimeToolDefinition {
   const { connection, maxRows = 1000 } = config;
   const schemaContext = formatSchemaForAI(connection.schema);
+  const generatedSqlCache = new Map<string, string>();
+
+  const buildSqlPrompt = (input: DatabaseQueryInput): string =>
+    input.table
+      ? `Query the "${input.table}" table: ${input.query}`
+      : input.query;
+
+  const getCacheKey = (input: DatabaseQueryInput): string =>
+    `${input.table ?? ''}::${input.query}`.trim();
 
   const toolFunction = async (
     args: Record<string, unknown>
   ): Promise<DatabaseQueryResult> => {
     const input = args as unknown as DatabaseQueryInput;
     const limit = Math.min(input.limit ?? 100, maxRows);
+    const cacheKey = getCacheKey(input);
+    const sqlPrompt = buildSqlPrompt(input);
 
-    // Detect intent
-    const intent = detectQueryIntent(input.query);
-    const operationType = intent === 'write' ? 'write' : 'read';
+    // Generate SQL using AI (reuse preflight SQL from needsApproval when available).
+    const sql =
+      generatedSqlCache.get(cacheKey) ??
+      (await generateSQL(sqlPrompt, schemaContext));
+    generatedSqlCache.delete(cacheKey);
+
+    const intent = detectSqlIntent(sql);
+    const operationType: 'read' | 'write' = intent === 'read' ? 'read' : 'write';
     const requiredApproval = intent !== 'read';
-
-    // Generate SQL using AI
-    const sqlPrompt = input.table
-      ? `Query the "${input.table}" table: ${input.query}`
-      : input.query;
-
-    const sql = await generateSQL(sqlPrompt, schemaContext);
 
     // Validate generated SQL for safety
     const validationError = validateSQL(sql, operationType);
@@ -306,12 +347,23 @@ export function generateDatabaseRuntimeTool(
     description: `Query the "${connection.connectionName}" database`,
     inputSchema: DATABASE_TOOL_SCHEMA as Record<string, unknown>,
     function: toolFunction,
-    needsApproval: (args: Record<string, unknown>) => {
+    needsApproval: async (args: Record<string, unknown>) => {
       const input = args as unknown as DatabaseQueryInput;
       if (!input || typeof input.query !== 'string') {
         return true;
       }
-      return detectQueryIntent(input.query) !== 'read';
+      try {
+        const cacheKey = getCacheKey(input);
+        const sqlPrompt = buildSqlPrompt(input);
+        const sql =
+          generatedSqlCache.get(cacheKey) ??
+          (await generateSQL(sqlPrompt, schemaContext));
+        generatedSqlCache.set(cacheKey, sql);
+        return detectSqlIntent(sql) !== 'read';
+      } catch {
+        // Conservative fallback: require approval when SQL classification fails.
+        return true;
+      }
     },
     category: 'database',
     dangerLevel: 'moderate',

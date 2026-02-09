@@ -31,9 +31,9 @@ describe('getToolReadinessStatus', () => {
       'shared_storage',
       'create_agent',
       'create_tool',
-    ])('returns ready for %s', (toolName) => {
+    ])('returns verifiable for %s', (toolName) => {
       const result = getToolReadinessStatus(toolName, []);
-      expect(result.status).toBe('ready');
+      expect(result.status).toBe('verifiable');
       expect(result.note).toBeTruthy();
     });
 
@@ -44,49 +44,49 @@ describe('getToolReadinessStatus', () => {
   });
 
   describe('database tools', () => {
-    it('returns needs-setup for postgres tool without connection', () => {
+    it('returns blocked for postgres tool without connection', () => {
       const result = getToolReadinessStatus('query_postgres_users', []);
-      expect(result.status).toBe('needs-setup');
+      expect(result.status).toBe('blocked');
       expect(result.note).toContain('PostgreSQL');
     });
 
-    it('returns ready for postgres tool when the exact source is connected', () => {
+    it('returns verifiable for postgres tool when the exact source is connected', () => {
       const result = getToolReadinessStatus('query_postgres_users', [conn('postgres', 'connected', 'users')]);
-      expect(result.status).toBe('ready');
+      expect(result.status).toBe('verifiable');
     });
 
-    it('returns needs-setup for postgres tool with errored connection', () => {
+    it('returns blocked for postgres tool with errored connection', () => {
       const result = getToolReadinessStatus('query_postgres_users', [conn('postgres', 'error', 'users')]);
-      expect(result.status).toBe('needs-setup');
+      expect(result.status).toBe('blocked');
     });
 
-    it('returns limited when postgres exists but does not match tool source name', () => {
+    it('returns needs-input when postgres exists but does not match tool source name', () => {
       const result = getToolReadinessStatus('query_postgres_users', [conn('postgres', 'connected', 'analytics')]);
-      expect(result.status).toBe('limited');
+      expect(result.status).toBe('needs-input');
     });
 
-    it('returns needs-setup for mysql tool without connection', () => {
+    it('returns blocked for mysql tool without connection', () => {
       const result = getToolReadinessStatus('query_mysql_orders', []);
-      expect(result.status).toBe('needs-setup');
+      expect(result.status).toBe('blocked');
       expect(result.note).toContain('MySQL');
     });
 
-    it('returns ready for mysql tool when the exact source is connected', () => {
+    it('returns verifiable for mysql tool when the exact source is connected', () => {
       const result = getToolReadinessStatus('query_mysql_orders', [conn('mysql', 'connected', 'orders')]);
-      expect(result.status).toBe('ready');
+      expect(result.status).toBe('verifiable');
     });
 
     it('handles query_pg_ prefix', () => {
       const result = getToolReadinessStatus('query_pg_users', [conn('postgres', 'connected', 'users')]);
-      expect(result.status).toBe('ready');
+      expect(result.status).toBe('verifiable');
     });
   });
 
   describe('unknown tools', () => {
-    it('returns ready for unknown tools', () => {
+    it('returns verifiable for unknown tools', () => {
       const result = getToolReadinessStatus('custom_tool', []);
-      expect(result.status).toBe('ready');
-      expect(result.note).toBe('Custom tool');
+      expect(result.status).toBe('verifiable');
+      expect(result.note).toBeTruthy();
     });
   });
 });

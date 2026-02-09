@@ -86,15 +86,15 @@ function NavLink({
     <Link
       href={item.href}
       className={cn(
-        'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-        'hover:bg-accent hover:text-accent-foreground',
+        'group flex items-center gap-3 rounded-xl border px-3 py-2 text-sm transition-all',
+        'border-transparent hover:border-border/70 hover:bg-muted/45 hover:text-foreground',
         isActive
-          ? 'bg-accent text-accent-foreground font-medium'
+          ? 'border-primary/30 bg-primary/12 text-foreground font-medium shadow-[0_10px_24px_-20px_hsl(var(--primary)/0.9)]'
           : 'text-muted-foreground',
         collapsed && 'justify-center px-2'
       )}
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      <Icon className={cn('h-4 w-4 shrink-0', isActive ? 'text-primary' : 'group-hover:text-foreground')} />
       {!collapsed && <span className="truncate">{item.label}</span>}
     </Link>
   );
@@ -118,16 +118,23 @@ function NavLink({
 // ============================================================================
 
 function NavGroup({
+  label,
   items,
   pathname,
   collapsed,
 }: {
+  label?: string;
   items: NavItem[];
   pathname: string;
   collapsed: boolean;
 }) {
   return (
-    <nav className="flex flex-col gap-1">
+    <nav className="flex flex-col gap-1.5">
+      {!collapsed && label && (
+        <p className="px-1 text-[10px] uppercase tracking-wide text-muted-foreground/80 font-semibold">
+          {label}
+        </p>
+      )}
       {items.map((item) => (
         <NavLink
           key={item.href}
@@ -167,12 +174,12 @@ export function Sidebar() {
   }, [pathname]);
 
   const sidebarContent = (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-background/95">
       {/* Logo */}
-      <div className={cn('flex items-center h-14 border-b px-4', collapsed && 'justify-center px-2')}>
+      <div className={cn('flex items-center h-14 border-b border-border/60 px-4', collapsed && 'justify-center px-2')}>
         <Link
           href={ROUTES.dashboard}
-          className="flex items-center gap-2 font-bold text-lg"
+          className="flex items-center gap-2 font-bold text-lg tracking-tight"
         >
           <span className="text-primary">B</span>
           {!collapsed && (
@@ -185,16 +192,16 @@ export function Sidebar() {
       </div>
 
       {/* Nav sections */}
-      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
-        <NavGroup items={mainNav} pathname={pathname} collapsed={collapsed} />
+      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
+        <NavGroup label="Build" items={mainNav} pathname={pathname} collapsed={collapsed} />
 
-        <Separator />
+        <Separator className="bg-border/60" />
 
-        <NavGroup items={resourceNav} pathname={pathname} collapsed={collapsed} />
+        <NavGroup label="Resources" items={resourceNav} pathname={pathname} collapsed={collapsed} />
 
-        <Separator />
+        <Separator className="bg-border/60" />
 
-        <NavGroup items={bottomNav} pathname={pathname} collapsed={collapsed} />
+        <NavGroup label="Workspace" items={bottomNav} pathname={pathname} collapsed={collapsed} />
 
         {/* Admin section - conditionally rendered */}
         <AdminSection pathname={pathname} collapsed={collapsed} />
@@ -202,7 +209,7 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className={cn(
-        'border-t p-3 space-y-2',
+        'border-t border-border/60 p-3 space-y-2',
         collapsed && 'flex flex-col items-center'
       )}>
         {/* Collapse toggle - desktop only */}
@@ -295,8 +302,8 @@ function AdminSection({
 
   return (
     <>
-      <Separator />
-      <NavGroup items={adminNav} pathname={pathname} collapsed={collapsed} />
+      <Separator className="bg-border/60" />
+      <NavGroup label="Admin" items={adminNav} pathname={pathname} collapsed={collapsed} />
     </>
   );
 }

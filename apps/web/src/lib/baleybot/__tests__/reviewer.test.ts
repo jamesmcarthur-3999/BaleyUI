@@ -1,20 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { quickReview } from '../reviewer';
 
-vi.mock('../internal-baleybots', () => ({
-  executeInternalBaleybot: vi.fn().mockResolvedValue({
-    output: {
-      overallAssessment: 'good',
-      summary: 'Test review completed successfully',
-      issues: [],
-      suggestions: [],
-      metrics: {
-        outputQualityScore: 85,
-        intentAlignmentScore: 90,
-        efficiencyScore: 80,
-      },
+vi.mock('../internal-bb/runner', () => ({
+  runExecutionReviewer: vi.fn().mockResolvedValue({
+    overallAssessment: 'good',
+    summary: 'Test review completed successfully',
+    issues: [],
+    suggestions: [],
+    metrics: {
+      outputQualityScore: 85,
+      intentAlignmentScore: 90,
+      efficiencyScore: 80,
     },
-    executionId: 'exec-123',
   }),
 }));
 
@@ -24,7 +21,7 @@ describe('reviewer', () => {
   });
 
   it('uses internal BaleyBot for reviews', async () => {
-    const { executeInternalBaleybot } = await import('../internal-baleybots');
+    const { runExecutionReviewer } = await import('../internal-bb/runner');
 
     await quickReview({
       baleybotId: 'bb-1',
@@ -35,8 +32,7 @@ describe('reviewer', () => {
       output: 'test output',
     });
 
-    expect(executeInternalBaleybot).toHaveBeenCalledWith(
-      'execution_reviewer',
+    expect(runExecutionReviewer).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
         triggeredBy: 'internal',

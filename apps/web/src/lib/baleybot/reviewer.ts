@@ -5,7 +5,7 @@
  * Uses the internal execution_reviewer BaleyBot.
  */
 
-import { executeInternalBaleybot } from './internal-baleybots';
+import { runExecutionReviewer } from './internal-bb/runner';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('baleybot/reviewer');
@@ -217,7 +217,7 @@ ${ctx.durationMs ? `## Execution Time: ${ctx.durationMs}ms` : ''}
 Analyze this execution and provide improvement suggestions. Limit to ${maxSuggestions} suggestions maximum, prioritized by impact.`;
 
     try {
-      const { output } = await executeInternalBaleybot('execution_reviewer', input, {
+      const output = await runExecutionReviewer(input, {
         triggeredBy: 'internal',
       });
 

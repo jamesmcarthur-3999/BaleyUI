@@ -9,6 +9,7 @@ import { db, baleybots, baleybotExecutions, connections, eq, and, notDeleted } f
 import { getOrCreateSystemWorkspace } from '@/lib/system-workspace';
 import { executeBaleybot, type ExecutorContext } from './executor';
 import { createLogger } from '@/lib/logger';
+import type { BaleybotStreamEvent } from '@baleybots/core';
 import {
   GENERATED_INTERNAL_BALEYBOTS,
   type GeneratedInternalBaleybotDef,
@@ -144,8 +145,59 @@ export interface InternalExecutionOptions {
   userWorkspaceId?: string;
   /** Additional context to append to input */
   context?: string;
+  /** Optional callback for live stream segments */
+  onSegment?: (segment: BaleybotStreamEvent) => void;
   /** Triggered by */
   triggeredBy?: 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'internal';
+}
+
+const INTERNAL_DEFAULT_MODEL: Record<'openai' | 'anthropic' | 'ollama', string> = {
+  openai: 'openai:gpt-5-mini',
+  anthropic: 'anthropic:claude-sonnet-4-20250514',
+  ollama: 'ollama:llama3.1',
+};
+
+function applyInternalContractCompatibility(name: string, balCode: string): string {
+  if (name !== 'creator_action_advisor') {
+    return balCode;
+  }
+
+  // Compatibility for older edits that used actions: array<string> (or other array scalar contracts).
+  return balCode.replace(
+    /("actions"\s*:\s*")array<[^"]+>"/gi,
+    '$1array<object>"'
+  );
+}
+
+function rewriteModelProvidersForAvailability(
+  balCode: string,
+  providers: Array<'openai' | 'anthropic' | 'ollama'>
+): string {
+  if (providers.length === 0) {
+    return balCode;
+  }
+
+  const fallbackProvider = providers.includes('anthropic')
+    ? 'anthropic'
+    : providers.includes('openai')
+      ? 'openai'
+      : 'ollama';
+  const availableProviders = new Set(providers);
+  const fallbackModel = INTERNAL_DEFAULT_MODEL[fallbackProvider];
+
+  return balCode.replace(
+    /"model"\s*:\s*"([^":]+):([^"]+)"/g,
+    (fullMatch, provider) => {
+      const normalizedProvider = String(provider).toLowerCase() as
+        | 'openai'
+        | 'anthropic'
+        | 'ollama';
+      if (availableProviders.has(normalizedProvider)) {
+        return fullMatch;
+      }
+      return `"model": "${fallbackModel}"`;
+    }
+  );
 }
 
 /**
@@ -196,12 +248,23 @@ export async function executeInternalBaleybot(
         eq(connections.workspaceId, workspaceId),
         notDeleted(connections),
       ),
-      columns: { type: true, name: true },
+      columns: { type: true, name: true, status: true },
     });
 
-    const aiProviders = availableConnections
-      .filter((c) => ['openai', 'anthropic', 'ollama'].includes(c.type))
-      .map((c) => c.type);
+    const aiProviders = Array.from(
+      new Set(
+        availableConnections
+          .filter(
+            (connection) =>
+              ['openai', 'anthropic', 'ollama'].includes(connection.type) &&
+              connection.status === 'connected'
+          )
+          .map(
+            (connection) =>
+              connection.type as 'openai' | 'anthropic' | 'ollama'
+          )
+      )
+    );
 
     // Add AI provider context
     const enrichedContext = [
@@ -225,7 +288,18 @@ export async function executeInternalBaleybot(
       triggerSource: options.userWorkspaceId,
     };
 
-    const result = await executeBaleybot(internalBB.balCode, fullInput, ctx);
+    const compatibilityPatchedCode = applyInternalContractCompatibility(
+      name,
+      internalBB.balCode
+    );
+    const runtimeBalCode = rewriteModelProvidersForAvailability(
+      compatibilityPatchedCode,
+      aiProviders
+    );
+
+    const result = await executeBaleybot(runtimeBalCode, fullInput, ctx, {
+      onSegment: options.onSegment,
+    });
 
     // Update execution record
     await db

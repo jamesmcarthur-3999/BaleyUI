@@ -12,9 +12,9 @@
  * for one-off tasks without needing to pre-define them.
  */
 
-import { Baleybot } from '@baleybots/core';
 import type { BuiltInToolContext, CreateToolResult } from '../tools/built-in';
 import type { RuntimeToolDefinition } from '../executor';
+import { runToolExecutor } from '../internal-bb/runner';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('ephemeral-tool');
@@ -70,50 +70,49 @@ export interface EphemeralToolService {
 async function executeNLImplementation(
   toolName: string,
   implementation: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  workspaceId: string
 ): Promise<unknown> {
   log.debug(`Executing "${toolName}" with NL implementation`, { toolName });
 
   try {
-    // Create a specialized Baleybot for executing this tool
-    const toolExecutorBot = Baleybot.create({
-      name: `ephemeral-tool-${toolName}`,
-      goal: `You are executing a custom tool. The tool is defined by the following natural language implementation:
+    const input = [
+      `Tool name: ${toolName}`,
+      'Tool implementation:',
+      implementation,
+      '',
+      'Tool arguments JSON:',
+      JSON.stringify(args, null, 2),
+      '',
+      'Execute this tool implementation and return only the tool_executor contract output.',
+    ].join('\n');
 
-"${implementation}"
-
-You must execute this tool based on its description and return the result.
-- If the tool should compute something, compute it and return the result.
-- If the tool should format data, format it and return the formatted output.
-- If the tool should validate something, validate and return the validation result.
-- Always return your response in a structured format if possible.
-
-Respond ONLY with the tool's output. Do not explain what you're doing.`,
-      model: 'openai:gpt-4o-mini',
+    const execution = await runToolExecutor(input, {
+      userWorkspaceId: workspaceId,
+      triggeredBy: 'internal',
+      repairAttempts: 2,
+      fallbackMode: 'value',
+      fallbackValue: {
+        success: false,
+        text: `Unable to execute ephemeral tool "${toolName}"`,
+      },
     });
 
-    const prompt = `Execute this tool with the following arguments:
-${JSON.stringify(args, null, 2)}
-
-Return the tool's output:`;
-
-    const result = await toolExecutorBot.process(prompt);
-
-    // Try to parse as JSON if it looks like JSON
-    const text = typeof result === 'string' ? result.trim() : String(result);
-    try {
-      // Handle code blocks if present
-      const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-      const jsonStr = jsonMatch ? jsonMatch[1]?.trim() : text;
-
-      if (jsonStr && (jsonStr.startsWith('{') || jsonStr.startsWith('['))) {
-        return JSON.parse(jsonStr);
-      }
-    } catch {
-      // Not JSON, return as string
+    if (execution.success === false) {
+      throw new Error(
+        execution.text?.trim() || `Ephemeral tool "${toolName}" execution failed`
+      );
     }
 
-    return text;
+    if (execution.result !== undefined) {
+      return execution.result;
+    }
+
+    if (execution.text !== undefined) {
+      return execution.text;
+    }
+
+    return '';
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     log.error(`Error executing "${toolName}"`, { toolName, error: message });
@@ -131,7 +130,7 @@ export function createEphemeralToolService(): EphemeralToolService {
   return {
     async create(
       config: EphemeralToolConfig,
-      _ctx: BuiltInToolContext
+      ctx: BuiltInToolContext
     ): Promise<CreateToolResult> {
       // Validate config
       if (!config.name || config.name.trim().length === 0) {
@@ -187,7 +186,12 @@ export function createEphemeralToolService(): EphemeralToolService {
           },
         },
         function: async (args: Record<string, unknown>) => {
-          return executeNLImplementation(config.name, config.implementation, args);
+          return executeNLImplementation(
+            config.name,
+            config.implementation,
+            args,
+            ctx.workspaceId
+          );
         },
         category: 'ephemeral',
         dangerLevel: 'moderate', // Ephemeral tools are moderate danger since they execute AI

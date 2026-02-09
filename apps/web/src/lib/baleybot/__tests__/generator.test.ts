@@ -1,25 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { generateBal } from '../generator';
 
-vi.mock('../internal-baleybots', () => ({
-  executeInternalBaleybot: vi.fn().mockResolvedValue({
-    output: {
-      balCode: 'test_entity { "goal": "Test", "model": "openai:gpt-4o-mini" }',
-      explanation: 'A simple test bot',
-      entities: [
-        {
-          name: 'test_entity',
-          goal: 'Test',
-          model: 'openai:gpt-4o-mini',
-          tools: [],
-          canRequest: [],
-        },
-      ],
-      toolRationale: {},
-      suggestedName: 'test_bot',
-      suggestedIcon: '🤖',
-    },
-    executionId: 'exec-123',
+vi.mock('../internal-bb/runner', () => ({
+  runBalGenerator: vi.fn().mockResolvedValue({
+    balCode: 'test_entity { "goal": "Test", "model": "openai:gpt-4o-mini" }',
+    explanation: 'A simple test bot',
+    entities: [
+      {
+        name: 'test_entity',
+        goal: 'Test',
+        model: 'openai:gpt-4o-mini',
+        tools: [],
+        canRequest: [],
+      },
+    ],
+    toolRationale: {},
+    suggestedName: 'test_bot',
+    suggestedIcon: '🤖',
   }),
 }));
 
@@ -29,7 +26,7 @@ describe('generator', () => {
   });
 
   it('uses internal BaleyBot for generation', async () => {
-    const { executeInternalBaleybot } = await import('../internal-baleybots');
+    const { runBalGenerator } = await import('../internal-bb/runner');
 
     await generateBal(
       {
@@ -42,12 +39,10 @@ describe('generator', () => {
       'Create a bot that helps with tasks'
     );
 
-    expect(executeInternalBaleybot).toHaveBeenCalledWith(
-      'bal_generator',
+    expect(runBalGenerator).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
         userWorkspaceId: 'ws-1',
-        context: expect.any(String),
         triggeredBy: 'internal',
       })
     );

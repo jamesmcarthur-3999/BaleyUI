@@ -93,6 +93,10 @@ vi.mock('@/lib/baleybot/executor', () => ({
   getPreferredModel: vi.fn(() => 'anthropic:claude-sonnet-4-20250514'),
 }));
 
+vi.mock('@/lib/baleybot/services/execution-tools-loader', () => ({
+  loadExecutionTools: vi.fn(async () => ({ runtimeTools: new Map(), toolNames: [] })),
+}));
+
 vi.mock('@/lib/baleybot/services/bb-completion-trigger-service', () => ({
   processBBCompletion: vi.fn().mockResolvedValue(undefined),
 }));
@@ -132,6 +136,8 @@ vi.mock('@/lib/api/error-response', async () => {
 
 // Import the handler after mocks
 import { POST } from '../route';
+import { streamBALExecution } from '@baleyui/sdk';
+import { loadExecutionTools } from '@/lib/baleybot/services/execution-tools-loader';
 
 // ============================================================================
 // Helpers
@@ -159,6 +165,23 @@ function createRequest(options?: {
 
 function createParams(id = 'bb-123'): { params: Promise<{ id: string }> } {
   return { params: Promise.resolve({ id }) };
+}
+
+async function readResponseStream(response: Response): Promise<string> {
+  if (!response.body) return '';
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let output = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    output += decoder.decode(value, { stream: true });
+  }
+
+  output += decoder.decode();
+  return output;
 }
 
 /** Set up mocks for an authenticated session with a valid baleybot */
@@ -374,5 +397,30 @@ describe('POST /api/baleybots/[id]/execute-stream', () => {
     expect(response.headers.get('content-type')).toBe('text/event-stream');
     expect(response.headers.get('cache-control')).toBe('no-cache, no-transform');
     expect(response.headers.get('x-accel-buffering')).toBe('no');
+  });
+
+  it('streams execution_result before [DONE]', async () => {
+    setupAuthenticatedSession();
+    vi.mocked(loadExecutionTools).mockResolvedValue({
+      runtimeTools: new Map(),
+      toolNames: [],
+    });
+    vi.mocked(streamBALExecution).mockImplementation(
+      (() =>
+        (async function* () {
+          yield { type: 'reasoning', content: 'Thinking...' };
+          return { status: 'success', result: { ok: true } };
+        })()) as never
+    );
+
+    const req = createRequest({ body: { input: 'hello' } });
+    const response = await POST(req, createParams());
+    const payload = await readResponseStream(response);
+
+    const executionResultIndex = payload.indexOf('"type":"execution_result"');
+    const doneIndex = payload.indexOf('data: [DONE]');
+
+    expect(executionResultIndex).toBeGreaterThan(-1);
+    expect(doneIndex).toBeGreaterThan(executionResultIndex);
   });
 });

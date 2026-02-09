@@ -1,16 +1,14 @@
 'use client';
 
 import { useMemo } from 'react';
-import { ArrowRight, ListChecks } from 'lucide-react';
 import { ConversationThread } from './ConversationThread';
 import type { ViewAction } from './ConversationThread';
 import { ChatInput } from './ChatInput';
 import type { ChatQuickPrompt } from './ChatInput';
 import { ExecutionHistory } from './ExecutionHistory';
-import type { DiscoveryIntakeSubmission } from './DiscoveryIntakeForm';
 import type { CreatorMessage, CreationStatus, CreationProgress } from '@/lib/baleybot/creator-types';
 import { trpc } from '@/lib/trpc/client';
-import { cn } from '@/lib/utils';
+import type { StreamingProgressSnapshot } from './StreamingProgressCard';
 
 interface Execution {
   id: string;
@@ -27,13 +25,14 @@ interface Execution {
 interface LeftPanelProps {
   messages: CreatorMessage[];
   status: CreationStatus;
-  onSendMessage: (message: string | DiscoveryIntakeSubmission) => void;
+  onSendMessage: (message: string) => void;
   isCreatorDisabled: boolean;
   executions?: Execution[];
   onExecutionClick?: (id: string) => void;
   onViewAction?: (action: ViewAction) => void;
   onOptionSelect?: (optionId: string) => void;
   creationProgress?: CreationProgress | null;
+  streamingProgress?: StreamingProgressSnapshot | null;
 }
 
 interface DiscoveryQuestionSummary {
@@ -109,25 +108,6 @@ function extractLatestCreatorLifecycle(messages: CreatorMessage[]): CreatorLifec
   return latestLifecycleMessage?.metadata?.creatorLifecycle ?? null;
 }
 
-function getStageLabel(stage: CreatorLifecycle['stage']): string {
-  switch (stage) {
-    case 'discovery':
-      return 'Discovery';
-    case 'design':
-      return 'Design';
-    case 'connections':
-      return 'Connections';
-    case 'testing':
-      return 'Testing';
-    case 'launch':
-      return 'Launch';
-    case 'review':
-      return 'Review';
-    default:
-      return 'Workflow';
-  }
-}
-
 function buildFallbackQuickPrompts(
   messages: CreatorMessage[],
   status: CreationStatus
@@ -173,6 +153,39 @@ function buildFallbackQuickPrompts(
   return [];
 }
 
+function buildDiscoveryQuickPrompts(
+  questions: DiscoveryQuestionSummary[]
+): ChatQuickPrompt[] {
+  if (questions.length === 0) return [];
+
+  const nextQuestion =
+    questions.find((question) => question.requiredNow) ?? questions[0];
+  const hasRequiredQuestion = questions.some((question) => question.requiredNow);
+
+  const prompts: ChatQuickPrompt[] = [];
+
+  if (nextQuestion) {
+    prompts.push({
+      id: `discovery-next-${nextQuestion.id}`,
+      label: `Answer: ${nextQuestion.label}`,
+      prompt: `${nextQuestion.label}: `,
+      mode: 'insert',
+    });
+  }
+
+  if (!hasRequiredQuestion) {
+    prompts.push({
+      id: 'discovery-defaults',
+      label: 'Continue with defaults',
+      prompt:
+        'Continue with safe defaults for unresolved discovery fields and generate the first runnable design.',
+      mode: 'send',
+    });
+  }
+
+  return prompts;
+}
+
 /**
  * Left panel for the two-column BaleyBot detail layout.
  * Contains conversation thread, execution history, and chat input.
@@ -188,6 +201,7 @@ export function LeftPanel({
   onViewAction,
   onOptionSelect,
   creationProgress,
+  streamingProgress,
 }: LeftPanelProps) {
   const latestDiscoveryQuestions = useMemo(
     () => extractLatestDiscoveryQuestions(messages),
@@ -198,9 +212,10 @@ export function LeftPanel({
     [messages]
   );
   const hasDiscoveryQuestions = latestDiscoveryQuestions.length > 0;
-  const showDiscoveryForm = hasDiscoveryQuestions && status !== 'running';
-  const requiredDiscoveryCount = latestDiscoveryQuestions.filter((question) => question.requiredNow).length;
-  const optionalDiscoveryCount = latestDiscoveryQuestions.length - requiredDiscoveryCount;
+  const isDiscoveryStage =
+    hasDiscoveryQuestions &&
+    status !== 'running' &&
+    latestLifecycle?.stage === 'discovery';
   const creatorActionInput = useMemo(
     () => ({
       status,
@@ -228,6 +243,7 @@ export function LeftPanel({
     enabled:
       status !== 'running' &&
       status !== 'building' &&
+      !isDiscoveryStage &&
       !isCreatorDisabled &&
       messages.length > 0,
     staleTime: 30_000,
@@ -235,6 +251,10 @@ export function LeftPanel({
     retry: false,
   });
   const quickPrompts = useMemo(() => {
+    if (isDiscoveryStage) {
+      return buildDiscoveryQuickPrompts(latestDiscoveryQuestions);
+    }
+
     if (creatorActionSuggestions) {
       return (creatorActionSuggestions.actions ?? []).map((action, index) => ({
         id: `bb-action-${index}-${action.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
@@ -249,7 +269,14 @@ export function LeftPanel({
     }
 
     return [];
-  }, [creatorActionSuggestions, isCreatorActionSuggestionError, messages, status]);
+  }, [
+    creatorActionSuggestions,
+    isCreatorActionSuggestionError,
+    isDiscoveryStage,
+    latestDiscoveryQuestions,
+    messages,
+    status,
+  ]);
 
   const hasAdvisorSuggestions =
     (creatorActionSuggestions?.actions?.length ?? 0) > 0;
@@ -257,68 +284,24 @@ export function LeftPanel({
     !hasAdvisorSuggestions && isCreatorActionSuggestionError;
 
   const quickPromptContextLabel = useMemo(() => {
-    if (hasAdvisorSuggestions) return 'Context-aware next actions';
-    if (shouldShowFallbackSuggestionHint) return 'Fallback actions';
+    if (isDiscoveryStage) return 'Helpful starters';
+    if (hasAdvisorSuggestions) return 'Suggested next actions';
+    if (shouldShowFallbackSuggestionHint) return 'Quick actions';
     return undefined;
-  }, [hasAdvisorSuggestions, shouldShowFallbackSuggestionHint]);
+  }, [hasAdvisorSuggestions, isDiscoveryStage, shouldShowFallbackSuggestionHint]);
 
   return (
     <div className="flex flex-col h-full">
-      {latestLifecycle && (
-        <div className="shrink-0 border-b border-border/30 px-4 py-3 bg-muted/[0.16]">
-          <div className="rounded-xl border border-border/60 bg-background/60 p-3 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Current stage</span>
-              <span
-                className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded-full border',
-                  latestLifecycle.stage === 'discovery'
-                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                    : 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300'
-                )}
-              >
-                {getStageLabel(latestLifecycle.stage)}
-              </span>
-            </div>
-
-            {latestLifecycle.whatIDid && (
-              <p className="text-xs text-foreground/90">{latestLifecycle.whatIDid}</p>
-            )}
-
-            {latestLifecycle.nextAction && (
-              <div className="rounded-md border border-primary/20 bg-primary/5 px-2.5 py-2">
-                <p className="text-[11px] font-medium text-foreground flex items-center gap-1.5">
-                  <ArrowRight className="h-3.5 w-3.5 text-primary" />
-                  Next action
-                </p>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {latestLifecycle.nextAction}
-                </p>
-              </div>
-            )}
-
-            {latestLifecycle.stage === 'discovery' && latestDiscoveryQuestions.length > 0 && (
-              <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                <ListChecks className="h-3.5 w-3.5" />
-                {requiredDiscoveryCount} needed-now detail{requiredDiscoveryCount === 1 ? '' : 's'}
-                {optionalDiscoveryCount > 0 ? `, ${optionalDiscoveryCount} optional.` : '.'}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Conversation thread - scrollable, takes remaining space */}
       <ConversationThread
         messages={messages}
         embedded
         isBuilding={status === 'building'}
         creationProgress={creationProgress}
+        streamingProgress={streamingProgress}
         className="flex-1 min-h-0"
         onViewAction={onViewAction}
         onOptionSelect={onOptionSelect}
-        onDiscoverySubmit={onSendMessage}
-        disableDiscoverySubmit={isCreatorDisabled}
       />
 
       {/* Execution history - collapsible */}
@@ -336,7 +319,7 @@ export function LeftPanel({
       <div className="shrink-0 border-t border-border/30 px-4 py-3">
         <ChatInput
           status={status}
-          discoveryPending={showDiscoveryForm}
+          discoveryPending={isDiscoveryStage}
           onSend={onSendMessage}
           disabled={isCreatorDisabled}
           quickPrompts={quickPrompts}

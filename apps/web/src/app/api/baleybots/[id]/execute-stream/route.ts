@@ -381,6 +381,19 @@ export async function POST(
             });
           }
 
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: 'execution_result',
+                executionId: execution.id,
+                status: finalStatus,
+                output,
+                error,
+                durationMs: duration,
+              })}\n\n`
+            )
+          );
+
           // Send done event
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
@@ -421,6 +434,18 @@ export async function POST(
 
           // Send error event
           sendEvent({ type: 'error', error: errorMessage });
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: 'execution_result',
+                executionId: execution.id,
+                status: 'failed',
+                output: undefined,
+                error: errorMessage,
+                durationMs: duration,
+              })}\n\n`
+            )
+          );
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
         }

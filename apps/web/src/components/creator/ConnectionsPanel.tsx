@@ -3,13 +3,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertCircle,
   ArrowRight,
   Bot,
-  CheckCircle2,
   Database,
   ExternalLink,
-  Gauge,
   Loader2,
   Plus,
   ShieldCheck,
@@ -136,7 +133,7 @@ interface GuidedResolutionAction {
 // ============================================================================
 
 export interface ToolReadinessInfo {
-  status: 'ready' | 'needs-setup' | 'limited';
+  status: 'blocked' | 'needs-input' | 'verifiable' | 'verified';
   note: string;
 }
 
@@ -145,8 +142,16 @@ export interface ToolReadinessInfo {
  */
 export function getToolReadinessStatus(
   toolName: string,
-  connections: ConnectionData[]
+  connections: ConnectionData[],
+  verification?: Pick<ToolVerificationResult, 'status' | 'summary'>
 ): ToolReadinessInfo {
+  if (verification?.status === 'verified' || verification?.status === 'manual_review') {
+    return {
+      status: 'verified',
+      note: verification.summary || 'Verification passed',
+    };
+  }
+
   // Built-in tools that always work.
   const alwaysReady: Record<string, string> = {
     web_search: 'Works with or without Tavily API key',
@@ -161,33 +166,33 @@ export function getToolReadinessStatus(
   };
 
   if (alwaysReady[toolName]) {
-    return { status: 'ready', note: alwaysReady[toolName] };
+    return { status: 'verifiable', note: alwaysReady[toolName] };
   }
 
   const binding = evaluateToolConnectionBinding(toolName, connections);
   if (binding.status === 'ready') {
     return {
-      status: 'ready',
+      status: 'verifiable',
       note: binding.reason,
     };
   }
 
   if (binding.status === 'mismatch') {
     return {
-      status: 'limited',
+      status: 'needs-input',
       note: binding.reason,
     };
   }
 
   if (binding.connectionType === 'none') {
     return {
-      status: 'ready',
+      status: 'verifiable',
       note: binding.reason,
     };
   }
 
   return {
-    status: 'needs-setup',
+    status: 'blocked',
     note: binding.reason,
   };
 }
@@ -201,12 +206,19 @@ function StatusPill({ status }: { status: ToolReadinessInfo['status'] }) {
     <span
       className={cn(
         'text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wide',
-        status === 'ready' && 'bg-green-500/10 text-green-700 dark:text-green-400',
-        status === 'needs-setup' && 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
-        status === 'limited' && 'bg-blue-500/10 text-blue-700 dark:text-blue-400'
+        status === 'verified' && 'bg-green-500/10 text-green-700 dark:text-green-400',
+        status === 'verifiable' && 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
+        status === 'needs-input' && 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
+        status === 'blocked' && 'bg-red-500/10 text-red-700 dark:text-red-400'
       )}
     >
-      {status === 'ready' ? 'ready' : status === 'needs-setup' ? 'setup' : 'review'}
+      {status === 'verified'
+        ? 'verified'
+        : status === 'verifiable'
+          ? 'ready to verify'
+          : status === 'needs-input'
+            ? 'needs input'
+            : 'blocked'}
     </span>
   );
 }
@@ -357,7 +369,8 @@ export function ConnectionsPanel({
   const hasAiProvider = aiProviders.length > 0;
 
   const toolWiring = uniqueTools.map((toolName) => {
-    const readiness = getToolReadinessStatus(toolName, connections);
+    const verification = toolVerificationByName[toolName];
+    const readiness = getToolReadinessStatus(toolName, connections, verification);
     const requirement = requirements.find((r) => r.toolName === toolName);
     const parsed = parseConnectionTool(toolName);
     const metadata = getBuiltInToolMetadata(toolName);
@@ -380,6 +393,7 @@ export function ConnectionsPanel({
     return {
       toolName,
       readiness,
+      verification,
       requirement,
       parsed,
       metadata,
@@ -391,7 +405,9 @@ export function ConnectionsPanel({
   });
   const toolWiringByName = new Map(toolWiring.map((tool) => [tool.toolName, tool] as const));
 
-  const unresolvedToolWiring = toolWiring.filter((tool) => tool.readiness.status !== 'ready');
+  const unresolvedToolWiring = toolWiring.filter(
+    (tool) => tool.readiness.status === 'blocked' || tool.readiness.status === 'needs-input'
+  );
   const unresolvedNonDatabaseTools = unresolvedToolWiring.filter(
     (tool) => tool.expectedType !== 'postgres' && tool.expectedType !== 'mysql'
   );
@@ -415,7 +431,7 @@ export function ConnectionsPanel({
       .map((tool) => tool.toolName),
   }));
 
-  const allMet = hasAiProvider && unresolvedToolWiring.length === 0;
+  const allMappingsReady = hasAiProvider && unresolvedToolWiring.length === 0;
   const verificationCompleteStatuses = new Set<ToolVerificationResult['status']>([
     'verified',
     'manual_review',
@@ -423,6 +439,8 @@ export function ConnectionsPanel({
   const verifiedToolCount = uniqueTools.filter((toolName) =>
     verificationCompleteStatuses.has(toolVerificationByName[toolName]?.status ?? 'failed')
   ).length;
+  const allVerified = uniqueTools.length === 0 || verifiedToolCount >= uniqueTools.length;
+  const allMet = allMappingsReady && allVerified;
   const setupProgress = [
     {
       id: 'runtime',
@@ -455,6 +473,7 @@ export function ConnectionsPanel({
   const setupCompletionPercent = setupProgress.length > 0
     ? Math.round((completedSetupSteps / setupProgress.length) * 100)
     : 0;
+  const remainingSetupSteps = Math.max(0, setupProgress.length - completedSetupSteps);
   const hasAdvancedSections =
     workspaceConnectionHealth.length > 0 ||
     requirements.length > 0;
@@ -516,7 +535,13 @@ export function ConnectionsPanel({
 
     const handledSources = new Set<string>();
     for (const tool of databaseToolWiring) {
-      if (tool.readiness.status === 'ready' || !tool.expectedType) continue;
+      if (
+        tool.readiness.status === 'verified' ||
+        tool.readiness.status === 'verifiable' ||
+        !tool.expectedType
+      ) {
+        continue;
+      }
       const sourceKey = `${tool.expectedType}:${tool.expectedSlug ?? 'unspecified'}`;
       if (handledSources.has(sourceKey)) continue;
       handledSources.add(sourceKey);
@@ -551,7 +576,15 @@ export function ConnectionsPanel({
     for (const tool of toolWiring) {
       const verification = mergedVerification[tool.toolName];
       if (!verification) {
-        if (tool.readiness.status !== 'ready') {
+        if (tool.readiness.status === 'verifiable') {
+          pushAction({
+            id: `verify-${tool.toolName}`,
+            type: 'verify_tool',
+            title: `Verify ${tool.toolName}`,
+            description: 'Run a verification check to confirm runtime behavior.',
+            toolName: tool.toolName,
+          });
+        } else if (tool.readiness.status === 'blocked' || tool.readiness.status === 'needs-input') {
           pushAction({
             id: `verify-${tool.toolName}`,
             type: 'verify_tool',
@@ -607,8 +640,8 @@ export function ConnectionsPanel({
   const primaryGuidedAction = guidedActions[0] ?? null;
   const secondaryGuidedActions = guidedActions.slice(1, 3);
   const statusSummary = allMet
-    ? 'Everything needed for this stage is configured.'
-    : `Complete ${setupProgress.length - completedSetupSteps} remaining checklist item${setupProgress.length - completedSetupSteps === 1 ? '' : 's'}.`;
+    ? 'Connections and tool checks are complete.'
+    : `Complete ${remainingSetupSteps} remaining checklist item${remainingSetupSteps === 1 ? '' : 's'}.`;
 
   async function runAdvisorAnalysis(): Promise<ConnectionAdvisorResult | null> {
     if (!baleybotId || !balCode || !entitySummaries || entitySummaries.length === 0) {
@@ -829,17 +862,14 @@ export function ConnectionsPanel({
 
   return (
     <div className={cn('space-y-6', className)}>
-      <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+      <div className="rounded-xl border border-primary/25 bg-primary/5 p-4 space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <p className="text-sm font-medium flex items-center gap-1.5">
               <Sparkles className="h-4 w-4 text-primary" />
-              AI Setup Assistant
+              Connection setup
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Stage 2 of 4: connect runtime and data sources, then verify access.
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-1">
               {statusSummary}
             </p>
           </div>
@@ -847,10 +877,19 @@ export function ConnectionsPanel({
             {completedSetupSteps}/{setupProgress.length} complete
           </div>
         </div>
+        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className={cn(
+              'h-full rounded-full transition-all duration-300',
+              setupCompletionPercent >= 100 ? 'bg-green-500' : 'bg-primary'
+            )}
+            style={{ width: `${setupCompletionPercent}%` }}
+          />
+        </div>
 
         {primaryGuidedAction ? (
           <div className="rounded-md border border-primary/30 bg-background/80 px-3 py-2.5">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Recommended next action</p>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Recommended next step</p>
             <div className="flex items-start justify-between gap-3 mt-1">
               <div className="min-w-0">
                 <p className="text-sm font-medium">{primaryGuidedAction.title}</p>
@@ -870,7 +909,7 @@ export function ConnectionsPanel({
             <p className="text-xs text-muted-foreground">
               {allMet
                 ? 'No blockers detected. Continue to testing.'
-                : 'Run analysis to refresh a prioritized recommendation.'}
+                : 'Run analysis to refresh the highest-value next step.'}
             </p>
             {allMet && onNavigateToTest && (
               <Button size="sm" className="h-7 text-[11px]" onClick={onNavigateToTest}>
@@ -903,7 +942,7 @@ export function ConnectionsPanel({
             ) : (
               <>
                 <ShieldCheck className="h-3.5 w-3.5 mr-1" />
-                Refresh recommendation
+                Analyze setup
               </>
             )}
           </Button>
@@ -1014,58 +1053,9 @@ export function ConnectionsPanel({
         )}
       </div>
 
-      <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-medium flex items-center gap-1.5">
-              <Gauge className="h-4 w-4 text-muted-foreground" />
-              Connection checklist
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Follow this order to avoid duplicate setup work.
-            </p>
-          </div>
-          <span className="text-xs font-medium text-muted-foreground">
-            {setupCompletionPercent}%
-          </span>
-        </div>
-        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-          <div
-            className={cn(
-              'h-full rounded-full transition-all duration-300',
-              setupCompletionPercent >= 100 ? 'bg-green-500' : 'bg-primary'
-            )}
-            style={{ width: `${setupCompletionPercent}%` }}
-          />
-        </div>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {setupProgress.map((step, index) => (
-            <div
-              key={step.id}
-              className={cn(
-                'rounded-md border px-2.5 py-2',
-                step.complete
-                  ? 'border-green-500/30 bg-green-500/5'
-                  : 'border-border/60 bg-background/60'
-              )}
-            >
-              <p className="text-[11px] font-medium flex items-center gap-1.5">
-                {step.complete ? (
-                  <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                ) : (
-                  <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                )}
-                {`Step ${index + 1}: ${step.label}`}
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1">{step.detail}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* AI Provider section */}
       <div>
-        <h3 className="text-sm font-medium mb-2">Step 1: Connect an AI Provider</h3>
+        <h3 className="text-sm font-medium mb-2">AI Runtime</h3>
         <p className="text-xs text-muted-foreground mb-2.5">
           This is the runtime your BaleyBot uses for reasoning, generation, and tool decisions.
         </p>
@@ -1121,7 +1111,7 @@ export function ConnectionsPanel({
         <div>
           <h3 className="text-sm font-medium mb-2 flex items-center gap-1.5">
             <Sparkles className="h-4 w-4 text-muted-foreground" />
-            Step 2: Review Tool Behavior
+            Tool Validation
           </h3>
           <p className="text-xs text-muted-foreground mb-2.5">
             Confirm the purpose of each tool, then run verification so failures are caught before testing.
@@ -1171,7 +1161,8 @@ export function ConnectionsPanel({
                           </>
                         )}
                       </Button>
-                      {tool.readiness.status !== 'ready' && (
+                      {(tool.readiness.status === 'blocked' ||
+                        tool.readiness.status === 'needs-input') && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -1237,7 +1228,7 @@ export function ConnectionsPanel({
       {/* Data source wiring section */}
       {databaseToolWiring.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium mb-2">Step 3: Map Data Sources</h3>
+          <h3 className="text-sm font-medium mb-2">Data Source Mapping</h3>
           <p className="text-xs text-muted-foreground mb-2.5">
             Match each database tool to the correct workspace connection, then apply mapping updates.
           </p>
@@ -1314,7 +1305,9 @@ export function ConnectionsPanel({
                           'Verify Tool'
                         )}
                       </Button>
-                      {tool.readiness.status !== 'ready' && dbType && (
+                      {(tool.readiness.status === 'blocked' ||
+                        tool.readiness.status === 'needs-input') &&
+                        dbType && (
                         <Button
                           size="sm"
                           variant="outline"

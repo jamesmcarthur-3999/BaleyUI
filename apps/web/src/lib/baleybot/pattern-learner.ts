@@ -7,16 +7,13 @@
  */
 
 import { z } from 'zod';
-import { executeInternalBaleybot } from './internal-baleybots';
-import { createLogger } from '@/lib/logger';
+import { runPatternLearner } from './internal-bb/runner';
 import type {
   ApprovalRequest,
   ApprovalPattern,
   TrustLevel,
   WorkspacePolicies,
 } from './types';
-
-const logger = createLogger('pattern-learner');
 
 // ============================================================================
 // SCHEMAS
@@ -80,59 +77,6 @@ export interface LearnerContext {
   existingPatterns: ApprovalPattern[];
   policies: WorkspacePolicies | null;
   learningManual?: string;
-}
-
-// ============================================================================
-// OUTPUT RESOLUTION
-// ============================================================================
-
-/**
- * Resolve raw output from executeInternalBaleybot into a valid object.
- * Handles object passthrough, JSON-from-text extraction, and markdown fences.
- */
-function resolveOutput(output: unknown): unknown {
-  // Already an object — pass through
-  if (output && typeof output === 'object' && !Array.isArray(output)) {
-    return output;
-  }
-
-  // String output — try to extract JSON
-  if (typeof output === 'string') {
-    const text = output.trim();
-
-    // Try direct JSON parse
-    try {
-      return JSON.parse(text);
-    } catch {
-      // Try extracting from markdown code fences
-      const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-      if (jsonMatch?.[1]) {
-        try {
-          return JSON.parse(jsonMatch[1].trim());
-        } catch {
-          // Fall through
-        }
-      }
-
-      // Try finding the first { ... } block
-      const braceStart = text.indexOf('{');
-      const braceEnd = text.lastIndexOf('}');
-      if (braceStart !== -1 && braceEnd > braceStart) {
-        try {
-          return JSON.parse(text.slice(braceStart, braceEnd + 1));
-        } catch {
-          // Fall through
-        }
-      }
-
-      logger.error('Pattern learner: all JSON extraction methods failed', {
-        textLength: text.length,
-        preview: text.slice(0, 200),
-      });
-    }
-  }
-
-  return output;
 }
 
 // ============================================================================
@@ -215,13 +159,13 @@ ${JSON.stringify(request.arguments, null, 2)}
 
 Remember to be conservative - it's better to require approval than to auto-approve something dangerous.`;
 
-  const { output } = await executeInternalBaleybot('pattern_learner', input, {
+  const output = await runPatternLearner(input, {
     userWorkspaceId: ctx.workspaceId,
     context,
     triggeredBy: 'internal',
   });
 
-  return learnPatternResultSchema.parse(resolveOutput(output));
+  return learnPatternResultSchema.parse(output);
 }
 
 /**
@@ -256,13 +200,13 @@ ${requestSummaries}
 3. Be conservative with generalizations
 4. Consider whether patterns should be combined or kept separate`;
 
-  const { output } = await executeInternalBaleybot('pattern_learner', input, {
+  const output = await runPatternLearner(input, {
     userWorkspaceId: ctx.workspaceId,
     context,
     triggeredBy: 'internal',
   });
 
-  return learnPatternResultSchema.parse(resolveOutput(output));
+  return learnPatternResultSchema.parse(output);
 }
 
 /**
@@ -307,14 +251,14 @@ Consider:
 2. Could numeric constraints be relaxed safely?
 3. Would generalization significantly increase risk?`;
 
-  const { output } = await executeInternalBaleybot('pattern_learner', input, {
+  const output = await runPatternLearner(input, {
     userWorkspaceId: ctx.workspaceId,
     context,
     triggeredBy: 'internal',
   });
 
   // Extract the first suggestion as the generalization
-  const typedResult = learnPatternResultSchema.parse(resolveOutput(output));
+  const typedResult = learnPatternResultSchema.parse(output);
   if (typedResult.suggestions.length > 0) {
     const suggestion = typedResult.suggestions[0];
     if (!suggestion) {
@@ -377,13 +321,13 @@ export async function validatePattern(
 3. Suggest improvements if needed
 4. Determine if it should be allowed`;
 
-  const { output } = await executeInternalBaleybot('pattern_learner', input, {
+  const output = await runPatternLearner(input, {
     userWorkspaceId: ctx.workspaceId,
     context,
     triggeredBy: 'internal',
   });
 
-  const typedResult = learnPatternResultSchema.parse(resolveOutput(output));
+  const typedResult = learnPatternResultSchema.parse(output);
 
   return {
     isValid: typedResult.warnings.length === 0,

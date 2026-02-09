@@ -5,8 +5,6 @@
  * Uses the internal bal_generator BaleyBot for AI-powered generation.
  */
 
-import { z } from 'zod';
-import { executeInternalBaleybot } from './internal-baleybots';
 import { normalizeBalCodeForCompatibility, parseBalCode } from './bal-parser-pure';
 import type {
   GeneratorContext,
@@ -15,32 +13,10 @@ import type {
   GenerationMessage,
 } from './types';
 import { buildToolCatalog, formatToolCatalogForAI, categorizeToolName } from './tool-catalog';
+import { runBalGenerator } from './internal-bb/runner';
+import { createLogger } from '@/lib/logger';
 
-// ============================================================================
-// SCHEMAS
-// ============================================================================
-
-/**
- * Schema for the generator's structured output
- */
-const generateResultSchema = z.object({
-  balCode: z.string().describe('The generated BAL code'),
-  explanation: z.string().catch('').describe('Human-readable explanation of what the BaleyBot does'),
-  entities: z.array(
-    z.object({
-      name: z.string().catch('unnamed').describe('Entity name (e.g., activity_poller)'),
-      goal: z.string().catch('').describe('The goal/purpose of this entity'),
-      model: z.string().optional().catch(undefined).describe('AI model to use (e.g., openai:gpt-4o-mini)'),
-      tools: z.array(z.string()).catch([]).describe('Tools assigned to the entity (approvals handled at runtime)'),
-      canRequest: z.array(z.string()).catch([]).describe('Tools that require approval'),
-      output: z.record(z.string(), z.string()).optional().catch(undefined).describe('Output schema'),
-      history: z.enum(['none', 'inherit']).optional().catch(undefined).describe('Conversation history mode'),
-    })
-  ),
-  toolRationale: z.record(z.string(), z.string()).catch({}).describe('Explanation for each tool assignment'),
-  suggestedName: z.string().catch('Unnamed BaleyBot').describe('Suggested name for the BaleyBot'),
-  suggestedIcon: z.string().catch('🤖').describe('Suggested emoji icon'),
-});
+const logger = createLogger('bal-generator');
 
 // ============================================================================
 // CONTEXT BUILDING
@@ -177,34 +153,6 @@ ${existingBBsSection}
 }
 
 // ============================================================================
-// OUTPUT RESOLUTION
-// ============================================================================
-
-/**
- * Resolve raw output from executeInternalBaleybot into a parseable object.
- * Without a BAL output schema, the model returns text. Extract JSON from it.
- */
-function resolveOutput(output: unknown): unknown {
-  if (output && typeof output === 'object' && !Array.isArray(output)) {
-    return output;
-  }
-  if (typeof output === 'string') {
-    const text = output.trim();
-    try { return JSON.parse(text); } catch { /* continue */ }
-    const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (jsonMatch?.[1]) {
-      try { return JSON.parse(jsonMatch[1].trim()); } catch { /* continue */ }
-    }
-    const braceStart = text.indexOf('{');
-    const braceEnd = text.lastIndexOf('}');
-    if (braceStart !== -1 && braceEnd > braceStart) {
-      try { return JSON.parse(text.slice(braceStart, braceEnd + 1)); } catch { /* continue */ }
-    }
-  }
-  return output;
-}
-
-// ============================================================================
 // GENERATOR SERVICE
 // ============================================================================
 
@@ -237,29 +185,22 @@ ${userDescription}
 Please refine the BAL code based on this feedback.`;
   }
 
-  const { output } = await executeInternalBaleybot('bal_generator', input, {
-    userWorkspaceId: ctx.workspaceId,
-    context,
-    triggeredBy: 'internal',
-  });
-
-  // Resolve output — model returns JSON as text (no BAL output schema)
-  const resolved = resolveOutput(output);
-  const result = generateResultSchema.safeParse(resolved);
-  if (!result.success) {
-    const genLogger = await import('@/lib/logger').then(m => m.createLogger('bal-generator'));
-    genLogger.error('BAL generator output validation failed', {
-      zodErrors: result.error.issues,
-      outputType: typeof output,
-      outputPreview: typeof output === 'string'
-        ? output.slice(0, 500)
-        : JSON.stringify(output).slice(0, 500),
+  let parsed: Awaited<ReturnType<typeof runBalGenerator>>;
+  try {
+    parsed = await runBalGenerator(input, {
+      userWorkspaceId: ctx.workspaceId,
+      context,
+      triggeredBy: 'internal',
+    });
+  } catch (error) {
+    logger.error('BAL generator output validation failed', {
+      error: error instanceof Error ? error.message : String(error),
+      workspaceId: ctx.workspaceId,
     });
     throw new Error(
       'The AI returned an incomplete response. Please try again with a simpler description.'
     );
   }
-  const parsed = result.data;
 
   // Normalize model-generated BAL into parser/runtime-compatible syntax.
   const normalizedBalCode = normalizeBalCodeForCompatibility(parsed.balCode);
@@ -276,7 +217,18 @@ Please refine the BAL code based on this feedback.`;
   }
 
   // Validate tool assignments against policies
-  const validatedEntities = validateToolAssignments(ctx, parsed.entities);
+  const validatedEntities = validateToolAssignments(
+    ctx,
+    parsed.entities.map((entity) => ({
+      name: entity.name,
+      goal: entity.goal,
+      model: entity.model,
+      tools: entity.tools,
+      canRequest: entity.canRequest ?? [],
+      output: entity.output,
+      history: entity.history,
+    }))
+  );
 
   return {
     ...parsed,

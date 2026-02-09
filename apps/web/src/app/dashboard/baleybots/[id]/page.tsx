@@ -4,8 +4,13 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { trpc } from '@/lib/trpc/client';
-import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ReadinessChecklist, ConnectionsPanel, TestPanel, MonitorPanel } from '@/components/creator';
-import type { TestCase } from '@/components/creator';
+import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ConnectionsPanel, TestPanel, MonitorPanel, StreamingProgressCard } from '@/components/creator';
+import type {
+  TestCase,
+  StreamingHighlightType,
+  StreamingProgressSnapshot,
+  StreamingTool,
+} from '@/components/creator';
 
 // Dynamic import to avoid bundling @baleybots/core server-only modules in client
 const VisualEditor = dynamic(
@@ -67,6 +72,7 @@ import type {
   CreationStatus,
   CreationProgress,
   AdaptiveTab,
+  CreatorOutput,
 } from '@/lib/baleybot/creator-types';
 import type { LaunchKit, RuntimeInterfaceSpec } from '@/lib/baleybot/types';
 import { computeReadiness, createInitialReadiness, getVisibleTabs, countCompleted, getRecommendedAction } from '@/lib/baleybot/readiness';
@@ -78,7 +84,7 @@ import {
   sanitizeCreatorConversationHistory,
   sanitizeCreatorText,
 } from '@/lib/baleybot/creator-sanitization';
-import type { DiscoveryIntakeSubmission } from '@/components/creator/DiscoveryIntakeForm';
+import { streamPostSSE } from '@/lib/streaming/client-post-sse';
 
 const ADVANCED_EDITOR_TABS: AdaptiveTab[] = ['code', 'analytics'];
 const POST_DESIGN_TABS: AdaptiveTab[] = ['connections', 'test', 'triggers', 'monitor', 'launch'];
@@ -194,6 +200,200 @@ function getPrimaryRuntimeResponse(output: unknown): string {
   return formatExecutionOutput(output);
 }
 
+type CreatorStreamEvent =
+  | {
+      type: 'creator_stream_started';
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_progress';
+      phase?: string;
+      message?: string;
+      highlightType?: StreamingHighlightType;
+      toolName?: string;
+      heartbeat?: boolean;
+      cycle?: number;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_highlight';
+      phase?: string;
+      highlight?: string;
+      highlightType?: StreamingHighlightType;
+      toolName?: string;
+      cycle?: number;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_complete';
+      result?: CreatorOutput;
+      summary?: string;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_error';
+      message?: string;
+      timestamp?: number;
+    };
+
+interface RuntimeExecutionResult {
+  status: string;
+  output?: unknown;
+  error?: string;
+  durationMs?: number;
+  executionId?: string;
+}
+
+type RuntimeStreamEvent = {
+  type: string;
+  toolName?: string;
+  content?: string;
+  error?: unknown;
+  status?: string;
+  output?: unknown;
+  durationMs?: number;
+  executionId?: string;
+};
+
+function getStreamEventErrorMessage(error: unknown): string {
+  if (typeof error === 'string' && error.trim().length > 0) {
+    return error;
+  }
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    const message = record.message;
+    if (typeof message === 'string' && message.trim().length > 0) {
+      return message;
+    }
+  }
+  return 'Streaming request failed.';
+}
+
+function normalizeHighlightType(value: string | undefined): StreamingHighlightType {
+  if (value === 'thinking' || value === 'tool' || value === 'loop' || value === 'status') {
+    return value;
+  }
+  return 'status';
+}
+
+function appendStreamingHighlight(
+  highlights: StreamingProgressSnapshot['highlights'],
+  entry: Omit<StreamingProgressSnapshot['highlights'][number], 'id'>,
+  maxEntries = 5
+): StreamingProgressSnapshot['highlights'] {
+  const text = entry.text.trim();
+  if (!text) return highlights;
+
+  const normalized = text.toLowerCase();
+  const existing = highlights.find(
+    (item) =>
+      item.type === entry.type &&
+      item.toolName === entry.toolName &&
+      item.text.trim().toLowerCase() === normalized
+  );
+  if (existing) {
+    return highlights;
+  }
+
+  const next = [
+    ...highlights,
+    {
+      ...entry,
+      id: `${entry.type}-${entry.timestamp}-${Math.random().toString(36).slice(2, 8)}`,
+    },
+  ];
+  return next.slice(-maxEntries);
+}
+
+function upsertStreamingTool(
+  tools: StreamingTool[],
+  name: string,
+  status: StreamingTool['status']
+): StreamingTool[] {
+  const normalizedName = name.trim();
+  if (!normalizedName) return tools;
+
+  const now = Date.now();
+  const existingIndex = tools.findIndex(
+    (tool) => tool.name.toLowerCase() === normalizedName.toLowerCase()
+  );
+
+  if (existingIndex === -1) {
+    return [...tools, { name: normalizedName, status, updatedAt: now }];
+  }
+
+  const current = tools[existingIndex];
+  if (!current) return tools;
+
+  const next = [...tools];
+  next[existingIndex] = {
+    ...current,
+    status,
+    updatedAt: now,
+  };
+  return next;
+}
+
+function inferToolStatusFromMessage(
+  message: string,
+  fallback: StreamingTool['status'] = 'running'
+): StreamingTool['status'] {
+  const lower = message.toLowerCase();
+  if (lower.includes('failed') || lower.includes('error')) return 'error';
+  if (lower.includes('complete') || lower.includes('done') || lower.includes('success')) {
+    return 'success';
+  }
+  if (lower.includes('preparing') || lower.includes('queue')) return 'pending';
+  if (lower.includes('running') || lower.includes('execut')) return 'running';
+  return fallback;
+}
+
+function mapCreatorPhaseToCreationProgress(
+  phase: string | undefined
+): CreationProgress['phase'] {
+  if (!phase) return 'understanding';
+  if (phase === 'discovery') return 'understanding';
+  if (phase === 'orchestration') return 'designing';
+  if (phase === 'generation') return 'generating';
+  if (phase === 'recovery') return 'connecting';
+  if (phase === 'complete') return 'complete';
+  return 'understanding';
+}
+
+function buildProgressSummary(
+  tools: StreamingTool[],
+  highlights: StreamingProgressSnapshot['highlights'],
+  fallback: string
+): string {
+  if (tools.length > 0) {
+    const successful = tools.filter((tool) => tool.status === 'success');
+    const errored = tools.filter((tool) => tool.status === 'error');
+
+    if (successful.length > 0 && errored.length === 0) {
+      return `Completed using ${successful.length} tool${successful.length === 1 ? '' : 's'} (${successful
+        .slice(0, 3)
+        .map((tool) => tool.name)
+        .join(', ')}).`;
+    }
+    if (errored.length > 0) {
+      return `Finished with ${errored.length} tool issue${errored.length === 1 ? '' : 's'} (${errored
+        .slice(0, 2)
+        .map((tool) => tool.name)
+        .join(', ')}).`;
+    }
+  }
+
+  if (highlights.length > 0) {
+    const last = highlights[highlights.length - 1];
+    if (last?.text) return last.text;
+  }
+
+  return fallback;
+}
+
 function isSameReadiness(a: ReadinessState, b: ReadinessState): boolean {
   return (
     a.designed === b.designed &&
@@ -228,10 +428,6 @@ interface DiscoveryQuestionSummary {
   description: string;
   requiredNow: boolean;
 }
-
-type DiscoveryIntakeSummary = NonNullable<
-  NonNullable<CreatorMessage['metadata']>['discoveryIntake']
->;
 
 function getLatestCreatorLifecycle(messages: CreatorMessage[]): CreatorLifecycleSummary | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -280,16 +476,37 @@ function getDiscoveryQuestionsFromLifecycle(
   return questions;
 }
 
-function getLatestDiscoveryIntakeSummary(
+function getLatestDiscoveryAssistantMessage(
   messages: CreatorMessage[]
-): DiscoveryIntakeSummary | null {
+): CreatorMessage | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
-    if (message?.role === 'user' && message.metadata?.discoveryIntake) {
-      return message.metadata.discoveryIntake;
+    if (message?.role !== 'assistant') continue;
+    if (message.metadata?.creatorLifecycle?.stage === 'discovery') {
+      return message;
     }
   }
   return null;
+}
+
+function normalizeDiscoveryLabel(label: string): string {
+  return label.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function compactDiscoveryText(value: string, max = 110): string {
+  const compact = value.replace(/\s+/g, ' ').trim();
+  if (compact.length <= max) return compact;
+  return `${compact.slice(0, max - 1).trimEnd()}...`;
+}
+
+function formatStreamingPhaseLabel(phase: string | undefined): string {
+  if (!phase) return 'Working';
+  const normalized = phase.replace(/[_-]+/g, ' ').trim();
+  if (!normalized) return 'Working';
+  return normalized
+    .split(' ')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 /**
@@ -366,6 +583,9 @@ export default function BaleybotPage() {
   const [showRuntimeRawOutput, setShowRuntimeRawOutput] = useState(false);
   const [showRuntimeDiagnostics, setShowRuntimeDiagnostics] = useState(false);
   const [runtimeConversation, setRuntimeConversation] = useState<RuntimeConversationMessage[]>([]);
+  const [runtimeStreamingProgress, setRuntimeStreamingProgress] =
+    useState<StreamingProgressSnapshot | null>(null);
+  const [runtimeLastProgressSummary, setRuntimeLastProgressSummary] = useState<string | null>(null);
 
   // Mobile view toggle (chat vs editor)
   type MobileView = 'editor' | 'chat';
@@ -385,6 +605,8 @@ export default function BaleybotPage() {
 
   // Real-time creation progress (replaces fake phase cycling)
   const [creationProgress, setCreationProgress] = useState<CreationProgress | null>(null);
+  const [creatorStreamingProgress, setCreatorStreamingProgress] =
+    useState<StreamingProgressSnapshot | null>(null);
 
   // Ref to track if initial prompt was sent (avoids effect dependency issues)
   const initialPromptSentRef = useRef(false);
@@ -397,33 +619,109 @@ export default function BaleybotPage() {
     () => getDiscoveryQuestionsFromLifecycle(latestCreatorLifecycle),
     [latestCreatorLifecycle]
   );
-  const latestDiscoveryIntake = useMemo(
-    () => getLatestDiscoveryIntakeSummary(messages),
-    [messages]
-  );
+  const historicalRequiredDiscoveryMax = useMemo(() => {
+    let max = 0;
+    for (const message of messages) {
+      if (message.role !== 'assistant') continue;
+      const lifecycle = message.metadata?.creatorLifecycle;
+      if (!lifecycle || lifecycle.stage !== 'discovery') continue;
+      const count = lifecycle.requiredQuestions?.length ?? 0;
+      if (count > max) max = count;
+    }
+    return max;
+  }, [messages]);
   const requiredDiscoveryQuestionCount = latestDiscoveryQuestions.filter((question) => question.requiredNow).length;
-  const answeredRequiredDiscoveryQuestionCount = (latestDiscoveryIntake?.answers ?? []).filter(
-    (answer) => answer.requiredNow
-  ).length;
-  const outstandingRequiredDiscoveryCount = Math.max(
-    requiredDiscoveryQuestionCount - answeredRequiredDiscoveryQuestionCount,
-    0
+  const resolvedRequiredDiscoveryQuestionCount = Math.max(
+    0,
+    historicalRequiredDiscoveryMax - requiredDiscoveryQuestionCount
   );
+  const ideationProgress = historicalRequiredDiscoveryMax > 0
+    ? resolvedRequiredDiscoveryQuestionCount / historicalRequiredDiscoveryMax
+    : requiredDiscoveryQuestionCount === 0
+      ? 1
+      : 0;
   const nextDiscoveryQuestion =
-    latestDiscoveryQuestions.find((question) => {
-      if (!question.requiredNow) return false;
-      return !(latestDiscoveryIntake?.answers ?? []).some(
-        (answer) => answer.id === question.id && answer.requiredNow
-      );
-    }) ??
+    latestDiscoveryQuestions.find((question) => question.requiredNow) ??
     latestDiscoveryQuestions.find((question) => !question.requiredNow);
   const isDiscoveryWorkspaceActive =
     isNew &&
     viewMode === 'visual' &&
-    status !== 'ready' &&
     entities.length === 0 &&
     !balCode.trim() &&
-    messages.length > 0;
+    messages.length > 0 &&
+    (
+      latestCreatorLifecycle?.stage === 'discovery' ||
+      status === 'building' ||
+      requiredDiscoveryQuestionCount > 0
+    );
+  const leftPanelWidthClass = isDiscoveryWorkspaceActive
+    ? 'md:w-1/2 lg:w-1/2 xl:w-1/2'
+    : 'md:w-[380px] lg:w-[420px] xl:w-[460px]';
+  const ideationPercent = Math.max(0, Math.min(100, Math.round(ideationProgress * 100)));
+  const latestDiscoveryAssistantMessage = useMemo(
+    () => getLatestDiscoveryAssistantMessage(messages),
+    [messages]
+  );
+  const latestDiscoverySummary = latestDiscoveryAssistantMessage?.metadata?.streamSummary?.trim();
+  const unresolvedDiscoveryLabels = useMemo(
+    () =>
+      latestDiscoveryQuestions
+        .filter((question) => question.requiredNow)
+        .map((question) => question.label),
+    [latestDiscoveryQuestions]
+  );
+  const resolvedDiscoveryLabels = useMemo(() => {
+    const askedRequired = new Map<string, string>();
+    for (const message of messages) {
+      if (message.role !== 'assistant') continue;
+      const lifecycle = message.metadata?.creatorLifecycle;
+      if (!lifecycle || lifecycle.stage !== 'discovery') continue;
+      for (const question of lifecycle.requiredQuestions ?? []) {
+        const normalized = normalizeDiscoveryLabel(question.label);
+        if (!askedRequired.has(normalized)) {
+          askedRequired.set(normalized, question.label);
+        }
+      }
+    }
+
+    const unresolved = new Set(unresolvedDiscoveryLabels.map((label) => normalizeDiscoveryLabel(label)));
+    return [...askedRequired.entries()]
+      .filter(([normalized]) => !unresolved.has(normalized))
+      .map(([, label]) => label);
+  }, [messages, unresolvedDiscoveryLabels]);
+  const discoveryAssumptionNotes = useMemo(
+    () =>
+      (latestCreatorLifecycle?.assumptions ?? []).map(
+        (assumption) => `${assumption.label}: ${compactDiscoveryText(assumption.value, 80)}`
+      ),
+    [latestCreatorLifecycle]
+  );
+  const discoveryRecentUserReplies = useMemo(() => {
+    return messages
+      .filter((message) => message.role === 'user')
+      .slice(-3)
+      .map((message) => compactDiscoveryText(message.content));
+  }, [messages]);
+  const discoveryLiveHighlights = useMemo(
+    () => creatorStreamingProgress?.highlights.slice(-4).reverse() ?? [],
+    [creatorStreamingProgress]
+  );
+  const discoveryBoardHeading = nextDiscoveryQuestion
+    ? `Working through ${nextDiscoveryQuestion.label}`
+    : requiredDiscoveryQuestionCount > 0
+      ? 'Shaping the first draft'
+      : status === 'building'
+        ? 'Generating your first draft'
+        : 'Discovery complete';
+  const discoveryBoardSubheading =
+    creatorStreamingProgress?.message ||
+    latestCreatorLifecycle?.whatIDid ||
+    latestDiscoverySummary ||
+    'Share details naturally. The creator will ask only what it still needs.';
+  const discoveryContextChips = [
+    ...resolvedDiscoveryLabels.map((label) => `Resolved: ${label}`),
+    ...discoveryAssumptionNotes.map((item) => `Assumption: ${item}`),
+  ].slice(0, 6);
 
   // =====================================================================
   // UNDO/REDO HISTORY (Phase 3.5)
@@ -602,6 +900,36 @@ export default function BaleybotPage() {
           .replace(/^_+|_+$/g, '')}`
       );
   }, [normalizedConnections]);
+  const discoveryCopilotInput = useMemo(
+    () => ({
+      status,
+      messages: messages.slice(-12).map((message) => {
+        const metadata: Record<string, unknown> = {};
+        if (message.metadata?.creatorLifecycle) {
+          metadata.creatorLifecycle = message.metadata.creatorLifecycle;
+        }
+        if (message.metadata?.streamSummary) {
+          metadata.streamSummary = message.metadata.streamSummary;
+        }
+        return {
+          role: message.role,
+          content: message.content.slice(0, 900),
+          metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+        };
+      }),
+    }),
+    [messages, status]
+  );
+  const {
+    data: discoveryCopilotData,
+    isFetching: isDiscoveryCopilotFetching,
+  } = trpc.baleybots.getCreatorSuggestedActions.useQuery(discoveryCopilotInput, {
+    enabled: isDiscoveryWorkspaceActive && messages.length > 0 && status !== 'running',
+    staleTime: 20_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const discoveryCopilotActions = (discoveryCopilotData?.actions ?? []).slice(0, 3);
 
   // =====================================================================
   // TEST EXECUTION HOOK
@@ -685,24 +1013,515 @@ export default function BaleybotPage() {
   // HANDLERS
   // =====================================================================
 
+  const startCreatorStream = async (args: {
+    message: string;
+    conversationHistory: ReturnType<typeof buildCreatorHistoryPayload>;
+  }): Promise<{ result: CreatorOutput; summary?: string }> => {
+    const startedAt = Date.now();
+    let finalResult: CreatorOutput | null = null;
+    let finalSummary: string | undefined;
+    let latestTools: StreamingTool[] = [];
+    let latestHighlights: StreamingProgressSnapshot['highlights'] = [];
+
+    setCreatorStreamingProgress({
+      phase: 'discovery',
+      message: 'Starting creator workflow...',
+      highlights: [],
+      tools: [],
+      startedAt,
+    });
+
+    await streamPostSSE<CreatorStreamEvent>({
+      url: '/api/baleybots/creator/stream',
+      body: {
+        baleybotId: savedBaleybotId ?? undefined,
+        message: args.message,
+        conversationHistory: args.conversationHistory,
+      },
+      onEvent: (event) => {
+        if (event.type === 'creator_stream_started') {
+          setCreatorStreamingProgress((previous) =>
+            previous
+              ? {
+                  ...previous,
+                  phase: 'discovery',
+                  message: 'Understanding your request...',
+                }
+              : previous
+          );
+          return;
+        }
+
+        if (event.type === 'creator_progress') {
+          const phase = event.phase ?? 'orchestration';
+          const progressMessage = event.message?.trim() || 'Continuing creator workflow...';
+          setCreationProgress({
+            phase: mapCreatorPhaseToCreationProgress(phase),
+            message: progressMessage,
+          });
+
+          setCreatorStreamingProgress((previous) => {
+            const base: StreamingProgressSnapshot =
+              previous ?? {
+                phase,
+                message: progressMessage,
+                highlights: [],
+                tools: [],
+                startedAt,
+              };
+
+            let nextTools = base.tools;
+            if (event.toolName) {
+              nextTools = upsertStreamingTool(
+                nextTools,
+                event.toolName,
+                inferToolStatusFromMessage(progressMessage)
+              );
+            }
+
+            const next: StreamingProgressSnapshot = {
+              ...base,
+              phase,
+              message: progressMessage,
+              tools: nextTools,
+            };
+            latestTools = next.tools;
+            latestHighlights = next.highlights;
+            return next;
+          });
+          return;
+        }
+
+        if (event.type === 'creator_highlight') {
+          const text = event.highlight?.trim();
+          if (!text) return;
+          const phase = event.phase ?? 'orchestration';
+          const highlightType = normalizeHighlightType(event.highlightType);
+          const timestamp = event.timestamp ?? Date.now();
+
+          setCreatorStreamingProgress((previous) => {
+            const base: StreamingProgressSnapshot =
+              previous ?? {
+                phase,
+                message: 'Working...',
+                highlights: [],
+                tools: [],
+                startedAt,
+              };
+
+            const nextTools = event.toolName
+              ? upsertStreamingTool(
+                  base.tools,
+                  event.toolName,
+                  highlightType === 'tool' ? 'running' : 'pending'
+                )
+              : base.tools;
+
+            const nextHighlights = appendStreamingHighlight(base.highlights, {
+              text,
+              type: highlightType,
+              toolName: event.toolName,
+              timestamp,
+            });
+
+            const next: StreamingProgressSnapshot = {
+              ...base,
+              phase,
+              highlights: nextHighlights,
+              tools: nextTools,
+            };
+            latestTools = next.tools;
+            latestHighlights = next.highlights;
+            return next;
+          });
+          return;
+        }
+
+        if (event.type === 'creator_complete') {
+          if (event.result) {
+            finalResult = event.result;
+          }
+          finalSummary =
+            event.summary?.trim() ||
+            buildProgressSummary(
+              latestTools,
+              latestHighlights,
+              'Creator completed the response.'
+            );
+          setCreationProgress({ phase: 'complete', message: 'Ready!' });
+          setCreatorStreamingProgress((previous) =>
+            previous
+              ? {
+                  ...previous,
+                  phase: 'complete',
+                  message: finalSummary || 'Ready!',
+                }
+              : previous
+          );
+          return;
+        }
+
+        if (event.type === 'creator_error') {
+          throw new Error(event.message || 'Creator stream failed');
+        }
+      },
+    });
+
+    if (!finalResult) {
+      throw new Error('Creator stream completed without a final result.');
+    }
+
+    return {
+      result: finalResult,
+      summary: finalSummary,
+    };
+  };
+
+  const applyCreatorResult = (
+    result: CreatorOutput,
+    args: {
+      prevEntities: VisualEntity[];
+      prevConnections: Connection[];
+      prevName: string;
+      streamSummary?: string;
+    }
+  ) => {
+    const { prevEntities, prevConnections, prevName, streamSummary } = args;
+
+    if (result.status === 'building') {
+      const lifecycleBlockMode =
+        result.blockMode ??
+        ((result.questions ?? []).some((question) => question.requiredNow !== false)
+          ? 'hard'
+          : (result.questions ?? []).length > 0
+            ? 'soft'
+            : 'none');
+      const discoveryAssumptions = result.assumptions ?? [];
+      const runnableConfidence =
+        typeof result.runnableConfidence === 'number'
+          ? Math.max(0, Math.min(1, result.runnableConfidence))
+          : undefined;
+      const requiredQuestions = (result.questions ?? []).filter(
+        (question) => question.requiredNow !== false
+      );
+      const optionalQuestions = (result.questions ?? []).filter(
+        (question) => question.requiredNow === false
+      );
+      const previousDiscoveryIteration = [...messages]
+        .reverse()
+        .find(
+          (msg) =>
+            msg.role === 'assistant' &&
+            msg.metadata?.creatorLifecycle?.stage === 'discovery'
+        )?.metadata?.creatorLifecycle?.iteration ?? 0;
+      const discoveryIteration = previousDiscoveryIteration + 1;
+      const nextRequiredQuestion = requiredQuestions[0];
+      const nextOptionalQuestion = optionalQuestions[0];
+
+      const baseMessage = (result.message?.trim() || result.thinking?.trim() || '').replace(
+        /\n{3,}/g,
+        '\n\n'
+      );
+      const looksChecklist =
+        /\[(required|later|assumption|confidence)\]/i.test(baseMessage) ||
+        (/(?:^|\n)\s*(?:[-*]|\d+\.)\s+/m.test(baseMessage) &&
+          baseMessage.split('\n').length > 8);
+      const shouldUseBaseMessage =
+        baseMessage.length > 0 &&
+        baseMessage.length <= 900 &&
+        !looksChecklist;
+      const fallbackMessage = nextRequiredQuestion
+        ? `To keep this moving, I need one detail: **${nextRequiredQuestion.label}**\n\n${nextRequiredQuestion.description}`
+        : nextOptionalQuestion
+          ? `I can build now. Helpful next detail: **${nextOptionalQuestion.label}**\n\n${nextOptionalQuestion.description}`
+          : 'Share any final detail and I will continue.';
+      const responseContent = shouldUseBaseMessage
+        ? baseMessage
+        : fallbackMessage;
+
+      if (!name && result.name) {
+        setName(truncateName(result.name));
+      }
+      if (!icon && result.icon) {
+        setIcon(result.icon);
+      }
+      if (!description && result.description) {
+        setDescription(result.description);
+      }
+
+      const assistantMessage: CreatorMessage = {
+        id: `msg-${Date.now()}-assistant-discovery`,
+        role: 'assistant',
+        content: responseContent.trim(),
+        timestamp: new Date(),
+        thinking: result.thinking || undefined,
+        metadata: {
+          streamSummary,
+          creatorLifecycle: {
+            stage: 'discovery',
+            iteration: discoveryIteration,
+            blockerMode: lifecycleBlockMode,
+            runnableConfidence,
+            assumptions: discoveryAssumptions.map((assumption) => ({
+              id: assumption.id,
+              label: assumption.label,
+              value: assumption.value,
+              confidence: assumption.confidence ?? 'medium',
+              requiresConfirmation: assumption.requiresConfirmation,
+            })),
+            whatIDid:
+              discoveryIteration > 1
+                ? lifecycleBlockMode === 'soft'
+                  ? 'Re-evaluated your latest response, resolved hard blockers, and prepared safe defaults for remaining setup details.'
+                  : 'Re-evaluated your latest response and checked which required details are still missing.'
+                : 'Reviewed your request and identified the minimum details needed for a runnable first version.',
+            nextStage: 'Design Generation',
+            nextAction:
+              requiredQuestions.length > 0
+                ? 'Answer this question so generation can continue.'
+                : lifecycleBlockMode === 'soft'
+                  ? 'Generation can proceed now. Review assumptions in Connections after build output.'
+                  : 'Generation can proceed now.',
+            requiredQuestions: requiredQuestions.map((q) => ({
+              id: q.id,
+              label: q.label,
+              description: q.description,
+              requiredNow: true,
+            })),
+            optionalQuestions: optionalQuestions.map((q) => ({
+              id: q.id,
+              label: q.label,
+              description: q.description,
+              requiredNow: false,
+            })),
+          },
+        },
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      setStatus('ready');
+      setCreationProgress(null);
+      setCreatorStreamingProgress(null);
+      return;
+    }
+
+    setCreationProgress({
+      phase: 'designing',
+      message: `Designed ${result.entities.length} entit${result.entities.length === 1 ? 'y' : 'ies'}`,
+    });
+
+    const visualEntities: VisualEntity[] = result.entities.map((entity) => ({
+      ...entity,
+      position: { x: 0, y: 0 },
+      status: 'appearing' as const,
+    }));
+
+    const visualConnections: Connection[] = result.connections.map((conn, index) => ({
+      id: `conn-${index}`,
+      from: conn.from,
+      to: conn.to,
+      label: conn.label,
+      status: 'stable' as const,
+    }));
+    const detectedBalSkills = detectBalSkills(result.balCode);
+    const balSkillSummary = summarizeBalSkills(detectedBalSkills);
+
+    if (visualConnections.length > 0) {
+      setCreationProgress({
+        phase: 'connecting',
+        message: `Connected ${visualConnections.length} workflow${visualConnections.length === 1 ? '' : 's'}`,
+      });
+    }
+    setCreationProgress({ phase: 'generating', message: 'Generating BAL code...' });
+
+    setEntities(visualEntities);
+
+    setTimeout(() => {
+      setEntities((prev) => prev.map((entity) => ({ ...entity, status: 'stable' as const })));
+    }, 600);
+    setConnections(visualConnections);
+    setBalCode(result.balCode);
+    setName(truncateName(result.name));
+    setIcon(result.icon);
+    if (result.description) {
+      setDescription(result.description);
+    }
+
+    const truncatedName = truncateName(result.name);
+    pushHistory(
+      {
+        entities: visualEntities,
+        connections: visualConnections,
+        balCode: result.balCode,
+        name: truncatedName,
+        icon: result.icon,
+      },
+      `AI response: ${truncatedName}`
+    );
+
+    const changeSummary = generateChangeSummary(
+      prevEntities,
+      visualEntities,
+      prevConnections,
+      visualConnections,
+      prevName,
+      result.name
+    );
+    const summaryText = formatChangeSummaryForChat(changeSummary);
+
+    const isInitialCreation = prevEntities.length === 0;
+    const modelNarrative = result.message?.trim();
+    let responseContent = '';
+    if (modelNarrative) {
+      responseContent = modelNarrative;
+    } else if (isInitialCreation) {
+      const totalTools = visualEntities.reduce((sum, entity) => sum + entity.tools.length, 0);
+      responseContent = `I've created **${result.name}** with ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}`;
+      if (totalTools > 0) {
+        responseContent += ` and ${totalTools} ${totalTools === 1 ? 'tool' : 'tools'}`;
+      }
+      responseContent += '.';
+    } else {
+      responseContent = summaryText || `Updated **${result.name}**.`;
+    }
+
+    const prevEntityIds = new Set(prevEntities.map((entity) => entity.id));
+    const entityMetadata = visualEntities.map((entity) => ({
+      id: entity.id,
+      name: entity.name,
+      icon: entity.icon,
+      tools: entity.tools,
+      isNew: !prevEntityIds.has(entity.id),
+    }));
+
+    const metadata: CreatorMessage['metadata'] = {
+      entities: entityMetadata,
+      isInitialCreation,
+      balSkills: detectedBalSkills,
+      streamSummary,
+    };
+    const wsConns = workspaceConnections ?? [];
+
+    const toolSummary = getConnectionSummary(visualEntities.flatMap((entity) => entity.tools));
+    if (toolSummary.required.length > 0) {
+      metadata.connectionStatus = {
+        connections: [
+          {
+            name: 'AI Provider',
+            type: 'ai',
+            status: wsConns.some((conn) => ['openai', 'anthropic', 'ollama'].includes(conn.type) && conn.status === 'connected')
+              ? 'connected' : 'missing',
+          },
+          ...toolSummary.required.map((req) => ({
+            name: req.connectionType,
+            type: req.connectionType,
+            status: wsConns.some((conn) => conn.type === req.connectionType && conn.status === 'connected')
+              ? 'connected' as const : 'missing' as const,
+            requiredBy: req.tools,
+          })),
+        ],
+      };
+    }
+
+    const hasAiProviderConnected = wsConns.some(
+      (connection) =>
+        ['openai', 'anthropic', 'ollama'].includes(connection.type) &&
+        connection.status === 'connected'
+    );
+    const missingRequiredConnectionTypes = toolSummary.required
+      .filter((req) => !wsConns.some((connection) => connection.type === req.connectionType && connection.status === 'connected'))
+      .map((req) => req.connectionType);
+    const needsConnectionStage = !hasAiProviderConnected || missingRequiredConnectionTypes.length > 0;
+    const nextLifecycleAction = isInitialCreation
+      ? 'Review the visual design and confirm it before moving into setup.'
+      : needsConnectionStage
+        ? missingRequiredConnectionTypes.length > 0
+          ? `Connect required services (${[...new Set(missingRequiredConnectionTypes)].join(', ')}) and verify tools.`
+          : 'Connect an AI provider and verify tool requirements.'
+        : 'Run generated tests and confirm expected outputs.';
+    const totalEntityTools = visualEntities.reduce((sum, entity) => sum + entity.tools.length, 0);
+    metadata.creatorLifecycle = {
+      stage: 'design',
+      blockerMode: result.blockMode ?? 'none',
+      runnableConfidence:
+        typeof result.runnableConfidence === 'number'
+          ? Math.max(0, Math.min(1, result.runnableConfidence))
+          : undefined,
+      assumptions: (result.assumptions ?? []).map((assumption) => ({
+        id: assumption.id,
+        label: assumption.label,
+        value: assumption.value,
+        confidence: assumption.confidence ?? 'medium',
+        requiresConfirmation: assumption.requiresConfirmation,
+      })),
+      whatIDid: `Designed ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}, mapped ${totalEntityTools} ${totalEntityTools === 1 ? 'tool' : 'tools'}, generated BAL code, and applied ${balSkillSummary}.`,
+      nextStage: isInitialCreation
+        ? 'Visual Review'
+        : needsConnectionStage
+          ? 'Connections'
+          : 'Testing',
+      nextAction: nextLifecycleAction,
+    };
+
+    if (isInitialCreation) {
+      metadata.diagnostic = {
+        level: 'success',
+        title: 'Bot Created',
+        details: `${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'} designed and ready.`,
+        suggestions: [],
+      };
+
+      metadata.options = [
+        {
+          id: 'review-design',
+          label: 'Review Design',
+          description: 'Inspect the visual layout and key tools',
+          icon: '👁️',
+        },
+        {
+          id: 'confirm-design',
+          label: 'Confirm Design',
+          description: 'Lock this design and continue to guided setup',
+          icon: '✅',
+        },
+      ];
+    }
+
+    if (isInitialCreation && result.balCode) {
+      metadata.codeBlock = {
+        language: 'bal',
+        code:
+          result.balCode.length > 500
+            ? `${result.balCode.slice(0, 500)}\n// ... (click Code tab for full code)`
+            : result.balCode,
+        filename: `${result.name ?? 'baleybot'}.bal`,
+      };
+    }
+
+    const assistantMessage: CreatorMessage = {
+      id: `msg-${Date.now()}-assistant`,
+      role: 'assistant',
+      content: responseContent.trim(),
+      timestamp: new Date(),
+      thinking: result.thinking || undefined,
+      metadata,
+    };
+    setMessages((prev) => [...prev, assistantMessage]);
+
+    setStatus('ready');
+    if (isInitialCreation) {
+      setIsDesignConfirmed(false);
+      designGateReminderShownRef.current = false;
+    }
+    setCreationProgress({ phase: 'complete', message: 'Ready!' });
+    setTimeout(() => setCreationProgress(null), 1000);
+    setCreatorStreamingProgress(null);
+  };
+
   /**
    * Handle sending a message to the Creator Bot
    */
-  const handleSendMessage = async (message: string | DiscoveryIntakeSubmission) => {
-    const normalizedInput = typeof message === 'string'
-      ? {
-          modelMessage: message,
-          displayMessage: message,
-          discoverySummary: undefined,
-        }
-      : {
-          modelMessage: message.modelMessage,
-          displayMessage: message.displayMessage,
-          discoverySummary: message.summary,
-        };
-
-    const sanitizedMessage = sanitizeCreatorText(normalizedInput.modelMessage);
-    const sanitizedDisplayMessage = sanitizeCreatorText(normalizedInput.displayMessage);
+  const handleSendMessage = async (message: string) => {
+    const sanitizedMessage = sanitizeCreatorText(message);
 
     // 0. Capture previous state for change summary (Phase 3.2)
     const prevEntities = [...entities];
@@ -713,15 +1532,8 @@ export default function BaleybotPage() {
     const userMessage: CreatorMessage = {
       id: `msg-${Date.now()}`,
       role: 'user',
-      content: sanitizedDisplayMessage,
+      content: sanitizedMessage,
       timestamp: new Date(),
-      ...(normalizedInput.discoverySummary
-        ? {
-            metadata: {
-              discoveryIntake: normalizedInput.discoverySummary,
-            },
-          }
-        : {}),
     };
     setMessages((prev) => [...prev, userMessage]);
     const nextConversationHistory = buildCreatorHistoryPayload([...messages, userMessage]);
@@ -731,322 +1543,36 @@ export default function BaleybotPage() {
     setCreationProgress({ phase: 'understanding', message: 'Understanding your request...' });
 
     try {
-      // 4. Call sendCreatorMessage mutation
-      const result = await creatorMutation.mutateAsync({
-        baleybotId: savedBaleybotId ?? undefined,
-        message: sanitizedMessage,
-        conversationHistory: nextConversationHistory,
-      });
-
-      if (result.status === 'building') {
-        const requiredQuestions = (result.questions ?? []).filter(
-          (question) => question.requiredNow !== false
-        );
-        const optionalQuestions = (result.questions ?? []).filter(
-          (question) => question.requiredNow === false
-        );
-        const previousDiscoveryIteration = [...messages]
-          .reverse()
-          .find(
-            (msg) =>
-              msg.role === 'assistant' &&
-              msg.metadata?.creatorLifecycle?.stage === 'discovery'
-          )?.metadata?.creatorLifecycle?.iteration ?? 0;
-        const discoveryIteration = previousDiscoveryIteration + 1;
-
-        const fallbackLines: string[] = [];
-        if (requiredQuestions.length > 0) {
-          fallbackLines.push('To continue right now, please answer:', '');
-          for (const question of requiredQuestions) {
-            fallbackLines.push(`- **${question.label}**: ${question.description}`);
-          }
-        }
-        if (optionalQuestions.length > 0) {
-          fallbackLines.push(
-            '',
-            'Optional for now (can be configured later):',
-            ''
-          );
-          for (const question of optionalQuestions) {
-            fallbackLines.push(`- **${question.label}**: ${question.description}`);
-          }
-        }
-
-        const baseMessage = result.message?.trim() || result.thinking?.trim();
-        const responseContent = baseMessage
-          ? baseMessage
-          : fallbackLines.length > 0
-            ? fallbackLines.join('\n').trim()
-            : 'I need a bit more detail before generating BAL.';
-
-        if (!name && result.name) {
-          setName(truncateName(result.name));
-        }
-        if (!icon && result.icon) {
-          setIcon(result.icon);
-        }
-        if (!description && result.description) {
-          setDescription(result.description);
-        }
-
-        const assistantMessage: CreatorMessage = {
-          id: `msg-${Date.now()}-assistant-discovery`,
-          role: 'assistant',
-          content: responseContent.trim(),
-          timestamp: new Date(),
-          thinking: result.thinking || undefined,
-          metadata: {
-            diagnostic: {
-              level: 'info',
-              title: requiredQuestions.length > 0 ? 'Additional Discovery Needed' : 'Optional Configuration Details',
-              details: requiredQuestions.length > 0
-                ? 'Fill any fields you can in the Discovery Intake form below, then submit. Unfilled fields can be left blank.'
-                : 'I can continue now. Use the Discovery Intake form below for any optional details you want to add.',
-              suggestions: (result.questions ?? []).map((question) =>
-                `${question.requiredNow === false ? '[Later]' : '[Required]'} ${question.label}: ${question.description}`
-              ),
-            },
-            creatorLifecycle: {
-              stage: 'discovery',
-              iteration: discoveryIteration,
-              whatIDid:
-                discoveryIteration > 1
-                  ? 'Re-evaluated your latest response and checked which required details are still missing.'
-                  : 'Reviewed your request and identified the minimum details needed for a runnable first version.',
-              nextStage: 'Design Generation',
-              nextAction:
-                requiredQuestions.length > 0
-                  ? 'Answer the required questions so generation can continue.'
-                  : 'Generation can proceed now; optional details can be handled later.',
-              requiredQuestions: requiredQuestions.map((q) => ({
-                id: q.id,
-                label: q.label,
-                description: q.description,
-                requiredNow: true,
-              })),
-              optionalQuestions: optionalQuestions.map((q) => ({
-                id: q.id,
-                label: q.label,
-                description: q.description,
-                requiredNow: false,
-              })),
-            },
-          },
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
-        setStatus('ready');
-        setCreationProgress(null);
-        return;
+      let streamResult: { result: CreatorOutput; summary?: string } | null = null;
+      try {
+        streamResult = await startCreatorStream({
+          message: sanitizedMessage,
+          conversationHistory: nextConversationHistory,
+        });
+      } catch (streamError) {
+        console.warn('Creator stream failed, falling back to mutation:', streamError);
+        setCreatorStreamingProgress(null);
       }
 
-      setCreationProgress({ phase: 'designing', message: `Designed ${result.entities.length} entit${result.entities.length === 1 ? 'y' : 'ies'}` });
+      const result =
+        streamResult?.result ??
+        (await creatorMutation.mutateAsync({
+          baleybotId: savedBaleybotId ?? undefined,
+          message: sanitizedMessage,
+          conversationHistory: nextConversationHistory,
+        }));
 
-      // 5. Transform result entities to VisualEntity[] (with appearing animation)
-      const visualEntities: VisualEntity[] = result.entities.map((entity) => ({
-        ...entity,
-        position: { x: 0, y: 0 }, // Canvas will position them
-        status: 'appearing' as const,
-      }));
-
-      // 6. Transform result connections to Connection[] (add id, status: 'stable')
-      const visualConnections: Connection[] = result.connections.map((conn, index) => ({
-        id: `conn-${index}`,
-        from: conn.from,
-        to: conn.to,
-        label: conn.label,
-        status: 'stable' as const,
-      }));
-      const detectedBalSkills = detectBalSkills(result.balCode);
-      const balSkillSummary = summarizeBalSkills(detectedBalSkills);
-
-      if (visualConnections.length > 0) {
-        setCreationProgress({ phase: 'connecting', message: `Connected ${visualConnections.length} workflow${visualConnections.length === 1 ? '' : 's'}` });
-      }
-      setCreationProgress({ phase: 'generating', message: 'Generating BAL code...' });
-
-      // 7. Update all state (with name truncation - Phase 5.1)
-      setEntities(visualEntities);
-
-      // Transition entities from 'appearing' to 'stable' after animation
-      setTimeout(() => {
-        setEntities(prev => prev.map(e => ({ ...e, status: 'stable' as const })));
-      }, 600);
-      setConnections(visualConnections);
-      setBalCode(result.balCode);
-      setName(truncateName(result.name));
-      setIcon(result.icon);
-      if (result.description) {
-        setDescription(result.description);
-      }
-
-      // 7.5 Push to undo history (Phase 3.5)
-      const truncatedName = truncateName(result.name);
-      pushHistory(
-        {
-          entities: visualEntities,
-          connections: visualConnections,
-          balCode: result.balCode,
-          name: truncatedName,
-          icon: result.icon,
-        },
-        `AI response: ${truncatedName}`
-      );
-
-      // 8. Generate change summary and add assistant message (Phase 3.2)
-      const changeSummary = generateChangeSummary(
+      applyCreatorResult(result, {
         prevEntities,
-        visualEntities,
         prevConnections,
-        visualConnections,
         prevName,
-        result.name
-      );
-      const summaryText = formatChangeSummaryForChat(changeSummary);
-
-      // Build a concise summary — thinking goes in the expandable section, not in content
-      const isInitialCreation = prevEntities.length === 0;
-      const modelNarrative = result.message?.trim();
-      let responseContent = '';
-      if (modelNarrative) {
-        responseContent = modelNarrative;
-      } else if (isInitialCreation) {
-        const totalTools = visualEntities.reduce((sum, e) => sum + e.tools.length, 0);
-        responseContent = `I've created **${result.name}** with ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}`;
-        if (totalTools > 0) {
-          responseContent += ` and ${totalTools} ${totalTools === 1 ? 'tool' : 'tools'}`;
-        }
-        responseContent += '.';
-      } else {
-        responseContent = summaryText || `Updated **${result.name}**.`;
-      }
-
-      // Build entity metadata for rich rendering
-      const prevEntityIds = new Set(prevEntities.map(e => e.id));
-      const entityMetadata = visualEntities.map(e => ({
-        id: e.id,
-        name: e.name,
-        icon: e.icon,
-        tools: e.tools,
-        isNew: !prevEntityIds.has(e.id),
-      }));
-
-      // Build rich metadata for the assistant message
-      const metadata: CreatorMessage['metadata'] = {
-        entities: entityMetadata,
-        isInitialCreation,
-        balSkills: detectedBalSkills,
-      };
-      const wsConns = workspaceConnections ?? [];
-
-      // Add connection status if bot uses tools requiring connections
-      const toolSummary = getConnectionSummary(visualEntities.flatMap(e => e.tools));
-      if (toolSummary.required.length > 0) {
-        metadata.connectionStatus = {
-          connections: [
-            {
-              name: 'AI Provider',
-              type: 'ai',
-              status: wsConns.some(c => ['openai', 'anthropic', 'ollama'].includes(c.type) && c.status === 'connected')
-                ? 'connected' : 'missing',
-            },
-            ...toolSummary.required.map(req => ({
-              name: req.connectionType,
-              type: req.connectionType,
-              status: wsConns.some(c => c.type === req.connectionType && c.status === 'connected')
-                ? 'connected' as const : 'missing' as const,
-              requiredBy: req.tools,
-            })),
-          ],
-        };
-      }
-
-      const hasAiProviderConnected = wsConns.some(
-        (c) =>
-          ['openai', 'anthropic', 'ollama'].includes(c.type) &&
-          c.status === 'connected'
-      );
-      const missingRequiredConnectionTypes = toolSummary.required
-        .filter((req) => !wsConns.some((c) => c.type === req.connectionType && c.status === 'connected'))
-        .map((req) => req.connectionType);
-      const needsConnectionStage = !hasAiProviderConnected || missingRequiredConnectionTypes.length > 0;
-      const nextLifecycleAction = isInitialCreation
-        ? 'Review the visual design and confirm it before moving into setup.'
-        : needsConnectionStage
-          ? missingRequiredConnectionTypes.length > 0
-            ? `Connect required services (${[...new Set(missingRequiredConnectionTypes)].join(', ')}) and verify tools.`
-            : 'Connect an AI provider and verify tool requirements.'
-          : 'Run generated tests and confirm expected outputs.';
-      const totalEntityTools = visualEntities.reduce((sum, entity) => sum + entity.tools.length, 0);
-      metadata.creatorLifecycle = {
-        stage: 'design',
-        whatIDid: `Designed ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}, mapped ${totalEntityTools} ${totalEntityTools === 1 ? 'tool' : 'tools'}, generated BAL code, and applied ${balSkillSummary}.`,
-        nextStage: isInitialCreation
-          ? 'Visual Review'
-          : needsConnectionStage
-            ? 'Connections'
-            : 'Testing',
-        nextAction: nextLifecycleAction,
-      };
-
-      // Add diagnostic and interactive next-step options for initial creation
-      if (isInitialCreation) {
-        metadata.diagnostic = {
-          level: 'success',
-          title: 'Bot Created',
-          details: `${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'} designed and ready.`,
-          suggestions: [],
-        };
-
-        const nextSteps: Array<{ id: string; label: string; description: string; icon: string }> = [];
-
-        nextSteps.push({
-          id: 'review-design',
-          label: 'Review Design',
-          description: 'Inspect the visual layout and key tools',
-          icon: '👁️',
-        });
-
-        nextSteps.push({
-          id: 'confirm-design',
-          label: 'Confirm Design',
-          description: 'Lock this design and continue to guided setup',
-          icon: '✅',
-        });
-
-        metadata.options = nextSteps;
-      }
-
-      // Show BAL code inline in chat for initial creation
-      if (isInitialCreation && result.balCode) {
-        metadata.codeBlock = {
-          language: 'bal',
-          code: result.balCode.length > 500 ? result.balCode.slice(0, 500) + '\n// ... (click Code tab for full code)' : result.balCode,
-          filename: `${result.name ?? 'baleybot'}.bal`,
-        };
-      }
-
-      const assistantMessage: CreatorMessage = {
-        id: `msg-${Date.now()}-assistant`,
-        role: 'assistant',
-        content: responseContent.trim(),
-        timestamp: new Date(),
-        thinking: result.thinking || undefined,
-        metadata,
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-
-      // 9. Set status to 'ready'
-      setStatus('ready');
-      if (isInitialCreation) {
-        setIsDesignConfirmed(false);
-        designGateReminderShownRef.current = false;
-      }
-      setCreationProgress({ phase: 'complete', message: 'Ready!' });
-      setTimeout(() => setCreationProgress(null), 1000);
+        streamSummary: streamResult?.summary,
+      });
     } catch (error) {
       console.error('Creator message failed:', error);
       setStatus('error');
       setCreationProgress(null);
+      setCreatorStreamingProgress(null);
 
       // Add user-friendly error message with recovery options
       const parsed = parseCreatorError(error);
@@ -1260,6 +1786,297 @@ export default function BaleybotPage() {
     }
   };
 
+  const startRuntimeStream = async (
+    baleybotIdToRun: string,
+    payload: unknown
+  ): Promise<RuntimeExecutionResult & { summary?: string }> => {
+    const startedAt = Date.now();
+    const finalResultRef: { current: RuntimeExecutionResult | null } = { current: null };
+    let latestTools: StreamingTool[] = [];
+    let latestHighlights: StreamingProgressSnapshot['highlights'] = [];
+
+    setRuntimeStreamingProgress({
+      phase: 'execution',
+      message: 'Running your bot...',
+      highlights: [],
+      tools: [],
+      startedAt,
+    });
+
+    await streamPostSSE<RuntimeStreamEvent>({
+      url: `/api/baleybots/${baleybotIdToRun}/execute-stream`,
+      body: {
+        input: payload,
+        triggeredBy: 'manual',
+      },
+      onEvent: (event) => {
+        const now = Date.now();
+        const type = event.type;
+
+        if (type === 'execution_started') {
+          setRuntimeStreamingProgress((previous) =>
+            previous
+              ? {
+                  ...previous,
+                  phase: 'execution',
+                  message: 'Execution started...',
+                }
+              : previous
+          );
+          return;
+        }
+
+        if (type === 'reasoning' && typeof event.content === 'string' && event.content.trim()) {
+          const reasoningContent = event.content;
+          setRuntimeStreamingProgress((previous) => {
+            const base =
+              previous ??
+              ({
+                phase: 'thinking',
+                message: 'Thinking...',
+                highlights: [],
+                tools: [],
+                startedAt,
+              } satisfies StreamingProgressSnapshot);
+            const nextHighlights = appendStreamingHighlight(base.highlights, {
+              text: reasoningContent,
+              type: 'thinking',
+              timestamp: now,
+            });
+            const next: StreamingProgressSnapshot = {
+              ...base,
+              phase: 'thinking',
+              message: 'Planning response...',
+              highlights: nextHighlights,
+            };
+            latestTools = next.tools;
+            latestHighlights = next.highlights;
+            return next;
+          });
+          return;
+        }
+
+        if (type === 'tool_call_stream_start' && event.toolName) {
+          const toolName = event.toolName;
+          setRuntimeStreamingProgress((previous) => {
+            const base =
+              previous ??
+              ({
+                phase: 'tools',
+                message: `Preparing ${toolName}`,
+                highlights: [],
+                tools: [],
+                startedAt,
+              } satisfies StreamingProgressSnapshot);
+            const nextTools = upsertStreamingTool(base.tools, toolName, 'pending');
+            const nextHighlights = appendStreamingHighlight(base.highlights, {
+              text: `Preparing ${toolName}`,
+              type: 'tool',
+              toolName,
+              timestamp: now,
+            });
+            const next: StreamingProgressSnapshot = {
+              ...base,
+              phase: 'tools',
+              message: `Preparing ${toolName}`,
+              tools: nextTools,
+              highlights: nextHighlights,
+            };
+            latestTools = next.tools;
+            latestHighlights = next.highlights;
+            return next;
+          });
+          return;
+        }
+
+        if (type === 'tool_execution_start' && event.toolName) {
+          const toolName = event.toolName;
+          setRuntimeStreamingProgress((previous) => {
+            const base =
+              previous ??
+              ({
+                phase: 'tools',
+                message: `Running ${toolName}`,
+                highlights: [],
+                tools: [],
+                startedAt,
+              } satisfies StreamingProgressSnapshot);
+            const nextTools = upsertStreamingTool(base.tools, toolName, 'running');
+            const nextHighlights = appendStreamingHighlight(base.highlights, {
+              text: `Running ${toolName}`,
+              type: 'tool',
+              toolName,
+              timestamp: now,
+            });
+            const next: StreamingProgressSnapshot = {
+              ...base,
+              phase: 'tools',
+              message: `Running ${toolName}`,
+              tools: nextTools,
+              highlights: nextHighlights,
+            };
+            latestTools = next.tools;
+            latestHighlights = next.highlights;
+            return next;
+          });
+          return;
+        }
+
+        if (type === 'tool_execution_output' && event.toolName) {
+          const toolName = event.toolName;
+          const errorMessage = getStreamEventErrorMessage(event.error);
+          const isError =
+            typeof event.error === 'string'
+              ? event.error.trim().length > 0
+              : Boolean(event.error);
+          setRuntimeStreamingProgress((previous) => {
+            const base =
+              previous ??
+              ({
+                phase: 'tools',
+                message: isError
+                  ? `${toolName} failed`
+                  : `${toolName} complete`,
+                highlights: [],
+                tools: [],
+                startedAt,
+              } satisfies StreamingProgressSnapshot);
+            const nextTools = upsertStreamingTool(
+              base.tools,
+              toolName,
+              isError ? 'error' : 'success'
+            );
+            const nextHighlights = appendStreamingHighlight(base.highlights, {
+              text: isError ? errorMessage : `Completed ${toolName}`,
+              type: 'tool',
+              toolName,
+              timestamp: now,
+            });
+            const next: StreamingProgressSnapshot = {
+              ...base,
+              phase: 'tools',
+              message: isError
+                ? `${toolName} failed`
+                : `${toolName} complete`,
+              tools: nextTools,
+              highlights: nextHighlights,
+            };
+            latestTools = next.tools;
+            latestHighlights = next.highlights;
+            return next;
+          });
+          return;
+        }
+
+        if (type.includes('loop')) {
+          setRuntimeStreamingProgress((previous) => {
+            const base =
+              previous ??
+              ({
+                phase: 'loop',
+                message: 'Running loop cycle...',
+                highlights: [],
+                tools: [],
+                startedAt,
+              } satisfies StreamingProgressSnapshot);
+            const nextHighlights = appendStreamingHighlight(base.highlights, {
+              text: `Loop update: ${type.replace(/_/g, ' ')}`,
+              type: 'loop',
+              timestamp: now,
+            });
+            const next: StreamingProgressSnapshot = {
+              ...base,
+              phase: 'loop',
+              message: 'Running loop cycle...',
+              highlights: nextHighlights,
+            };
+            latestTools = next.tools;
+            latestHighlights = next.highlights;
+            return next;
+          });
+          return;
+        }
+
+        if (type === 'error') {
+          const errorMessage = getStreamEventErrorMessage(event.error);
+          setRuntimeStreamingProgress((previous) => {
+            const base =
+              previous ??
+              ({
+                phase: 'error',
+                message: 'Execution hit an error',
+                highlights: [],
+                tools: [],
+                startedAt,
+              } satisfies StreamingProgressSnapshot);
+            const nextHighlights = appendStreamingHighlight(base.highlights, {
+              text: errorMessage,
+              type: 'status',
+              timestamp: now,
+            });
+            const next: StreamingProgressSnapshot = {
+              ...base,
+              phase: 'error',
+              message: 'Execution hit an error',
+              highlights: nextHighlights,
+            };
+            latestTools = next.tools;
+            latestHighlights = next.highlights;
+            return next;
+          });
+          return;
+        }
+
+        if (type === 'execution_result') {
+          finalResultRef.current = {
+            status: event.status ?? 'failed',
+            output: event.output,
+            error:
+              typeof event.error === 'string' && event.error.length > 0
+                ? event.error
+                : undefined,
+            durationMs:
+              typeof event.durationMs === 'number'
+                ? event.durationMs
+                : undefined,
+            executionId:
+              typeof event.executionId === 'string'
+                ? event.executionId
+                : undefined,
+          };
+          setRuntimeStreamingProgress((previous) =>
+            previous
+              ? {
+                  ...previous,
+                  phase: 'complete',
+                  message:
+                    finalResultRef.current?.status === 'completed'
+                      ? 'Execution complete'
+                      : 'Execution finished with issues',
+                }
+              : previous
+          );
+        }
+      },
+    });
+
+    const completedResult = finalResultRef.current;
+    if (!completedResult) {
+      throw new Error('Runtime stream completed without execution result.');
+    }
+
+    return {
+      ...completedResult,
+      summary: buildProgressSummary(
+        latestTools,
+        latestHighlights,
+        completedResult.status === 'completed'
+          ? 'Execution completed successfully.'
+          : 'Execution finished with issues.'
+      ),
+    };
+  };
+
   /**
    * Runtime-mode execution entrypoint (live mini-app usage).
    */
@@ -1267,6 +2084,7 @@ export default function BaleybotPage() {
     if (isRunLocked) return;
     setIsRunLocked(true);
     setRuntimeError(null);
+    setRuntimeLastProgressSummary(null);
 
     let baleybotIdToRun = savedBaleybotId;
     try {
@@ -1309,13 +2127,31 @@ export default function BaleybotPage() {
         ]);
       }
 
-      const execution = await executeMutation.mutateAsync({
-        id: baleybotIdToRun,
-        input: payload,
-        triggeredBy: 'manual',
-      });
+      let execution: {
+        status: string;
+        output?: unknown;
+        error?: string | null;
+        durationMs?: number | null;
+        summary?: string;
+      };
 
-      if (execution.status === 'completed') {
+      try {
+        execution = await startRuntimeStream(baleybotIdToRun, payload);
+      } catch (streamError) {
+        console.warn('Runtime stream failed, falling back to mutation:', streamError);
+        setRuntimeStreamingProgress(null);
+        execution = await executeMutation.mutateAsync({
+          id: baleybotIdToRun,
+          input: payload,
+          triggeredBy: 'manual',
+        });
+      }
+
+      if ('summary' in execution && typeof execution.summary === 'string') {
+        setRuntimeLastProgressSummary(execution.summary);
+      }
+
+      if (execution.status === 'completed' || execution.status === 'success') {
         setRuntimeOutput(formatExecutionOutput(execution.output));
         setShowRuntimeRawOutput(false);
         setRuntimeDurationMs(execution.durationMs ?? null);
@@ -1340,6 +2176,7 @@ export default function BaleybotPage() {
     } catch (error) {
       setRuntimeError(error instanceof Error ? error.message : 'Runtime execution failed');
     } finally {
+      setRuntimeStreamingProgress(null);
       setIsRunLocked(false);
     }
   };
@@ -1787,9 +2624,7 @@ export default function BaleybotPage() {
     if (optionId === 'retry') {
       const lastUserMsg = messages.filter(m => m.role === 'user').pop();
       if (lastUserMsg) {
-        const retryMessage = lastUserMsg.metadata?.discoveryIntake?.modelMessage
-          ?? lastUserMsg.content;
-        handleSendMessage(retryMessage);
+        handleSendMessage(lastUserMsg.content);
       }
       return;
     }
@@ -2004,10 +2839,6 @@ export default function BaleybotPage() {
     showAdvancedUI,
     isDesignReviewRequired,
   });
-  const postDesignTargetTab: AdaptiveTab =
-    readiness.connected === 'not-applicable' ? 'test' : 'connections';
-  const postDesignTargetLabel = postDesignTargetTab === 'connections' ? 'Connections' : 'Testing';
-
   // Compute save button disabled reason for tooltip (Phase 1.8)
   const saveDisabledReason = !balCode || !name
     ? 'Build something first'
@@ -2051,7 +2882,7 @@ export default function BaleybotPage() {
       />
 
       {/* Header - Adaptive layout (Phase 4.6) */}
-      <header className="animate-fade-slide-down border-b border-border/50 bg-background/80 backdrop-blur-sm">
+      <header className="animate-fade-slide-down border-b border-border/60 bg-background/85 backdrop-blur-md">
         {/* Main header row - responsive padding (Phase 4.6) */}
         <div className="flex items-center gap-2 sm:gap-3 w-full px-2 sm:px-4 py-2 sm:py-3">
           {/* Back button */}
@@ -2178,7 +3009,7 @@ export default function BaleybotPage() {
         </div>
 
         {/* Description row (Phase 2.8) - hidden on mobile (Phase 4.6) */}
-        {(description || isEditingDescription || status === 'ready') && (
+        {(description || isEditingDescription) && (
           <div className="hidden sm:block w-full px-4 pb-3 pl-14">
             {isEditingDescription ? (
               <div className="flex gap-2">
@@ -2205,26 +3036,20 @@ export default function BaleybotPage() {
               </div>
             ) : (
               <div className="group flex items-start gap-2">
-                {description ? (
-                  <>
-                    <p
-                      className={`text-sm text-muted-foreground flex-1 ${
-                        !showFullDescription && description.length > 100 ? 'line-clamp-1' : ''
-                      }`}
-                    >
-                      {description}
-                    </p>
-                    {description.length > 100 && (
-                      <button
-                        onClick={() => setShowFullDescription(!showFullDescription)}
-                        className="text-xs text-primary hover:underline shrink-0"
-                      >
-                        {showFullDescription ? 'Show less' : 'Show more'}
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-sm text-muted-foreground/50 italic">No description</p>
+                <p
+                  className={`text-sm text-muted-foreground flex-1 ${
+                    !showFullDescription && description.length > 100 ? 'line-clamp-1' : ''
+                  }`}
+                >
+                  {description}
+                </p>
+                {description.length > 100 && (
+                  <button
+                    onClick={() => setShowFullDescription(!showFullDescription)}
+                    className="text-xs text-primary hover:underline shrink-0"
+                  >
+                    {showFullDescription ? 'Show less' : 'Show more'}
+                  </button>
                 )}
                 <button
                   onClick={() => setIsEditingDescription(true)}
@@ -2320,7 +3145,8 @@ export default function BaleybotPage() {
           <div className="flex-1 flex overflow-hidden">
             {/* Left Panel — Chat + Controls (desktop: always visible, mobile: toggled) */}
             <div className={cn(
-              'w-full md:w-[380px] lg:w-[420px] xl:w-[460px] shrink-0 flex-col border-r border-border/50 bg-background/60',
+              'w-full shrink-0 flex-col border-r border-border/50 bg-background/60 transition-[width] duration-500 ease-out',
+              leftPanelWidthClass,
               mobileView === 'chat' ? 'flex' : 'hidden md:flex'
             )}>
               <LeftPanel
@@ -2340,83 +3166,60 @@ export default function BaleybotPage() {
                 }}
                 onOptionSelect={handleOptionSelect}
                 creationProgress={creationProgress}
+                streamingProgress={creatorStreamingProgress}
               />
             </div>
 
             {/* Right Panel — Editor (desktop: always visible, mobile: toggled) */}
             <div className={cn(
-              'flex-1 flex-col min-w-0 overflow-hidden',
+              'flex-1 flex-col min-w-0 overflow-hidden transition-all duration-500 ease-out',
               mobileView === 'editor' ? 'flex' : 'hidden md:flex'
             )}>
               {/* Adaptive Tab bar */}
               <div className="flex items-center px-4 py-2 border-b border-border/30">
-                <Tabs value={viewMode} onValueChange={(v) => navigateToTab(v as AdaptiveTab)} className="w-auto">
-                  <TabsList className="h-9 bg-muted/50">
-                    {availableTabs.map((tab) => {
-                      const tabConfig: Record<AdaptiveTab, { icon: React.ReactNode; label: string }> = {
-                        visual: { icon: <LayoutGrid className="h-3.5 w-3.5" />, label: 'Visual' },
-                        code: { icon: <Code2 className="h-3.5 w-3.5" />, label: 'Code' },
-                        connections: { icon: <Cable className="h-3.5 w-3.5" />, label: 'Connections' },
-                        test: { icon: <FlaskConical className="h-3.5 w-3.5" />, label: 'Test' },
-                        triggers: { icon: <Zap className="h-3.5 w-3.5" />, label: 'Triggers' },
-                        analytics: { icon: <BarChart3 className="h-3.5 w-3.5" />, label: 'Analytics' },
-                        monitor: { icon: <Activity className="h-3.5 w-3.5" />, label: 'Monitor' },
-                        launch: { icon: <Rocket className="h-3.5 w-3.5" />, label: 'Launch' },
-                        runtime: { icon: <CirclePlay className="h-3.5 w-3.5" />, label: 'Runtime' },
-                      };
-                      const config = tabConfig[tab];
-                      return (
-                        <TabsTrigger key={tab} value={tab} className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
-                          {config.icon}
-                          <span className="hidden sm:inline">{config.label}</span>
-                        </TabsTrigger>
-                      );
-                    })}
-                  </TabsList>
-                </Tabs>
-                <ReadinessChecklist
-                  readiness={readiness}
-                  onDotClick={(dim) => {
-                    const tabMap: Record<string, AdaptiveTab> = {
-                      designed: 'visual',
-                      connected: 'connections',
-                      tested: 'test',
-                      activated: 'triggers',
-                      monitored: 'monitor',
-                    };
-                    navigateToTab(tabMap[dim] ?? 'visual');
-                  }}
-                  onActionClick={(optionId) => handleOptionSelect(optionId)}
-                  className="ml-3"
-                />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="ml-2 h-8 text-xs text-muted-foreground"
-                  onClick={() => setShowAdvancedUI((prev) => !prev)}
-                >
-                  {showAdvancedUI ? 'Hide advanced' : 'Show advanced'}
-                </Button>
-                {viewMode === 'visual' && !isDiscoveryWorkspaceActive && (
-                  isDesignReviewRequired ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="ml-2 h-8 text-xs"
-                      onClick={() => handleOptionSelect('confirm-design')}
-                    >
-                      Confirm design
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="ml-2 h-8 text-xs"
-                      onClick={() => navigateToTab(postDesignTargetTab, { bypassDesignGate: true })}
-                    >
-                      Continue to {postDesignTargetLabel}
-                    </Button>
-                  )
+                {isDiscoveryWorkspaceActive ? (
+                  <div className="flex w-full items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">{discoveryBoardHeading}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Details lock in here first, then the visual editor unlocks automatically.
+                      </p>
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">
+                      {formatStreamingPhaseLabel(
+                        creatorStreamingProgress?.phase ??
+                        latestCreatorLifecycle?.stage
+                      )}
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <Tabs value={viewMode} onValueChange={(v) => navigateToTab(v as AdaptiveTab)} className="w-auto">
+                      <TabsList className="h-9 bg-muted/50">
+                        {availableTabs.map((tab) => {
+                          const tabConfig: Record<AdaptiveTab, { icon: React.ReactNode; label: string }> = {
+                            visual: { icon: <LayoutGrid className="h-3.5 w-3.5" />, label: 'Visual' },
+                            code: { icon: <Code2 className="h-3.5 w-3.5" />, label: 'Code' },
+                            connections: { icon: <Cable className="h-3.5 w-3.5" />, label: 'Connections' },
+                            test: { icon: <FlaskConical className="h-3.5 w-3.5" />, label: 'Test' },
+                            triggers: { icon: <Zap className="h-3.5 w-3.5" />, label: 'Triggers' },
+                            analytics: { icon: <BarChart3 className="h-3.5 w-3.5" />, label: 'Analytics' },
+                            monitor: { icon: <Activity className="h-3.5 w-3.5" />, label: 'Monitor' },
+                            launch: { icon: <Rocket className="h-3.5 w-3.5" />, label: 'Launch' },
+                            runtime: { icon: <CirclePlay className="h-3.5 w-3.5" />, label: 'Runtime' },
+                          };
+                          const config = tabConfig[tab];
+                          return (
+                            <TabsTrigger key={tab} value={tab} className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
+                              {config.icon}
+                              <span className="hidden sm:inline">{config.label}</span>
+                            </TabsTrigger>
+                          );
+                        })}
+                      </TabsList>
+                    </Tabs>
+                    <div className="ml-auto" />
+                  </>
                 )}
               </div>
 
@@ -2432,72 +3235,207 @@ export default function BaleybotPage() {
                   {/* Visual Editor View */}
                   {viewMode === 'visual' && (
                     isDiscoveryWorkspaceActive ? (
-                      <div className="h-full flex flex-col gap-3">
-                        <div className="rounded-lg border border-primary/25 bg-primary/5 px-4 py-3">
-                          <p className="text-sm font-medium">Step 1: Discovery (before visual design)</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            We are gathering the right details first so the generated BAL and visual layout are useful on the first pass.
-                          </p>
-                        </div>
-                        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                          <div className="rounded-lg border bg-background p-4 space-y-3">
-                            <div>
-                              <p className="text-sm font-medium">What is happening now</p>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {latestCreatorLifecycle?.stage === 'discovery'
-                                  ? outstandingRequiredDiscoveryCount > 0
-                                    ? `${outstandingRequiredDiscoveryCount} required detail${outstandingRequiredDiscoveryCount === 1 ? '' : 's'} still needed.`
-                                    : 'Discovery details are in place. Generator is preparing the build output.'
-                                  : status === 'building'
-                                    ? 'Creator is analyzing your request and preparing the first set of discovery prompts.'
-                                    : 'Continue in chat to provide details for generation.'}
-                              </p>
-                            </div>
-                            {nextDiscoveryQuestion && (
-                              <div className="rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2.5">
-                                <p className="text-[11px] uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                                  Next detail to answer
+                      <div className="h-full overflow-auto">
+                        <div className="mx-auto max-w-4xl h-full flex flex-col justify-center py-3">
+                          <div className="rounded-2xl border border-primary/20 bg-gradient-to-b from-primary/10 via-background/95 to-background p-6 space-y-5">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <p className="text-[11px] uppercase tracking-wide text-primary font-semibold">
+                                  Adaptive Discovery
                                 </p>
-                                <p className="text-sm font-medium mt-1">{nextDiscoveryQuestion.label}</p>
-                                <p className="text-xs text-muted-foreground mt-1">
+                                <p className="text-xl font-semibold mt-1">{discoveryBoardHeading}</p>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  {discoveryBoardSubheading}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-[11px] text-muted-foreground">
+                                  {formatStreamingPhaseLabel(
+                                    creatorStreamingProgress?.phase ??
+                                    latestCreatorLifecycle?.stage
+                                  )}
+                                </p>
+                                <p className="text-2xl font-semibold leading-none">{ideationPercent}%</p>
+                                <p className="text-[11px] text-muted-foreground mt-1">
+                                  {resolvedRequiredDiscoveryQuestionCount} resolved
+                                  {historicalRequiredDiscoveryMax > 0
+                                    ? ` / ${historicalRequiredDiscoveryMax} required`
+                                    : ''}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="h-2 rounded-full bg-muted/40 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-primary transition-all duration-500"
+                                style={{ width: `${Math.max(6, ideationPercent)}%` }}
+                              />
+                            </div>
+
+                            {status === 'building' && (
+                              <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                <p className="text-xs text-muted-foreground">
+                                  {creatorStreamingProgress
+                                    ? 'Locking in details and updating the plan...'
+                                    : 'Thinking through the next best question...'}
+                                </p>
+                              </div>
+                            )}
+
+                            <div className="grid gap-3 lg:grid-cols-2">
+                              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-4 py-3">
+                                <p className="text-[11px] uppercase tracking-wide text-emerald-300 font-medium">
+                                  Locked In
+                                </p>
+                                {resolvedDiscoveryLabels.length > 0 ? (
+                                  <ul className="mt-1.5 space-y-1.5">
+                                    {resolvedDiscoveryLabels.slice(0, 4).map((label) => (
+                                      <li key={label} className="text-sm text-foreground/90 flex items-center gap-2">
+                                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300 shrink-0" />
+                                        <span>{label}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="mt-1.5 text-sm text-muted-foreground">
+                                    No locked details yet. The first answer will appear here.
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3">
+                                <p className="text-[11px] uppercase tracking-wide text-amber-300 font-medium">
+                                  Still Needed
+                                </p>
+                                {unresolvedDiscoveryLabels.length > 0 ? (
+                                  <ul className="mt-1.5 space-y-1.5">
+                                    {unresolvedDiscoveryLabels.slice(0, 4).map((label) => (
+                                      <li key={label} className="text-sm text-foreground/90">
+                                        {label}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="mt-1.5 text-sm text-muted-foreground">
+                                    Required discovery is complete. Next step is generation.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            {nextDiscoveryQuestion && (
+                              <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
+                                <p className="text-[11px] uppercase tracking-wide text-primary font-medium">
+                                  Current Question
+                                </p>
+                                <p className="text-lg font-semibold mt-1">
+                                  {nextDiscoveryQuestion.label}
+                                </p>
+                                <p className="text-sm text-foreground/90 mt-1.5">
                                   {nextDiscoveryQuestion.description}
                                 </p>
                               </div>
                             )}
-                            {latestDiscoveryIntake && latestDiscoveryIntake.answers.length > 0 && (
-                              <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
-                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                                  Details already provided
+
+                            {(creatorStreamingProgress || latestDiscoverySummary) && (
+                              <div className="rounded-xl border border-primary/25 bg-background/60 px-4 py-3 space-y-2">
+                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+                                  Live Planner Feed
                                 </p>
-                                <div className="mt-2 flex flex-wrap gap-1.5">
-                                  {latestDiscoveryIntake.answers.slice(0, 6).map((answer) => (
-                                    <span
-                                      key={answer.id}
-                                      className="text-[11px] rounded-full border border-border/60 bg-background/80 px-2 py-0.5"
-                                    >
-                                      {answer.label}
-                                    </span>
-                                  ))}
-                                </div>
+                                {discoveryLiveHighlights.length > 0 ? (
+                                  <ul className="space-y-1.5">
+                                    {discoveryLiveHighlights.map((highlight) => (
+                                      <li key={highlight.id} className="text-sm text-foreground/90">
+                                        {highlight.text}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="text-sm text-muted-foreground">
+                                    {latestDiscoverySummary ?? 'Waiting for the next planning update...'}
+                                  </p>
+                                )}
                               </div>
                             )}
-                          </div>
-                          <div className="rounded-lg border bg-background p-4 space-y-3">
-                            <p className="text-sm font-medium">What you will get next</p>
-                            <ul className="space-y-2 text-xs text-muted-foreground">
-                              <li className="rounded-md border border-border/50 bg-muted/20 px-3 py-2">
-                                1. Generated BAL code aligned with your discovery answers.
-                              </li>
-                              <li className="rounded-md border border-border/50 bg-muted/20 px-3 py-2">
-                                2. Visual entity graph with tool and source mappings.
-                              </li>
-                              <li className="rounded-md border border-border/50 bg-muted/20 px-3 py-2">
-                                3. Guided connections and tests based on the generated structure.
-                              </li>
-                            </ul>
-                            <p className="text-[11px] text-muted-foreground">
-                              Keep using chat on the left to answer prompts. This panel updates as discovery progresses.
-                            </p>
+
+                            <div className="grid gap-3 lg:grid-cols-2">
+                              <div className="rounded-xl border border-border/50 bg-background/60 px-4 py-3">
+                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+                                  Recent Answers
+                                </p>
+                                {discoveryRecentUserReplies.length > 0 ? (
+                                  <ul className="mt-1.5 space-y-1.5">
+                                    {discoveryRecentUserReplies.map((reply, idx) => (
+                                      <li key={`${reply}-${idx}`} className="text-sm text-foreground/90">
+                                        {reply}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="mt-1.5 text-sm text-muted-foreground">
+                                    Your responses will appear here as the plan forms.
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="rounded-xl border border-border/50 bg-background/60 px-4 py-3">
+                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+                                  Plan Memory
+                                </p>
+                                {discoveryContextChips.length > 0 ? (
+                                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                    {discoveryContextChips.map((chip) => (
+                                      <span
+                                        key={chip}
+                                        className="text-[11px] rounded-full border border-border/60 bg-muted/20 px-2 py-0.5 text-muted-foreground"
+                                      >
+                                        {chip}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="mt-1.5 text-sm text-muted-foreground">
+                                    Assumptions and confirmed decisions will be tracked here.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-[11px] uppercase tracking-wide text-primary font-medium">
+                                  Linked Discovery Copilot
+                                </p>
+                                {isDiscoveryCopilotFetching && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    analyzing
+                                  </span>
+                                )}
+                              </div>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                A secondary BB tracks planning state in parallel so guidance keeps moving while the main creator works.
+                              </p>
+                              {discoveryCopilotActions.length > 0 ? (
+                                <ul className="mt-2 space-y-1.5">
+                                  {discoveryCopilotActions.map((action, idx) => (
+                                    <li key={`${action.label}-${idx}`} className="text-sm text-foreground/90">
+                                      {action.label}
+                                      {action.reason ? (
+                                        <span className="text-xs text-muted-foreground ml-2">
+                                          {action.reason}
+                                        </span>
+                                      ) : null}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="mt-2 text-sm text-muted-foreground">
+                                  Copilot suggestions will appear as soon as enough context is available.
+                                </p>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -2667,23 +3605,21 @@ export default function BaleybotPage() {
                   {/* Connections View */}
                   {viewMode === 'connections' && (
                     <div className="h-full min-h-0 flex flex-col gap-3">
-                      <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-medium">Step 2: Configure Connections and Access</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Left panel handles setup and verification. Right panel lets you adjust node tools and mappings in context.
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => navigateToTab('visual', { bypassDesignGate: true })}
-                            className="shrink-0"
-                          >
-                            Back to Visual
-                          </Button>
+                      <div className="shrink-0 rounded-xl border border-border/50 bg-background/80 px-3.5 py-2.5 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">Connections</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Confirm runtime, data sources, and tool checks before testing.
+                          </p>
                         </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigateToTab('visual', { bypassDesignGate: true })}
+                          className="h-8 text-xs"
+                        >
+                          View Canvas
+                        </Button>
                       </div>
                       <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-4">
                         <div className="h-full overflow-auto bg-background rounded-lg border p-4">
@@ -2704,10 +3640,7 @@ export default function BaleybotPage() {
                         </div>
                         <div className="h-full min-h-0 bg-background rounded-lg border overflow-hidden">
                           <div className="px-4 py-2 border-b border-border/40 bg-muted/20">
-                            <p className="text-sm font-medium">Visual Tool and Source Map</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Select nodes to review or adjust tools and source mappings while you configure this stage.
-                            </p>
+                            <p className="text-sm font-medium">Live tool and source map</p>
                           </div>
                           <div className="h-[calc(100%-3.5rem)] min-h-0">
                             <VisualEditor
@@ -2727,23 +3660,21 @@ export default function BaleybotPage() {
                   {/* Test View */}
                   {viewMode === 'test' && (
                     <div className="h-full min-h-0 flex flex-col gap-3">
-                      <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-medium">Step 3: Validate Behavior</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Run generated tests, resolve failures, and confirm your BaleyBot behaves as expected before launch.
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => navigateToTab('connections', { bypassDesignGate: true })}
-                            className="shrink-0"
-                          >
-                            Back to Connections
-                          </Button>
+                      <div className="shrink-0 rounded-xl border border-border/50 bg-background/80 px-3.5 py-2.5 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">Testing</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Validate outcomes before activation.
+                          </p>
                         </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigateToTab('connections', { bypassDesignGate: true })}
+                          className="h-8 text-xs"
+                        >
+                          Review Connections
+                        </Button>
                       </div>
                       <div className="flex-1 overflow-auto bg-background rounded-lg border p-4">
                         <TestPanel
@@ -3078,6 +4009,8 @@ export default function BaleybotPage() {
                                     setRuntimeDurationMs(null);
                                     setShowRuntimeRawOutput(false);
                                     setRuntimeConversation([]);
+                                    setRuntimeStreamingProgress(null);
+                                    setRuntimeLastProgressSummary(null);
                                   }}
                                   disabled={isRunLocked || executeMutation.isPending}
                                 >
@@ -3086,6 +4019,11 @@ export default function BaleybotPage() {
                                 {runtimeDurationMs != null && (
                                   <span className="text-xs text-muted-foreground">
                                     Last run: {runtimeDurationMs > 1000 ? `${(runtimeDurationMs / 1000).toFixed(1)}s` : `${runtimeDurationMs}ms`}
+                                  </span>
+                                )}
+                                {runtimeLastProgressSummary && (
+                                  <span className="text-xs text-muted-foreground/80">
+                                    {runtimeLastProgressSummary}
                                   </span>
                                 )}
                               </div>
@@ -3105,6 +4043,11 @@ export default function BaleybotPage() {
                                   </Button>
                                 )}
                               </div>
+
+                              {runtimeStreamingProgress &&
+                                (!isMessageRuntime || runtimeConversation.length === 0) && (
+                                <StreamingProgressCard progress={runtimeStreamingProgress} />
+                              )}
 
                               {runtimeError ? (
                                 <div className="text-sm whitespace-pre-wrap bg-red-500/5 border border-red-500/20 text-red-700 dark:text-red-300 rounded-lg p-3">
@@ -3133,6 +4076,15 @@ export default function BaleybotPage() {
                                           </p>
                                         </div>
                                       ))}
+                                      {runtimeStreamingProgress && (
+                                        <div className="mr-auto max-w-[95%]">
+                                          <StreamingProgressCard
+                                            progress={runtimeStreamingProgress}
+                                            className="p-3"
+                                            maxHighlights={3}
+                                          />
+                                        </div>
+                                      )}
                                     </div>
                                   ) : (
                                     <p className="text-sm text-muted-foreground">

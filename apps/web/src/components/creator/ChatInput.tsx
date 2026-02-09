@@ -35,64 +35,22 @@ interface ChatInputProps {
  */
 function getPlaceholder(status: CreationStatus, discoveryPending: boolean): string {
   if (discoveryPending) {
-    return 'Answer required outcomes or continue with defaults...';
+    return 'Share the next detail...';
   }
 
   switch (status) {
     case 'empty':
-      return 'What do you need?';
+      return 'Describe the bot you want to build...';
     case 'building':
-      return 'Adjust something...';
+      return 'Add guidance while I build...';
     case 'ready':
-      return 'Ask anything or describe changes...';
+      return 'Ask for changes, tests, or launch prep...';
     case 'running':
       return 'Wait for completion...';
     case 'error':
-      return 'Try again or describe what you need...';
+      return 'Tell me what to fix...';
     default:
-      return 'What do you need?';
-  }
-}
-
-function getStatusLabel(status: CreationStatus, discoveryPending: boolean): string {
-  if (discoveryPending) {
-    return 'Discovery Needed';
-  }
-
-  switch (status) {
-    case 'empty':
-      return 'Discovery';
-    case 'building':
-      return 'Building';
-    case 'ready':
-      return 'Ready';
-    case 'running':
-      return 'Running';
-    case 'error':
-      return 'Needs fix';
-    default:
-      return 'Ready';
-  }
-}
-
-function getStatusHint(status: CreationStatus, discoveryPending: boolean): string {
-  if (discoveryPending) {
-    return 'Fill any blocking discovery details or continue with smart defaults.';
-  }
-
-  switch (status) {
-    case 'empty':
-      return 'Start with a plain-language goal and desired outcome.';
-    case 'building':
-      return 'Creator is sequencing setup steps. You can still steer it.';
-    case 'ready':
-      return 'Ask for refinements, new tools, or production hardening.';
-    case 'running':
-      return 'Execution is in progress. Wait for completion to continue.';
-    case 'error':
-      return 'Describe the issue and request a targeted fix.';
-    default:
-      return 'Describe what you want to build.';
+      return 'Describe what you need...';
   }
 }
 
@@ -202,20 +160,20 @@ export function ChatInput({
   return (
     <div className={cn('w-full', className)}>
       {showQuickPrompts && (
-        <div className="mb-2.5 rounded-xl border border-border/50 bg-muted/20 p-2.5">
-          <p className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <div className="mb-2.5 rounded-2xl border border-border/50 bg-background/70 px-3 py-2.5">
+          <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
             <Lightbulb className="h-3.5 w-3.5" />
             {quickPromptContextLabel ?? 'Suggested next actions'}
           </p>
-          <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
             {quickPrompts.map((quickPrompt) => (
               <button
                 key={quickPrompt.id}
                 type="button"
                 onClick={() => handleQuickPrompt(quickPrompt)}
                 className={cn(
-                  'rounded-lg border border-border/60 bg-background/80 px-2.5 py-1.5 text-left',
-                  'text-[11px] text-muted-foreground hover:bg-background hover:text-foreground',
+                  'rounded-full border border-border/60 bg-muted/20 px-3 py-1.5 text-left',
+                  'text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground',
                   'transition-colors'
                 )}
               >
@@ -228,16 +186,16 @@ export function ChatInput({
 
       <div
         className={cn(
-          'relative flex items-end gap-2 rounded-2xl border-2 bg-background/80 backdrop-blur-sm transition-all duration-300',
+          'relative flex items-end gap-2 rounded-[1.35rem] border bg-background/90 transition-all duration-300',
           // CSS fade-in animation
           'animate-fade-in-up',
           // Responsive padding (Phase 4.5)
-          'px-3 py-2.5 sm:px-4 sm:py-3',
+          'px-3 py-2.5 sm:px-4 sm:py-3.5',
           // Safe area for notched devices (Phase 4.5)
           'pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:pb-3',
           showGlow
-            ? 'border-primary/50 shadow-[0_0_15px_rgba(var(--primary-rgb),0.15)]'
-            : 'border-border',
+            ? 'border-primary/40 shadow-[0_10px_35px_-25px_hsl(var(--primary)/0.7)]'
+            : 'border-border/70',
           isDisabled && 'opacity-60'
         )}
       >
@@ -257,7 +215,7 @@ export function ChatInput({
             'flex-1 resize-none bg-transparent placeholder:text-muted-foreground/60 focus:outline-none disabled:cursor-not-allowed',
             'min-h-[24px] max-h-[120px]',
             // Larger text on mobile for better touch (Phase 4.5)
-            'text-base leading-6 sm:text-base sm:leading-6'
+            'text-[15px] leading-6 sm:text-base sm:leading-6'
           )}
           style={{ height: 'auto' }}
         />
@@ -285,41 +243,16 @@ export function ChatInput({
         </Button>
       </div>
 
-      {/* Footer: hint text + character count */}
+      {/* Footer: minimal helper + character count */}
       <div className="mt-2 flex items-center justify-between px-1 gap-2">
-        <span
-          className={cn(
-            'text-[10px] px-1.5 py-0.5 rounded-full border',
-            discoveryPending &&
-              'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400',
-            !discoveryPending &&
-              status === 'ready' &&
-              'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400',
-            !discoveryPending &&
-              status === 'building' &&
-              'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-400',
-            !discoveryPending &&
-              status === 'running' &&
-              'border-purple-500/40 bg-purple-500/10 text-purple-700 dark:text-purple-400',
-            !discoveryPending &&
-              status === 'error' &&
-              'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-400',
-            !discoveryPending &&
-              status === 'empty' &&
-              'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400'
-          )}
-        >
-          {getStatusLabel(status, discoveryPending)}
-        </span>
-        <p id="chat-input-hint" className="text-xs text-muted-foreground/70 hidden lg:block truncate">
-          {getStatusHint(status, discoveryPending)}
-        </p>
-        <p className="text-xs text-muted-foreground/60 hidden sm:block lg:hidden">
-          Enter to send, Shift+Enter for new line
+        <p id="chat-input-hint" className="text-[11px] text-muted-foreground/75">
+          {discoveryPending
+            ? 'Short answers are enough.'
+            : 'Press Enter to send.'}
         </p>
         {value.length > MAX_LENGTH * 0.8 && (
           <span className={cn(
-            'text-xs ml-auto',
+            'text-[11px] ml-auto',
             isOverLimit ? 'text-red-500 font-medium' : 'text-muted-foreground/60'
           )}>
             {value.length}/{MAX_LENGTH}

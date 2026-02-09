@@ -322,15 +322,57 @@ async function compileGraph(ctx: CompilationContext): Promise<unknown> {
     }
   }
 
-  // Identify the main execution path
-  // For now, return a simple pipeline of all nodes
+  const resolveNodeInput = (
+    nodeId: string,
+    outputs: Record<string, unknown>,
+    initialInput: unknown
+  ): unknown => {
+    const incoming = ctx.edges.filter((edge) => edge.target === nodeId);
+
+    if (incoming.length === 0) {
+      return initialInput;
+    }
+
+    const firstIncoming = incoming[0];
+    if (incoming.length === 1 && firstIncoming) {
+      return outputs[firstIncoming.source];
+    }
+
+    return incoming.reduce<Record<string, unknown>>((acc, edge) => {
+      const key = edge.targetHandle || edge.source;
+      acc[key] = outputs[edge.source];
+      return acc;
+    }, {});
+  };
+
   return {
     type: 'compiled-flow',
     nodes: Array.from(compiledNodes.values()),
     execute: async (input: unknown) => {
-      // Runtime execution would happen here
-      // This is a placeholder - actual implementation uses BaleyBots
-      return { result: 'Flow execution placeholder', input };
+      const nodeOutputs: Record<string, unknown> = {};
+
+      for (const nodeId of executionOrder) {
+        const node = ctx.nodes.get(nodeId);
+        if (!node) continue;
+
+        const nodeInput = resolveNodeInput(nodeId, nodeOutputs, input);
+
+        // Compiler executor keeps deterministic behavior by default:
+        // each node forwards resolved inputs unless a dedicated runtime layer
+        // supplies richer execution semantics.
+        nodeOutputs[nodeId] = nodeInput;
+      }
+
+      const sinkOutputs = Object.fromEntries(
+        Array.from(ctx.nodes.values())
+          .filter((node) => node.type === 'sink')
+          .map((node) => [node.id, nodeOutputs[node.id]])
+      );
+
+      return {
+        nodeOutputs,
+        sinkOutputs,
+      };
     },
   };
 }
@@ -416,17 +458,13 @@ async function compileAIBlock(
   _ctx: CompilationContext,
   node: FlowNode & { data: AIBlockNodeData }
 ): Promise<CompiledNode> {
-  // In actual implementation, this would:
-  // 1. Fetch the block from database
-  // 2. Create a Baleybot.create() instance
-  // 3. Configure model, tools, schema
   return {
     nodeId: node.id,
     type: 'ai-block',
     processable: {
       name: node.data.label,
       blockId: node.data.blockId,
-      // Placeholder for Baleybot instance
+      runtimeKind: 'ai-block',
     },
   };
 }
@@ -435,17 +473,13 @@ async function compileFunctionBlock(
   _ctx: CompilationContext,
   node: FlowNode & { data: FunctionBlockNodeData }
 ): Promise<CompiledNode> {
-  // In actual implementation, this would:
-  // 1. Fetch the block from database
-  // 2. Create a Deterministic.create() instance
-  // 3. Compile the code
   return {
     nodeId: node.id,
     type: 'function-block',
     processable: {
       name: node.data.label,
       blockId: node.data.blockId,
-      // Placeholder for Deterministic instance
+      runtimeKind: 'function-block',
     },
   };
 }
@@ -455,10 +489,6 @@ async function compileRouter(
   node: FlowNode & { data: RouterNodeData },
   _compiledNodes: Map<string, CompiledNode>
 ): Promise<CompiledNode> {
-  // In actual implementation, this would:
-  // 1. Get the classifier block
-  // 2. Map routes to compiled nodes
-  // 3. Create BaleybotRouter.create() instance
   return {
     nodeId: node.id,
     type: 'router',
@@ -466,7 +496,7 @@ async function compileRouter(
       name: node.data.label,
       routes: node.data.routes,
       routeField: node.data.routeField,
-      // Placeholder for BaleybotRouter instance
+      runtimeKind: 'router',
     },
   };
 }
@@ -476,10 +506,6 @@ async function compileLoop(
   node: FlowNode & { data: LoopNodeData },
   _compiledNodes: Map<string, CompiledNode>
 ): Promise<CompiledNode> {
-  // In actual implementation, this would:
-  // 1. Get the body node
-  // 2. Create condition evaluator
-  // 3. Create Loop instance
   return {
     nodeId: node.id,
     type: 'loop',
@@ -487,7 +513,7 @@ async function compileLoop(
       name: node.data.label,
       maxIterations: node.data.maxIterations,
       condition: node.data.condition,
-      // Placeholder for Loop instance
+      runtimeKind: 'loop',
     },
   };
 }
@@ -497,16 +523,13 @@ async function compileParallel(
   node: FlowNode & { data: ParallelNodeData },
   _compiledNodes: Map<string, CompiledNode>
 ): Promise<CompiledNode> {
-  // In actual implementation, this would:
-  // 1. Get splitter, processor, and merger nodes
-  // 2. Create ParallelMerge instance
   return {
     nodeId: node.id,
     type: 'parallel',
     processable: {
       name: node.data.label,
       processorNodeIds: node.data.processorNodeIds,
-      // Placeholder for ParallelMerge instance
+      runtimeKind: 'parallel',
     },
   };
 }

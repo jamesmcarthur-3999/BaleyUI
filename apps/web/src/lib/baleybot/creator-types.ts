@@ -171,6 +171,15 @@ export interface MessageMetadata {
     nextStage?: string;
     nextAction?: string;
     iteration?: number;
+    blockerMode?: 'none' | 'soft' | 'hard';
+    runnableConfidence?: number;
+    assumptions?: Array<{
+      id: string;
+      label: string;
+      value: string;
+      confidence: 'low' | 'medium' | 'high';
+      requiresConfirmation?: boolean;
+    }>;
     requiredQuestions?: Array<{
       id: string;
       label: string;
@@ -200,6 +209,9 @@ export interface MessageMetadata {
     additionalContext?: string;
     modelMessage?: string;
   };
+
+  /** Compact streaming summary after completion */
+  streamSummary?: string;
 }
 
 /**
@@ -346,6 +358,14 @@ const creatorDiscoveryQuestionSchema = z.object({
   requiredNow: z.boolean().optional().catch(undefined),
 });
 
+const creatorAssumptionSchema = z.object({
+  id: z.string().min(1).catch(() => crypto.randomUUID()),
+  label: z.string().min(1).catch('Assumption'),
+  value: z.string().min(1).catch('Use safe defaults'),
+  confidence: z.enum(['low', 'medium', 'high']).optional().catch('medium'),
+  requiresConfirmation: z.boolean().optional().catch(undefined),
+});
+
 export const creatorOutputSchema = z.object({
   /** AI's thinking/reasoning (shown to user) */
   thinking: z.string().optional().catch(undefined),
@@ -353,6 +373,12 @@ export const creatorOutputSchema = z.object({
   message: z.string().optional().catch(undefined),
   /** Follow-up questions when additional discovery is required */
   questions: z.array(creatorDiscoveryQuestionSchema).max(8).optional().catch(undefined),
+  /** Assumptions made when proceeding with partial discovery context */
+  assumptions: z.array(creatorAssumptionSchema).max(8).optional().catch(undefined),
+  /** Estimated confidence that this design is runnable */
+  runnableConfidence: z.number().min(0).max(1).optional().catch(undefined),
+  /** Whether discovery still has hard blockers vs soft follow-ups */
+  blockMode: z.enum(['none', 'soft', 'hard']).optional().catch(undefined),
   /** Entities to create/update */
   entities: z.array(creatorEntitySchema).catch([]),
   /** Connections between entities — defaults to empty if missing/null */

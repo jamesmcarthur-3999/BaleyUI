@@ -356,6 +356,65 @@ export function formatToolCatalogForCreatorBot(catalog: FullToolCatalog): string
   return lines.join('\n');
 }
 
+interface CompactCatalogOptions {
+  maxPerSection?: number;
+}
+
+function compactToolDescription(description: string, maxLength = 140): string {
+  const compact = description.replace(/\s+/g, ' ').trim();
+  if (compact.length <= maxLength) return compact;
+  return `${compact.slice(0, maxLength - 1).trimEnd()}...`;
+}
+
+/**
+ * Format the tool catalog as compact context for fast creator interactions.
+ * Keeps only names + short descriptions so internal BBs can reason quickly.
+ */
+export function formatToolCatalogForCreatorBotCompact(
+  catalog: FullToolCatalog,
+  options?: CompactCatalogOptions
+): string {
+  const maxPerSection = Math.max(4, options?.maxPerSection ?? 12);
+  const lines: string[] = [];
+
+  lines.push('# Tool Snapshot');
+  lines.push('Use the smallest viable tool set for the goal.');
+  lines.push('');
+
+  const appendSection = (
+    title: string,
+    sectionTools: ToolDefinition[],
+    toolTag?: (tool: ToolDefinition) => string | undefined
+  ) => {
+    if (sectionTools.length === 0) return;
+    lines.push(`## ${title}`);
+    for (const tool of sectionTools.slice(0, maxPerSection)) {
+      const tag = toolTag ? toolTag(tool) : undefined;
+      const tagSuffix = tag ? ` (${tag})` : '';
+      lines.push(`- ${tool.name}${tagSuffix}: ${compactToolDescription(tool.description)}`);
+    }
+    const hiddenCount = sectionTools.length - maxPerSection;
+    if (hiddenCount > 0) {
+      lines.push(`- +${hiddenCount} more tools available in this section`);
+    }
+    lines.push('');
+  };
+
+  appendSection('Built-in', catalog.builtIn, (tool) => {
+    const metadata = BUILT_IN_TOOLS_METADATA.find((entry) => entry.name === tool.name);
+    return metadata?.approvalRequired ? 'approval at runtime' : undefined;
+  });
+  appendSection('Connection Tools', catalog.connectionDerived, () => 'from connected data source');
+  appendSection('Custom Workspace Tools', catalog.workspace, () => 'workspace');
+
+  lines.push('## Selection Rules');
+  lines.push('- Prioritize connected tools before optional integrations.');
+  lines.push('- Prefer read-only and deterministic tools for first runnable drafts.');
+  lines.push('- Add advanced tools only when required by the user outcome.');
+
+  return lines.join('\n');
+}
+
 /**
  * Get a short summary of available tools for quick reference.
  */

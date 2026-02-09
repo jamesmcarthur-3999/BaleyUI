@@ -1,24 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { proposePattern } from '../pattern-learner';
 
-vi.mock('../internal-baleybots', () => ({
-  executeInternalBaleybot: vi.fn().mockResolvedValue({
-    output: {
-      suggestions: [
-        {
-          tool: 'test_tool',
-          actionPattern: { action: 'read' },
-          entityGoalPattern: null,
-          trustLevel: 'provisional',
-          explanation: 'Test suggestion',
-          riskAssessment: 'low',
-          suggestedExpirationDays: 30,
-        },
-      ],
-      warnings: [],
-      recommendations: [],
-    },
-    executionId: 'exec-123',
+vi.mock('../internal-bb/runner', () => ({
+  runPatternLearner: vi.fn().mockResolvedValue({
+    suggestions: [
+      {
+        tool: 'test_tool',
+        actionPattern: { action: 'read' },
+        entityGoalPattern: null,
+        trustLevel: 'provisional',
+        explanation: 'Test suggestion',
+        riskAssessment: 'low',
+        suggestedExpirationDays: 30,
+      },
+    ],
+    warnings: [],
+    recommendations: [],
   }),
 }));
 
@@ -28,7 +25,7 @@ describe('pattern-learner', () => {
   });
 
   it('uses internal BaleyBot for pattern proposals', async () => {
-    const { executeInternalBaleybot } = await import('../internal-baleybots');
+    const { runPatternLearner } = await import('../internal-bb/runner');
 
     await proposePattern(
       {
@@ -45,12 +42,10 @@ describe('pattern-learner', () => {
       }
     );
 
-    expect(executeInternalBaleybot).toHaveBeenCalledWith(
-      'pattern_learner',
+    expect(runPatternLearner).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
         userWorkspaceId: 'ws-1',
-        context: expect.any(String),
         triggeredBy: 'internal',
       })
     );

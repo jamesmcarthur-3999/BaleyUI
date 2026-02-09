@@ -6,12 +6,10 @@
  * with full execution tracking.
  */
 
-import { executeInternalBaleybot } from './internal-baleybots';
-import { runCreatorDiscovery } from './internal-bb/runner';
+import { runCreatorBot, runCreatorDiscovery } from './internal-bb/runner';
 import { normalizeBalCodeForCompatibility, parseBalCode } from './bal-parser-pure';
 import { runInternalOrchestrationLoop } from './internal-orchestration';
 import {
-  creatorOutputSchema,
   type CreatorOutput,
   type CreatorMessage,
   type CreatorStreamChunk,
@@ -19,14 +17,32 @@ import {
 import type { GeneratorContext } from './types';
 import {
   getToolCatalog,
-  formatToolCatalogForCreatorBot,
+  formatToolCatalogForCreatorBotCompact,
 } from './tools/catalog-service';
 import { getConnectionSummary } from './tools/requirements-scanner';
 import { detectBalSkills, summarizeBalSkills } from './bal-skills';
 import { sanitizeCreatorText } from './creator-sanitization';
 import { createLogger } from '@/lib/logger';
+import type { BaleybotStreamEvent } from '@baleybots/core';
 
 const logger = createLogger('creator-bot');
+
+const CREATOR_CONTEXT_MAX_EXISTING_BBS = 12;
+const CREATOR_CONTEXT_MAX_HISTORY_MESSAGES = 16;
+const CREATOR_CONTEXT_MAX_HISTORY_CHARS = 900;
+const CREATOR_CONTEXT_MAX_ADDITIONAL_CHARS = 5000;
+
+const CREATOR_SOFT_TEXT_MAX_CHARS = 12000;
+const CREATOR_SOFT_QUESTION_LABEL_MAX_CHARS = 160;
+const CREATOR_SOFT_QUESTION_DESCRIPTION_MAX_CHARS = 800;
+const CREATOR_SOFT_ASSUMPTION_LABEL_MAX_CHARS = 140;
+const CREATOR_SOFT_ASSUMPTION_VALUE_MAX_CHARS = 1200;
+const CREATOR_SOFT_ASSUMPTION_LIMIT = 20;
+
+const CREATOR_DISCOVERY_MAX_TOOL_NAMES = 32;
+const CREATOR_DISCOVERY_MAX_EXISTING_BBS = 10;
+const CREATOR_DISCOVERY_MAX_RECENT_USER_TURNS = 6;
+const CREATOR_DISCOVERY_MAX_RECENT_USER_CHARS = 320;
 
 interface DiscoveryQuestion {
   id: string;
@@ -36,10 +52,31 @@ interface DiscoveryQuestion {
   requiredNow?: boolean;
 }
 
+interface DiscoveryAssumption {
+  id: string;
+  label: string;
+  value: string;
+  confidence: 'low' | 'medium' | 'high';
+  requiresConfirmation?: boolean;
+}
+
+interface DiscoveryConnectionContext {
+  name: string;
+  type: string;
+  status: string;
+  isDefault?: boolean;
+}
+
 interface DiscoveryAssessment {
   shouldBlock: boolean;
+  blockMode: 'none' | 'soft' | 'hard';
   message?: string;
   questions: DiscoveryQuestion[];
+  hardBlockers: DiscoveryQuestion[];
+  softBlockers: DiscoveryQuestion[];
+  assumptions: DiscoveryAssumption[];
+  runnableConfidence: number;
+  hasAssumptionConsent: boolean;
   contextNotes: string[];
 }
 
@@ -47,84 +84,6 @@ interface DiscoveryHistorySnapshot {
   iteration: number;
   requiredNow: DiscoveryQuestion[];
   optionalLater: DiscoveryQuestion[];
-}
-
-// ============================================================================
-// OUTPUT RESOLUTION
-// ============================================================================
-
-/**
- * Resolve the raw output from executeInternalBaleybot into a valid object
- * that can be parsed by creatorOutputSchema.
- *
- * The SDK's buildZodSchema marks all output fields as optional, which causes
- * models to sometimes return partial/malformed structured output. This handles:
- * 1. Valid object output (pass through)
- * 2. String output containing JSON (parse it)
- * 3. String with markdown fences around JSON (extract and parse)
- */
-function resolveStructuredOutput(output: unknown): unknown {
-  logger.info('resolveStructuredOutput received', {
-    type: typeof output,
-    isNull: output === null,
-    isUndefined: output === undefined,
-    preview: typeof output === 'string'
-      ? output.slice(0, 300)
-      : typeof output === 'object' && output !== null
-        ? JSON.stringify(output).slice(0, 300)
-        : String(output),
-  });
-
-  // Already an object with entities — pass through
-  if (output && typeof output === 'object' && !Array.isArray(output)) {
-    return output;
-  }
-
-  // String output — try to extract JSON
-  if (typeof output === 'string') {
-    const text = output.trim();
-
-    // Try direct JSON parse
-    try {
-      const parsed = JSON.parse(text);
-      logger.info('Direct JSON parse succeeded');
-      return parsed;
-    } catch {
-      // Try extracting from markdown code fences
-      const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-      if (jsonMatch?.[1]) {
-        try {
-          const parsed = JSON.parse(jsonMatch[1].trim());
-          logger.info('Markdown fence JSON extraction succeeded');
-          return parsed;
-        } catch {
-          // Fall through
-        }
-      }
-
-      // Try finding the first { ... } block
-      const braceStart = text.indexOf('{');
-      const braceEnd = text.lastIndexOf('}');
-      if (braceStart !== -1 && braceEnd > braceStart) {
-        try {
-          const parsed = JSON.parse(text.slice(braceStart, braceEnd + 1));
-          logger.info('Brace extraction JSON parse succeeded');
-          return parsed;
-        } catch {
-          // Fall through
-        }
-      }
-
-      logger.error('All JSON extraction methods failed', {
-        textLength: text.length,
-        firstChars: text.slice(0, 200),
-        lastChars: text.slice(-200),
-      });
-    }
-  }
-
-  // Return as-is and let creatorOutputSchema.parse() produce a clear error
-  return output;
 }
 
 interface CreatorValidationResult {
@@ -140,6 +99,7 @@ interface CreatorLoopState {
   bestOutput?: CreatorOutput;
   lastError?: string;
   lastRawPreview?: string;
+  lastCycleError?: string;
 }
 
 interface CreatorCycleResult {
@@ -147,33 +107,129 @@ interface CreatorCycleResult {
   validation: CreatorValidationResult;
 }
 
-function validateCreatorCandidate(rawOutput: unknown): CreatorValidationResult {
-  const resolved = resolveStructuredOutput(rawOutput);
-  const parsed = creatorOutputSchema.safeParse(resolved);
+export type CreatorProgressPhase =
+  | 'discovery'
+  | 'orchestration'
+  | 'generation'
+  | 'recovery'
+  | 'complete';
 
-  if (!parsed.success) {
-    return {
-      success: false,
-      signature: 'schema_validation_failed',
-      errorMessage: parsed.error.issues
-        .slice(0, 5)
-        .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-        .join('; '),
-      rawPreview: typeof rawOutput === 'string'
-        ? rawOutput.slice(0, 600)
-        : JSON.stringify(rawOutput).slice(0, 600),
-    };
+export interface CreatorProgressEvent {
+  phase: CreatorProgressPhase;
+  message: string;
+  highlight?: string;
+  highlightType?: 'thinking' | 'tool' | 'loop' | 'status';
+  toolName?: string;
+  cycle?: number;
+}
+
+const PROGRESS_HIGHLIGHT_LIMIT = 200;
+
+function truncateProgressHighlight(value: string): string {
+  const compact = value.replace(/\s+/g, ' ').trim();
+  if (compact.length <= PROGRESS_HIGHLIGHT_LIMIT) return compact;
+  return `${compact.slice(0, PROGRESS_HIGHLIGHT_LIMIT - 1).trimEnd()}...`;
+}
+
+function truncateCompactText(value: string, maxLength: number): string {
+  const compact = value.replace(/\s+/g, ' ').trim();
+  if (compact.length <= maxLength) return compact;
+  return `${compact.slice(0, maxLength - 1).trimEnd()}...`;
+}
+
+function emitCreatorProgress(
+  options: CreatorBotOptions,
+  event: CreatorProgressEvent
+): void {
+  if (!options.onProgress) return;
+  try {
+    options.onProgress({
+      ...event,
+      message: truncateProgressHighlight(event.message),
+      highlight: event.highlight ? truncateProgressHighlight(event.highlight) : undefined,
+    });
+  } catch (error) {
+    logger.warn('creator progress callback failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
+}
 
-  if (parsed.data.status === 'building') {
+function toProgressEventFromSegment(
+  segment: BaleybotStreamEvent
+): {
+  message: string;
+  highlight?: string;
+  highlightType?: 'thinking' | 'tool' | 'loop' | 'status';
+  toolName?: string;
+} | null {
+  switch (segment.type) {
+    case 'reasoning': {
+      const content = segment.content?.trim();
+      if (!content) return null;
+      return {
+        message: 'Refining approach',
+        highlight: content,
+        highlightType: 'thinking',
+      };
+    }
+    case 'tool_call_stream_start':
+      return {
+        message: `Preparing tool: ${segment.toolName}`,
+        highlight: `Selecting ${segment.toolName} arguments`,
+        highlightType: 'tool',
+        toolName: segment.toolName,
+      };
+    case 'tool_execution_start':
+      return {
+        message: `Running tool: ${segment.toolName}`,
+        highlight: `Executing ${segment.toolName}`,
+        highlightType: 'tool',
+        toolName: segment.toolName,
+      };
+    case 'tool_execution_output':
+      return {
+        message: segment.error
+          ? `Tool failed: ${segment.toolName}`
+          : `Tool complete: ${segment.toolName}`,
+        highlight: segment.error
+          ? segment.error
+          : `Received output from ${segment.toolName}`,
+        highlightType: 'tool',
+        toolName: segment.toolName,
+      };
+    case 'tool_call_stream_error':
+      return {
+        message: 'Tool stream error',
+        highlight: segment.error?.message || 'Unknown tool stream error',
+        highlightType: 'tool',
+      };
+    case 'error':
+      return {
+        message: 'Generation error encountered',
+        highlight:
+          segment.error instanceof Error
+            ? segment.error.message
+            : segment.error?.message || 'Unknown generation error',
+        highlightType: 'status',
+      };
+    default:
+      return null;
+  }
+}
+
+function validateCreatorCandidate(candidate: CreatorOutput): CreatorValidationResult {
+  const compactedCandidate = compactCreatorOutputForUser(candidate);
+
+  if (candidate.status === 'building') {
     return {
       success: true,
       signature: 'building_needs_input',
-      output: parsed.data,
+      output: compactedCandidate,
     };
   }
 
-  const normalizedBalCode = normalizeBalCodeForCompatibility(parsed.data.balCode);
+  const normalizedBalCode = normalizeBalCodeForCompatibility(compactedCandidate.balCode);
   const normalizedParse = parseBalCode(normalizedBalCode);
 
   if (normalizedParse.entities.length === 0 || normalizedParse.errors.length > 0) {
@@ -185,13 +241,51 @@ function validateCreatorCandidate(rawOutput: unknown): CreatorValidationResult {
     };
   }
 
+    return {
+      success: true,
+      signature: 'success',
+      output: {
+        ...compactedCandidate,
+        balCode: normalizedBalCode,
+      },
+    };
+}
+
+function compactCreatorOutputForUser(output: CreatorOutput): CreatorOutput {
+  const softCap = (value: string, maxLength: number): string =>
+    truncateCompactText(value, maxLength);
+
   return {
-    success: true,
-    signature: 'success',
-    output: {
-      ...parsed.data,
-      balCode: normalizedBalCode,
-    },
+    ...output,
+    thinking:
+      typeof output.thinking === 'string'
+        ? softCap(output.thinking, CREATOR_SOFT_TEXT_MAX_CHARS)
+        : output.thinking,
+    message:
+      typeof output.message === 'string'
+        ? softCap(output.message, CREATOR_SOFT_TEXT_MAX_CHARS)
+        : output.message,
+    questions: output.questions?.map((question) => ({
+      ...question,
+      label: softCap(question.label, CREATOR_SOFT_QUESTION_LABEL_MAX_CHARS),
+      description: truncateCompactText(
+        question.description,
+        CREATOR_SOFT_QUESTION_DESCRIPTION_MAX_CHARS
+      ),
+    })),
+    assumptions: output.assumptions
+      ?.slice(0, CREATOR_SOFT_ASSUMPTION_LIMIT)
+      .map((assumption) => ({
+        ...assumption,
+        label: softCap(
+          assumption.label,
+          CREATOR_SOFT_ASSUMPTION_LABEL_MAX_CHARS
+        ),
+        value: softCap(
+          assumption.value,
+          CREATOR_SOFT_ASSUMPTION_VALUE_MAX_CHARS
+        ),
+      })),
   };
 }
 
@@ -337,38 +431,40 @@ function buildDiscoveryMessage(params: {
   preface?: string;
 }): string {
   const { requiredNow, optionalLater, preface } = params;
+  const normalizedPreface = (() => {
+    const trimmed = preface?.trim();
+    if (!trimmed) return undefined;
+    const singleLine = trimmed.replace(/\s+/g, ' ');
+    const looksLikeChecklist =
+      /[\u2022]|^\s*[-*]\s/m.test(trimmed) ||
+      /\[(required|later|assumption|confidence)\]/i.test(trimmed) ||
+      trimmed.split('\n').length > 2;
+    if (looksLikeChecklist || singleLine.length > 220) return undefined;
+    return singleLine;
+  })();
   const lines: string[] = [];
+  const nextRequired = requiredNow[0];
+  const firstOptional = optionalLater[0];
 
-  if (preface?.trim()) {
-    lines.push(preface.trim(), '');
+  if (normalizedPreface) {
+    lines.push(normalizedPreface);
   }
 
-  if (requiredNow.length > 0) {
-    lines.push('To continue right now, I need these details:', '');
-    for (const q of requiredNow) {
-      lines.push(`- **${q.label}**: ${q.description}`);
-    }
-  }
-
-  if (optionalLater.length > 0) {
+  if (nextRequired) {
     lines.push(
-      '',
-      'You can answer these now if you want, but they can also wait until Connections/Launch:',
-      ''
+      `To keep this moving, I need one detail: **${nextRequired.label}**`,
+      nextRequired.description
     );
-    for (const q of optionalLater) {
-      lines.push(`- **${q.label}**: ${q.description}`);
-    }
+  } else if (firstOptional) {
+    lines.push(
+      'I can build a first version now. Helpful next detail:',
+      `**${firstOptional.label}**: ${firstOptional.description}`
+    );
+  } else {
+    lines.push('I can proceed to generation now.');
   }
 
-  lines.push(
-    '',
-    requiredNow.length > 0
-      ? 'Reply with the required answers and I will generate the runnable design immediately.'
-      : 'I can proceed now and we can configure remaining details later.'
-  );
-
-  return lines.join('\n');
+  return lines.join('\n\n');
 }
 
 function isLikelyOptionalDiscoveryQuestion(question: DiscoveryQuestion): boolean {
@@ -578,6 +674,24 @@ function isLikelyAcknowledgementReply(userMessage: string): boolean {
   return false;
 }
 
+function normalizeDiscoveryAssistantMessage(message: string | undefined): string | undefined {
+  if (!message) return undefined;
+  const compact = message.trim().replace(/\n{3,}/g, '\n\n');
+  if (!compact) return undefined;
+
+  const looksChecklist =
+    /\[(required|later|assumption|confidence)\]/i.test(compact) ||
+    (/(?:^|\n)\s*(?:[-*]|\d+\.)\s+/m.test(compact) &&
+      compact.split('\n').length > 8);
+
+  if (looksChecklist) return undefined;
+  if (compact.length > 900) {
+    return `${compact.slice(0, 897).trimEnd()}...`;
+  }
+
+  return compact;
+}
+
 function normalizeDiscoveryToken(value: string): string {
   return value
     .toLowerCase()
@@ -652,6 +766,42 @@ function tokenizeDiscoveryText(value: string): string[] {
     .split(/\s+/)
     .map((token) => token.trim())
     .filter((token) => token.length > 2 && !DISCOVERY_STOPWORDS.has(token));
+}
+
+function extractDiscoveryQuestionExamples(question: DiscoveryQuestion): string[] {
+  const source = `${question.label} ${question.description}`;
+  const match = source.match(
+    /\b(?:for example|for instance|e\.g\.)\s*:?\s*([^)?.\n]+)/i
+  );
+  if (!match?.[1]) return [];
+
+  return match[1]
+    .split(/,|\/|\bor\b|\band\b/gi)
+    .map((token) => token.trim().replace(/["']/g, ''))
+    .filter((token) => token.length > 1);
+}
+
+function isInclusiveDiscoveryAnswer(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+
+  if (
+    includesAny(normalized, [
+      'all of the above',
+      'all of it',
+      'all of those',
+      'all of them',
+      'everything',
+      'all metrics',
+      'all areas',
+      'full scope',
+      'all categories',
+    ])
+  ) {
+    return true;
+  }
+
+  return /^all(?:\s+of\s+(?:it|that|them|those))?[.!]?$/.test(normalized);
 }
 
 function extractRecentUserMessages(history: CreatorMessage[] | undefined): string[] {
@@ -772,10 +922,152 @@ function isOutcomeCriticalDiscoveryQuestion(question: DiscoveryQuestion): boolea
   return true;
 }
 
+function isExecutionCriticalDiscoveryQuestion(question: DiscoveryQuestion): boolean {
+  const text = `${question.id} ${question.label} ${question.description}`.toLowerCase();
+  return includesAny(text, [
+    'activity data source',
+    'data source',
+    'database source',
+    'db source',
+    'source system',
+    'signup signal',
+    'table',
+    'field',
+    'column',
+    'api endpoint',
+    'endpoint',
+    'mcp source',
+    'mcp server',
+    'mcp tool',
+    'mcp resource',
+  ]);
+}
+
+function hasAssumptionConsent(params: {
+  userMessage: string;
+  answerHistory: string[];
+}): boolean {
+  const transcript = [params.userMessage, ...params.answerHistory.slice(-3)]
+    .join('\n')
+    .toLowerCase();
+
+  return includesAny(transcript, [
+    'continue with defaults',
+    'use defaults',
+    'safe defaults',
+    'best-practice defaults',
+    'best practice defaults',
+    'use default guidance',
+    'you decide',
+    'you choose',
+    'pick the best option',
+    'assume',
+    'not sure, use default guidance',
+    'for unanswered fields, use safe defaults',
+  ]);
+}
+
+function buildDiscoveryAssumption(params: {
+  question: DiscoveryQuestion;
+  workspaceConnections: DiscoveryConnectionContext[];
+}): DiscoveryAssumption | null {
+  const text = `${params.question.id} ${params.question.label} ${params.question.description}`.toLowerCase();
+
+  if (includesAny(text, ['database source', 'db source', 'activity data source', 'source system'])) {
+    const connectedDatabases = params.workspaceConnections.filter(
+      (connection) =>
+        (connection.type === 'postgres' || connection.type === 'mysql') &&
+        connection.status === 'connected'
+    );
+    const defaultDatabase = connectedDatabases.find((connection) => connection.isDefault);
+
+    if (connectedDatabases.length === 1) {
+      return {
+        id: params.question.id,
+        label: params.question.label,
+        value: `Use "${connectedDatabases[0]!.name}" as the primary data source.`,
+        confidence: 'high',
+      };
+    }
+
+    if (defaultDatabase) {
+      return {
+        id: params.question.id,
+        label: params.question.label,
+        value: `Use default source "${defaultDatabase.name}" for the initial build.`,
+        confidence: 'medium',
+        requiresConfirmation: true,
+      };
+    }
+
+    return null;
+  }
+
+  if (includesAny(text, ['trigger mode', 'polling', 'schedule', 'cadence'])) {
+    return {
+      id: params.question.id,
+      label: params.question.label,
+      value: 'Start with a safe scheduled trigger cadence and refine in Connections.',
+      confidence: 'medium',
+      requiresConfirmation: true,
+    };
+  }
+
+  if (includesAny(text, ['output destination', 'destination', 'alerts go', 'audience'])) {
+    return {
+      id: params.question.id,
+      label: params.question.label,
+      value: 'Deliver results via in-app notifications until a destination is configured.',
+      confidence: 'medium',
+      requiresConfirmation: true,
+    };
+  }
+
+  if (includesAny(text, ['status update focus', 'weekly update focus', 'which metrics'])) {
+    return {
+      id: params.question.id,
+      label: params.question.label,
+      value: 'Draft updates using headline metrics (volume, trend, anomalies) by default.',
+      confidence: 'low',
+      requiresConfirmation: true,
+    };
+  }
+
+  return null;
+}
+
+function computeDiscoveryRunnableConfidence(params: {
+  hardBlockers: DiscoveryQuestion[];
+  softBlockers: DiscoveryQuestion[];
+  assumptions: DiscoveryAssumption[];
+  hasAssumptionConsent: boolean;
+}): number {
+  if (params.hardBlockers.length > 0) {
+    return 0.2;
+  }
+
+  if (params.softBlockers.length === 0) {
+    return 0.95;
+  }
+
+  const assumptionCoverage =
+    params.assumptions.length / Math.max(params.softBlockers.length, 1);
+
+  if (assumptionCoverage >= 1) {
+    return params.hasAssumptionConsent ? 0.84 : 0.78;
+  }
+
+  if (assumptionCoverage >= 0.5) {
+    return 0.72;
+  }
+
+  return 0.64;
+}
+
 function isDiscoveryQuestionAnsweredByFreeform(params: {
   question: DiscoveryQuestion;
   text: string;
-  workspaceConnections: Array<{ name: string }>;
+  workspaceConnections: DiscoveryConnectionContext[];
 }): boolean {
   const { question, text, workspaceConnections } = params;
   const normalizedText = text.trim().toLowerCase();
@@ -878,11 +1170,13 @@ function isDiscoveryQuestionAnsweredByFreeform(params: {
     'mau',
     'revenue',
     'errors',
-    'incidents',
-    'uptime',
-    'latency',
+      'incidents',
+      'uptime',
+      'latency',
   ]) ||
     /\b[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\b/.test(normalizedText);
+  const hasInclusiveAnswer = isInclusiveDiscoveryAnswer(normalizedText);
+  const questionExamples = extractDiscoveryQuestionExamples(question);
 
   if (isOutcomeCriticalDiscoveryQuestion(question)) {
     const hasExplicitAssignment = /\b(?:policy|rule|behavior|outcome)\s*(?:is|=|:)\b/.test(
@@ -932,7 +1226,7 @@ function isDiscoveryQuestionAnsweredByFreeform(params: {
   }
 
   if (includesAny(questionText, ['status update focus', 'weekly update focus', 'which metrics'])) {
-    return hasMetricFocusSignal;
+    return hasMetricFocusSignal || (hasInclusiveAnswer && questionExamples.length > 0);
   }
 
   const questionTokens = new Set(tokenizeDiscoveryText(questionText));
@@ -949,11 +1243,53 @@ function isDiscoveryQuestionAnsweredByFreeform(params: {
   return overlap >= 2 && messageTokens.length >= 5;
 }
 
+function isSameDiscoveryQuestion(a: DiscoveryQuestion, b: DiscoveryQuestion): boolean {
+  const aId = normalizeDiscoveryToken(a.id);
+  const bId = normalizeDiscoveryToken(b.id);
+  const aLabel = normalizeDiscoveryToken(a.label);
+  const bLabel = normalizeDiscoveryToken(b.label);
+
+  return aId === bId || (aLabel.length > 0 && aLabel === bLabel);
+}
+
+function buildDiscoveryClarificationMessage(params: {
+  question: DiscoveryQuestion;
+  userMessage: string;
+}): string {
+  const normalizedReply = params.userMessage
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/["']/g, '')
+    .slice(0, 120);
+  const questionText = `${params.question.id} ${params.question.label} ${params.question.description}`.toLowerCase();
+  const examples = extractDiscoveryQuestionExamples(params.question).slice(0, 5);
+
+  if (includesAny(questionText, ['status update focus', 'weekly update focus', 'which metrics'])) {
+    const examplesText = examples.length > 0 ? examples.join(', ') : 'the core metrics';
+    return [
+      `Got it. When you said "${normalizedReply}", should I include ${examplesText}?`,
+      'If yes, reply "yes include all". You can also name a smaller set.',
+    ].join('\n\n');
+  }
+
+  if (includesAny(questionText, ['data source', 'database source', 'source system'])) {
+    return [
+      `Thanks. I want to lock this in correctly.`,
+      `For **${params.question.label}**, ${params.question.description}`,
+    ].join('\n\n');
+  }
+
+  return [
+    `Thanks, I want to make sure I interpret this correctly.`,
+    `For **${params.question.label}**, ${params.question.description}`,
+  ].join('\n\n');
+}
+
 function filterAnsweredDiscoveryQuestions(params: {
   questions: DiscoveryQuestion[];
   userMessage: string;
   answerHistory?: string[];
-  workspaceConnections: Array<{ name: string }>;
+  workspaceConnections: DiscoveryConnectionContext[];
 }): { remaining: DiscoveryQuestion[]; answered: DiscoveryQuestion[] } {
   const answerHistory = params.answerHistory ?? [];
   const labeledAnswers = [params.userMessage, ...answerHistory]
@@ -992,9 +1328,13 @@ function mergeDiscoveryAssessments(params: {
   prior: DiscoveryHistorySnapshot | null;
   userMessage: string;
   answerHistory: string[];
-  workspaceConnections: Array<{ name: string }>;
+  workspaceConnections: DiscoveryConnectionContext[];
 }): DiscoveryAssessment {
   const { ai, deterministic, prior, userMessage, answerHistory, workspaceConnections } = params;
+  const hasDefaultsConsent = hasAssumptionConsent({
+    userMessage,
+    answerHistory,
+  });
 
   const contextNotes = [...ai.contextNotes, ...deterministic.contextNotes];
   const mergedQuestions = dedupeDiscoveryQuestions([
@@ -1038,7 +1378,7 @@ function mergeDiscoveryAssessments(params: {
   let finalOptionalLater = optionalResolution.remaining;
   const exploratoryPrompt = isExploratoryCreatorPrompt(userMessage);
 
-  if (exploratoryPrompt && finalRequiredNow.length > 0) {
+  if (exploratoryPrompt && finalRequiredNow.length > 0 && !(prior && prior.requiredNow.length > 0)) {
     finalOptionalLater = dedupeDiscoveryQuestions([
       ...finalOptionalLater,
       ...finalRequiredNow.map((question) => ({
@@ -1065,31 +1405,149 @@ function mergeDiscoveryAssessments(params: {
         .join(', ')}.`
     );
   }
+  if (hasDefaultsConsent) {
+    contextNotes.push(
+      'User granted consent to proceed with safe defaults for unresolved non-critical discovery details.'
+    );
+  }
 
-  const shouldBlock = finalRequiredNow.length > 0;
+  const hardBlockers: DiscoveryQuestion[] = [];
+  const softBlockers: DiscoveryQuestion[] = [];
+  const assumptions: DiscoveryAssumption[] = [];
+
+  for (const question of finalRequiredNow) {
+    const assumption = buildDiscoveryAssumption({
+      question,
+      workspaceConnections,
+    });
+    const isHardCategory =
+      isOutcomeCriticalDiscoveryQuestion(question) ||
+      isExecutionCriticalDiscoveryQuestion(question);
+
+    if (isHardCategory) {
+      const canProceedWithAssumption =
+        Boolean(assumption) &&
+        (assumption?.confidence === 'high' || hasDefaultsConsent);
+      if (canProceedWithAssumption && assumption) {
+        softBlockers.push({
+          ...question,
+          requiredNow: false,
+        });
+        assumptions.push(assumption);
+        continue;
+      }
+      hardBlockers.push({
+        ...question,
+        requiredNow: true,
+      });
+      continue;
+    }
+
+    softBlockers.push({
+      ...question,
+      requiredNow: false,
+    });
+    if (assumption) {
+      assumptions.push(assumption);
+    }
+  }
+
+  if (assumptions.length > 0) {
+    contextNotes.push(
+      `Proceeding with assumptions: ${assumptions
+        .map((assumption) => `${assumption.label} -> ${assumption.value}`)
+        .join('; ')}.`
+    );
+  }
+
+  const shouldBlock = hardBlockers.length > 0;
+  const blockMode: DiscoveryAssessment['blockMode'] = shouldBlock
+    ? 'hard'
+    : softBlockers.length > 0
+      ? 'soft'
+      : 'none';
+  const runnableConfidence = computeDiscoveryRunnableConfidence({
+    hardBlockers,
+    softBlockers,
+    assumptions,
+    hasAssumptionConsent: hasDefaultsConsent,
+  });
+
+  const optionalDiscoveryQuestions = dedupeDiscoveryQuestions([
+    ...finalOptionalLater,
+    ...softBlockers,
+  ]);
+  const focusedHardBlockers = hardBlockers.slice(0, 1);
+  const focusedOptionalQuestions = optionalDiscoveryQuestions.slice(0, 3);
+  const hiddenHardBlockerCount = Math.max(0, hardBlockers.length - focusedHardBlockers.length);
+  const hiddenOptionalCount = Math.max(
+    0,
+    optionalDiscoveryQuestions.length - focusedOptionalQuestions.length
+  );
+  if (hiddenHardBlockerCount > 0) {
+    contextNotes.push(
+      `Queued ${hiddenHardBlockerCount} additional required discovery detail${hiddenHardBlockerCount === 1 ? '' : 's'} for subsequent turns.`
+    );
+  }
+  if (hiddenOptionalCount > 0) {
+    contextNotes.push(
+      `Deferred ${hiddenOptionalCount} optional setup detail${hiddenOptionalCount === 1 ? '' : 's'} for later refinement.`
+    );
+  }
   const preface = exploratoryPrompt
     ? 'I can guide the approach now and generate the runnable design when you say proceed.'
-    : ai.message?.trim() ||
-    deterministic.message?.trim() ||
-    (shouldBlock
-      ? 'I reviewed your request and identified the minimum required details before generation.'
-      : undefined);
+    : shouldBlock
+      ? undefined
+      : softBlockers.length > 0
+        ? 'I can proceed now with safe defaults for remaining setup details.'
+        : 'Great, I have enough to generate the first runnable design.';
+
+  const previousPrimaryQuestion = prior?.requiredNow[0];
+  const currentPrimaryQuestion = focusedHardBlockers[0];
+  const unresolvedPrimaryRepeated = Boolean(
+    previousPrimaryQuestion &&
+      currentPrimaryQuestion &&
+      isSameDiscoveryQuestion(previousPrimaryQuestion, currentPrimaryQuestion) &&
+      resolvedQuestions.length === 0 &&
+      !isLikelyAcknowledgementReply(userMessage)
+  );
+  const aiSuggestedMessage = normalizeDiscoveryAssistantMessage(ai.message);
+  const clarificationMessage = unresolvedPrimaryRepeated && currentPrimaryQuestion
+    ? buildDiscoveryClarificationMessage({
+        question: currentPrimaryQuestion,
+        userMessage,
+      })
+    : undefined;
+
+  if (clarificationMessage) {
+    contextNotes.push(
+      'Adjusted to a clarifying follow-up instead of repeating the same discovery question.'
+    );
+  }
 
   const questions = dedupeDiscoveryQuestions([
-    ...finalRequiredNow,
-    ...finalOptionalLater,
+    ...focusedHardBlockers,
+    ...focusedOptionalQuestions,
   ]);
 
   return {
     shouldBlock,
+    blockMode,
     message: shouldBlock
-      ? buildDiscoveryMessage({
-          requiredNow: finalRequiredNow,
-          optionalLater: finalOptionalLater,
+      ? clarificationMessage ??
+        aiSuggestedMessage ??
+        buildDiscoveryMessage({
+          requiredNow: focusedHardBlockers,
+          optionalLater: focusedOptionalQuestions,
           preface,
         })
       : preface,
     questions,
+    hardBlockers: focusedHardBlockers,
+    softBlockers: focusedOptionalQuestions,
+    assumptions,
+    runnableConfidence,
+    hasAssumptionConsent: hasDefaultsConsent,
     contextNotes: [...new Set(contextNotes.filter(Boolean))],
   };
 }
@@ -1545,7 +2003,13 @@ function assessDiscoveryNeeds(
   if (normalizedQuestions.length === 0) {
     return {
       shouldBlock: false,
+      blockMode: 'none',
       questions: [],
+      hardBlockers: [],
+      softBlockers: [],
+      assumptions: [],
+      runnableConfidence: 0.95,
+      hasAssumptionConsent: false,
       contextNotes,
     };
   }
@@ -1560,15 +2024,27 @@ function assessDiscoveryNeeds(
   if (requiredNow.length === 0) {
     return {
       shouldBlock: false,
+      blockMode: optionalLater.length > 0 ? 'soft' : 'none',
       questions: normalizedQuestions,
+      hardBlockers: [],
+      softBlockers: optionalLater,
+      assumptions: [],
+      runnableConfidence: optionalLater.length > 0 ? 0.82 : 0.95,
+      hasAssumptionConsent: false,
       contextNotes,
     };
   }
 
   return {
     shouldBlock: requiredNow.length > 0,
+    blockMode: 'hard',
     message: buildDiscoveryMessage({ requiredNow, optionalLater }),
     questions: normalizedQuestions,
+    hardBlockers: requiredNow,
+    softBlockers: optionalLater,
+    assumptions: [],
+    runnableConfidence: 0.2,
+    hasAssumptionConsent: false,
     contextNotes,
   };
 }
@@ -1585,6 +2061,8 @@ export interface CreatorBotOptions {
   context: GeneratorContext;
   /** Previous conversation messages for continuity */
   conversationHistory?: CreatorMessage[];
+  /** Optional callback for streaming progress updates */
+  onProgress?: (event: CreatorProgressEvent) => void;
 }
 
 // ============================================================================
@@ -1601,15 +2079,25 @@ function formatExistingBaleybots(
     return '';
   }
 
+  const visibleBaleybots = baleybots.slice(0, CREATOR_CONTEXT_MAX_EXISTING_BBS);
+  const hiddenCount = Math.max(0, baleybots.length - visibleBaleybots.length);
+
   const lines = [
     '',
     '## Existing BaleyBots in This Workspace',
-    'You can reference these when building new BaleyBots:',
+    'Reference these when reusing patterns or integrating with existing workflows:',
     '',
   ];
 
-  for (const bb of baleybots) {
-    lines.push(`- **${bb.name}** (${bb.id}): ${bb.description || 'No description'}`);
+  for (const bb of visibleBaleybots) {
+    const description = bb.description
+      ? truncateCompactText(bb.description, 120)
+      : 'No description';
+    lines.push(`- **${bb.name}**: ${description}`);
+  }
+
+  if (hiddenCount > 0) {
+    lines.push(`- +${hiddenCount} more existing BaleyBots omitted for brevity`);
   }
 
   return lines.join('\n');
@@ -1623,11 +2111,24 @@ function formatConversationHistory(messages: CreatorMessage[]): string {
     return '';
   }
 
+  const visibleMessages = messages.slice(-CREATOR_CONTEXT_MAX_HISTORY_MESSAGES);
+  const hiddenCount = Math.max(0, messages.length - visibleMessages.length);
   const lines = ['', '## Previous Conversation', ''];
 
-  for (const msg of messages) {
+  if (hiddenCount > 0) {
+    lines.push(
+      `(Only most recent ${visibleMessages.length} turns included for speed; ${hiddenCount} earlier turns omitted.)`
+    );
+    lines.push('');
+  }
+
+  for (const msg of visibleMessages) {
     const role = msg.role === 'user' ? 'User' : 'Assistant';
-    lines.push(`${role}: ${sanitizeCreatorText(msg.content)}`);
+    const compactContent = truncateCompactText(
+      sanitizeCreatorText(msg.content),
+      CREATOR_CONTEXT_MAX_HISTORY_CHARS
+    );
+    lines.push(`${role}: ${compactContent}`);
     lines.push('');
   }
 
@@ -1669,7 +2170,11 @@ function buildCreatorContext(options: CreatorBotOptions, additionalContext?: str
     includeConnectionTools: databaseConnections.length > 0,
     databaseConnections,
   });
-  lines.push(formatToolCatalogForCreatorBot(fullCatalog));
+  lines.push(
+    formatToolCatalogForCreatorBotCompact(fullCatalog, {
+      maxPerSection: 10,
+    })
+  );
 
   // Add existing BaleyBots
   const existingBBText = formatExistingBaleybots(context.existingBaleybots);
@@ -1684,7 +2189,11 @@ function buildCreatorContext(options: CreatorBotOptions, additionalContext?: str
   }
 
   if (additionalContext?.trim()) {
-    lines.push('', '## Current Discovery Context', additionalContext.trim());
+    lines.push(
+      '',
+      '## Current Discovery Context',
+      truncateCompactText(additionalContext.trim(), CREATOR_CONTEXT_MAX_ADDITIONAL_CHARS)
+    );
   }
 
   return lines.join('\n');
@@ -1728,21 +2237,111 @@ function inferBalSkillHints(transcript: string): string[] {
 }
 
 function buildDiscoveryContext(options: CreatorBotOptions): string {
-  const connectionsSummary = options.context.connections.length > 0
-    ? options.context.connections
-        .map((conn) => `${conn.name} (${conn.type}, ${conn.status})`)
-        .join('; ')
-    : 'No workspace connections found.';
+  const connectedServices = options.context.connections
+    .filter((conn) => conn.status === 'connected')
+    .slice(0, 16)
+    .map((conn) => `${conn.name} (${conn.type})`);
+  const connectedSummary =
+    connectedServices.length > 0
+      ? connectedServices.join(', ')
+      : 'No connected services yet.';
+
+  const availableToolNames = options.context.availableTools
+    .map((tool) => tool.name)
+    .filter(Boolean);
+  const visibleToolNames = availableToolNames.slice(
+    0,
+    CREATOR_DISCOVERY_MAX_TOOL_NAMES
+  );
+  const hiddenToolCount = Math.max(
+    0,
+    availableToolNames.length - visibleToolNames.length
+  );
+
+  const existingNames = options.context.existingBaleybots
+    .slice(0, CREATOR_DISCOVERY_MAX_EXISTING_BBS)
+    .map((bb) => bb.name);
+  const hiddenExistingCount = Math.max(
+    0,
+    options.context.existingBaleybots.length - existingNames.length
+  );
+
+  const recentUserTurns = extractRecentUserMessages(options.conversationHistory)
+    .slice(-CREATOR_DISCOVERY_MAX_RECENT_USER_TURNS)
+    .map((message, index) =>
+      `${index + 1}. ${truncateCompactText(
+        message,
+        CREATOR_DISCOVERY_MAX_RECENT_USER_CHARS
+      )}`
+    );
 
   return [
-    buildCreatorContext(options),
+    '## Discovery Agent Context',
+    `Workspace: ${options.context.workspaceId}`,
+    `Connected services: ${connectedSummary}`,
+    visibleToolNames.length > 0
+      ? `Available tools: ${visibleToolNames.join(', ')}${hiddenToolCount > 0 ? ` (+${hiddenToolCount} more)` : ''}`
+      : 'Available tools: none',
+    existingNames.length > 0
+      ? `Existing BaleyBots: ${existingNames.join(', ')}${hiddenExistingCount > 0 ? ` (+${hiddenExistingCount} more)` : ''}`
+      : 'Existing BaleyBots: none',
+    recentUserTurns.length > 0
+      ? `Recent user turns:\n${recentUserTurns.join('\n')}`
+      : 'Recent user turns: none',
     '',
     '## Discovery Task',
     'Only decide whether we have enough information to generate a runnable first version.',
+    'Delegate detailed design to creator_bot. Do not generate entities/BAL in this step.',
     'Use progressive disclosure: identify which details are required now versus can be configured later.',
-    '',
-    `Workspace connections: ${connectionsSummary}`,
   ].join('\n');
+}
+
+function buildDiscoveryInputPrompt(
+  options: CreatorBotOptions,
+  userMessage: string
+): string {
+  const latestDiscovery = extractLatestDiscoverySnapshot(options.conversationHistory);
+  const unresolvedRequired = latestDiscovery?.requiredNow ?? [];
+  const unresolvedOptional = latestDiscovery?.optionalLater ?? [];
+  const recentUserMessages = extractRecentUserMessages(options.conversationHistory)
+    .slice(-3)
+    .map((message, index) => `${index + 1}. ${message}`)
+    .join('\n');
+
+  const lines: string[] = [
+    `Latest user message: ${userMessage}`,
+  ];
+
+  if (unresolvedRequired.length > 0 || unresolvedOptional.length > 0) {
+    lines.push(
+      '',
+      'Current discovery state from previous turn:',
+      unresolvedRequired.length > 0
+        ? `Required unresolved: ${unresolvedRequired
+            .map((question) => `${question.label} (${question.id})`)
+            .join('; ')}`
+        : 'Required unresolved: none',
+      unresolvedOptional.length > 0
+        ? `Optional unresolved: ${unresolvedOptional
+            .map((question) => `${question.label} (${question.id})`)
+            .join('; ')}`
+        : 'Optional unresolved: none'
+    );
+  }
+
+  if (recentUserMessages.length > 0) {
+    lines.push('', 'Recent user turns:', recentUserMessages);
+  }
+
+  lines.push(
+    '',
+    'Instructions:',
+    '- Resolve any question the user already answered implicitly or explicitly.',
+    '- If clarification is needed, ask a short conversational follow-up (do not repeat verbatim).',
+    '- Ask only one focused next question in the message.'
+  );
+
+  return lines.join('\n');
 }
 
 async function assessDiscoveryNeedsWithInternalBB(
@@ -1750,11 +2349,27 @@ async function assessDiscoveryNeedsWithInternalBB(
   userMessage: string
 ): Promise<DiscoveryAssessment> {
   try {
-    const parsed = await runCreatorDiscovery(userMessage, {
-      userWorkspaceId: options.context.workspaceId,
-      context: buildDiscoveryContext(options),
-      triggeredBy: 'internal',
+    emitCreatorProgress(options, {
+      phase: 'discovery',
+      message: 'Reviewing discovery requirements',
+      highlightType: 'status',
     });
+    const parsed = await runCreatorDiscovery(
+      buildDiscoveryInputPrompt(options, userMessage),
+      {
+        userWorkspaceId: options.context.workspaceId,
+        context: buildDiscoveryContext(options),
+        triggeredBy: 'internal',
+        onSegment: (segment) => {
+          const normalized = toProgressEventFromSegment(segment);
+          if (!normalized) return;
+          emitCreatorProgress(options, {
+            phase: 'discovery',
+            ...normalized,
+          });
+        },
+      }
+    );
 
     const normalizedQuestions = dedupeDiscoveryQuestions(parsed.questions);
     const requiredNow = normalizedQuestions.filter(
@@ -1764,24 +2379,93 @@ async function assessDiscoveryNeedsWithInternalBB(
       (question) => question.requiredNow === false
     );
     const shouldBlock = parsed.needsMoreInfo || requiredNow.length > 0;
+    const discoveryMessage = normalizeDiscoveryAssistantMessage(parsed.message);
+    emitCreatorProgress(options, {
+      phase: 'discovery',
+      message: shouldBlock
+        ? 'Discovery needs one more required detail'
+        : 'Discovery complete',
+      highlight:
+        requiredNow[0]?.label ??
+        optionalLater[0]?.label ??
+        parsed.contextNotes[0] ??
+        undefined,
+      highlightType: shouldBlock ? 'status' : 'loop',
+    });
 
     return {
       shouldBlock,
-      message: shouldBlock
+      blockMode: shouldBlock ? 'hard' : optionalLater.length > 0 ? 'soft' : 'none',
+      message: discoveryMessage ?? (shouldBlock
         ? buildDiscoveryMessage({
             requiredNow,
             optionalLater,
-            preface: parsed.message,
           })
-        : parsed.message,
+        : undefined),
       questions: normalizedQuestions,
+      hardBlockers: requiredNow,
+      softBlockers: optionalLater,
+      assumptions: [],
+      runnableConfidence: shouldBlock ? 0.2 : optionalLater.length > 0 ? 0.82 : 0.95,
+      hasAssumptionConsent: false,
       contextNotes: parsed.contextNotes,
     };
   } catch (error) {
-    logger.warn('creator_discovery failed, using deterministic fallback', {
+    logger.warn('creator_discovery failed, using conversational fallback', {
       error: error instanceof Error ? error.message : String(error),
     });
-    return assessDiscoveryNeeds(options, userMessage);
+    emitCreatorProgress(options, {
+      phase: 'recovery',
+      message: 'Discovery analyzer failed, switching to deterministic fallback',
+      highlight: error instanceof Error ? error.message : String(error),
+      highlightType: 'status',
+    });
+    const answerHistory = extractRecentUserMessages(options.conversationHistory);
+    const priorDiscovery = extractLatestDiscoverySnapshot(options.conversationHistory);
+    const deterministic = assessDiscoveryNeeds(options, userMessage);
+    const seededAiLikeFallback: DiscoveryAssessment = {
+      shouldBlock: false,
+      blockMode: 'none',
+      message: undefined,
+      questions: [],
+      hardBlockers: [],
+      softBlockers: [],
+      assumptions: [],
+      runnableConfidence: 0.65,
+      hasAssumptionConsent: false,
+      contextNotes: [
+        'Fallback discovery mode activated due temporary analyzer failure.',
+      ],
+    };
+
+    const mergedFallback = mergeDiscoveryAssessments({
+      ai: seededAiLikeFallback,
+      deterministic,
+      prior: priorDiscovery,
+      userMessage,
+      answerHistory,
+      workspaceConnections: options.context.connections.map((connection) => ({
+        name: connection.name,
+        type: connection.type,
+        status: connection.status,
+        isDefault: connection.isDefault,
+      })),
+    });
+
+    const fallbackMessage = mergedFallback.shouldBlock
+      ? buildDiscoveryMessage({
+          requiredNow: mergedFallback.hardBlockers,
+          optionalLater: mergedFallback.softBlockers,
+          preface:
+            'I hit a temporary analysis issue, but we can keep moving with one focused question.',
+        })
+      : mergedFallback.message ??
+        'I can proceed now, or ask one clarifying question if you want a tighter first draft.';
+
+    return {
+      ...mergedFallback,
+      message: fallbackMessage,
+    };
   }
 }
 
@@ -1798,10 +2482,18 @@ export async function processCreatorMessage(
   userMessage: string
 ): Promise<CreatorOutput> {
   const sanitizedUserMessage = sanitizeCreatorText(userMessage);
+  emitCreatorProgress(options, {
+    phase: 'discovery',
+    message: 'Understanding your request',
+    highlightType: 'status',
+  });
   const exploratoryPrompt = isExploratoryCreatorPrompt(sanitizedUserMessage);
   const priorDiscovery = extractLatestDiscoverySnapshot(options.conversationHistory);
   const answerHistory = extractRecentUserMessages(options.conversationHistory);
-  const aiDiscovery = await assessDiscoveryNeedsWithInternalBB(options, sanitizedUserMessage);
+  const aiDiscovery = await assessDiscoveryNeedsWithInternalBB(
+    options,
+    sanitizedUserMessage
+  );
   const deterministicDiscovery = assessDiscoveryNeeds(options, sanitizedUserMessage);
   const discovery = mergeDiscoveryAssessments({
     ai: aiDiscovery,
@@ -1811,16 +2503,27 @@ export async function processCreatorMessage(
     answerHistory,
     workspaceConnections: options.context.connections.map((connection) => ({
       name: connection.name,
+      type: connection.type,
+      status: connection.status,
+      isDefault: connection.isDefault,
     })),
+  });
+  emitCreatorProgress(options, {
+    phase: 'discovery',
+    message: discovery.shouldBlock
+      ? 'Need one focused detail before generation'
+      : 'Discovery complete, preparing generation',
+    highlight:
+      discovery.hardBlockers[0]?.label ??
+      discovery.softBlockers[0]?.label ??
+      discovery.contextNotes[0] ??
+      undefined,
+    highlightType: 'status',
   });
 
   if (discovery.shouldBlock) {
-    const requiredNow = discovery.questions.filter(
-      (question) => question.requiredNow !== false
-    );
-    const optionalLater = discovery.questions.filter(
-      (question) => question.requiredNow === false
-    );
+    const requiredNow = discovery.hardBlockers;
+    const optionalLater = discovery.softBlockers;
     const iteration = Math.max(1, (priorDiscovery?.iteration ?? 0) + 1);
     const discoveryPrompt =
       discovery.message ??
@@ -1828,24 +2531,31 @@ export async function processCreatorMessage(
         requiredNow,
         optionalLater,
       });
-
-    const stageSummary = buildStageSummary({
+    const promptMessage = discoveryPrompt.trim();
+    const discoveryThinking = buildStageSummary({
       whatIDid:
         iteration > 1
           ? 'Re-evaluated your latest reply and checked what is still required for a runnable build.'
           : 'Reviewed your request and checked workspace context, tools, and required setup details.',
-      currentStage: `Discovery (Round ${iteration})`,
+      currentStage: `Ideation (Round ${iteration})`,
       nextStage: 'Design Generation',
       nextAction:
         requiredNow.length > 0
-          ? 'Answer the required questions and I will generate BAL + visual design.'
-          : 'I can proceed to generation now, with optional details handled later.',
+          ? 'Answer the required question and I will generate BAL + visual design.'
+          : 'I can proceed to generation now.',
+    });
+    emitCreatorProgress(options, {
+      phase: 'complete',
+      message: 'Waiting for your next detail',
+      highlight:
+        requiredNow[0]?.label ??
+        optionalLater[0]?.label ??
+        undefined,
+      highlightType: 'status',
     });
 
-    const promptMessage = `${stageSummary}\n\n${discoveryPrompt}`.trim();
-
     return {
-      thinking: promptMessage,
+      thinking: discoveryThinking,
       message: promptMessage,
       questions: discovery.questions,
       entities: [],
@@ -1855,6 +2565,9 @@ export async function processCreatorMessage(
       description: 'Collecting required setup details before final generation.',
       icon: '🧭',
       status: 'building',
+      assumptions: discovery.assumptions,
+      runnableConfidence: discovery.runnableConfidence,
+      blockMode: discovery.blockMode,
     };
   }
 
@@ -1868,10 +2581,20 @@ export async function processCreatorMessage(
           ]
         : []),
       ...discovery.contextNotes.map((note) => `- ${note}`),
+      ...discovery.assumptions.map(
+        (assumption) =>
+          `- Assumption (${assumption.confidence} confidence): ${assumption.label} -> ${assumption.value}`
+      ),
+      `- Runnable confidence for current scope: ${Math.round(discovery.runnableConfidence * 100)}%.`,
       ...skillHints.map((hint) => `- ${hint}`),
     ];
     return contextLines.length > 0 ? contextLines.join('\n') : undefined;
   })());
+  emitCreatorProgress(options, {
+    phase: 'orchestration',
+    message: 'Starting generation loop',
+    highlightType: 'loop',
+  });
   const loopResult = await runInternalOrchestrationLoop<CreatorLoopState, CreatorCycleResult>({
     kind: 'creator',
     policy: {
@@ -1884,6 +2607,15 @@ export async function processCreatorMessage(
       attempts: 0,
     },
     runCycle: async ({ cycleIndex, state }) => {
+      emitCreatorProgress(options, {
+        phase: 'orchestration',
+        message: `Running generation cycle ${cycleIndex}`,
+        highlight: cycleIndex === 1
+          ? 'Drafting first runnable version'
+          : 'Repairing and validating draft output',
+        highlightType: 'loop',
+        cycle: cycleIndex,
+      });
       const prompt = cycleIndex === 1
         ? sanitizedUserMessage
         : buildCreatorRepairPrompt({
@@ -1893,15 +2625,22 @@ export async function processCreatorMessage(
             lastRawPreview: state.lastRawPreview,
           });
 
-      const { output } = await executeInternalBaleybot(
-        'creator_bot',
-        prompt,
-        {
-          userWorkspaceId: options.context.workspaceId,
-          context,
-          triggeredBy: 'internal',
-        }
-      );
+      const output = await runCreatorBot(prompt, {
+        userWorkspaceId: options.context.workspaceId,
+        context,
+        triggeredBy: 'internal',
+        // Keep one inline repair on first draft, then let orchestration loop drive retries.
+        repairAttempts: cycleIndex === 1 ? 1 : 0,
+        onSegment: (segment) => {
+          const normalized = toProgressEventFromSegment(segment);
+          if (!normalized) return;
+          emitCreatorProgress(options, {
+            phase: 'generation',
+            ...normalized,
+            cycle: cycleIndex,
+          });
+        },
+      });
 
       return {
         prompt,
@@ -1913,6 +2652,7 @@ export async function processCreatorMessage(
       bestOutput: result.validation.success ? result.validation.output : state.bestOutput,
       lastError: result.validation.errorMessage,
       lastRawPreview: result.validation.rawPreview,
+      lastCycleError: undefined,
     }),
     isSuccess: (_state, result) => result.validation.success,
     getCycleSignature: (_state, result) => result.validation.signature,
@@ -1922,11 +2662,24 @@ export async function processCreatorMessage(
       }
       return 0;
     },
-    onCycleError: ({ error }) => {
+    onCycleError: ({ error, state }) => {
+      const cycleError = error instanceof Error ? error.message : String(error);
       logger.error('Creator orchestration cycle failed', {
-        error: error instanceof Error ? error.message : String(error),
+        error: cycleError,
+      });
+      emitCreatorProgress(options, {
+        phase: 'recovery',
+        message: 'Cycle failed, attempting safe retry',
+        highlight: cycleError,
+        highlightType: 'status',
       });
       return {
+        nextState: {
+          ...state,
+          lastError: cycleError,
+          lastRawPreview: cycleError.slice(0, 600),
+          lastCycleError: cycleError,
+        },
         continueLoop: true,
       };
     },
@@ -1938,12 +2691,21 @@ export async function processCreatorMessage(
     if (bestOutput.status === 'building') {
       const fallbackMessage =
         'I can guide this step-by-step. Share the outcome you want first, and I will drive the process from there.';
+      emitCreatorProgress(options, {
+        phase: 'complete',
+        message: 'Generation paused for clarification',
+        highlight: bestOutput.message || fallbackMessage,
+        highlightType: 'status',
+      });
       return {
         ...bestOutput,
         entities: [],
         connections: [],
         balCode: '',
         message: bestOutput.message?.trim() || bestOutput.thinking?.trim() || fallbackMessage,
+        assumptions: discovery.assumptions,
+        runnableConfidence: discovery.runnableConfidence,
+        blockMode: discovery.blockMode,
       };
     }
 
@@ -1953,22 +2715,119 @@ export async function processCreatorMessage(
         stopReason: loopResult.stopReason,
       });
     }
-    return enrichGeneratedOutputNarrative(
-      bestOutput,
-      options,
-      loopResult.cycles.length
-    );
+    emitCreatorProgress(options, {
+      phase: 'complete',
+      message: 'Generation complete',
+      highlight:
+        loopResult.cycles.length > 1
+          ? `Recovered after ${loopResult.cycles.length} cycles`
+          : 'Built in a single cycle',
+      highlightType: 'status',
+    });
+    return {
+      ...enrichGeneratedOutputNarrative(
+        bestOutput,
+        options,
+        loopResult.cycles.length
+      ),
+      assumptions: discovery.assumptions.length > 0 ? discovery.assumptions : undefined,
+      runnableConfidence: discovery.runnableConfidence,
+      blockMode: discovery.blockMode,
+    };
   }
+
+  const lastCycleError = loopResult.finalState.lastCycleError?.trim();
+  const hasProviderError = Boolean(
+    lastCycleError &&
+      /provider|api key|connection|credential/i.test(lastCycleError)
+  );
+  const hasContractDriftError = Boolean(
+    lastCycleError &&
+      /response validation failed|schema|json/i.test(lastCycleError)
+  );
 
   logger.error('Creator bot output validation failed after orchestration', {
     stopReason: loopResult.stopReason,
     status: loopResult.status,
     cycles: loopResult.cycles.length,
     lastError: loopResult.finalState.lastError,
+    lastCycleError,
   });
-  throw new Error(
-    'The AI returned an incomplete response. Please try again with a simpler description.'
-  );
+  if (hasProviderError) {
+    emitCreatorProgress(options, {
+      phase: 'recovery',
+      message: 'Generation blocked by provider connection issue',
+      highlight: lastCycleError,
+      highlightType: 'status',
+    });
+    return {
+      thinking: buildStageSummary({
+        whatIDid:
+          'Attempted generation, then detected a provider connectivity issue before a valid output could be produced.',
+        currentStage: 'Generation Blocked',
+        nextStage: 'Connection Recovery',
+        nextAction: 'Reconnect an AI provider in Settings, then send "retry build".',
+      }),
+      message:
+        'I cannot reach your AI provider right now. Reconnect an AI provider in Settings, then tell me to retry.',
+      questions: [],
+      entities: [],
+      connections: [],
+      balCode: '',
+      name: inferDraftName(sanitizedUserMessage),
+      description: 'Waiting for AI provider connectivity before generation can continue.',
+      icon: '🔌',
+      status: 'building',
+      assumptions: discovery.assumptions,
+      runnableConfidence: 0.1,
+      blockMode: 'hard',
+    };
+  }
+
+  const fallbackRequired = discovery.hardBlockers;
+  const fallbackOptional = discovery.softBlockers;
+  const fallbackMessage =
+    fallbackRequired.length > 0 || fallbackOptional.length > 0
+      ? buildDiscoveryMessage({
+          requiredNow: fallbackRequired,
+          optionalLater: fallbackOptional,
+          preface: hasContractDriftError
+            ? 'I hit a formatting issue while generating, so I will continue in smaller steps.'
+            : 'I hit a temporary generation issue, so I will continue in smaller steps.',
+        })
+      : 'I hit a temporary generation issue. Reply "continue with defaults" and I will retry with a simpler first version.';
+
+  emitCreatorProgress(options, {
+    phase: 'recovery',
+    message: 'Generation needs recovery',
+    highlight: fallbackMessage,
+    highlightType: 'status',
+  });
+
+  return {
+    thinking: buildStageSummary({
+      whatIDid:
+        'Attempted generation but internal output validation failed. Switched back to guided discovery to continue safely.',
+      currentStage: 'Recovery',
+      nextStage: 'Design Generation',
+      nextAction:
+        fallbackRequired.length > 0
+          ? 'Answer the next short question so I can regenerate reliably.'
+          : 'Reply "continue with defaults" so I can retry generation with a simplified plan.',
+    }),
+    message: fallbackMessage,
+    questions: discovery.questions.slice(0, 8),
+    entities: [],
+    connections: [],
+    balCode: '',
+    name: inferDraftName(sanitizedUserMessage),
+    description: 'Recovering from a generation issue and continuing guided setup.',
+    icon: '🧭',
+    status: 'building',
+    assumptions: discovery.assumptions,
+    runnableConfidence: discovery.runnableConfidence,
+    blockMode: discovery.blockMode,
+  };
 }
 
 // ============================================================================

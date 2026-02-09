@@ -12,11 +12,23 @@ vi.mock('../internal-bb/runner', () => ({
       !lower.includes('every');
     const hasStructuredDbAnswers =
       lower.includes('database source:') || lower.includes('signup signal:');
+    const hasFreeformDbAnswers =
+      (lower.includes('primary users db') && lower.includes('users.created_at')) ||
+      (lower.includes('users table') && lower.includes('new signup'));
+    const hasResolvedDbAnswers = hasStructuredDbAnswers || hasFreeformDbAnswers;
+    const isWeeklyStatusPrompt = lower.includes('weekly status updates from activity data');
+    const hasWeeklyStatusResolutionHints =
+      lower.includes('activity data source:') ||
+      lower.includes('status update focus:') ||
+      lower.includes('database') ||
+      lower.includes('api') ||
+      lower.includes('spreadsheet');
 
     if (isOutcomePolicyPrompt) {
       return {
         needsMoreInfo: true,
-        message: 'Need your approval handling policy before generation.',
+        message:
+          'Before I generate, how should approvals behave when confidence is low or outputs are sensitive?',
         questions: [
           {
             id: 'approval-policy',
@@ -29,10 +41,11 @@ vi.mock('../internal-bb/runner', () => ({
       };
     }
 
-    if (isUnderspecifiedDbMonitor || hasStructuredDbAnswers) {
+    if (isUnderspecifiedDbMonitor && !hasResolvedDbAnswers) {
       return {
         needsMoreInfo: true,
-        message: 'Need source and signal details before generation.',
+        message:
+          'Great direction. First, which database source and signup signal should I use?',
         questions: [
           {
             id: 'db-source',
@@ -57,6 +70,31 @@ vi.mock('../internal-bb/runner', () => ({
       };
     }
 
+    if (isWeeklyStatusPrompt && !hasWeeklyStatusResolutionHints) {
+      return {
+        needsMoreInfo: true,
+        message:
+          'Nice idea. To make this runnable, where is the activity data and what should each weekly update focus on?',
+        questions: [
+          {
+            id: 'status-data-source',
+            label: 'Activity Data Source',
+            description:
+              'Where does the activity data live (database, API, spreadsheet, warehouse, etc.)?',
+            requiredNow: true,
+          },
+          {
+            id: 'status-metrics-focus',
+            label: 'Status Update Focus',
+            description:
+              'What should the weekly update cover (for example: signups, retention, engagement, incidents, revenue)?',
+            requiredNow: true,
+          },
+        ],
+        contextNotes: ['Status update workflow needs source and focus details.'],
+      };
+    }
+
     return {
       needsMoreInfo: false,
       message: 'Discovery complete',
@@ -64,45 +102,35 @@ vi.mock('../internal-bb/runner', () => ({
       contextNotes: [],
     };
   }),
-}));
-
-// Mock internal creator bot execution
-vi.mock('../internal-baleybots', () => ({
-  executeInternalBaleybot: vi.fn().mockImplementation(async (_name: string, prompt: string) => {
+  runCreatorBot: vi.fn().mockImplementation(async (prompt: string) => {
     if (prompt.toLowerCase().includes('how should we approach this')) {
       return {
-        output: {
-          entities: [],
-          connections: [],
-          balCode: '',
-          name: 'test_bot',
-          icon: '🤖',
-          status: 'building',
-          message: 'We should start with your desired outcome and constraints, then I will propose a first draft.',
-        },
-        executionId: 'exec-creator-chat-123',
+        entities: [],
+        connections: [],
+        balCode: '',
+        name: 'test_bot',
+        icon: '🤖',
+        status: 'building',
+        message: 'We should start with your desired outcome and constraints, then I will propose a first draft.',
       };
     }
 
     return {
-      output: {
-        entities: [
-          {
-            id: 'entity-1',
-            name: 'test_entity',
-            icon: '🤖',
-            purpose: 'Test entity',
-            tools: ['web_search'],
-          },
-        ],
-        connections: [],
-        balCode: 'test_entity { "goal": "Test", "model": "anthropic:claude-sonnet-4-20250514" }',
-        name: 'test_bot',
-        icon: '🤖',
-        status: 'ready',
-        message: 'Created test bot',
-      },
-      executionId: 'exec-creator-123',
+      entities: [
+        {
+          id: 'entity-1',
+          name: 'test_entity',
+          icon: '🤖',
+          purpose: 'Test entity',
+          tools: ['web_search'],
+        },
+      ],
+      connections: [],
+      balCode: 'test_entity { "goal": "Test", "model": "anthropic:claude-sonnet-4-20250514" }',
+      name: 'test_bot',
+      icon: '🤖',
+      status: 'ready',
+      message: 'Created test bot',
     };
   }),
 }));
@@ -115,6 +143,9 @@ vi.mock('../tools/catalog-service', () => ({
     workspace: [],
   }),
   formatToolCatalogForCreatorBot: vi.fn().mockReturnValue('## Tool Catalog\nNo tools available.'),
+  formatToolCatalogForCreatorBotCompact: vi
+    .fn()
+    .mockReturnValue('## Tool Catalog\nNo tools available.'),
   getBuiltInToolDefinitions: vi.fn().mockReturnValue([]),
 }));
 
@@ -124,8 +155,7 @@ describe('creator-bot', () => {
   });
 
   it('uses internal BaleyBot for processing', async () => {
-    const { runCreatorDiscovery } = await import('../internal-bb/runner');
-    const { executeInternalBaleybot } = await import('../internal-baleybots');
+    const { runCreatorDiscovery, runCreatorBot } = await import('../internal-bb/runner');
 
     await processCreatorMessage(
       {
@@ -141,7 +171,9 @@ describe('creator-bot', () => {
     );
 
     expect(runCreatorDiscovery).toHaveBeenCalledWith(
-      'Create a bot that searches the web',
+      expect.stringContaining(
+        'Latest user message: Create a bot that searches the web'
+      ),
       expect.objectContaining({
         userWorkspaceId: 'ws-1',
         context: expect.any(String),
@@ -149,8 +181,7 @@ describe('creator-bot', () => {
       })
     );
 
-    expect(executeInternalBaleybot).toHaveBeenCalledWith(
-      'creator_bot',
+    expect(runCreatorBot).toHaveBeenCalledWith(
       'Create a bot that searches the web',
       expect.objectContaining({
         userWorkspaceId: 'ws-1',
@@ -180,8 +211,7 @@ describe('creator-bot', () => {
   });
 
   it('blocks generation for underspecified database monitoring requests', async () => {
-    const { runCreatorDiscovery } = await import('../internal-bb/runner');
-    const { executeInternalBaleybot } = await import('../internal-baleybots');
+    const { runCreatorDiscovery, runCreatorBot } = await import('../internal-bb/runner');
 
     const result = await processCreatorMessage(
       {
@@ -205,21 +235,26 @@ describe('creator-bot', () => {
     );
 
     expect(result.status).toBe('building');
-    expect(result.questions?.some((q) => q.id === 'db-source')).toBe(true);
-    expect(result.questions?.some((q) => q.id === 'signup-signal')).toBe(true);
+    expect((result.questions ?? []).length).toBeGreaterThan(0);
+    const requiredQuestions = (result.questions ?? []).filter(
+      (question) => question.requiredNow !== false
+    );
+    expect(requiredQuestions).toHaveLength(1);
+    expect(
+      /database|signup/i.test(requiredQuestions[0]?.label ?? '')
+    ).toBe(true);
     expect(runCreatorDiscovery).toHaveBeenCalledWith(
-      'Monitor my database for new signups',
+      expect.stringContaining('Latest user message: Monitor my database for new signups'),
       expect.objectContaining({
         userWorkspaceId: 'ws-1',
         triggeredBy: 'internal',
       })
     );
-    expect(executeInternalBaleybot).not.toHaveBeenCalled();
+    expect(runCreatorBot).not.toHaveBeenCalled();
   });
 
   it('proceeds to generation after discovery details are present', async () => {
-    const { runCreatorDiscovery } = await import('../internal-bb/runner');
-    const { executeInternalBaleybot } = await import('../internal-baleybots');
+    const { runCreatorDiscovery, runCreatorBot } = await import('../internal-bb/runner');
 
     const result = await processCreatorMessage(
       {
@@ -245,7 +280,7 @@ describe('creator-bot', () => {
     expect(result.status).toBe('ready');
     expect(result.entities.length).toBeGreaterThan(0);
     expect(runCreatorDiscovery).toHaveBeenCalled();
-    expect(executeInternalBaleybot).toHaveBeenCalled();
+    expect(runCreatorBot).toHaveBeenCalled();
   });
 
   it('keeps discovery blocking when user replies with acknowledgement only', async () => {
@@ -286,13 +321,12 @@ describe('creator-bot', () => {
 
     expect(result.status).toBe('building');
     expect(result.questions?.some((q) => q.id === 'approval-policy')).toBe(true);
-    expect(result.message ?? '').toContain('Current stage');
-    expect(result.message ?? '').toContain('Next stage');
+    expect(result.message ?? '').toContain('generate');
+    expect(result.message ?? '').not.toContain('Current stage');
   });
 
   it('does not repeat resolved discovery prompts when labeled answers are provided', async () => {
-    const { runCreatorDiscovery } = await import('../internal-bb/runner');
-    const { executeInternalBaleybot } = await import('../internal-baleybots');
+    const { runCreatorDiscovery, runCreatorBot } = await import('../internal-bb/runner');
 
     const result = await processCreatorMessage(
       {
@@ -356,8 +390,7 @@ describe('creator-bot', () => {
 
     expect(result.status).toBe('ready');
     expect(runCreatorDiscovery).toHaveBeenCalled();
-    expect(executeInternalBaleybot).toHaveBeenCalledWith(
-      'creator_bot',
+    expect(runCreatorBot).toHaveBeenCalledWith(
       expect.any(String),
       expect.anything()
     );
@@ -488,7 +521,7 @@ describe('creator-bot', () => {
   });
 
   it('blocks weekly status bots until data source and metric scope are explicit', async () => {
-    const { executeInternalBaleybot } = await import('../internal-baleybots');
+    const { runCreatorBot } = await import('../internal-bb/runner');
     const result = await processCreatorMessage(
       {
         context: {
@@ -504,7 +537,7 @@ describe('creator-bot', () => {
     expect(result.status).toBe('building');
     expect(result.questions?.some((q) => q.id === 'status-data-source')).toBe(true);
     expect(result.questions?.some((q) => q.id === 'status-metrics-focus')).toBe(true);
-    expect(executeInternalBaleybot).not.toHaveBeenCalled();
+    expect(runCreatorBot).not.toHaveBeenCalled();
   });
 
   it('adds stage narrative to ready outputs', async () => {
@@ -546,5 +579,94 @@ describe('creator-bot', () => {
     expect(result.balCode).toBe('');
     expect(result.message ?? '').not.toContain('Design Complete');
     expect(result.message ?? '').toContain('start with your desired outcome');
+  });
+
+  it('emits progress milestones and normalized segment highlights', async () => {
+    const { runCreatorDiscovery, runCreatorBot } = await import('../internal-bb/runner');
+    vi.mocked(runCreatorDiscovery).mockImplementation(
+      async (
+        _prompt: string,
+        options?: Parameters<typeof runCreatorDiscovery>[1]
+      ) => {
+        options?.onSegment?.({
+          type: 'reasoning',
+          content: 'Reviewing discovery context',
+        });
+        return {
+          needsMoreInfo: false,
+          message: 'Discovery complete',
+          questions: [],
+          contextNotes: [],
+        };
+      }
+    );
+    vi.mocked(runCreatorBot).mockImplementation(
+      async (
+        _prompt: string,
+        options?: Parameters<typeof runCreatorBot>[1]
+      ) => {
+        options?.onSegment?.({
+          type: 'tool_execution_start',
+          toolName: 'web_search',
+          arguments: { query: 'test' },
+          id: 'tool-run-1',
+        });
+        options?.onSegment?.({
+          type: 'tool_execution_output',
+          toolName: 'web_search',
+          result: { ok: true },
+          id: 'tool-run-1',
+        });
+        return {
+          entities: [
+            {
+              id: 'entity-1',
+              name: 'test_entity',
+              icon: '🤖',
+              purpose: 'Test entity',
+              tools: ['web_search'],
+            },
+          ],
+          connections: [],
+          balCode: 'test_entity { "goal": "Test", "model": "anthropic:claude-sonnet-4-20250514" }',
+          name: 'test_bot',
+          description: 'test',
+          icon: '🤖',
+          status: 'ready',
+          message: 'Created test bot',
+        };
+      }
+    );
+
+    const progressEvents: Array<{
+      phase: string;
+      message: string;
+      highlightType?: string;
+    }> = [];
+
+    const result = await processCreatorMessage(
+      {
+        context: {
+          workspaceId: 'ws-1',
+          availableTools: [],
+          existingBaleybots: [],
+          workspacePolicies: null,
+          connections: [],
+        },
+        onProgress: (event) => {
+          progressEvents.push({
+            phase: event.phase,
+            message: event.message,
+            highlightType: event.highlightType,
+          });
+        },
+      },
+      'Create a bot that searches the web'
+    );
+
+    expect(result.status).toBe('ready');
+    expect(progressEvents.some((event) => event.phase === 'discovery')).toBe(true);
+    expect(progressEvents.some((event) => event.highlightType === 'thinking')).toBe(true);
+    expect(progressEvents.some((event) => event.highlightType === 'tool')).toBe(true);
   });
 });

@@ -216,8 +216,8 @@ export const patternsRouter = router({
 
   /**
    * Associate a pattern with a block.
-   * This is a placeholder for future functionality where patterns can be linked
-   * to multiple blocks or have more complex relationships.
+   * Current behavior re-assigns a pattern to a specific block.
+   * Future evolution may allow one-to-many relationships.
    * API-001: Use standardized UUID schema
    */
   associateWithBlock: protectedProcedure

@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ChevronUp, ChevronDown, User, Bot, Brain, Loader2, Eye, Code2, Play, Copy, Check, AlertCircle, CheckCircle2, Circle, Info, ArrowRight, CircleDashed } from 'lucide-react';
+import { ChevronUp, ChevronDown, User, Bot, Brain, Loader2, Eye, Code2, Play, Copy, Check, AlertCircle, CheckCircle2, Circle, Info, ArrowRight, CircleDashed, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CreatorMessage, CreationProgress } from '@/lib/baleybot/creator-types';
 import { getBalSkillDescriptor } from '@/lib/baleybot/bal-skills';
 import {
-  DiscoveryIntakeForm,
-  type DiscoveryIntakeSubmission,
-} from './DiscoveryIntakeForm';
+  StreamingProgressCard,
+  type StreamingProgressSnapshot,
+} from './StreamingProgressCard';
 
 // Swipe threshold for gesture detection (Phase 4.7)
 const SWIPE_THRESHOLD = 50;
@@ -35,10 +35,8 @@ interface ConversationThreadProps {
   onViewAction?: (action: ViewAction) => void;
   /** Callback when user selects an option card */
   onOptionSelect?: (optionId: string) => void;
-  /** Callback when user submits structured discovery intake */
-  onDiscoverySubmit?: (message: string | DiscoveryIntakeSubmission) => void;
-  /** Disable embedded discovery intake submissions */
-  disableDiscoverySubmit?: boolean;
+  /** Optional stream-driven progress snapshot */
+  streamingProgress?: StreamingProgressSnapshot | null;
 }
 
 /**
@@ -64,8 +62,7 @@ export function ConversationThread({
   creationProgress,
   onViewAction,
   onOptionSelect,
-  onDiscoverySubmit,
-  disableDiscoverySubmit = false,
+  streamingProgress,
 }: ConversationThreadProps) {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -159,18 +156,21 @@ export function ConversationThread({
                 isLatest={index === messages.length - 1}
               />
             ) : (
-              <AssistantMessage
-                key={message.id}
-                message={message}
-                isLatest={index === messages.length - 1}
-                onViewAction={onViewAction}
-                onOptionSelect={onOptionSelect}
-                onDiscoverySubmit={onDiscoverySubmit}
-                disableDiscoverySubmit={disableDiscoverySubmit}
-              />
-            )
+                <AssistantMessage
+                  key={message.id}
+                  message={message}
+                  isLatest={index === messages.length - 1}
+                  onViewAction={onViewAction}
+                  onOptionSelect={onOptionSelect}
+                />
+              )
           )}
-          {isBuilding && <BuildingIndicator progress={creationProgress} />}
+          {isBuilding &&
+            (streamingProgress ? (
+              <StreamingProgressCard progress={streamingProgress} />
+            ) : (
+              <BuildingIndicator progress={creationProgress} />
+            ))}
         </div>
       </div>
     );
@@ -243,12 +243,15 @@ export function ConversationThread({
                   isLatest={index === messages.length - 1}
                   onViewAction={onViewAction}
                   onOptionSelect={onOptionSelect}
-                  onDiscoverySubmit={onDiscoverySubmit}
-                  disableDiscoverySubmit={disableDiscoverySubmit}
                 />
               )
-            )}
-            {isBuilding && <BuildingIndicator progress={creationProgress} />}
+          )}
+            {isBuilding &&
+              (streamingProgress ? (
+                <StreamingProgressCard progress={streamingProgress} />
+              ) : (
+                <BuildingIndicator progress={creationProgress} />
+              ))}
           </div>
         </div>
       </div>
@@ -322,7 +325,7 @@ function getLifecycleStageLabel(
 ): string {
   switch (stage) {
     case 'discovery':
-      return 'Discovery';
+      return 'Ideation';
     case 'design':
       return 'Design';
     case 'connections':
@@ -422,10 +425,10 @@ function UserMessage({ message, isLatest }: UserMessageProps) {
       </div>
 
       {/* Message bubble */}
-      <div className="max-w-[88%] px-3 py-2 rounded-xl text-sm bg-primary text-primary-foreground rounded-tr-sm">
+      <div className="max-w-[90%] rounded-2xl rounded-tr-md bg-primary px-4 py-3 text-[15px] leading-7 text-primary-foreground shadow-[0_12px_30px_-24px_hsl(var(--primary)/0.9)]">
         <p className="whitespace-pre-wrap break-words">{message.content}</p>
         <time
-          className="text-[10px] mt-1 block text-primary-foreground/70"
+          className="mt-1.5 block text-[11px] text-primary-foreground/70"
           dateTime={message.timestamp.toISOString()}
         >
           {formatTime(message.timestamp)}
@@ -444,8 +447,6 @@ interface AssistantMessageProps {
   isLatest: boolean;
   onViewAction?: (action: ViewAction) => void;
   onOptionSelect?: (optionId: string) => void;
-  onDiscoverySubmit?: (message: string | DiscoveryIntakeSubmission) => void;
-  disableDiscoverySubmit?: boolean;
 }
 
 function AssistantMessage({
@@ -453,8 +454,6 @@ function AssistantMessage({
   isLatest,
   onViewAction,
   onOptionSelect,
-  onDiscoverySubmit,
-  disableDiscoverySubmit = false,
 }: AssistantMessageProps) {
   const [showThinking, setShowThinking] = useState(false);
   const [didCopyMessage, setDidCopyMessage] = useState(false);
@@ -465,25 +464,17 @@ function AssistantMessage({
   const balSkills = message.metadata?.balSkills ?? [];
   const diagnosticLevel = message.metadata?.diagnostic?.level;
   const lifecycle = message.metadata?.creatorLifecycle;
+  const isIdeationMessage = lifecycle?.stage === 'discovery';
+  const ideationQuestion =
+    lifecycle?.requiredQuestions?.[0] ?? lifecycle?.optionalQuestions?.[0];
   const hasLifecycleSummary = Boolean(
     lifecycle &&
+      lifecycle.stage !== 'discovery' &&
       (lifecycle.whatIDid ||
         lifecycle.nextAction ||
         lifecycle.nextStage ||
         (lifecycle.requiredQuestions && lifecycle.requiredQuestions.length > 0))
   );
-  const discoveryQuestions = lifecycle?.stage === 'discovery'
-    ? [
-        ...(lifecycle.requiredQuestions ?? []).map((question) => ({
-          ...question,
-          requiredNow: question.requiredNow ?? true,
-        })),
-        ...(lifecycle.optionalQuestions ?? []).map((question) => ({
-          ...question,
-          requiredNow: question.requiredNow ?? false,
-        })),
-      ]
-    : [];
 
   const handleCopy = async (text: string, target: 'message' | 'code') => {
     if (!text.trim()) return;
@@ -516,21 +507,20 @@ function AssistantMessage({
     : null;
 
   return (
-    <div className={cn('relative pl-3', isLatest && 'animate-fade-in-up')}>
-      {/* Left accent border */}
-      <div
-        className={cn(
-          'absolute left-0 top-0 bottom-0 w-0.5 rounded-full',
-          isError ? 'bg-destructive/60' : 'bg-primary/30'
-        )}
-      />
-
+    <div className={cn(isLatest && 'animate-fade-in-up')}>
       {/* Content */}
       <div className="space-y-3">
-        <div className="rounded-xl border border-border/50 bg-card/40 p-3">
+        <div
+          className={cn(
+            'rounded-[1.1rem] border p-4 shadow-[0_12px_35px_-28px_rgba(0,0,0,0.8)]',
+            isError
+              ? 'border-red-500/35 bg-red-500/5'
+              : 'border-border/60 bg-card/70'
+          )}
+        >
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+              <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground">
                 <Bot className="h-3.5 w-3.5" />
                 BaleyBot
               </span>
@@ -555,7 +545,7 @@ function AssistantMessage({
             <button
               type="button"
               onClick={() => handleCopy(message.content, 'message')}
-              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              className="inline-flex items-center gap-1 rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
               aria-label="Copy assistant message"
             >
               {didCopyMessage ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
@@ -564,44 +554,74 @@ function AssistantMessage({
           </div>
 
           {/* Message text with simple markdown */}
-          <div className="text-sm text-foreground leading-relaxed mt-2">
+          <div className="mt-2 text-[15px] text-foreground/95 leading-7">
             {renderSimpleMarkdown(message.content)}
           </div>
 
-          {hasLifecycleSummary && lifecycle && (
-            <div className="mt-2 rounded-lg border border-border/60 bg-background/60 p-2.5 space-y-2">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border/60 bg-muted/30 text-muted-foreground">
-                  {getLifecycleStageLabel(lifecycle.stage)}
-                </span>
-                {typeof lifecycle.iteration === 'number' && lifecycle.iteration > 0 && (
-                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-border/60 bg-muted/30 text-muted-foreground">
-                    <CircleDashed className="h-3 w-3" />
-                    Iteration {lifecycle.iteration}
-                  </span>
-                )}
-                {lifecycle.requiredQuestions && lifecycle.requiredQuestions.length > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
-                    {lifecycle.requiredQuestions.length} blocking detail
-                    {lifecycle.requiredQuestions.length === 1 ? '' : 's'}
-                  </span>
-                )}
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div className="rounded-md border border-border/40 bg-muted/20 px-2 py-1.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">What changed</p>
-                  <p className="text-[11px] mt-1 text-foreground/90">
-                    {lifecycle.whatIDid ?? 'Creator progressed the workflow.'}
-                  </p>
-                </div>
-                <div className="rounded-md border border-border/40 bg-muted/20 px-2 py-1.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Next</p>
-                  <p className="text-[11px] mt-1 text-foreground/90">
-                    {lifecycle.nextAction ?? lifecycle.nextStage ?? 'Continue to the next stage.'}
-                  </p>
-                </div>
-              </div>
+          {message.metadata?.streamSummary && (
+            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[11px] text-muted-foreground">
+              <Sparkles className="h-3 w-3" />
+              {message.metadata.streamSummary}
             </div>
+          )}
+
+          {isIdeationMessage && ideationQuestion && (
+            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-2.5 py-1 text-[11px] text-primary">
+              <CircleDashed className="h-3 w-3" />
+              Focus: {ideationQuestion.label}
+            </div>
+          )}
+
+          {hasLifecycleSummary && lifecycle && (
+            <details className="mt-2 rounded-lg border border-border/50 bg-background/60 px-3 py-2">
+              <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
+                Build details
+              </summary>
+              <div className="space-y-2 pt-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border/60 bg-muted/30 text-muted-foreground">
+                    {getLifecycleStageLabel(lifecycle.stage)}
+                  </span>
+                  {typeof lifecycle.iteration === 'number' && lifecycle.iteration > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-border/60 bg-muted/30 text-muted-foreground">
+                      <CircleDashed className="h-3 w-3" />
+                      Iteration {lifecycle.iteration}
+                    </span>
+                  )}
+                  {lifecycle.requiredQuestions && lifecycle.requiredQuestions.length > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                      {lifecycle.requiredQuestions.length} blocking detail
+                      {lifecycle.requiredQuestions.length === 1 ? '' : 's'}
+                    </span>
+                  )}
+                  {typeof lifecycle.runnableConfidence === 'number' && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300">
+                      {Math.round(lifecycle.runnableConfidence * 100)}% runnable
+                    </span>
+                  )}
+                  {lifecycle.assumptions && lifecycle.assumptions.length > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300">
+                      {lifecycle.assumptions.length} assumption
+                      {lifecycle.assumptions.length === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-md border border-border/40 bg-muted/20 px-2 py-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">What changed</p>
+                    <p className="text-[11px] mt-1 text-foreground/90">
+                      {lifecycle.whatIDid ?? 'Creator progressed the workflow.'}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-border/40 bg-muted/20 px-2 py-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Next</p>
+                    <p className="text-[11px] mt-1 text-foreground/90">
+                      {lifecycle.nextAction ?? lifecycle.nextStage ?? 'Continue to the next stage.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </details>
           )}
         </div>
 
@@ -651,15 +671,6 @@ function AssistantMessage({
         )}
 
         {/* Rich chat components */}
-        {isLatest && onDiscoverySubmit && discoveryQuestions.length > 0 && (
-          <DiscoveryIntakeForm
-            questions={discoveryQuestions}
-            onSubmit={onDiscoverySubmit}
-            disabled={disableDiscoverySubmit}
-            className="border-dashed border-primary/30 bg-primary/5"
-          />
-        )}
-
         {message.metadata?.options && (
           <OptionCards options={message.metadata.options} onSelect={onOptionSelect} />
         )}
@@ -698,7 +709,7 @@ function AssistantMessage({
         )}
 
         {/* Thinking/reasoning expandable */}
-        {message.thinking && (
+        {message.thinking && !isIdeationMessage && (
           <div>
             <button
               onClick={() => setShowThinking(!showThinking)}
@@ -750,7 +761,7 @@ function AssistantMessage({
 
         {/* Timestamp */}
         <time
-          className="text-[10px] block text-muted-foreground"
+          className="block text-[11px] text-muted-foreground"
           dateTime={message.timestamp.toISOString()}
         >
           {formatTime(message.timestamp)}

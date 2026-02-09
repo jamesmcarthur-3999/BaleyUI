@@ -28,14 +28,14 @@ function AppShell({ children }: AppShellProps) {
   const isBaleybotDetail = pathname?.startsWith('/dashboard/baleybots/');
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-gradient-hero">
       {/* Sidebar */}
       <Sidebar />
 
       {/* Main area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Simplified header — hidden on baleybot detail pages which have their own header */}
-        <header className={cn("sticky top-0 z-30 w-full border-b bg-background", isBaleybotDetail && "hidden")}>
+        <header className={cn("sticky top-0 z-30 w-full border-b border-border/60 bg-background/85 backdrop-blur-sm", isBaleybotDetail && "hidden")}>
           <div className="flex h-14 items-center justify-between px-4 md:px-6">
             {/* Spacer for mobile hamburger */}
             <div className="w-10 md:hidden" />

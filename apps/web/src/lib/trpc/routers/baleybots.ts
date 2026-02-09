@@ -11,7 +11,6 @@ import {
   baleybotExecutions,
   baleybotTriggers,
   connections,
-  tools,
   eq,
   and,
   desc,
@@ -23,9 +22,9 @@ import {
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { processCreatorMessage } from '@/lib/baleybot/creator-bot';
-import type { CreatorMessage } from '@/lib/baleybot/creator-types';
 import { sanitizeCreatorText } from '@/lib/baleybot/creator-sanitization';
-import { getBuiltInToolDefinitions, getPreferredProvider } from '@/lib/baleybot';
+import { getPreferredProvider } from '@/lib/baleybot';
+import { buildCreatorRequestContext } from '@/lib/baleybot/creator-request-context';
 import { executeBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
 import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
@@ -206,20 +205,6 @@ function sanitizeConversationHistoryForStorage(
     timestamp: message.timestamp.toISOString(),
     ...(message.metadata ? { metadata: message.metadata } : {}),
   }));
-}
-
-function getModelConversationContent(message: {
-  content: string;
-  metadata?: Record<string, unknown>;
-}): string {
-  const discoveryIntake = message.metadata?.discoveryIntake;
-  if (discoveryIntake && typeof discoveryIntake === 'object') {
-    const modelMessage = (discoveryIntake as Record<string, unknown>).modelMessage;
-    if (typeof modelMessage === 'string' && modelMessage.trim().length > 0) {
-      return modelMessage;
-    }
-  }
-  return message.content;
 }
 
 /**
@@ -1020,98 +1005,19 @@ export const baleybotsRouter = router({
         RATE_LIMITS.creatorMessage,
       );
 
-      // Build generator context
-      // 1. Get connections from workspace (excluding soft-deleted)
-      const workspaceConnections = await ctx.db.query.connections.findMany({
-        where: and(
-          eq(connections.workspaceId, ctx.workspace.id),
-          notDeleted(connections)
-        ),
+      const creatorContext = await buildCreatorRequestContext({
+        db: ctx.db,
+        workspaceId: ctx.workspace.id,
+        message: input.message,
+        conversationHistory: input.conversationHistory,
       });
 
-      // 2. Get existing BaleyBots from workspace
-      const existingBaleybots = await ctx.db.query.baleybots.findMany({
-        where: and(
-          eq(baleybots.workspaceId, ctx.workspace.id),
-          notDeleted(baleybots)
-        ),
-        columns: {
-          id: true,
-          name: true,
-          description: true,
-          icon: true,
-        },
-      });
-
-      // 3. Format connections for the generator context (null-safe)
-      // Include availableModels so connection-derived tools can be shown in the creator bot catalog
-      const formattedConnections = workspaceConnections.map((conn) => ({
-        id: conn.id,
-        type: conn.type,
-        name: conn.name,
-        status: conn.status ?? 'unknown',
-        isDefault: conn.isDefault ?? false,
-        availableModels: conn.availableModels,
-      }));
-
-      // 4. Format existing BaleyBots for the generator context (null-safe)
-      const formattedBaleybots = existingBaleybots.map((bb) => ({
-        id: bb.id,
-        name: bb.name,
-        description: bb.description ?? null,
-        icon: bb.icon ?? null,
-        status: 'active' as const,
-        executionCount: 0,
-        lastExecutedAt: null,
-      }));
-
-      // 5. Convert conversation history to CreatorMessage format
-      const conversationHistory: CreatorMessage[] = (input.conversationHistory ?? []).map(
-        (msg) => ({
-          id: msg.id,
-          role: msg.role,
-          content: sanitizeCreatorText(getModelConversationContent(msg)),
-          timestamp: msg.timestamp,
-          ...(msg.metadata ? { metadata: msg.metadata as CreatorMessage['metadata'] } : {}),
-        })
-      );
-      const sanitizedMessage = sanitizeCreatorText(input.message);
-
-      // 6. Get built-in tools + workspace custom tools for the context
-      const builtInTools = getBuiltInToolDefinitions();
-
-      // Also load workspace custom tools so the creator bot knows about them
-      const workspaceCustomTools = await ctx.db.query.tools.findMany({
-        where: and(
-          eq(tools.workspaceId, ctx.workspace.id),
-          notDeleted(tools)
-        ),
-        columns: { name: true, description: true, inputSchema: true },
-      });
-
-      const allAvailableTools = [
-        ...builtInTools,
-        ...workspaceCustomTools.map((t) => ({
-          name: t.name,
-          description: t.description,
-          inputSchema: (t.inputSchema as Record<string, unknown>) || {},
-          category: 'custom' as const,
-        })),
-      ];
-
-      // 7. Call processCreatorMessage
       const result = await processCreatorMessage(
         {
-          context: {
-            workspaceId: ctx.workspace.id,
-            availableTools: allAvailableTools,
-            workspacePolicies: null, // Will be populated from workspace settings in the future
-            connections: formattedConnections,
-            existingBaleybots: formattedBaleybots,
-          },
-          conversationHistory,
+          context: creatorContext.context,
+          conversationHistory: creatorContext.conversationHistory,
         },
-        sanitizedMessage
+        creatorContext.sanitizedMessage
       );
 
       return result;
@@ -1167,6 +1073,9 @@ export const baleybotsRouter = router({
               stage?: string;
               nextStage?: string;
               nextAction?: string;
+              blockerMode?: string;
+              runnableConfidence?: number;
+              assumptions?: unknown[];
               requiredQuestions?: unknown[];
               optionalQuestions?: unknown[];
             }
@@ -1196,12 +1105,20 @@ export const baleybotsRouter = router({
       const optionalCount = Array.isArray(latestLifecycle?.optionalQuestions)
         ? latestLifecycle.optionalQuestions.length
         : 0;
+      const assumptionCount = Array.isArray(latestLifecycle?.assumptions)
+        ? latestLifecycle.assumptions.length
+        : 0;
 
       const contextStr = [
         `Creator status: ${input.status}`,
         latestLifecycle?.stage ? `Current stage: ${latestLifecycle.stage}` : '',
         latestLifecycle?.nextStage ? `Next stage hint: ${latestLifecycle.nextStage}` : '',
         latestLifecycle?.nextAction ? `Current next action: ${latestLifecycle.nextAction}` : '',
+        latestLifecycle?.blockerMode ? `Blocker mode: ${latestLifecycle.blockerMode}` : '',
+        typeof latestLifecycle?.runnableConfidence === 'number'
+          ? `Runnable confidence: ${Math.round(latestLifecycle.runnableConfidence * 100)}%`
+          : '',
+        assumptionCount > 0 ? `Active assumptions: ${assumptionCount}` : '',
         requiredCount > 0 ? `Required discovery questions remaining: ${requiredCount}` : '',
         optionalCount > 0 ? `Optional discovery questions remaining: ${optionalCount}` : '',
         latestDiagnostic?.level ? `Latest diagnostic level: ${latestDiagnostic.level}` : '',
@@ -1218,6 +1135,9 @@ export const baleybotsRouter = router({
           {
             userWorkspaceId: ctx.workspace.id,
             triggeredBy: 'internal',
+            repairAttempts: 2,
+            fallbackMode: 'value',
+            fallbackValue: { actions: [] },
           }
         );
         const seen = new Set<string>();

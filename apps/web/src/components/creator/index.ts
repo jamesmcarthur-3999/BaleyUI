@@ -23,3 +23,11 @@ export { InlineConnectionForm } from './InlineConnectionForm';
 export { TestPanel } from './TestPanel';
 export type { TestCase, InputType, TestFixture, StepExpectation } from './TestPanel';
 export { MonitorPanel } from './MonitorPanel';
+export { StreamingProgressCard } from './StreamingProgressCard';
+export type {
+  StreamingHighlight,
+  StreamingHighlightType,
+  StreamingProgressSnapshot,
+  StreamingTool,
+  StreamingToolStatus,
+} from './StreamingProgressCard';
