@@ -2416,8 +2416,7 @@ async function assessDiscoveryNeedsWithInternalBB(
     });
     emitCreatorProgress(options, {
       phase: 'recovery',
-      message: 'Discovery analyzer failed, switching to deterministic fallback',
-      highlight: error instanceof Error ? error.message : String(error),
+      message: 'Discovery analyzer response needed cleanup, using a safe fallback',
       highlightType: 'status',
     });
     const answerHistory = extractRecentUserMessages(options.conversationHistory);

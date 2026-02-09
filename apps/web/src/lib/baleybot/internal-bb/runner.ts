@@ -228,7 +228,11 @@ export const creatorDiscoveryOutputSchema = z.object({
         summary: rawSummary.length > 0 ? rawSummary : 'Discovery state updated.',
       };
     }, z.object({
-      summary: z.string().min(1).max(400).default('Discovery state updated.'),
+      summary: z
+        .preprocess(
+          (value) => (typeof value === 'string' ? value.trim() : value),
+          z.string().min(1).max(400).catch('Discovery state updated.')
+        ),
       goal: z.string().max(220).optional(),
       stage: z.string().max(80).optional(),
       resolvedDecisions: z.array(discoveryQuestionSchema).max(10).optional(),

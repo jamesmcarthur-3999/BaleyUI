@@ -29,4 +29,27 @@ describe('creatorDiscoveryOutputSchema', () => {
 
     expect(parsed.delta?.summary).toBe('Discovery state updated.');
   });
+
+  it('accepts invalid delta.summary values and normalizes them to a default', () => {
+    const parsedFromUndefined = creatorDiscoveryOutputSchema.parse({
+      needsMoreInfo: false,
+      questions: [],
+      contextNotes: [],
+      delta: {
+        summary: undefined,
+      },
+    });
+
+    const parsedFromNull = creatorDiscoveryOutputSchema.parse({
+      needsMoreInfo: false,
+      questions: [],
+      contextNotes: [],
+      delta: {
+        summary: null,
+      },
+    });
+
+    expect(parsedFromUndefined.delta?.summary).toBe('Discovery state updated.');
+    expect(parsedFromNull.delta?.summary).toBe('Discovery state updated.');
+  });
 });
