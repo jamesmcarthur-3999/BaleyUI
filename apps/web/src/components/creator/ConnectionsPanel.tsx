@@ -426,7 +426,7 @@ export function ConnectionsPanel({
   const setupProgress = [
     {
       id: 'runtime',
-      label: 'Runtime provider',
+      label: 'AI provider',
       detail: hasAiProvider
         ? `${aiProviders.length} provider${aiProviders.length === 1 ? '' : 's'} connected`
         : 'Connect OpenAI, Anthropic, or Ollama',
@@ -434,20 +434,20 @@ export function ConnectionsPanel({
     },
     {
       id: 'sources',
-      label: 'Tool-source wiring',
+      label: 'Tools and data sources',
       detail:
         unresolvedToolWiring.length === 0
-          ? 'All tools have valid bindings'
+          ? 'All tools are mapped to the right source'
           : `${unresolvedToolWiring.length} binding${unresolvedToolWiring.length === 1 ? '' : 's'} need attention`,
       complete: unresolvedToolWiring.length === 0,
     },
     {
       id: 'verification',
-      label: 'Tool verification',
+      label: 'Health checks',
       detail:
         verifiedToolCount > 0
           ? `${verifiedToolCount}/${uniqueTools.length} tools verified`
-          : 'Run verification checks for confidence',
+          : 'Run checks to confirm credentials and access',
       complete: uniqueTools.length === 0 || verifiedToolCount >= uniqueTools.length,
     },
   ] as const;
@@ -606,16 +606,9 @@ export function ConnectionsPanel({
   const guidedActions = buildGuidedActions({ advisor: advisorResult });
   const primaryGuidedAction = guidedActions[0] ?? null;
   const secondaryGuidedActions = guidedActions.slice(1, 3);
-  const unresolvedChecklist: string[] = [];
-  if (!hasAiProvider) {
-    unresolvedChecklist.push('Connect an AI runtime provider');
-  }
-  if (unresolvedToolWiring.length > 0) {
-    unresolvedChecklist.push(`Resolve ${unresolvedToolWiring.length} tool wiring issue${unresolvedToolWiring.length === 1 ? '' : 's'}`);
-  }
-  if (uniqueTools.length > 0 && verifiedToolCount < uniqueTools.length) {
-    unresolvedChecklist.push(`Verify ${uniqueTools.length - verifiedToolCount} remaining tool${uniqueTools.length - verifiedToolCount === 1 ? '' : 's'}`);
-  }
+  const statusSummary = allMet
+    ? 'Everything needed for this stage is configured.'
+    : `Complete ${setupProgress.length - completedSetupSteps} remaining checklist item${setupProgress.length - completedSetupSteps === 1 ? '' : 's'}.`;
 
   async function runAdvisorAnalysis(): Promise<ConnectionAdvisorResult | null> {
     if (!baleybotId || !balCode || !entitySummaries || entitySummaries.length === 0) {
@@ -809,21 +802,6 @@ export function ConnectionsPanel({
     }
   }
 
-  function handleOpenFirstMissingDatabaseSource() {
-    const missingDbTool = databaseToolWiring.find(
-      (tool) => tool.readiness.status !== 'ready' && tool.expectedType
-    );
-    if (!missingDbTool?.expectedType) return;
-
-    setRequestedDbProvider(missingDbTool.expectedType);
-    setRequestedDbName(
-      missingDbTool.expectedSlug
-        ? suggestedConnectionNameFromSlug(missingDbTool.expectedSlug, missingDbTool.expectedType)
-        : undefined
-    );
-    setAddFormType('database');
-  }
-
   async function handleVerifyAllTools(): Promise<Record<string, ToolVerificationResult>> {
     const verificationResults: Record<string, ToolVerificationResult> = {};
     for (const tool of toolWiring) {
@@ -851,55 +829,6 @@ export function ConnectionsPanel({
 
   return (
     <div className={cn('space-y-6', className)}>
-      {/* Stage summary */}
-      <div
-        className={cn(
-          'rounded-lg border p-4',
-          allMet
-            ? 'border-green-500/30 bg-green-500/5'
-            : 'border-amber-500/30 bg-amber-500/5'
-        )}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            {allMet ? (
-              <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
-            ) : (
-              <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-            )}
-            <div>
-              <p className="text-sm font-medium">
-                {allMet ? 'Connections and tools are ready' : 'Setup still needs attention'}
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                Stage 2 of 4: Runtime and data connections
-              </p>
-            </div>
-          </div>
-          <span className="text-xs text-muted-foreground">
-            {completedSetupSteps}/{setupProgress.length} complete
-          </span>
-        </div>
-        {!allMet && unresolvedChecklist.length > 0 && (
-          <div className="mt-3 ml-7 space-y-1">
-            {unresolvedChecklist.map((item) => (
-              <p key={item} className="text-xs text-muted-foreground">
-                - {item}
-              </p>
-            ))}
-          </div>
-        )}
-        {allMet && onNavigateToTest && (
-          <button
-            onClick={onNavigateToTest}
-            className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline mt-2 ml-7"
-          >
-            Continue to Testing
-            <ArrowRight className="h-3 w-3" />
-          </button>
-        )}
-      </div>
-
       <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
@@ -908,37 +837,15 @@ export function ConnectionsPanel({
               AI Setup Assistant
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              BaleyBot analyzes this bot, your tools, and workspace connections to recommend the next best fix.
+              Stage 2 of 4: connect runtime and data sources, then verify access.
             </p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              AI recommendations are optional. You can always use the manual controls in the step sections below.
+              {statusSummary}
             </p>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-[11px]"
-            onClick={() => void runGuidedConnectionPass()}
-            disabled={
-              isRunningGuidedPass ||
-              Boolean(verifyingToolName) ||
-              testingConnectionId !== null ||
-              !baleybotId ||
-              !balCode
-            }
-          >
-            {isRunningGuidedPass ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                Running
-              </>
-            ) : (
-              <>
-                <ShieldCheck className="h-3.5 w-3.5 mr-1" />
-                Analyze Setup
-              </>
-            )}
-          </Button>
+          <div className="text-xs text-muted-foreground">
+            {completedSetupSteps}/{setupProgress.length} complete
+          </div>
         </div>
 
         {primaryGuidedAction ? (
@@ -959,17 +866,74 @@ export function ConnectionsPanel({
             </div>
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            {allMet
-              ? 'No blockers detected. Continue to testing.'
-              : 'Run Analyze Setup to get a prioritized recommendation.'}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              {allMet
+                ? 'No blockers detected. Continue to testing.'
+                : 'Run analysis to refresh a prioritized recommendation.'}
+            </p>
+            {allMet && onNavigateToTest && (
+              <Button size="sm" className="h-7 text-[11px]" onClick={onNavigateToTest}>
+                Continue to Testing
+                <ArrowRight className="h-3.5 w-3.5 ml-1" />
+              </Button>
+            )}
+          </div>
         )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px]"
+            onClick={() => void runGuidedConnectionPass()}
+            disabled={
+              isRunningGuidedPass ||
+              Boolean(verifyingToolName) ||
+              testingConnectionId !== null ||
+              !baleybotId ||
+              !balCode
+            }
+          >
+            {isRunningGuidedPass ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                Running analysis
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                Refresh recommendation
+              </>
+            )}
+          </Button>
+          {uniqueTools.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px]"
+              onClick={handleVerifyAllTools}
+              disabled={Boolean(verifyingToolName)}
+            >
+              {verifyingToolName ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  Verifying
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                  Verify all tools
+                </>
+              )}
+            </Button>
+          )}
+        </div>
 
         {secondaryGuidedActions.length > 0 && (
           <details className="rounded-md border border-border/50 bg-background/60 px-3 py-2">
             <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
-              Additional suggestions
+              Need an alternate action?
             </summary>
             <div className="space-y-2 pt-2">
               {secondaryGuidedActions.map((action) => (
@@ -1002,7 +966,7 @@ export function ConnectionsPanel({
         {showAdvisorInsights && (
           <details className="rounded-md border border-border/50 bg-background/60 px-3 py-2">
             <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
-              View AI analysis details
+              Why BaleyBot recommended this
             </summary>
             <div className="space-y-2 pt-2">
               {advisorResult?.analysis?.aiProvider && (
@@ -1055,10 +1019,10 @@ export function ConnectionsPanel({
           <div>
             <p className="text-sm font-medium flex items-center gap-1.5">
               <Gauge className="h-4 w-4 text-muted-foreground" />
-              Guided Setup
+              Connection checklist
             </p>
             <p className="text-xs text-muted-foreground">
-              Work in order: runtime provider, tool/data wiring, then verification.
+              Follow this order to avoid duplicate setup work.
             </p>
           </div>
           <span className="text-xs font-medium text-muted-foreground">
@@ -1097,62 +1061,14 @@ export function ConnectionsPanel({
             </div>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {!hasAiProvider && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-[11px]"
-              onClick={() => setAddFormType('ai')}
-            >
-              <Plus className="h-3.5 w-3.5 mr-1" />
-              Connect AI Runtime
-            </Button>
-          )}
-          {databaseToolWiring.some((tool) => tool.readiness.status !== 'ready') && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-[11px]"
-              onClick={handleOpenFirstMissingDatabaseSource}
-            >
-              <Database className="h-3.5 w-3.5 mr-1" />
-              Add Missing Data Source
-            </Button>
-          )}
-          {onApplyToolRemap && remapPlans.length > 0 && (
-            <Button size="sm" className="h-7 text-[11px]" onClick={handleApplyRemaps}>
-              <ArrowRight className="h-3.5 w-3.5 mr-1" />
-              Apply {remapPlans.length} BAL Mapping Change{remapPlans.length === 1 ? '' : 's'}
-            </Button>
-          )}
-          {uniqueTools.length > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-[11px]"
-              onClick={handleVerifyAllTools}
-              disabled={Boolean(verifyingToolName)}
-            >
-              {verifyingToolName ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                  Verifying
-                </>
-              ) : (
-                <>
-                  <ShieldCheck className="h-3.5 w-3.5 mr-1" />
-                  Verify All Tools
-                </>
-              )}
-            </Button>
-          )}
-        </div>
       </div>
 
       {/* AI Provider section */}
       <div>
-        <h3 className="text-sm font-medium mb-2">Step 1: AI Provider Runtime</h3>
+        <h3 className="text-sm font-medium mb-2">Step 1: Connect an AI Provider</h3>
+        <p className="text-xs text-muted-foreground mb-2.5">
+          This is the runtime your BaleyBot uses for reasoning, generation, and tool decisions.
+        </p>
         <div className="rounded-lg border border-border/50 p-3">
           {hasAiProvider ? (
             <div className="space-y-2">
@@ -1205,10 +1121,10 @@ export function ConnectionsPanel({
         <div>
           <h3 className="text-sm font-medium mb-2 flex items-center gap-1.5">
             <Sparkles className="h-4 w-4 text-muted-foreground" />
-            Step 2A: Tool Controls
+            Step 2: Review Tool Behavior
           </h3>
           <p className="text-xs text-muted-foreground mb-2.5">
-            Review each tool, confirm its purpose, and verify behavior before testing.
+            Confirm the purpose of each tool, then run verification so failures are caught before testing.
           </p>
           <div className="space-y-2">
             {nonDatabaseToolWiring.map((tool) => {
@@ -1321,7 +1237,10 @@ export function ConnectionsPanel({
       {/* Data source wiring section */}
       {databaseToolWiring.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium mb-2">Step 2B: Data Source Wiring</h3>
+          <h3 className="text-sm font-medium mb-2">Step 3: Map Data Sources</h3>
+          <p className="text-xs text-muted-foreground mb-2.5">
+            Match each database tool to the correct workspace connection, then apply mapping updates.
+          </p>
           <div className="space-y-2">
             {databaseToolWiring.map((tool) => {
               const expectedLabel = tool.expectedSlug
@@ -1484,7 +1403,7 @@ export function ConnectionsPanel({
                   {dbType && sameTypeConnections.length > 0 && (
                     <div className="rounded-md border border-border/40 bg-muted/20 p-2.5 space-y-2">
                       <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
-                        Source Control
+                        Source mapping
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div className="space-y-1">
@@ -1639,7 +1558,7 @@ export function ConnectionsPanel({
         href={ROUTES.connections.list}
         className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
-        Manage and edit all connections
+        Open full Connections manager
         <ExternalLink className="h-3 w-3" />
       </Link>
     </div>

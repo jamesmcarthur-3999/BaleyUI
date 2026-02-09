@@ -26,6 +26,7 @@ import {
 import type { BuiltInToolContext } from '../tools/built-in';
 import type { RuntimeToolDefinition } from '../executor';
 import { createSQLGenerator } from './nl-to-sql-service';
+import { runToolExecutor } from '../internal-bb/runner';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('execution-tools-loader');
@@ -240,9 +241,6 @@ function createNLPoweredTool(tool: WorkspaceTool): RuntimeToolDefinition {
     description: tool.description,
     inputSchema: (tool.inputSchema as Record<string, unknown>) || { type: 'object', properties: {} },
     function: async (args: Record<string, unknown>) => {
-      // Use the ephemeral tool service pattern — execute via internal BB
-      const { executeInternalBaleybot } = await import('../internal-baleybots');
-
       const prompt = `You are executing a custom tool called "${tool.name}".
 
 TOOL DESCRIPTION: ${tool.description}
@@ -256,9 +254,29 @@ ${JSON.stringify(args, null, 2)}
 Execute the tool based on the implementation instructions and return the result. If the implementation is code-like, interpret it. If it's natural language, follow the instructions. Return your result as JSON if structured, or plain text otherwise.`;
 
       try {
-        const { output } = await executeInternalBaleybot('creator_bot', prompt, {
+        const output = await runToolExecutor(prompt, {
           triggeredBy: 'internal',
+          fallbackMode: 'value',
+          fallbackValue: {
+            success: false,
+            text: 'Tool execution returned malformed output.',
+          },
         });
+
+        if (output.success === false) {
+          return {
+            error: output.text || 'Tool execution failed',
+          };
+        }
+
+        if (output.result) {
+          return output.result;
+        }
+
+        if (output.text) {
+          return output.text;
+        }
+
         return output;
       } catch (error) {
         return {

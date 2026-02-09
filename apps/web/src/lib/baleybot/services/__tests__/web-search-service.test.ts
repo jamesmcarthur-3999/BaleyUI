@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createWebSearchService } from '../web-search-service';
 
-vi.mock('../../internal-baleybots', () => ({
-  executeInternalBaleybot: vi.fn().mockResolvedValue({
-    output: [
+vi.mock('../../internal-bb/runner', () => ({
+  runWebSearchFallback: vi.fn().mockResolvedValue({
+    results: [
       {
         title: 'Test Result 1',
         url: 'https://example.com/1',
@@ -15,7 +15,6 @@ vi.mock('../../internal-baleybots', () => ({
         snippet: 'This is test result 2',
       },
     ],
-    executionId: 'exec-123',
   }),
 }));
 
@@ -30,13 +29,12 @@ describe('web-search-service', () => {
 
   describe('AI fallback', () => {
     it('uses internal BaleyBot when no Tavily API key', async () => {
-      const { executeInternalBaleybot } = await import('../../internal-baleybots');
+      const { runWebSearchFallback } = await import('../../internal-bb/runner');
 
       const service = createWebSearchService({});
       await service.search('test query', 5);
 
-      expect(executeInternalBaleybot).toHaveBeenCalledWith(
-        'web_search_fallback',
+      expect(runWebSearchFallback).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           triggeredBy: 'internal',
@@ -45,18 +43,16 @@ describe('web-search-service', () => {
     });
 
     it('passes query and numResults in input', async () => {
-      const { executeInternalBaleybot } = await import('../../internal-baleybots');
+      const { runWebSearchFallback } = await import('../../internal-bb/runner');
 
       const service = createWebSearchService({});
       await service.search('best restaurants', 3);
 
-      expect(executeInternalBaleybot).toHaveBeenCalledWith(
-        'web_search_fallback',
+      expect(runWebSearchFallback).toHaveBeenCalledWith(
         expect.stringContaining('best restaurants'),
         expect.any(Object)
       );
-      expect(executeInternalBaleybot).toHaveBeenCalledWith(
-        'web_search_fallback',
+      expect(runWebSearchFallback).toHaveBeenCalledWith(
         expect.stringContaining('3'),
         expect.any(Object)
       );
@@ -74,43 +70,15 @@ describe('web-search-service', () => {
       });
     });
 
-    it('parses object output with nested results array', async () => {
-      const { executeInternalBaleybot } = await import('../../internal-baleybots');
-      vi.mocked(executeInternalBaleybot).mockResolvedValueOnce({
-        output: {
-          results: [
-            {
-              title: 'Nested Result',
-              url: 'https://example.com/nested',
-              content: 'Nested snippet from content field',
-            },
-          ],
-        },
-        executionId: 'exec-nested',
-      });
-
-      const service = createWebSearchService({});
-      const results = await service.search('nested test', 5);
-
-      expect(results).toEqual([
-        {
-          title: 'Nested Result',
-          url: 'https://example.com/nested',
-          snippet: 'Nested snippet from content field',
-        },
-      ]);
-    });
-
     it('passes user workspace to internal fallback', async () => {
-      const { executeInternalBaleybot } = await import('../../internal-baleybots');
+      const { runWebSearchFallback } = await import('../../internal-bb/runner');
 
       const service = createWebSearchService({});
       await service.search('workspace scoped query', 4, {
         workspaceId: 'ws-user-123',
       });
 
-      expect(executeInternalBaleybot).toHaveBeenCalledWith(
-        'web_search_fallback',
+      expect(runWebSearchFallback).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           triggeredBy: 'internal',
@@ -120,8 +88,8 @@ describe('web-search-service', () => {
     });
 
     it('handles failed AI search gracefully', async () => {
-      const { executeInternalBaleybot } = await import('../../internal-baleybots');
-      vi.mocked(executeInternalBaleybot).mockRejectedValueOnce(new Error('AI failed'));
+      const { runWebSearchFallback } = await import('../../internal-bb/runner');
+      vi.mocked(runWebSearchFallback).mockRejectedValueOnce(new Error('AI failed'));
 
       const service = createWebSearchService({});
       const results = await service.search('test', 5);
@@ -140,14 +108,13 @@ describe('web-search-service', () => {
     });
 
     it('clamps numResults to valid range', async () => {
-      const { executeInternalBaleybot } = await import('../../internal-baleybots');
+      const { runWebSearchFallback } = await import('../../internal-bb/runner');
 
       const service = createWebSearchService({});
       await service.search('test', 100);
 
       // Should be clamped to 20 max
-      expect(executeInternalBaleybot).toHaveBeenCalledWith(
-        'web_search_fallback',
+      expect(runWebSearchFallback).toHaveBeenCalledWith(
         expect.stringContaining('20'),
         expect.any(Object)
       );

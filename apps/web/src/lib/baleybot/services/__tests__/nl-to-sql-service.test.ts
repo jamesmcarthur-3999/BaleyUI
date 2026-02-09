@@ -1,12 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createNLToSQLService, createSQLGenerator } from '../nl-to-sql-service';
 
-vi.mock('../../internal-baleybots', () => ({
-  executeInternalBaleybot: vi.fn().mockResolvedValue({
-    output: {
-      sql: 'SELECT id, name FROM users WHERE active = true LIMIT 100',
-    },
-    executionId: 'exec-123',
+vi.mock('../../internal-bb/runner', () => ({
+  runNlToSql: vi.fn().mockResolvedValue({
+    sql: 'SELECT id, name FROM users WHERE active = true LIMIT 100',
   }),
 }));
 
@@ -16,13 +13,13 @@ describe('nl-to-sql-service', () => {
   });
 
   it('uses internal BaleyBot for postgres translation', async () => {
-    const { executeInternalBaleybot } = await import('../../internal-baleybots');
+    const { runNlToSql } = await import('../../internal-bb/runner');
 
     const service = createNLToSQLService({ databaseType: 'postgres' });
     await service.translate('Get all active users', 'CREATE TABLE users (id int, name text, active boolean)');
 
-    expect(executeInternalBaleybot).toHaveBeenCalledWith(
-      'nl_to_sql_postgres',
+    expect(runNlToSql).toHaveBeenCalledWith(
+      'postgres',
       expect.any(String),
       expect.objectContaining({
         triggeredBy: 'internal',
@@ -31,13 +28,13 @@ describe('nl-to-sql-service', () => {
   });
 
   it('uses internal BaleyBot for mysql translation', async () => {
-    const { executeInternalBaleybot } = await import('../../internal-baleybots');
+    const { runNlToSql } = await import('../../internal-bb/runner');
 
     const service = createNLToSQLService({ databaseType: 'mysql' });
     await service.translate('Get all active users', 'CREATE TABLE users (id int, name varchar(255), active tinyint)');
 
-    expect(executeInternalBaleybot).toHaveBeenCalledWith(
-      'nl_to_sql_mysql',
+    expect(runNlToSql).toHaveBeenCalledWith(
+      'mysql',
       expect.any(String),
       expect.objectContaining({
         triggeredBy: 'internal',
@@ -53,13 +50,13 @@ describe('nl-to-sql-service', () => {
   });
 
   it('createSQLGenerator returns a function that uses internal BaleyBot', async () => {
-    const { executeInternalBaleybot } = await import('../../internal-baleybots');
+    const { runNlToSql } = await import('../../internal-bb/runner');
 
     const generator = createSQLGenerator({ databaseType: 'postgres' });
     await generator('Get users', 'schema');
 
-    expect(executeInternalBaleybot).toHaveBeenCalledWith(
-      'nl_to_sql_postgres',
+    expect(runNlToSql).toHaveBeenCalledWith(
+      'postgres',
       expect.any(String),
       expect.objectContaining({
         triggeredBy: 'internal',

@@ -6,7 +6,7 @@
  * query generation with safety validation.
  */
 
-import { executeInternalBaleybot } from '../internal-baleybots';
+import { runNlToSql } from '../internal-bb/runner';
 
 // ============================================================================
 // TYPES
@@ -37,9 +37,6 @@ export interface NLToSQLService {
 export function createNLToSQLService(config: NLToSQLConfig = {}): NLToSQLService {
   const { databaseType = 'postgres' } = config;
 
-  // Select the appropriate internal BaleyBot based on database type
-  const internalBotName = databaseType === 'mysql' ? 'nl_to_sql_mysql' : 'nl_to_sql_postgres';
-
   const service: NLToSQLService = {
     async translate(query: string, schemaContext: string): Promise<string> {
       const input = `DATABASE SCHEMA:
@@ -51,21 +48,11 @@ ${query}
 Generate the SQL query:`;
 
       try {
-        // Execute the internal SQL translation BaleyBot
-        const { output } = await executeInternalBaleybot(internalBotName, input, {
+        const parsed = await runNlToSql(databaseType, input, {
           triggeredBy: 'internal',
         });
 
-        // Extract SQL from result
-        let sql: string;
-
-        if (typeof output === 'string') {
-          sql = output;
-        } else if (output && typeof output === 'object' && 'sql' in output) {
-          sql = String((output as { sql: unknown }).sql);
-        } else {
-          sql = String(output);
-        }
+        let sql = parsed.sql;
 
         // Clean up the result
         sql = sql.trim();

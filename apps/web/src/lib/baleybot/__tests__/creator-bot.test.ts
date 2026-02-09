@@ -1,77 +1,86 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { processCreatorMessage } from '../creator-bot';
 
-// Mock internal-baleybots
+// Mock internal discovery runner
+vi.mock('../internal-bb/runner', () => ({
+  runCreatorDiscovery: vi.fn().mockImplementation(async (prompt: string) => {
+    const lower = prompt.toLowerCase();
+    const isOutcomePolicyPrompt = lower.includes('approval policy');
+    const isUnderspecifiedDbMonitor =
+      lower.includes('monitor my database for new signups') &&
+      !lower.includes('table') &&
+      !lower.includes('every');
+    const hasStructuredDbAnswers =
+      lower.includes('database source:') || lower.includes('signup signal:');
+
+    if (isOutcomePolicyPrompt) {
+      return {
+        needsMoreInfo: true,
+        message: 'Need your approval handling policy before generation.',
+        questions: [
+          {
+            id: 'approval-policy',
+            label: 'Approval Policy',
+            description: 'What should happen when confidence is below threshold?',
+            requiredNow: true,
+          },
+        ],
+        contextNotes: ['Approval policy missing.'],
+      };
+    }
+
+    if (isUnderspecifiedDbMonitor || hasStructuredDbAnswers) {
+      return {
+        needsMoreInfo: true,
+        message: 'Need source and signal details before generation.',
+        questions: [
+          {
+            id: 'db-source',
+            label: 'Database Source',
+            description: 'Which connected database should be monitored?',
+            requiredNow: true,
+          },
+          {
+            id: 'signup-signal',
+            label: 'Signup Signal',
+            description: 'Which table/field indicates a new signup event?',
+            requiredNow: true,
+          },
+          {
+            id: 'trigger-mode',
+            label: 'Trigger Mode',
+            description: 'Schedule interval or real-time trigger?',
+            requiredNow: false,
+          },
+        ],
+        contextNotes: ['Database monitoring intent detected.'],
+      };
+    }
+
+    return {
+      needsMoreInfo: false,
+      message: 'Discovery complete',
+      questions: [],
+      contextNotes: [],
+    };
+  }),
+}));
+
+// Mock internal creator bot execution
 vi.mock('../internal-baleybots', () => ({
-  executeInternalBaleybot: vi.fn().mockImplementation(async (name: string, prompt: string) => {
-    if (name === 'creator_discovery') {
-      const lower = prompt.toLowerCase();
-      const isOutcomePolicyPrompt = lower.includes('approval policy');
-      const isUnderspecifiedDbMonitor =
-        lower.includes('monitor my database for new signups') &&
-        !lower.includes('table') &&
-        !lower.includes('every');
-      const hasStructuredDbAnswers =
-        lower.includes('database source:') || lower.includes('signup signal:');
-
-      if (isOutcomePolicyPrompt) {
-        return {
-          output: {
-            needsMoreInfo: true,
-            message: 'Need your approval handling policy before generation.',
-            questions: [
-              {
-                id: 'approval-policy',
-                label: 'Approval Policy',
-                description: 'What should happen when confidence is below threshold?',
-                requiredNow: true,
-              },
-            ],
-            contextNotes: ['Approval policy missing.'],
-          },
-          executionId: 'exec-discovery-outcome-policy',
-        };
-      }
-
-      if (isUnderspecifiedDbMonitor || hasStructuredDbAnswers) {
-        return {
-          output: {
-            needsMoreInfo: true,
-            message: 'Need source and signal details before generation.',
-            questions: [
-              {
-                id: 'db-source',
-                label: 'Database Source',
-                description: 'Which connected database should be monitored?',
-                requiredNow: true,
-              },
-              {
-                id: 'signup-signal',
-                label: 'Signup Signal',
-                description: 'Which table/field indicates a new signup event?',
-                requiredNow: true,
-              },
-              {
-                id: 'trigger-mode',
-                label: 'Trigger Mode',
-                description: 'Schedule interval or real-time trigger?',
-                requiredNow: false,
-              },
-            ],
-            contextNotes: ['Database monitoring intent detected.'],
-          },
-          executionId: 'exec-discovery-underspecified',
-        };
-      }
-
+  executeInternalBaleybot: vi.fn().mockImplementation(async (_name: string, prompt: string) => {
+    if (prompt.toLowerCase().includes('how should we approach this')) {
       return {
         output: {
-          needsMoreInfo: false,
-          message: 'Discovery complete',
-          questions: [],
-          contextNotes: [],
+          entities: [],
+          connections: [],
+          balCode: '',
+          name: 'test_bot',
+          icon: '🤖',
+          status: 'building',
+          message: 'We should start with your desired outcome and constraints, then I will propose a first draft.',
         },
-        executionId: 'exec-discovery-123',
+        executionId: 'exec-creator-chat-123',
       };
     }
 
@@ -115,6 +124,7 @@ describe('creator-bot', () => {
   });
 
   it('uses internal BaleyBot for processing', async () => {
+    const { runCreatorDiscovery } = await import('../internal-bb/runner');
     const { executeInternalBaleybot } = await import('../internal-baleybots');
 
     await processCreatorMessage(
@@ -130,8 +140,7 @@ describe('creator-bot', () => {
       'Create a bot that searches the web'
     );
 
-    expect(executeInternalBaleybot).toHaveBeenCalledWith(
-      'creator_discovery',
+    expect(runCreatorDiscovery).toHaveBeenCalledWith(
       'Create a bot that searches the web',
       expect.objectContaining({
         userWorkspaceId: 'ws-1',
@@ -171,6 +180,7 @@ describe('creator-bot', () => {
   });
 
   it('returns discovery questions for underspecified database monitoring requests', async () => {
+    const { runCreatorDiscovery } = await import('../internal-bb/runner');
     const { executeInternalBaleybot } = await import('../internal-baleybots');
 
     const result = await processCreatorMessage(
@@ -195,8 +205,7 @@ describe('creator-bot', () => {
     );
 
     expect(result.status).toBe('ready');
-    expect(executeInternalBaleybot).toHaveBeenCalledWith(
-      'creator_discovery',
+    expect(runCreatorDiscovery).toHaveBeenCalledWith(
       'Monitor my database for new signups',
       expect.objectContaining({
         userWorkspaceId: 'ws-1',
@@ -211,6 +220,7 @@ describe('creator-bot', () => {
   });
 
   it('proceeds to generation after discovery details are present', async () => {
+    const { runCreatorDiscovery } = await import('../internal-bb/runner');
     const { executeInternalBaleybot } = await import('../internal-baleybots');
 
     const result = await processCreatorMessage(
@@ -236,6 +246,7 @@ describe('creator-bot', () => {
 
     expect(result.status).toBe('ready');
     expect(result.entities.length).toBeGreaterThan(0);
+    expect(runCreatorDiscovery).toHaveBeenCalled();
     expect(executeInternalBaleybot).toHaveBeenCalled();
   });
 
@@ -282,6 +293,7 @@ describe('creator-bot', () => {
   });
 
   it('does not repeat resolved discovery prompts when labeled answers are provided', async () => {
+    const { runCreatorDiscovery } = await import('../internal-bb/runner');
     const { executeInternalBaleybot } = await import('../internal-baleybots');
 
     const result = await processCreatorMessage(
@@ -345,6 +357,7 @@ describe('creator-bot', () => {
     );
 
     expect(result.status).toBe('ready');
+    expect(runCreatorDiscovery).toHaveBeenCalled();
     expect(executeInternalBaleybot).toHaveBeenCalledWith(
       'creator_bot',
       expect.any(String),
@@ -494,5 +507,26 @@ describe('creator-bot', () => {
     expect(result.message ?? '').toContain('What I did');
     expect(result.message ?? '').toContain('Current stage');
     expect(result.message ?? '').toContain('Next stage');
+  });
+
+  it('supports conversational creator replies without forcing generation', async () => {
+    const result = await processCreatorMessage(
+      {
+        context: {
+          workspaceId: 'ws-1',
+          availableTools: [],
+          existingBaleybots: [],
+          workspacePolicies: null,
+          connections: [],
+        },
+      },
+      'How should we approach this before building?'
+    );
+
+    expect(result.status).toBe('building');
+    expect(result.entities).toHaveLength(0);
+    expect(result.balCode).toBe('');
+    expect(result.message ?? '').not.toContain('Design Complete');
+    expect(result.message ?? '').toContain('start with your desired outcome');
   });
 });

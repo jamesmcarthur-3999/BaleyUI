@@ -7,6 +7,7 @@
  */
 
 import { executeInternalBaleybot } from './internal-baleybots';
+import { runCreatorDiscovery } from './internal-bb/runner';
 import { normalizeBalCodeForCompatibility, parseBalCode } from './bal-parser-pure';
 import { runInternalOrchestrationLoop } from './internal-orchestration';
 import {
@@ -24,7 +25,6 @@ import { getConnectionSummary } from './tools/requirements-scanner';
 import { detectBalSkills, summarizeBalSkills } from './bal-skills';
 import { sanitizeCreatorText } from './creator-sanitization';
 import { createLogger } from '@/lib/logger';
-import { z } from 'zod';
 
 const logger = createLogger('creator-bot');
 
@@ -48,21 +48,6 @@ interface DiscoveryHistorySnapshot {
   requiredNow: DiscoveryQuestion[];
   optionalLater: DiscoveryQuestion[];
 }
-
-const discoveryQuestionSchema = z.object({
-  id: z.string().min(1).catch(() => crypto.randomUUID()),
-  label: z.string().min(1).catch('Required Detail'),
-  description: z.string().min(1).catch('Please provide this detail.'),
-  icon: z.string().optional().catch(undefined),
-  requiredNow: z.boolean().optional().catch(undefined),
-});
-
-const discoveryOutputSchema = z.object({
-  needsMoreInfo: z.boolean().catch(false),
-  message: z.string().optional().catch(undefined),
-  questions: z.array(discoveryQuestionSchema).max(8).catch([]),
-  contextNotes: z.array(z.string()).max(16).catch([]),
-});
 
 // ============================================================================
 // OUTPUT RESOLUTION
@@ -251,6 +236,49 @@ function buildCreatorRepairPrompt(args: {
 
 function includesAny(haystack: string, needles: string[]): boolean {
   return needles.some((needle) => haystack.includes(needle));
+}
+
+function hasExplicitBuildIntent(userMessage: string): boolean {
+  const lower = userMessage.trim().toLowerCase();
+  if (!lower) return false;
+
+  const buildIntentPatterns = [
+    'create',
+    'build',
+    'make',
+    'generate',
+    'design',
+    'draft',
+    'set up',
+    'setup',
+    'spin up',
+    'implement',
+    'turn this into',
+    'convert this into',
+  ];
+
+  return includesAny(lower, buildIntentPatterns);
+}
+
+function isExploratoryCreatorPrompt(userMessage: string): boolean {
+  const lower = userMessage.trim().toLowerCase();
+  if (!lower) return false;
+  if (hasExplicitBuildIntent(lower)) return false;
+
+  const startsWithQuestion = /^(how|what|why|can|could|would|should|do|does|is|are|when|where)\b/.test(
+    lower
+  );
+  const exploratorySignals = includesAny(lower, [
+    'help me understand',
+    'walk me through',
+    'what do you recommend',
+    'how should we',
+    'what should we',
+    'what happens next',
+    'best approach',
+  ]);
+
+  return startsWithQuestion || lower.includes('?') || exploratorySignals;
 }
 
 function extractUserTranscript(options: CreatorBotOptions, userMessage: string): string {
@@ -467,51 +495,6 @@ function coerceDiscoveryQuestions(rawQuestions: unknown): DiscoveryQuestion[] {
   }
 
   return normalized;
-}
-
-function coerceDiscoveryOutput(output: unknown): z.infer<typeof discoveryOutputSchema> | null {
-  const resolved = resolveStructuredOutput(output);
-  const strict = discoveryOutputSchema.safeParse(resolved);
-  if (strict.success) {
-    return strict.data;
-  }
-
-  if (!resolved || typeof resolved !== 'object' || Array.isArray(resolved)) {
-    return null;
-  }
-
-  const record = resolved as Record<string, unknown>;
-  const fallbackQuestions = coerceDiscoveryQuestions(
-    record.questions ?? record.requiredQuestions ?? record.followUpQuestions
-  );
-  const fallbackNotes =
-    Array.isArray(record.contextNotes)
-      ? record.contextNotes.filter((note): note is string => typeof note === 'string')
-      : Array.isArray(record.notes)
-        ? record.notes.filter((note): note is string => typeof note === 'string')
-        : [];
-
-  const fallback = {
-    needsMoreInfo:
-      typeof record.needsMoreInfo === 'boolean'
-        ? record.needsMoreInfo
-        : typeof record.status === 'string'
-          ? record.status.toLowerCase() === 'building'
-          : fallbackQuestions.length > 0,
-    message:
-      typeof record.message === 'string'
-        ? record.message
-        : typeof record.summary === 'string'
-          ? record.summary
-          : typeof record.thinking === 'string'
-            ? record.thinking
-            : undefined,
-    questions: fallbackQuestions,
-    contextNotes: fallbackNotes,
-  };
-
-  const parsedFallback = discoveryOutputSchema.safeParse(fallback);
-  return parsedFallback.success ? parsedFallback.data : null;
 }
 
 function extractLatestDiscoverySnapshot(
@@ -985,16 +968,31 @@ function mergeDiscoveryAssessments(params: {
   const deferredSetupQuestions = requiredResolution.remaining.filter(
     (question) => !isOutcomeCriticalDiscoveryQuestion(question)
   );
-  const finalRequiredNow = requiredResolution.remaining.filter((question) =>
+  let finalRequiredNow = requiredResolution.remaining.filter((question) =>
     isOutcomeCriticalDiscoveryQuestion(question)
   );
-  const finalOptionalLater = dedupeDiscoveryQuestions([
+  let finalOptionalLater = dedupeDiscoveryQuestions([
     ...optionalResolution.remaining,
     ...deferredSetupQuestions.map((question) => ({
       ...question,
       requiredNow: false,
     })),
   ]);
+  const exploratoryPrompt = isExploratoryCreatorPrompt(userMessage);
+
+  if (exploratoryPrompt && finalRequiredNow.length > 0) {
+    finalOptionalLater = dedupeDiscoveryQuestions([
+      ...finalOptionalLater,
+      ...finalRequiredNow.map((question) => ({
+        ...question,
+        requiredNow: false,
+      })),
+    ]);
+    finalRequiredNow = [];
+    contextNotes.push(
+      'User message is exploratory; deferred blocking discovery questions until explicit generation request.'
+    );
+  }
 
   if (keepPriorRequired) {
     contextNotes.push(
@@ -1019,8 +1017,9 @@ function mergeDiscoveryAssessments(params: {
   }
 
   const shouldBlock = finalRequiredNow.length > 0;
-  const preface =
-    ai.message?.trim() ||
+  const preface = exploratoryPrompt
+    ? 'I can guide the approach now and generate the runnable design when you say proceed.'
+    : ai.message?.trim() ||
     deterministic.message?.trim() ||
     (shouldBlock
       ? 'I reviewed your request and identified the minimum required details before generation.'
@@ -1553,24 +1552,11 @@ async function assessDiscoveryNeedsWithInternalBB(
   userMessage: string
 ): Promise<DiscoveryAssessment> {
   try {
-    const { output } = await executeInternalBaleybot(
-      'creator_discovery',
-      userMessage,
-      {
-        userWorkspaceId: options.context.workspaceId,
-        context: buildDiscoveryContext(options),
-        triggeredBy: 'internal',
-      }
-    );
-
-    const parsed = coerceDiscoveryOutput(output);
-
-    if (!parsed) {
-      logger.warn('creator_discovery returned invalid shape, using deterministic fallback', {
-        outputType: typeof output,
-      });
-      return assessDiscoveryNeeds(options, userMessage);
-    }
+    const parsed = await runCreatorDiscovery(userMessage, {
+      userWorkspaceId: options.context.workspaceId,
+      context: buildDiscoveryContext(options),
+      triggeredBy: 'internal',
+    });
 
     const normalizedQuestions = dedupeDiscoveryQuestions(parsed.questions);
     const requiredNow = normalizedQuestions.filter(
@@ -1579,10 +1565,11 @@ async function assessDiscoveryNeedsWithInternalBB(
     const optionalLater = normalizedQuestions.filter(
       (question) => question.requiredNow === false
     );
+    const shouldBlock = parsed.needsMoreInfo || requiredNow.length > 0;
 
     return {
-      shouldBlock: requiredNow.length > 0,
-      message: requiredNow.length > 0
+      shouldBlock,
+      message: shouldBlock
         ? buildDiscoveryMessage({
             requiredNow,
             optionalLater,
@@ -1613,6 +1600,7 @@ export async function processCreatorMessage(
   userMessage: string
 ): Promise<CreatorOutput> {
   const sanitizedUserMessage = sanitizeCreatorText(userMessage);
+  const exploratoryPrompt = isExploratoryCreatorPrompt(sanitizedUserMessage);
   const priorDiscovery = extractLatestDiscoverySnapshot(options.conversationHistory);
   const answerHistory = extractRecentUserMessages(options.conversationHistory);
   const aiDiscovery = await assessDiscoveryNeedsWithInternalBB(options, sanitizedUserMessage);
@@ -1676,6 +1664,11 @@ export async function processCreatorMessage(
     const transcript = extractUserTranscript(options, sanitizedUserMessage);
     const skillHints = inferBalSkillHints(transcript);
     const contextLines = [
+      ...(exploratoryPrompt
+        ? [
+            'Conversation mode: user is exploring options or asking process questions. Be conversational, explain the recommended approach, and provide one concrete next step. Generate BAL only after explicit user confirmation to proceed.',
+          ]
+        : []),
       ...discovery.contextNotes.map((note) => `- ${note}`),
       ...skillHints.map((hint) => `- ${hint}`),
     ];
@@ -1742,6 +1735,20 @@ export async function processCreatorMessage(
   });
 
   if (loopResult.finalState.bestOutput) {
+    const bestOutput = loopResult.finalState.bestOutput;
+
+    if (bestOutput.status === 'building') {
+      const fallbackMessage =
+        'I can guide this step-by-step. Share the outcome you want first, and I will drive the process from there.';
+      return {
+        ...bestOutput,
+        entities: [],
+        connections: [],
+        balCode: '',
+        message: bestOutput.message?.trim() || bestOutput.thinking?.trim() || fallbackMessage,
+      };
+    }
+
     if (loopResult.cycles.length > 1) {
       logger.info('Creator orchestration recovered malformed output', {
         cycles: loopResult.cycles.length,
@@ -1749,7 +1756,7 @@ export async function processCreatorMessage(
       });
     }
     return enrichGeneratedOutputNarrative(
-      loopResult.finalState.bestOutput,
+      bestOutput,
       options,
       loopResult.cycles.length
     );

@@ -70,6 +70,7 @@ const ALL_INTERNAL_BOTS = [
   'test_validator',
   'test_results_analyzer',
   'integration_builder',
+  'tool_executor',
 ] as const;
 
 // Bots whose BAL the SDK parser can currently handle.
@@ -92,9 +93,9 @@ describe('internal-baleybots', () => {
       }
     });
 
-    it('has exactly 16 internal bots', () => {
+    it('has exactly 17 internal bots', () => {
       const definedBots = Object.keys(INTERNAL_BALEYBOTS);
-      expect(definedBots).toHaveLength(16);
+      expect(definedBots).toHaveLength(17);
     });
 
     it.each(ALL_INTERNAL_BOTS)('%s has required fields (name, description, icon, balCode)', (botName) => {
@@ -122,7 +123,7 @@ describe('internal-baleybots', () => {
     });
 
     // TODO: Enable after SDK parser adds complex type support (array<object{...}>, enum(...), ?type, unknown)
-    it.todo('remaining 13 internal bots parse without errors (awaiting SDK complex type parser)');
+    it.todo('remaining 15 internal bots parse without errors (awaiting SDK complex type parser)');
 
     it.each(BOTS_PARSEABLE_NOW)('%s balCode defines an output schema', (botName) => {
       const bot = INTERNAL_BALEYBOTS[botName]!;
@@ -132,22 +133,22 @@ describe('internal-baleybots', () => {
       expect(entity!.config.output, `${botName} missing output schema`).toBeDefined();
     });
 
-    it.todo('remaining 13 internal bots define output schemas (awaiting SDK complex type parser)');
+    it.todo('remaining 15 internal bots define output schemas (awaiting SDK complex type parser)');
   });
 
   describe('INTERNAL_BALEYBOTS specific bot properties', () => {
     // These tests only work for bots whose BAL the parser can handle
 
-    it('nl_to_sql_postgres uses gpt-4o-mini', () => {
+    it('nl_to_sql_postgres uses gpt-5-mini', () => {
       const result = parseBalCode(INTERNAL_BALEYBOTS.nl_to_sql_postgres!.balCode);
       const entity = result.entities.find(e => e.name === 'nl_to_sql_postgres');
-      expect(entity?.config.model).toBe('openai:gpt-4o-mini');
+      expect(entity?.config.model).toBe('openai:gpt-5-mini');
     });
 
-    it('nl_to_sql_mysql uses gpt-4o-mini', () => {
+    it('nl_to_sql_mysql uses gpt-5-mini', () => {
       const result = parseBalCode(INTERNAL_BALEYBOTS.nl_to_sql_mysql!.balCode);
       const entity = result.entities.find(e => e.name === 'nl_to_sql_mysql');
-      expect(entity?.config.model).toBe('openai:gpt-4o-mini');
+      expect(entity?.config.model).toBe('openai:gpt-5-mini');
     });
 
     it('nl_to_sql_postgres output has expected fields', () => {
@@ -168,7 +169,7 @@ describe('internal-baleybots', () => {
 
     // These tests depend on complex type parsing — marked as todo until SDK patch
     it.todo('creator_bot has correct model (awaiting SDK complex type parser)');
-    it.todo('test_validator uses gpt-4o-mini (awaiting SDK complex type parser)');
+    it.todo('test_validator uses gpt-5-mini (awaiting SDK complex type parser)');
     it.todo('creator_bot output has entities, balCode, name, status fields');
     it.todo('bal_generator output has balCode, entities, suggestedName, suggestedIcon fields');
     it.todo('test_orchestrator output has topology and tests');
@@ -184,8 +185,8 @@ describe('internal-baleybots', () => {
       expect(INTERNAL_BALEYBOTS.creator_bot!.balCode).toContain('anthropic:claude-sonnet-4-20250514');
     });
 
-    it('test_validator balCode specifies gpt-4o-mini model', () => {
-      expect(INTERNAL_BALEYBOTS.test_validator!.balCode).toContain('openai:gpt-4o-mini');
+    it('test_validator balCode specifies gpt-5-mini model', () => {
+      expect(INTERNAL_BALEYBOTS.test_validator!.balCode).toContain('openai:gpt-5-mini');
     });
   });
 

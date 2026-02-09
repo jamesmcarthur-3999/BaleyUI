@@ -41,7 +41,15 @@ import {
   versionSchema,
 } from '../helpers';
 import { createLogger } from '@/lib/logger';
-import { executeInternalBaleybot } from '@/lib/baleybot/internal-baleybots';
+import {
+  runConnectionAdvisor,
+  runCreatorActionAdvisor,
+  runDeploymentAdvisor,
+  runTestGenerator,
+  runTestOrchestrator,
+  runTestResultsAnalyzer,
+  runTestValidator,
+} from '@/lib/baleybot/internal-bb/runner';
 import { getWorkspaceAICredentials, initializeBuiltInToolServices } from '@/lib/baleybot/services';
 import { sharedStorageService } from '@/lib/baleybot/services/shared-storage-service';
 import { configureWebSearch } from '@/lib/baleybot/tools/built-in/implementations';
@@ -63,109 +71,6 @@ import {
 } from '@/lib/baleybot/testing/output-match';
 
 const log = createLogger('baleybots-router');
-
-// Zod schemas for validating internal BB outputs (C3 fix)
-const testGeneratorOutputSchema = z.object({
-  tests: z.array(z.object({
-    name: z.string(),
-    level: z.enum(['unit', 'integration', 'e2e']),
-    input: z.union([z.string(), z.record(z.string(), z.unknown())]),
-    inputType: z.enum(['text', 'structured', 'fixture']).optional(),
-    expectedOutput: z.string().optional(),
-    matchStrategy: z.enum(['exact', 'contains', 'semantic', 'schema', 'structured']).optional(),
-    description: z.string().optional(),
-    fixtures: z.array(z.object({
-      key: z.string(),
-      value: z.unknown(),
-      ttlSeconds: z.number().optional(),
-      description: z.string().optional(),
-    })).optional(),
-    expectedSteps: z.array(z.object({
-      entityName: z.string(),
-      expectation: z.string(),
-    })).optional(),
-  })),
-  topology: z.string().optional(),
-  topologyDescription: z.string().optional(),
-  strategy: z.string().optional(),
-});
-
-const testValidatorOutputSchema = z.object({
-  passed: z.boolean(),
-  confidence: z.number().min(0).max(1),
-  reasoning: z.string(),
-  suggestions: z.array(z.string()).optional(),
-});
-
-const testResultsAnalyzerOutputSchema = z.object({
-  overallStatus: z.enum(['passed', 'mixed', 'failed']),
-  summary: z.string(),
-  passRate: z.number().min(0).max(1),
-  topology: z.string().optional(),
-  patterns: z.array(z.object({
-    type: z.string(),
-    description: z.string(),
-    affectedTests: z.array(z.string()),
-    suggestedFix: z.string(),
-  })).optional(),
-  botImprovements: z.array(z.object({
-    type: z.enum(['prompt', 'tool', 'model', 'structure']),
-    title: z.string(),
-    description: z.string(),
-    impact: z.enum(['high', 'medium', 'low']),
-  })).optional(),
-  pipelineInsights: z.array(z.object({
-    entityName: z.string(),
-    likelyIssue: z.string().optional(),
-    suggestedFix: z.string().optional(),
-  })).optional(),
-  nextSteps: z.array(z.string()).optional(),
-});
-
-const connectionAdvisorOutputSchema = z.object({
-  analysis: z.object({
-    aiProvider: z.object({
-      needed: z.boolean(),
-      recommended: z.string().optional(),
-      reason: z.string(),
-    }).optional(),
-    databases: z.array(z.object({
-      type: z.string(),
-      tools: z.array(z.string()),
-      configHints: z.string().optional(),
-    })).optional(),
-    external: z.array(z.object({
-      service: z.string(),
-      reason: z.string(),
-    })).optional(),
-  }).optional(),
-  recommendations: z.array(z.string()).optional(),
-  warnings: z.array(z.string()).optional(),
-});
-
-const deploymentAdvisorOutputSchema = z.object({
-  triggerRecommendations: z.array(z.object({
-    type: z.enum(['manual', 'schedule', 'webhook', 'other_bb', 'db_event', 'mcp_event']),
-    reason: z.string(),
-    config: z.record(z.string(), z.unknown()).optional(),
-  })).optional(),
-  monitoringAdvice: z.object({
-    alertsToSet: z.array(z.string()).optional(),
-    metricsToWatch: z.array(z.string()).optional(),
-  }).optional(),
-  readinessGaps: z.array(z.string()).optional(),
-  productionChecklist: z.array(z.string()).optional(),
-});
-
-const creatorActionAdvisorOutputSchema = z.object({
-  actions: z.array(z.object({
-    label: z.string().min(1).max(80),
-    prompt: z.string().min(1).max(2000),
-    mode: z.enum(['send', 'insert']).optional(),
-    reason: z.string().max(300).optional(),
-    priority: z.number().int().min(1).max(5).optional(),
-  })).max(3).optional(),
-});
 
 /**
  * Status values for BaleyBots
@@ -1308,18 +1213,15 @@ export const baleybotsRouter = router({
       ].filter(Boolean).join('\n');
 
       try {
-        const { output } = await executeInternalBaleybot(
-          'creator_action_advisor',
+        const parsed = await runCreatorActionAdvisor(
           `Suggest up to three next actions for this creator session.\n\n${contextStr}`,
           {
             userWorkspaceId: ctx.workspace.id,
             triggeredBy: 'internal',
           }
         );
-
-        const parsed = creatorActionAdvisorOutputSchema.parse(output);
         const seen = new Set<string>();
-        const actions = (parsed.actions ?? [])
+        const actions = parsed.actions
           .map((action) => ({
             label: sanitizeCreatorText(action.label),
             prompt: sanitizeCreatorText(action.prompt),
@@ -1667,46 +1569,48 @@ export const baleybotsRouter = router({
       ].filter(Boolean).join('\n');
 
       // Try test_orchestrator first (topology-aware), fall back to test_generator
-      let output: unknown;
+      let generatedTests:
+        | Awaited<ReturnType<typeof runTestOrchestrator>>
+        | Awaited<ReturnType<typeof runTestGenerator>>;
       let usedOrchestrator = false;
       try {
-        const result = await executeInternalBaleybot(
-          'test_orchestrator',
+        generatedTests = await runTestOrchestrator(
           `Design a comprehensive test suite for this BaleyBot:\n${contextStr}`,
           {
             userWorkspaceId: ctx.workspace.id,
             triggeredBy: 'internal',
           }
         );
-        output = result.output;
         usedOrchestrator = true;
       } catch (orchestratorError) {
         log.warn('test_orchestrator failed, falling back to test_generator', {
           error: orchestratorError instanceof Error ? orchestratorError.message : String(orchestratorError),
           baleybotId: input.baleybotId,
         });
-        const result = await executeInternalBaleybot(
-          'test_generator',
+        generatedTests = await runTestGenerator(
           `Generate comprehensive tests for this BaleyBot:\n${contextStr}`,
           {
             userWorkspaceId: ctx.workspace.id,
             triggeredBy: 'internal',
+            fallbackMode: 'value',
+            fallbackValue: {
+              tests: [],
+              strategy: 'Test generation returned unexpected format. Please try again.',
+            },
           }
         );
-        output = result.output;
       }
 
-      try {
-        const parsed = testGeneratorOutputSchema.parse(output);
-        // If orchestrator was used, topology fields will be present; otherwise add hints
-        if (!usedOrchestrator && !parsed.topology) {
-          return { ...parsed, topology: topologyHint, topologyDescription: `${entityCount} entit${entityCount === 1 ? 'y' : 'ies'}${hasChain ? ` in chain: ${parsed.topology}` : ''}` };
-        }
-        return parsed;
-      } catch {
-        log.error('test generation returned malformed output', { output, baleybotId: input.baleybotId, usedOrchestrator });
-        return { tests: [], strategy: 'Test generation returned unexpected format. Please try again.' };
+      // If orchestrator was not used, add deterministic topology hints.
+      if (!usedOrchestrator && !generatedTests.topology) {
+        return {
+          ...generatedTests,
+          topology: topologyHint,
+          topologyDescription: `${entityCount} entit${entityCount === 1 ? 'y' : 'ies'}${hasChain ? ` in chain` : ''}`,
+        };
       }
+
+      return generatedTests;
     }),
 
   /**
@@ -1746,19 +1650,19 @@ export const baleybotsRouter = router({
         input.balCode,
       ].join('\n');
 
-      const { output } = await executeInternalBaleybot(
-        'connection_advisor',
-        `Analyze connection requirements:\n${contextStr}`,
-        {
-          userWorkspaceId: ctx.workspace.id,
-          triggeredBy: 'internal',
-        }
-      );
-
       try {
-        return connectionAdvisorOutputSchema.parse(output);
-      } catch {
-        log.error('connection_advisor returned malformed output', { output, baleybotId: input.baleybotId });
+        return await runConnectionAdvisor(
+          `Analyze connection requirements:\n${contextStr}`,
+          {
+            userWorkspaceId: ctx.workspace.id,
+            triggeredBy: 'internal',
+          }
+        );
+      } catch (error) {
+        log.error('connection_advisor failed', {
+          baleybotId: input.baleybotId,
+          error: error instanceof Error ? error.message : String(error),
+        });
         return { analysis: undefined, recommendations: ['Connection analysis returned unexpected format. Please try again.'], warnings: [] };
       }
     }),
@@ -2119,17 +2023,14 @@ export const baleybotsRouter = router({
           : '',
       ].filter(Boolean).join('\n');
 
-      const { output } = await executeInternalBaleybot(
-        'test_validator',
-        `Validate this test result:\n${contextStr}`,
-        {
-          userWorkspaceId: ctx.workspace.id,
-          triggeredBy: 'internal',
-        }
-      );
-
       try {
-        const parsed = testValidatorOutputSchema.parse(output);
+        const parsed = await runTestValidator(
+          `Validate this test result:\n${contextStr}`,
+          {
+            userWorkspaceId: ctx.workspace.id,
+            triggeredBy: 'internal',
+          }
+        );
         const minConfidence = strategy === 'semantic' ? 0.5 : 0.6;
         if (parsed.passed && parsed.confidence < minConfidence) {
           return {
@@ -2140,8 +2041,10 @@ export const baleybotsRouter = router({
           };
         }
         return parsed;
-      } catch {
-        log.error('test_validator returned malformed output', { output });
+      } catch (error) {
+        log.error('test_validator failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         return { passed: false, confidence: 0, reasoning: 'Validation returned unexpected format.', suggestions: [] };
       }
     }),
@@ -2198,19 +2101,18 @@ export const baleybotsRouter = router({
         ].filter(Boolean).join('\n')),
       ].filter(Boolean).join('\n');
 
-      const { output } = await executeInternalBaleybot(
-        'test_results_analyzer',
-        `Analyze these test results and provide an actionable summary:\n${contextStr}`,
-        {
-          userWorkspaceId: ctx.workspace.id,
-          triggeredBy: 'internal',
-        }
-      );
-
       try {
-        return testResultsAnalyzerOutputSchema.parse(output);
-      } catch {
-        log.error('test_results_analyzer returned malformed output', { output });
+        return await runTestResultsAnalyzer(
+          `Analyze these test results and provide an actionable summary:\n${contextStr}`,
+          {
+            userWorkspaceId: ctx.workspace.id,
+            triggeredBy: 'internal',
+          }
+        );
+      } catch (error) {
+        log.error('test_results_analyzer failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         const passed = input.testResults.filter(t => t.status === 'passed').length;
         const total = input.testResults.length;
         return {
@@ -2354,8 +2256,7 @@ export const baleybotsRouter = router({
       } | undefined;
 
       try {
-        const { output } = await executeInternalBaleybot(
-          'deployment_advisor',
+        const parsedDeployment = await runDeploymentAdvisor(
           `Generate activation and monitoring recommendations:\n${deploymentContext}`,
           {
             userWorkspaceId: ctx.workspace.id,
@@ -2363,11 +2264,8 @@ export const baleybotsRouter = router({
           }
         );
 
-        const parsedDeployment = deploymentAdvisorOutputSchema.safeParse(output);
-        if (parsedDeployment.success) {
-          triggerRecommendations = parsedDeployment.data.triggerRecommendations;
-          monitoringAdvice = parsedDeployment.data.monitoringAdvice;
-        }
+        triggerRecommendations = parsedDeployment.triggerRecommendations;
+        monitoringAdvice = parsedDeployment.monitoringAdvice;
       } catch (error) {
         log.warn('Deployment advisor failed during LaunchKit generation; using deterministic fallback', {
           baleybotId: existing.id,
@@ -2526,19 +2424,19 @@ export const baleybotsRouter = router({
       );
 
       const contextStr = `Bot: ${existing.name}\nEntities: ${input.entityNames.join(', ')}\n\nBAL Code:\n${input.balCode}`;
-      const { output } = await executeInternalBaleybot(
-        'deployment_advisor',
-        `Analyze deployment for this BaleyBot:\n${contextStr}`,
-        {
-          userWorkspaceId: ctx.workspace.id,
-          triggeredBy: 'internal',
-        }
-      );
-
       try {
-        return deploymentAdvisorOutputSchema.parse(output);
-      } catch {
-        log.error('deployment_advisor returned malformed output', { output, baleybotId: input.baleybotId });
+        return await runDeploymentAdvisor(
+          `Analyze deployment for this BaleyBot:\n${contextStr}`,
+          {
+            userWorkspaceId: ctx.workspace.id,
+            triggeredBy: 'internal',
+          }
+        );
+      } catch (error) {
+        log.error('deployment_advisor failed', {
+          baleybotId: input.baleybotId,
+          error: error instanceof Error ? error.message : String(error),
+        });
         return { triggerRecommendations: [], readinessGaps: ['Deployment analysis returned unexpected format.'], productionChecklist: [] };
       }
     }),

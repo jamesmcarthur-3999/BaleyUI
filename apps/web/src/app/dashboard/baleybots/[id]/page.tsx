@@ -52,7 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, Zap, BarChart3, MessageSquare, PanelRight, Cable, FlaskConical, Activity, Rocket, CirclePlay, PauseCircle, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, Zap, BarChart3, MessageSquare, PanelRight, Cable, FlaskConical, Activity, Rocket, CirclePlay, PauseCircle, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory, useTestExecution } from '@/hooks';
@@ -218,6 +218,80 @@ function buildCreatorHistoryPayload(messages: CreatorMessage[]) {
   }));
 }
 
+type CreatorLifecycleSummary = NonNullable<
+  NonNullable<CreatorMessage['metadata']>['creatorLifecycle']
+>;
+
+interface DiscoveryQuestionSummary {
+  id: string;
+  label: string;
+  description: string;
+  requiredNow: boolean;
+}
+
+type DiscoveryIntakeSummary = NonNullable<
+  NonNullable<CreatorMessage['metadata']>['discoveryIntake']
+>;
+
+function getLatestCreatorLifecycle(messages: CreatorMessage[]): CreatorLifecycleSummary | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message?.role === 'assistant' && message.metadata?.creatorLifecycle) {
+      return message.metadata.creatorLifecycle;
+    }
+  }
+  return null;
+}
+
+function getDiscoveryQuestionsFromLifecycle(
+  lifecycle: CreatorLifecycleSummary | null
+): DiscoveryQuestionSummary[] {
+  if (!lifecycle || lifecycle.stage !== 'discovery') return [];
+
+  const questions: DiscoveryQuestionSummary[] = [];
+  const seen = new Set<string>();
+  const append = (
+    entries:
+      | Array<{
+          id: string;
+          label: string;
+          description: string;
+          requiredNow?: boolean;
+        }>
+      | undefined,
+    requiredNowFallback: boolean
+  ) => {
+    if (!entries) return;
+    for (const entry of entries) {
+      const key = `${entry.id}::${entry.label}`.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      questions.push({
+        id: entry.id,
+        label: entry.label,
+        description: entry.description,
+        requiredNow: entry.requiredNow ?? requiredNowFallback,
+      });
+    }
+  };
+
+  append(lifecycle.requiredQuestions, true);
+  append(lifecycle.optionalQuestions, false);
+  return questions;
+}
+
+function getLatestDiscoveryIntakeSummary(
+  messages: CreatorMessage[]
+): DiscoveryIntakeSummary | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message?.role === 'user' && message.metadata?.discoveryIntake) {
+      return message.metadata.discoveryIntake;
+    }
+  }
+  return null;
+}
+
 /**
  * State snapshot for undo/redo history
  */
@@ -315,6 +389,41 @@ export default function BaleybotPage() {
   // Ref to track if initial prompt was sent (avoids effect dependency issues)
   const initialPromptSentRef = useRef(false);
   const designGateReminderShownRef = useRef(false);
+  const latestCreatorLifecycle = useMemo(
+    () => getLatestCreatorLifecycle(messages),
+    [messages]
+  );
+  const latestDiscoveryQuestions = useMemo(
+    () => getDiscoveryQuestionsFromLifecycle(latestCreatorLifecycle),
+    [latestCreatorLifecycle]
+  );
+  const latestDiscoveryIntake = useMemo(
+    () => getLatestDiscoveryIntakeSummary(messages),
+    [messages]
+  );
+  const requiredDiscoveryQuestionCount = latestDiscoveryQuestions.filter((question) => question.requiredNow).length;
+  const answeredRequiredDiscoveryQuestionCount = (latestDiscoveryIntake?.answers ?? []).filter(
+    (answer) => answer.requiredNow
+  ).length;
+  const outstandingRequiredDiscoveryCount = Math.max(
+    requiredDiscoveryQuestionCount - answeredRequiredDiscoveryQuestionCount,
+    0
+  );
+  const nextDiscoveryQuestion =
+    latestDiscoveryQuestions.find((question) => {
+      if (!question.requiredNow) return false;
+      return !(latestDiscoveryIntake?.answers ?? []).some(
+        (answer) => answer.id === question.id && answer.requiredNow
+      );
+    }) ??
+    latestDiscoveryQuestions.find((question) => !question.requiredNow);
+  const isDiscoveryWorkspaceActive =
+    isNew &&
+    viewMode === 'visual' &&
+    status !== 'ready' &&
+    entities.length === 0 &&
+    !balCode.trim() &&
+    messages.length > 0;
 
   // =====================================================================
   // UNDO/REDO HISTORY (Phase 3.5)
@@ -1895,6 +2004,9 @@ export default function BaleybotPage() {
     showAdvancedUI,
     isDesignReviewRequired,
   });
+  const postDesignTargetTab: AdaptiveTab =
+    readiness.connected === 'not-applicable' ? 'test' : 'connections';
+  const postDesignTargetLabel = postDesignTargetTab === 'connections' ? 'Connections' : 'Testing';
 
   // Compute save button disabled reason for tooltip (Phase 1.8)
   const saveDisabledReason = !balCode || !name
@@ -2298,34 +2410,133 @@ export default function BaleybotPage() {
                 >
                   {/* Visual Editor View */}
                   {viewMode === 'visual' && (
-                    <div className="h-full flex flex-col gap-3">
-                      {isDesignReviewRequired && (
-                        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-medium">Confirm Visual Design</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Review entities, tools, and data-source mappings here first. Once confirmed, guided setup unlocks.
+                    isDiscoveryWorkspaceActive ? (
+                      <div className="h-full flex flex-col gap-3">
+                        <div className="rounded-lg border border-primary/25 bg-primary/5 px-4 py-3">
+                          <p className="text-sm font-medium">Step 1: Discovery (before visual design)</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            We are gathering the right details first so the generated BAL and visual layout are useful on the first pass.
+                          </p>
+                        </div>
+                        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                          <div className="rounded-lg border bg-background p-4 space-y-3">
+                            <div>
+                              <p className="text-sm font-medium">What is happening now</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {latestCreatorLifecycle?.stage === 'discovery'
+                                  ? outstandingRequiredDiscoveryCount > 0
+                                    ? `${outstandingRequiredDiscoveryCount} required detail${outstandingRequiredDiscoveryCount === 1 ? '' : 's'} still needed.`
+                                    : 'Discovery details are in place. Generator is preparing the build output.'
+                                  : status === 'building'
+                                    ? 'Creator is analyzing your request and preparing the first set of discovery prompts.'
+                                    : 'Continue in chat to provide details for generation.'}
+                              </p>
+                            </div>
+                            {nextDiscoveryQuestion && (
+                              <div className="rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2.5">
+                                <p className="text-[11px] uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                                  Next detail to answer
+                                </p>
+                                <p className="text-sm font-medium mt-1">{nextDiscoveryQuestion.label}</p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {nextDiscoveryQuestion.description}
+                                </p>
+                              </div>
+                            )}
+                            {latestDiscoveryIntake && latestDiscoveryIntake.answers.length > 0 && (
+                              <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
+                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                  Details already provided
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {latestDiscoveryIntake.answers.slice(0, 6).map((answer) => (
+                                    <span
+                                      key={answer.id}
+                                      className="text-[11px] rounded-full border border-border/60 bg-background/80 px-2 py-0.5"
+                                    >
+                                      {answer.label}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="rounded-lg border bg-background p-4 space-y-3">
+                            <p className="text-sm font-medium">What you will get next</p>
+                            <ul className="space-y-2 text-xs text-muted-foreground">
+                              <li className="rounded-md border border-border/50 bg-muted/20 px-3 py-2">
+                                1. Generated BAL code aligned with your discovery answers.
+                              </li>
+                              <li className="rounded-md border border-border/50 bg-muted/20 px-3 py-2">
+                                2. Visual entity graph with tool and source mappings.
+                              </li>
+                              <li className="rounded-md border border-border/50 bg-muted/20 px-3 py-2">
+                                3. Guided connections and tests based on the generated structure.
+                              </li>
+                            </ul>
+                            <p className="text-[11px] text-muted-foreground">
+                              Keep using chat on the left to answer prompts. This panel updates as discovery progresses.
                             </p>
                           </div>
-                          <Button
-                            size="sm"
-                            onClick={() => handleOptionSelect('confirm-design')}
-                            className="shrink-0"
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-                            Confirm Design
-                          </Button>
                         </div>
-                      )}
-                      <VisualEditor
-                        balCode={balCode}
-                        onChange={handleCodeChange}
-                        readOnly={status === 'building' || status === 'running'}
-                        className="flex-1 min-h-0"
-                        hideToolbar
-                        toolSuggestions={connectionToolSuggestions}
-                      />
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="h-full flex flex-col gap-3">
+                        <div className="rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium">Step 1: Review Visual Design</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Confirm the structure, tools, and source mappings here before moving forward.
+                            </p>
+                            {latestDiscoveryIntake && latestDiscoveryIntake.answers.length > 0 && (
+                              <div className="mt-2 rounded-md border border-border/60 bg-background/70 px-2.5 py-2">
+                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                  Generated from discovery
+                                </p>
+                                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                  {latestDiscoveryIntake.answers.slice(0, 6).map((answer) => (
+                                    <span
+                                      key={answer.id}
+                                      className="text-[11px] rounded-full border border-border/60 bg-background/80 px-2 py-0.5"
+                                    >
+                                      {answer.label}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          {isDesignReviewRequired ? (
+                            <Button
+                              size="sm"
+                              onClick={() => handleOptionSelect('confirm-design')}
+                              className="shrink-0"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                              Confirm Design
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => navigateToTab(postDesignTargetTab, { bypassDesignGate: true })}
+                              className="shrink-0"
+                            >
+                              Continue to {postDesignTargetLabel}
+                              <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+                            </Button>
+                          )}
+                        </div>
+                        <VisualEditor
+                          balCode={balCode}
+                          onChange={handleCodeChange}
+                          readOnly={status === 'building' || status === 'running'}
+                          className="flex-1 min-h-0"
+                          hideToolbar
+                          toolSuggestions={connectionToolSuggestions}
+                        />
+                      </div>
+                    )
                   )}
 
                   {/* Code Editor View */}
@@ -2479,8 +2690,27 @@ export default function BaleybotPage() {
                   )}
                   {/* Connections View */}
                   {viewMode === 'connections' && (
-                    <div className="h-full min-h-0 grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-4">
-                      <div className="h-full overflow-auto bg-background rounded-lg border p-4">
+                    <div className="h-full min-h-0 flex flex-col gap-3">
+                      <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium">Step 2: Configure Connections and Access</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Left panel handles setup and verification. Right panel lets you adjust node tools and mappings in context.
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => navigateToTab('visual', { bypassDesignGate: true })}
+                            className="shrink-0"
+                          >
+                            Back to Visual
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-4">
+                        <div className="h-full overflow-auto bg-background rounded-lg border p-4">
                         <ConnectionsPanel
                           tools={entities.flatMap(e => e.tools)}
                           connections={normalizedConnections ?? []}
@@ -2495,23 +2725,24 @@ export default function BaleybotPage() {
                           onApplyToolRemap={handleApplyToolRemap}
                           onNavigateToTest={() => navigateToTab('test')}
                         />
-                      </div>
-                      <div className="h-full min-h-0 bg-background rounded-lg border overflow-hidden">
-                        <div className="px-4 py-2 border-b border-border/40 bg-muted/20">
-                          <p className="text-sm font-medium">Visual Tool and Source Map</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Edit tools and data-source mappings directly on nodes while configuring connections.
-                          </p>
                         </div>
-                        <div className="h-[calc(100%-3.5rem)] min-h-0">
-                          <VisualEditor
-                            balCode={balCode}
-                            onChange={handleCodeChange}
-                            readOnly={status === 'building' || status === 'running'}
-                            className="h-full"
-                            hideToolbar
-                            toolSuggestions={connectionToolSuggestions}
-                          />
+                        <div className="h-full min-h-0 bg-background rounded-lg border overflow-hidden">
+                          <div className="px-4 py-2 border-b border-border/40 bg-muted/20">
+                            <p className="text-sm font-medium">Visual Tool and Source Map</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Select nodes to review or adjust tools and source mappings while you configure this stage.
+                            </p>
+                          </div>
+                          <div className="h-[calc(100%-3.5rem)] min-h-0">
+                            <VisualEditor
+                              balCode={balCode}
+                              onChange={handleCodeChange}
+                              readOnly={status === 'building' || status === 'running'}
+                              className="h-full"
+                              hideToolbar
+                              toolSuggestions={connectionToolSuggestions}
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2519,24 +2750,44 @@ export default function BaleybotPage() {
 
                   {/* Test View */}
                   {viewMode === 'test' && (
-                    <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                      <TestPanel
-                        testCases={testCases}
-                        topology={lastRunSummary?.topology}
-                        onRunTest={handleRunTest}
-                        onRunAll={handleRunAllTests}
-                        onRunAllWithSelfHealing={handleRunAllWithSelfHealing}
-                        onAddTest={handleAddTest}
-                        onGenerateTests={handleGenerateTests}
-                        isGenerating={isGeneratingTests}
-                        isRunningAll={isRunningAll}
-                        isSelfHealing={isSelfHealing}
-                        runAllProgress={runAllProgress}
-                        lastRunSummary={lastRunSummary}
-                        onUpdateTest={handleUpdateTest}
-                        onDeleteTest={handleDeleteTest}
-                        onAcceptActual={handleAcceptActual}
-                      />
+                    <div className="h-full min-h-0 flex flex-col gap-3">
+                      <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium">Step 3: Validate Behavior</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Run generated tests, resolve failures, and confirm your BaleyBot behaves as expected before launch.
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => navigateToTab('connections', { bypassDesignGate: true })}
+                            className="shrink-0"
+                          >
+                            Back to Connections
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="flex-1 overflow-auto bg-background rounded-lg border p-4">
+                        <TestPanel
+                          testCases={testCases}
+                          topology={lastRunSummary?.topology}
+                          onRunTest={handleRunTest}
+                          onRunAll={handleRunAllTests}
+                          onRunAllWithSelfHealing={handleRunAllWithSelfHealing}
+                          onAddTest={handleAddTest}
+                          onGenerateTests={handleGenerateTests}
+                          isGenerating={isGeneratingTests}
+                          isRunningAll={isRunningAll}
+                          isSelfHealing={isSelfHealing}
+                          runAllProgress={runAllProgress}
+                          lastRunSummary={lastRunSummary}
+                          onUpdateTest={handleUpdateTest}
+                          onDeleteTest={handleDeleteTest}
+                          onAcceptActual={handleAcceptActual}
+                        />
+                      </div>
                     </div>
                   )}
 

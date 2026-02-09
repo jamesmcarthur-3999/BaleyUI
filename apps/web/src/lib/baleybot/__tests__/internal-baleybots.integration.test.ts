@@ -109,6 +109,7 @@ describe('internal-baleybots integration', () => {
       'test_validator',
       'test_results_analyzer',
       'integration_builder',
+      'tool_executor',
     ];
 
     it('defines at least all expected internal bots', () => {

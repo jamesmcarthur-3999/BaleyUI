@@ -7,7 +7,7 @@
 
 import { webSearchTool } from '@baleybots/tools';
 import type { WebSearchParams, WebSearchResponse } from '@baleybots/tools';
-import { executeInternalBaleybot } from '../internal-baleybots';
+import { runWebSearchFallback } from '../internal-bb/runner';
 import { createLogger, extractErrorMessage } from '@/lib/logger';
 
 const logger = createLogger('web-search');
@@ -67,70 +67,17 @@ async function searchWithAI(
   try {
     const input = `Search the web for: ${query}
 
-Return ${numResults} relevant search results as a JSON array.
-Each result should have: title, url, snippet.`;
+Return up to ${numResults} relevant search results as JSON with this shape:
+{ "results": [{ "title": "...", "url": "...", "snippet": "..." }] }`;
 
-    const { output } = await executeInternalBaleybot(
-      'web_search_fallback',
-      input,
-      {
-        triggeredBy: 'internal',
-        ...(workspaceId ? { userWorkspaceId: workspaceId } : {}),
-      }
-    );
+    const parsed = await runWebSearchFallback(input, {
+      triggeredBy: 'internal',
+      ...(workspaceId ? { userWorkspaceId: workspaceId } : {}),
+      fallbackMode: 'value',
+      fallbackValue: { results: [] },
+    });
 
-    // Parse the result
-    if (Array.isArray(output)) {
-      // Already parsed as array
-      return output.slice(0, numResults).map((item: unknown) => {
-        const obj = item as Record<string, unknown>;
-        return {
-          title: String(obj.title || ''),
-          url: String(obj.url || ''),
-          snippet: String(obj.snippet || ''),
-        };
-      });
-    }
-
-    if (output && typeof output === 'object') {
-      const record = output as Record<string, unknown>;
-      const nestedResults = Array.isArray(record.results)
-        ? record.results
-        : Array.isArray(record.searchResults)
-          ? record.searchResults
-          : null;
-
-      if (nestedResults) {
-        return nestedResults.slice(0, numResults).map((item: unknown) => {
-          const obj = item as Record<string, unknown>;
-          return {
-            title: String(obj.title || ''),
-            url: String(obj.url || ''),
-            snippet: String(obj.snippet || obj.content || ''),
-          };
-        });
-      }
-    }
-
-    // Handle string or other result types
-    const text = typeof output === 'string' ? output.trim() : String(output);
-
-    // Handle code blocks if present
-    const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    const jsonStr = jsonMatch ? jsonMatch[1]?.trim() : text;
-
-    if (!jsonStr) {
-      throw new Error('No JSON content found in AI response');
-    }
-
-    const parsed = JSON.parse(jsonStr) as Array<{
-      title: string;
-      url: string;
-      snippet: string;
-    }>;
-
-    // Validate and normalize results
-    return parsed.slice(0, numResults).map((item) => ({
+    return parsed.results.slice(0, numResults).map((item) => ({
       title: String(item.title || ''),
       url: String(item.url || ''),
       snippet: String(item.snippet || ''),

@@ -1,0 +1,223 @@
+{
+  "creator_discovery_v1": {
+    "id": "creator_discovery_v1",
+    "output": {
+      "needsMoreInfo": "boolean",
+      "message": "string",
+      "questions": "array",
+      "contextNotes": "array"
+    },
+    "rules": [
+      "Return exactly one JSON object with no markdown fencing.",
+      "Set needsMoreInfo=true only when generation must block now.",
+      "Use requiredNow=true only for blocking questions."
+    ]
+  },
+  "creator_bot_v1": {
+    "id": "creator_bot_v1",
+    "output": {
+      "thinking": "string",
+      "message": "string",
+      "questions": "array",
+      "entities": "array",
+      "connections": "array",
+      "balCode": "string",
+      "name": "string",
+      "description": "string",
+      "icon": "string",
+      "status": "string"
+    },
+    "rules": [
+      "Return exactly one JSON object with no markdown fencing.",
+      "status must be either building or ready.",
+      "When multiple entities are present, balCode must include a composition block."
+    ]
+  },
+  "creator_action_advisor_v1": {
+    "id": "creator_action_advisor_v1",
+    "output": {
+      "actions": "array"
+    },
+    "rules": [
+      "Return 0-3 actions only.",
+      "Each action prompt must be directly executable by the creator flow.",
+      "Avoid repeating stale or generic actions."
+    ]
+  },
+  "bal_generator_v1": {
+    "id": "bal_generator_v1",
+    "output": {
+      "balCode": "string",
+      "explanation": "string",
+      "entities": "array",
+      "toolRationale": "object",
+      "suggestedName": "string",
+      "suggestedIcon": "string"
+    },
+    "rules": [
+      "Return exactly one JSON object.",
+      "balCode must be syntactically valid BAL.",
+      "Only include supported entity properties: goal, model, tools, output, history, maxTokens."
+    ]
+  },
+  "pattern_learner_v1": {
+    "id": "pattern_learner_v1",
+    "output": {
+      "suggestions": "array",
+      "warnings": "array",
+      "recommendations": "array"
+    },
+    "rules": [
+      "Use conservative risk assessments.",
+      "trustLevel must be provisional, trusted, or permanent.",
+      "riskAssessment must be low, medium, or high."
+    ]
+  },
+  "execution_reviewer_v1": {
+    "id": "execution_reviewer_v1",
+    "output": {
+      "overallAssessment": "string",
+      "summary": "string",
+      "issues": "array",
+      "suggestions": "array",
+      "metrics": "object"
+    },
+    "rules": [
+      "Focus on user-impacting issues first.",
+      "Severity values must be error, warning, or suggestion.",
+      "Metrics should use 0-100 scoring."
+    ]
+  },
+  "nl_to_sql_v1": {
+    "id": "nl_to_sql_v1",
+    "output": {
+      "sql": "string"
+    },
+    "rules": [
+      "Return one SQL statement only.",
+      "Never generate destructive SQL.",
+      "Add LIMIT 100 when not explicitly constrained."
+    ]
+  },
+  "web_search_fallback_v1": {
+    "id": "web_search_fallback_v1",
+    "output": {
+      "results": "array"
+    },
+    "rules": [
+      "Return 3-5 results when possible.",
+      "Each result must include title, url, and snippet fields.",
+      "Prefer widely recognizable and likely valid sources."
+    ]
+  },
+  "connection_advisor_v1": {
+    "id": "connection_advisor_v1",
+    "output": {
+      "analysis": "object",
+      "recommendations": "array",
+      "warnings": "array"
+    },
+    "rules": [
+      "Separate deterministic requirements from optimization recommendations.",
+      "Call out missing required connections clearly.",
+      "Keep recommendations concrete and ordered."
+    ]
+  },
+  "test_orchestrator_v1": {
+    "id": "test_orchestrator_v1",
+    "output": {
+      "topology": "string",
+      "topologyDescription": "string",
+      "tests": "array",
+      "strategy": "string"
+    },
+    "rules": [
+      "Generate 4-10 tests when enough context exists.",
+      "Align match strategy to topology and input type.",
+      "Include expectedSteps only when topology is non-single."
+    ]
+  },
+  "test_generator_v1": {
+    "id": "test_generator_v1",
+    "output": {
+      "tests": "array",
+      "strategy": "string"
+    },
+    "rules": [
+      "Generate 3-8 tests across unit, integration, and e2e where relevant.",
+      "Choose matchStrategy intentionally.",
+      "Keep test descriptions actionable."
+    ]
+  },
+  "deployment_advisor_v1": {
+    "id": "deployment_advisor_v1",
+    "output": {
+      "triggerRecommendations": "array",
+      "monitoringAdvice": "object",
+      "readinessGaps": "array",
+      "productionChecklist": "array"
+    },
+    "rules": [
+      "Trigger type must be one of manual, schedule, webhook, other_bb, db_event, mcp_event.",
+      "Checklist items must be concrete and testable.",
+      "Readiness gaps should prioritize blockers first."
+    ]
+  },
+  "test_validator_v1": {
+    "id": "test_validator_v1",
+    "output": {
+      "passed": "boolean",
+      "confidence": "number",
+      "reasoning": "string",
+      "suggestions": "array"
+    },
+    "rules": [
+      "Use confidence values between 0 and 1.",
+      "Be lenient on wording and strict on intent mismatch.",
+      "Include concise failure suggestions when passed=false."
+    ]
+  },
+  "test_results_analyzer_v1": {
+    "id": "test_results_analyzer_v1",
+    "output": {
+      "overallStatus": "string",
+      "summary": "string",
+      "passRate": "number",
+      "topology": "string",
+      "patterns": "array",
+      "botImprovements": "array",
+      "pipelineInsights": "array",
+      "nextSteps": "array"
+    },
+    "rules": [
+      "overallStatus must be passed, mixed, or failed.",
+      "Use passRate in [0,1].",
+      "Keep next steps short and prioritized."
+    ]
+  },
+  "integration_builder_v1": {
+    "id": "integration_builder_v1",
+    "output": {
+      "integrations": "array",
+      "architectureNotes": "string"
+    },
+    "rules": [
+      "Integration types should be explicit and actionable.",
+      "Setup steps must be concrete and ordered.",
+      "Highlight operational and security considerations."
+    ]
+  },
+  "tool_executor_v1": {
+    "id": "tool_executor_v1",
+    "output": {
+      "success": "boolean",
+      "result": "object",
+      "text": "string"
+    },
+    "rules": [
+      "Execute only what is requested by the tool definition and input arguments.",
+      "Return success=false with a clear text reason on failure.",
+      "Do not invent side effects not implied by instructions."
+    ]
+  }
+}

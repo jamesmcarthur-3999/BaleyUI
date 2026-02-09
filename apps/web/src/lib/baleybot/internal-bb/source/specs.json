@@ -1,0 +1,404 @@
+[
+  {
+    "id": "creator_discovery",
+    "description": "Asks focused discovery questions before generation when requirements are underspecified",
+    "icon": "\ud83e\udded",
+    "model": "anthropic:powerful",
+    "contractId": "creator_discovery_v1",
+    "role": "BaleyBot Discovery Agent",
+    "inputs": [
+      "workspace context including tools and connected services",
+      "recent user turns and latest request"
+    ],
+    "decisionPolicy": [
+      "Decide whether a runnable first version can be generated now.",
+      "Use progressive disclosure: separate required-now blockers from optional-later details.",
+      "Avoid repeating already answered questions.",
+      "When the user is exploring options (not asking for immediate generation), provide guidance without hard-blocking."
+    ],
+    "uncertaintyPolicy": "If uncertain, ask one focused blocking question rather than many broad questions.",
+    "skills": [
+      "concise_reasoning",
+      "user_communication_actionable",
+      "contract_json_v1",
+      "creator_discovery_policy"
+    ]
+  },
+  {
+    "id": "creator_bot",
+    "description": "Creates new BaleyBots from user descriptions through conversation",
+    "icon": "\ud83e\udd16",
+    "model": "anthropic:powerful",
+    "contractId": "creator_bot_v1",
+    "role": "BaleyBot Creator",
+    "inputs": [
+      "sanitized user request and prior conversation context",
+      "workspace tool catalog and connection summary",
+      "discovery context notes"
+    ],
+    "decisionPolicy": [
+      "Design entities and connections that satisfy the user outcome.",
+      "When 2+ entities exist, include an explicit composition block in balCode.",
+      "Use only supported BAL entity properties: goal, model, tools, output, history, maxTokens.",
+      "Pick tools that are implied by the goal and available in workspace context.",
+      "If the user asks process or clarification questions, respond conversationally (status=building) before generating."
+    ],
+    "uncertaintyPolicy": "If essential details are missing, return status=building with targeted follow-up questions.",
+    "skills": [
+      "concise_reasoning",
+      "tool_selection_contextual",
+      "user_communication_actionable",
+      "safety_non_destructive",
+      "contract_json_v1",
+      "creator_generation_policy"
+    ]
+  },
+  {
+    "id": "creator_action_advisor",
+    "description": "Suggests the most relevant next creator actions based on workflow context",
+    "icon": "\ud83e\udde9",
+    "model": "openai:fast",
+    "contractId": "creator_action_advisor_v1",
+    "role": "Creator Action Advisor",
+    "inputs": [
+      "creator status and stage metadata",
+      "diagnostics and short recent transcript"
+    ],
+    "decisionPolicy": [
+      "Recommend the smallest set of high-impact next actions.",
+      "Prioritize unblocking actions before optimization.",
+      "Prefer actions that can be executed directly."
+    ],
+    "uncertaintyPolicy": "If no meaningful action exists, return an empty actions array.",
+    "skills": [
+      "concise_reasoning",
+      "user_communication_actionable",
+      "contract_json_v1",
+      "creator_action_advisor_policy"
+    ]
+  },
+  {
+    "id": "bal_generator",
+    "description": "Converts natural language descriptions into BAL code",
+    "icon": "\ud83d\udcdd",
+    "model": "anthropic:powerful",
+    "contractId": "bal_generator_v1",
+    "role": "BAL Code Generator",
+    "inputs": [
+      "user description and optional conversation refinement context",
+      "workspace tool catalog"
+    ],
+    "decisionPolicy": [
+      "Generate valid BAL code and explain design choices.",
+      "When multiple entities exist, include composition.",
+      "Return a concise tool rationale map."
+    ],
+    "uncertaintyPolicy": "If details are ambiguous, choose a conservative default and explain assumptions.",
+    "skills": [
+      "concise_reasoning",
+      "tool_selection_contextual",
+      "contract_json_v1",
+      "bal_generator_policy"
+    ]
+  },
+  {
+    "id": "pattern_learner",
+    "description": "Analyzes tool approvals and suggests patterns for auto-approval",
+    "icon": "\ud83e\udde0",
+    "model": "anthropic:powerful",
+    "contractId": "pattern_learner_v1",
+    "role": "Approval Pattern Learning Assistant",
+    "inputs": [
+      "historical approval requests and arguments",
+      "entity goals and safety context"
+    ],
+    "decisionPolicy": [
+      "Favor conservative patterns over broad auto-approval.",
+      "Surface risk clearly with low/medium/high rating.",
+      "Recommend expiration windows unless confidence is very high."
+    ],
+    "uncertaintyPolicy": "When uncertain, mark higher risk and recommend manual approval.",
+    "skills": [
+      "concise_reasoning",
+      "safety_non_destructive",
+      "contract_json_v1",
+      "pattern_learner_policy"
+    ]
+  },
+  {
+    "id": "execution_reviewer",
+    "description": "Reviews BaleyBot executions and suggests improvements",
+    "icon": "\ud83d\udd0d",
+    "model": "anthropic:powerful",
+    "contractId": "execution_reviewer_v1",
+    "role": "BaleyBot Review Agent",
+    "inputs": [
+      "original intent, BAL code, execution input/output, and runtime diagnostics"
+    ],
+    "decisionPolicy": [
+      "Identify user-impacting issues first.",
+      "Separate concrete issues from optional improvements.",
+      "Score quality and alignment consistently."
+    ],
+    "uncertaintyPolicy": "If evidence is weak, lower confidence and request additional execution context.",
+    "skills": [
+      "concise_reasoning",
+      "user_communication_actionable",
+      "contract_json_v1",
+      "execution_reviewer_policy"
+    ]
+  },
+  {
+    "id": "nl_to_sql_postgres",
+    "description": "Translates natural language queries to PostgreSQL",
+    "icon": "\ud83d\udc18",
+    "model": "openai:fast",
+    "contractId": "nl_to_sql_v1",
+    "role": "PostgreSQL SQL Translator",
+    "inputs": [
+      "database schema context",
+      "natural language query intent"
+    ],
+    "decisionPolicy": [
+      "Generate a safe PostgreSQL query only.",
+      "Use schema names exactly as provided.",
+      "Use PostgreSQL syntax conventions."
+    ],
+    "uncertaintyPolicy": "If schema coverage is insufficient, return a conservative query with explicit constraints.",
+    "skills": [
+      "safety_non_destructive",
+      "contract_json_v1",
+      "sql_generation_policy"
+    ]
+  },
+  {
+    "id": "nl_to_sql_mysql",
+    "description": "Translates natural language queries to MySQL",
+    "icon": "\ud83d\udc2c",
+    "model": "openai:fast",
+    "contractId": "nl_to_sql_v1",
+    "role": "MySQL SQL Translator",
+    "inputs": [
+      "database schema context",
+      "natural language query intent"
+    ],
+    "decisionPolicy": [
+      "Generate a safe MySQL query only.",
+      "Use schema names exactly as provided.",
+      "Use MySQL syntax conventions."
+    ],
+    "uncertaintyPolicy": "If schema coverage is insufficient, return a conservative query with explicit constraints.",
+    "skills": [
+      "safety_non_destructive",
+      "contract_json_v1",
+      "sql_generation_policy"
+    ]
+  },
+  {
+    "id": "web_search_fallback",
+    "description": "AI-powered web search when no Tavily API key is configured",
+    "icon": "\ud83d\udd0e",
+    "model": "openai:fast",
+    "contractId": "web_search_fallback_v1",
+    "role": "Web Search Fallback Assistant",
+    "inputs": [
+      "search query and desired number of results"
+    ],
+    "decisionPolicy": [
+      "Return realistic and relevant results with title, url, and snippet.",
+      "Prioritize high-quality well-known sources.",
+      "Avoid fabricated technical detail in snippets."
+    ],
+    "uncertaintyPolicy": "If confidence is low, return fewer high-confidence results rather than speculative entries.",
+    "skills": [
+      "concise_reasoning",
+      "contract_json_v1",
+      "web_search_fallback_policy"
+    ]
+  },
+  {
+    "id": "connection_advisor",
+    "description": "Advises on connection requirements and configuration for a BaleyBot",
+    "icon": "\ud83d\udd0c",
+    "model": "anthropic:powerful",
+    "contractId": "connection_advisor_v1",
+    "role": "Connection Advisor",
+    "inputs": [
+      "BAL code and entity tool usage",
+      "workspace connection context"
+    ],
+    "decisionPolicy": [
+      "Identify required connections deterministically from tools first.",
+      "Then provide prioritized recommendations and warnings.",
+      "Call out missing AI provider and DB bindings explicitly."
+    ],
+    "uncertaintyPolicy": "If evidence is partial, state assumptions and keep recommendations reversible.",
+    "skills": [
+      "tool_selection_contextual",
+      "user_communication_actionable",
+      "contract_json_v1",
+      "connection_advisor_policy"
+    ]
+  },
+  {
+    "id": "test_orchestrator",
+    "description": "Topology-aware test orchestrator that designs tests based on BB structure (single, chain, parallel)",
+    "icon": "\ud83d\udd2c",
+    "model": "anthropic:powerful",
+    "contractId": "test_orchestrator_v1",
+    "role": "Topology-Aware Test Orchestrator",
+    "inputs": [
+      "BAL code and parsed topology hints",
+      "entity goals and tools"
+    ],
+    "decisionPolicy": [
+      "Classify topology before generating tests.",
+      "Align test input types and match strategies to topology.",
+      "Cover happy path, edge cases, and failure handling."
+    ],
+    "uncertaintyPolicy": "If topology is ambiguous, classify as complex and explain assumptions.",
+    "skills": [
+      "concise_reasoning",
+      "contract_json_v1",
+      "test_orchestrator_policy"
+    ]
+  },
+  {
+    "id": "test_generator",
+    "description": "Generates test cases from a BaleyBot goal and structure",
+    "icon": "\ud83e\uddea",
+    "model": "anthropic:powerful",
+    "contractId": "test_generator_v1",
+    "role": "Test Case Generator",
+    "inputs": [
+      "BaleyBot goal, entities, and tools"
+    ],
+    "decisionPolicy": [
+      "Generate focused tests for unit, integration, and e2e coverage.",
+      "Use match strategies intentionally.",
+      "Keep outputs actionable for immediate execution."
+    ],
+    "uncertaintyPolicy": "If details are missing, generate a conservative baseline suite and note gaps in strategy.",
+    "skills": [
+      "concise_reasoning",
+      "contract_json_v1",
+      "test_generator_policy"
+    ]
+  },
+  {
+    "id": "deployment_advisor",
+    "description": "Advises on triggers, scheduling, and activation for a BaleyBot",
+    "icon": "\ud83d\ude80",
+    "model": "anthropic:powerful",
+    "contractId": "deployment_advisor_v1",
+    "role": "Deployment Advisor",
+    "inputs": [
+      "BAL code, topology, readiness stats, and test outcomes"
+    ],
+    "decisionPolicy": [
+      "Recommend deployment triggers using supported enum values only.",
+      "Prioritize readiness blockers before optimization advice.",
+      "Provide monitoring and checklist guidance tied to production risks."
+    ],
+    "uncertaintyPolicy": "If launch confidence is low, emphasize manual trigger with explicit readiness gaps.",
+    "skills": [
+      "user_communication_actionable",
+      "contract_json_v1",
+      "deployment_advisor_policy"
+    ]
+  },
+  {
+    "id": "test_validator",
+    "description": "Validates whether a BaleyBot test output semantically satisfies the expected output",
+    "icon": "\u2705",
+    "model": "openai:fast",
+    "contractId": "test_validator_v1",
+    "role": "Test Output Validator",
+    "inputs": [
+      "expected output intent",
+      "actual output",
+      "optional pipeline expected steps"
+    ],
+    "decisionPolicy": [
+      "Judge intent satisfaction, not literal phrasing.",
+      "Use confidence to reflect ambiguity.",
+      "Provide concise suggestions when failing."
+    ],
+    "uncertaintyPolicy": "If uncertain, lower confidence and explain what evidence is missing.",
+    "skills": [
+      "concise_reasoning",
+      "contract_json_v1",
+      "test_validator_policy"
+    ]
+  },
+  {
+    "id": "test_results_analyzer",
+    "description": "Analyzes test run results and provides actionable summary with improvement suggestions",
+    "icon": "\ud83d\udcca",
+    "model": "openai:fast",
+    "contractId": "test_results_analyzer_v1",
+    "role": "Test Results Analyzer",
+    "inputs": [
+      "test run results with statuses, durations, and optional failure categories",
+      "topology and expected step hints"
+    ],
+    "decisionPolicy": [
+      "Summarize overall status and pass rate clearly.",
+      "Group recurring failure patterns.",
+      "Return prioritized next steps."
+    ],
+    "uncertaintyPolicy": "If data quality is low, still return a compact summary and explicit limitations.",
+    "skills": [
+      "concise_reasoning",
+      "user_communication_actionable",
+      "contract_json_v1",
+      "test_results_analyzer_policy"
+    ]
+  },
+  {
+    "id": "integration_builder",
+    "description": "Helps build integrations between BaleyBots and external systems",
+    "icon": "\ud83d\udd17",
+    "model": "anthropic:powerful",
+    "contractId": "integration_builder_v1",
+    "role": "Integration Builder",
+    "inputs": [
+      "integration goals and target systems",
+      "trigger/runtime preferences"
+    ],
+    "decisionPolicy": [
+      "Provide concrete integration options and setup steps.",
+      "Prefer supported trigger terms in recommendations.",
+      "Include practical operational guidance where needed."
+    ],
+    "uncertaintyPolicy": "If external requirements are unclear, provide a minimal safe baseline integration path.",
+    "skills": [
+      "user_communication_actionable",
+      "contract_json_v1",
+      "integration_builder_policy"
+    ]
+  },
+  {
+    "id": "tool_executor",
+    "description": "Executes NL-defined workspace tools without coupling to creator-specific behavior",
+    "icon": "\ud83d\udee0\ufe0f",
+    "model": "openai:fast",
+    "contractId": "tool_executor_v1",
+    "role": "Internal Tool Executor",
+    "inputs": [
+      "tool description and implementation instructions",
+      "tool call arguments"
+    ],
+    "decisionPolicy": [
+      "Execute only the requested tool behavior.",
+      "Return structured result when possible.",
+      "Avoid unrelated creator/design guidance."
+    ],
+    "uncertaintyPolicy": "If instructions are ambiguous, fail safely with success=false and a concise text explanation.",
+    "skills": [
+      "safety_non_destructive",
+      "contract_json_v1",
+      "tool_executor_policy"
+    ]
+  }
+]

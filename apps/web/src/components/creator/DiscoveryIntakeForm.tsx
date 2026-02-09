@@ -118,6 +118,7 @@ export function DiscoveryIntakeForm({
 }: DiscoveryIntakeFormProps) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [additionalContext, setAdditionalContext] = useState('');
+  const [showAllQuestions, setShowAllQuestions] = useState(false);
   const [showOptional, setShowOptional] = useState(false);
 
   const requiredQuestions = useMemo(
@@ -129,11 +130,37 @@ export function DiscoveryIntakeForm({
     [questions]
   );
 
-  const visibleQuestions = showOptional
+  const allVisibleQuestions = showOptional
     ? questions
     : requiredQuestions.length > 0
       ? requiredQuestions
       : questions;
+  const answeredQuestionIds = useMemo(
+    () =>
+      new Set(
+        questions
+          .filter((question) => Boolean(answers[question.id]?.trim()))
+          .map((question) => question.id)
+      ),
+    [answers, questions]
+  );
+  const unansweredRequiredQuestions = useMemo(
+    () => requiredQuestions.filter((question) => !answeredQuestionIds.has(question.id)),
+    [answeredQuestionIds, requiredQuestions]
+  );
+  const unansweredOptionalQuestions = useMemo(
+    () => optionalQuestions.filter((question) => !answeredQuestionIds.has(question.id)),
+    [answeredQuestionIds, optionalQuestions]
+  );
+  const guidedQuestion =
+    unansweredRequiredQuestions[0] ??
+    (showOptional ? unansweredOptionalQuestions[0] : null);
+
+  const visibleQuestions = showAllQuestions
+    ? allVisibleQuestions
+    : guidedQuestion
+      ? [guidedQuestion]
+      : [];
 
   const requiredTotal = requiredQuestions.length;
   const requiredProvided = requiredQuestions.filter((question) =>
@@ -178,7 +205,10 @@ export function DiscoveryIntakeForm({
           Discovery Details
         </p>
         <p className="text-xs text-muted-foreground">
-          Answer what you can. Leave anything unknown blank and continue.
+          We will guide this one question at a time. Skip anything unknown and continue with safe defaults.
+        </p>
+        <p className="text-[11px] text-muted-foreground">
+          Your answers directly shape the generated BAL and visual design.
         </p>
       </div>
 
@@ -190,21 +220,46 @@ export function DiscoveryIntakeForm({
         </div>
       )}
 
-      {optionalQuestions.length > 0 && requiredQuestions.length > 0 && (
+      {(questions.length > 1 || optionalQuestions.length > 0) && (
         <div className="flex items-center justify-between rounded-md border border-border/50 bg-muted/20 px-2.5 py-2">
-          <p className="text-[11px] text-muted-foreground">Optional details hidden</p>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => setShowOptional((prev) => !prev)}
-            className="text-[11px] rounded-full border border-border/60 bg-background/80 px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-background transition-colors disabled:opacity-60"
-          >
-            {showOptional ? 'Hide optional' : `Show optional (${optionalQuestions.length})`}
-          </button>
+          <p className="text-[11px] text-muted-foreground">
+            {showAllQuestions
+              ? 'Showing all discovery prompts'
+              : 'Focused mode: showing only the next best prompt'}
+          </p>
+          <div className="flex items-center gap-2">
+            {optionalQuestions.length > 0 && (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => setShowOptional((prev) => !prev)}
+                className="text-[11px] rounded-full border border-border/60 bg-background/80 px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-background transition-colors disabled:opacity-60"
+              >
+                {showOptional ? 'Hide optional' : `Show optional (${optionalQuestions.length})`}
+              </button>
+            )}
+            {questions.length > 1 && (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => setShowAllQuestions((prev) => !prev)}
+                className="text-[11px] rounded-full border border-border/60 bg-background/80 px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-background transition-colors disabled:opacity-60"
+              >
+                {showAllQuestions ? 'Guided mode' : 'Show all'}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
       <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+        {!showAllQuestions && guidedQuestion && (
+          <div className="rounded-md border border-primary/25 bg-primary/5 px-2.5 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Next question</p>
+            <p className="text-xs font-medium mt-1">{guidedQuestion.label}</p>
+          </div>
+        )}
+
         {visibleQuestions.map((question) => {
           const inputType = getInputType(question);
           const value = answers[question.id] ?? '';
@@ -264,6 +319,14 @@ export function DiscoveryIntakeForm({
             </label>
           );
         })}
+
+        {!showAllQuestions && !guidedQuestion && (
+          <div className="rounded-md border border-green-500/25 bg-green-500/5 px-2.5 py-2">
+            <p className="text-xs text-green-700 dark:text-green-300">
+              Required discovery details are complete. You can submit now, or expand to add extra context.
+            </p>
+          </div>
+        )}
       </div>
 
       <label className="block space-y-1">
