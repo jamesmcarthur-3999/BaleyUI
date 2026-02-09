@@ -4,8 +4,8 @@
     "output": {
       "needsMoreInfo": "boolean",
       "message": "string",
-      "questions": "array",
-      "contextNotes": "array"
+      "questions": "array<object>",
+      "contextNotes": "array<string>"
     },
     "rules": [
       "Return exactly one JSON object with no markdown fencing.",
@@ -18,9 +18,9 @@
     "output": {
       "thinking": "string",
       "message": "string",
-      "questions": "array",
-      "entities": "array",
-      "connections": "array",
+      "questions": "array<object>",
+      "entities": "array<object>",
+      "connections": "array<object>",
       "balCode": "string",
       "name": "string",
       "description": "string",
@@ -36,7 +36,7 @@
   "creator_action_advisor_v1": {
     "id": "creator_action_advisor_v1",
     "output": {
-      "actions": "array"
+      "actions": "array<object>"
     },
     "rules": [
       "Return 0-3 actions only.",
@@ -49,7 +49,7 @@
     "output": {
       "balCode": "string",
       "explanation": "string",
-      "entities": "array",
+      "entities": "array<object>",
       "toolRationale": "object",
       "suggestedName": "string",
       "suggestedIcon": "string"
@@ -63,9 +63,9 @@
   "pattern_learner_v1": {
     "id": "pattern_learner_v1",
     "output": {
-      "suggestions": "array",
-      "warnings": "array",
-      "recommendations": "array"
+      "suggestions": "array<object>",
+      "warnings": "array<string>",
+      "recommendations": "array<string>"
     },
     "rules": [
       "Use conservative risk assessments.",
@@ -78,8 +78,8 @@
     "output": {
       "overallAssessment": "string",
       "summary": "string",
-      "issues": "array",
-      "suggestions": "array",
+      "issues": "array<object>",
+      "suggestions": "array<object>",
       "metrics": "object"
     },
     "rules": [
@@ -102,7 +102,7 @@
   "web_search_fallback_v1": {
     "id": "web_search_fallback_v1",
     "output": {
-      "results": "array"
+      "results": "array<object>"
     },
     "rules": [
       "Return 3-5 results when possible.",
@@ -114,8 +114,8 @@
     "id": "connection_advisor_v1",
     "output": {
       "analysis": "object",
-      "recommendations": "array",
-      "warnings": "array"
+      "recommendations": "array<string>",
+      "warnings": "array<string>"
     },
     "rules": [
       "Separate deterministic requirements from optimization recommendations.",
@@ -128,7 +128,7 @@
     "output": {
       "topology": "string",
       "topologyDescription": "string",
-      "tests": "array",
+      "tests": "array<object>",
       "strategy": "string"
     },
     "rules": [
@@ -140,7 +140,7 @@
   "test_generator_v1": {
     "id": "test_generator_v1",
     "output": {
-      "tests": "array",
+      "tests": "array<object>",
       "strategy": "string"
     },
     "rules": [
@@ -152,10 +152,10 @@
   "deployment_advisor_v1": {
     "id": "deployment_advisor_v1",
     "output": {
-      "triggerRecommendations": "array",
+      "triggerRecommendations": "array<object>",
       "monitoringAdvice": "object",
-      "readinessGaps": "array",
-      "productionChecklist": "array"
+      "readinessGaps": "array<string>",
+      "productionChecklist": "array<string>"
     },
     "rules": [
       "Trigger type must be one of manual, schedule, webhook, other_bb, db_event, mcp_event.",
@@ -169,7 +169,7 @@
       "passed": "boolean",
       "confidence": "number",
       "reasoning": "string",
-      "suggestions": "array"
+      "suggestions": "array<string>"
     },
     "rules": [
       "Use confidence values between 0 and 1.",
@@ -184,10 +184,10 @@
       "summary": "string",
       "passRate": "number",
       "topology": "string",
-      "patterns": "array",
-      "botImprovements": "array",
-      "pipelineInsights": "array",
-      "nextSteps": "array"
+      "patterns": "array<object>",
+      "botImprovements": "array<object>",
+      "pipelineInsights": "array<object>",
+      "nextSteps": "array<string>"
     },
     "rules": [
       "overallStatus must be passed, mixed, or failed.",
@@ -198,7 +198,7 @@
   "integration_builder_v1": {
     "id": "integration_builder_v1",
     "output": {
-      "integrations": "array",
+      "integrations": "array<object>",
       "architectureNotes": "string"
     },
     "rules": [

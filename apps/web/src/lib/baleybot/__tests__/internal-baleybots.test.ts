@@ -188,6 +188,17 @@ describe('internal-baleybots', () => {
     it('test_validator balCode specifies gpt-5-mini model', () => {
       expect(INTERNAL_BALEYBOTS.test_validator!.balCode).toContain('openai:gpt-5-mini');
     });
+
+    it('creator_action_advisor output keeps structured actions typing', () => {
+      expect(INTERNAL_BALEYBOTS.creator_action_advisor!.balCode).toContain('"actions": "array<object>"');
+    });
+
+    it('creator_bot output keeps structured arrays for entities and connections', () => {
+      const balCode = INTERNAL_BALEYBOTS.creator_bot!.balCode;
+      expect(balCode).toContain('"entities": "array<object>"');
+      expect(balCode).toContain('"connections": "array<object>"');
+      expect(balCode).toContain('"questions": "array<object>"');
+    });
   });
 
   describe('getInternalBaleybot', () => {
