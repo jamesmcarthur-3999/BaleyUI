@@ -218,7 +218,7 @@ describe('internal-baleybots', () => {
 
     it('creator_bot BAL contains maxTokens', () => {
       const balCode = INTERNAL_BALEYBOTS.creator_bot!.balCode;
-      expect(balCode).toContain('"maxTokens": 16384');
+      expect(balCode).toContain('"maxTokens": 32768');
     });
 
     it('creator_bot goal emphasizes spawn delegation over direct BAL generation', () => {
