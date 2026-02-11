@@ -58,7 +58,7 @@ export function ErrorSuggestions({
             onClick={() => onAction?.('update-connection')}
             asChild
           >
-            <Link href={ROUTES.settings.connections}>
+            <Link href={ROUTES.capabilities.connections}>
               <Settings className="h-4 w-4 mr-2" />
               Update Connection
             </Link>

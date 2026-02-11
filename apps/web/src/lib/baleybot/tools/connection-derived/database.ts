@@ -260,15 +260,17 @@ export function sanitizeConnectionName(name: string): string {
 // ============================================================================
 
 /**
- * Generate a database tool definition for the tool catalog
+ * Generate a database tool definition for the tool catalog.
+ * Populates enriched fields (source, tags, requirements, capability, healthStatus).
  */
 export function generateDatabaseToolDefinition(
   config: DatabaseToolConfig
 ): ToolDefinition {
   const { connection } = config;
+  const toolName = `query_${connection.type}_${sanitizeConnectionName(connection.connectionName)}`;
 
   return {
-    name: `query_${connection.type}_${sanitizeConnectionName(connection.connectionName)}`,
+    name: toolName,
     description: `Query the "${connection.connectionName}" ${connection.type} database. ` +
       `Available tables: ${connection.schema.tables.map((t) => t.name).join(', ')}. ` +
       `Use natural language to describe what data you want to retrieve or modify.`,
@@ -276,6 +278,30 @@ export function generateDatabaseToolDefinition(
     category: 'database',
     dangerLevel: 'moderate',
     capabilities: ['read', 'write'],
+    // Enrichment fields
+    capability: 'both',
+    source: {
+      kind: 'connection',
+      connectionId: connection.connectionId,
+      connectionName: connection.connectionName,
+      connectionType: connection.type,
+    },
+    connectionId: connection.connectionId,
+    requirements: [
+      {
+        type: 'connection',
+        connectionType: connection.type,
+        description: `${connection.type === 'postgres' ? 'PostgreSQL' : connection.type === 'mysql' ? 'MySQL' : connection.type} database connection`,
+        satisfied: true,
+        connectionId: connection.connectionId,
+      },
+    ],
+    tags: ['database', 'sql', 'query', connection.type, ...connection.schema.tables.map(t => t.name).slice(0, 5)],
+    examples: [
+      { input: { query: `Show all rows from ${connection.schema.tables[0]?.name ?? 'users'}` }, description: 'Simple table read query' },
+      { input: { query: 'Count records grouped by status', table: connection.schema.tables[0]?.name }, description: 'Aggregation query' },
+    ],
+    healthStatus: 'ready',
   };
 }
 
@@ -412,5 +438,13 @@ export function generateGenericDatabaseToolDefinition(): ToolDefinition {
     category: 'database',
     dangerLevel: 'moderate',
     capabilities: ['read', 'write'],
+    capability: 'both',
+    source: { kind: 'built-in' },
+    requirements: [
+      { type: 'connection', connectionType: 'postgres', description: 'A database connection (PostgreSQL or MySQL)' },
+    ],
+    tags: ['database', 'sql', 'query', 'generic'],
+    healthStatus: 'needs-setup',
+    setupInstructions: 'Add a database connection (PostgreSQL or MySQL) in the Connections page.',
   };
 }

@@ -1,14 +1,13 @@
 /**
  * Web Search Service
  *
- * Wraps @baleybots/tools webSearchTool with BaleyUI-specific AI fallback.
- * When Tavily API key is not configured, falls back to internal BaleyBot.
+ * Wraps @baleybots/tools webSearchTool with Tavily API.
+ * Tavily API key is required — returns an informative error when not configured.
  */
 
 import { webSearchTool } from '@baleybots/tools';
 import type { WebSearchParams, WebSearchResponse } from '@baleybots/tools';
-import { runWebSearchFallback } from '../internal-bb/runner';
-import { createLogger, extractErrorMessage } from '@/lib/logger';
+import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('web-search');
 
@@ -49,52 +48,6 @@ export interface WebSearchService {
    * Full search exposing all @baleybots/tools features
    */
   searchFull(params: WebSearchParams): Promise<WebSearchResponse>;
-}
-
-// ============================================================================
-// AI FALLBACK IMPLEMENTATION
-// ============================================================================
-
-/**
- * Uses the internal web_search_fallback BaleyBot to perform searches.
- * This is a fallback when no Tavily API key is configured.
- */
-async function searchWithAI(
-  query: string,
-  numResults: number,
-  workspaceId?: string
-): Promise<SearchResult[]> {
-  try {
-    const input = `Search the web for: ${query}
-
-Return up to ${numResults} relevant search results as JSON with this shape:
-{ "results": [{ "title": "...", "url": "...", "snippet": "..." }] }`;
-
-    const parsed = await runWebSearchFallback(input, {
-      triggeredBy: 'internal',
-      ...(workspaceId ? { userWorkspaceId: workspaceId } : {}),
-      fallbackMode: 'value',
-      fallbackValue: { results: [] },
-    });
-
-    return parsed.results.slice(0, numResults).map((item) => ({
-      title: String(item.title || ''),
-      url: String(item.url || ''),
-      snippet: String(item.snippet || ''),
-    }));
-  } catch (error) {
-    // If AI search fails, return an informative result
-    const message = extractErrorMessage(error);
-    logger.error('AI fallback failed', { message });
-
-    return [
-      {
-        title: 'Web Search Unavailable',
-        url: 'https://tavily.com',
-        snippet: `Web search is currently unavailable. To enable web search, add a Tavily API key in your workspace settings. Error: ${message}`,
-      },
-    ];
-  }
 }
 
 // ============================================================================
@@ -156,23 +109,37 @@ class WebSearchServiceImpl implements WebSearchService {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
 
-        // Auth error -> fall back to AI
+        // Auth error -> return informative error result
         if (
           message.includes('401') ||
           message.includes('API key') ||
           message.includes('Unauthorized') ||
           message.includes('Invalid Tavily')
         ) {
-          logger.warn('Tavily auth failed, falling back to AI search');
-          return searchWithAI(query, sanitizedNumResults, options?.workspaceId);
+          logger.warn('Tavily auth failed', { message });
+          return [{
+            title: 'Web Search Unavailable — Invalid Tavily API Key',
+            url: 'https://tavily.com',
+            snippet: 'The configured Tavily API key is invalid or expired. ' +
+              'Check your TAVILY_API_KEY environment variable or workspace connection settings. ' +
+              'Get a new key at https://tavily.com. ' +
+              'Alternative: use the fetch_url tool to access specific URLs directly.',
+          }];
         }
 
         throw error;
       }
     }
 
-    // No Tavily key -> use AI fallback
-    return searchWithAI(query, sanitizedNumResults, options?.workspaceId);
+    // No Tavily key -> return informative error (not an exception — let the bot handle it)
+    return [{
+      title: 'Web Search Unavailable — Tavily API Key Required',
+      url: 'https://tavily.com',
+      snippet: 'The web_search tool requires a Tavily API key to function. ' +
+        'Add TAVILY_API_KEY to your environment or configure a Tavily connection in workspace settings. ' +
+        'Sign up for a free key at https://tavily.com. ' +
+        'Alternative: use the fetch_url tool to access specific URLs directly.',
+    }];
   }
 
   /**

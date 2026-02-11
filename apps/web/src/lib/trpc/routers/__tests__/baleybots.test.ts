@@ -9,10 +9,13 @@ import {
 } from '../../__tests__/test-utils';
 
 // Mock external dependencies
-vi.mock('@/lib/baleybot/creator-bot', () => ({
-  processCreatorMessage: vi.fn().mockResolvedValue({
-    message: 'Test response',
-    balCode: 'entity Test:\n  goal: "test"',
+vi.mock('@/lib/baleybot/internal-baleybots', () => ({
+  executeInternalBaleybot: vi.fn().mockResolvedValue({
+    output: {
+      message: 'Test response',
+      status: 'building',
+    },
+    executionId: 'exec-test-1',
   }),
 }));
 

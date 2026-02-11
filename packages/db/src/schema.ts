@@ -15,6 +15,30 @@ import {
 import { relations, sql } from 'drizzle-orm';
 
 // ============================================================================
+// USERS
+// ============================================================================
+
+export const users = pgTable(
+  'users',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(), // Clerk user ID
+    email: varchar('email', { length: 255 }).notNull(),
+    name: varchar('name', { length: 255 }),
+    avatarUrl: varchar('avatar_url', { length: 2000 }),
+    preferences: jsonb('preferences').default({}).$type<{
+      theme?: 'light' | 'dark' | 'system';
+      notificationEmail?: boolean;
+      displayTimezone?: string;
+    }>(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('users_email_idx').on(table.email),
+  ]
+);
+
+// ============================================================================
 // WORKSPACES
 // ============================================================================
 
@@ -39,6 +63,66 @@ export const workspaces = pgTable(
   (table) => [
     index('workspaces_owner_id_idx').on(table.ownerId),
     index('workspaces_deleted_at_idx').on(table.deletedAt),
+  ]
+);
+
+// ============================================================================
+// WORKSPACE MEMBERS
+// ============================================================================
+
+export const workspaceMembers = pgTable(
+  'workspace_members',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    userId: varchar('user_id', { length: 255 }).notNull(),
+    role: varchar('role', { length: 50 }).notNull().default('editor'),
+      // 'admin' | 'editor' | 'operator' | 'viewer'
+    addedBy: varchar('added_by', { length: 255 }),
+    joinedAt: timestamp('joined_at').defaultNow(),
+
+    // Soft delete
+    deletedAt: timestamp('deleted_at'),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('ws_member_unique').on(table.workspaceId, table.userId),
+    index('workspace_members_workspace_idx').on(table.workspaceId),
+    index('workspace_members_user_idx').on(table.userId),
+    index('workspace_members_deleted_idx').on(table.deletedAt),
+  ]
+);
+
+// ============================================================================
+// WORKSPACE INVITATIONS
+// ============================================================================
+
+export const workspaceInvitations = pgTable(
+  'workspace_invitations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    email: varchar('email', { length: 255 }).notNull(),
+    role: varchar('role', { length: 50 }).notNull().default('editor'),
+    token: varchar('token', { length: 255 }).notNull().unique(),
+    invitedBy: varchar('invited_by', { length: 255 }).notNull(),
+    status: varchar('status', { length: 50 }).notNull().default('pending'),
+      // 'pending' | 'accepted' | 'expired' | 'revoked'
+    expiresAt: timestamp('expires_at').notNull(),
+    acceptedAt: timestamp('accepted_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('ws_invite_unique').on(table.workspaceId, table.email),
+    index('workspace_invitations_workspace_idx').on(table.workspaceId),
+    index('workspace_invitations_token_idx').on(table.token),
+    index('workspace_invitations_status_idx').on(table.status),
   ]
 );
 
@@ -1091,6 +1175,47 @@ export const scheduledTasks = pgTable(
 );
 
 // ============================================================================
+// COMPANION CONVERSATIONS (Baley AI assistant activity logging)
+// ============================================================================
+
+export const companionConversations = pgTable(
+  'companion_conversations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    userId: varchar('user_id', { length: 255 }).notNull(),
+    messages: jsonb('messages').notNull().$type<
+      Array<{
+        role: 'user' | 'assistant';
+        content: string;
+        timestamp: string;
+      }>
+    >(),
+    actionsTaken: jsonb('actions_taken')
+      .default([])
+      .$type<
+        Array<{
+          tool: string;
+          args: Record<string, unknown>;
+          result: string;
+          timestamp: string;
+        }>
+      >(),
+    pageContext: varchar('page_context', { length: 255 }),
+    executionId: uuid('execution_id'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('companion_conversations_workspace_idx').on(table.workspaceId),
+    index('companion_conversations_user_idx').on(table.userId),
+    index('companion_conversations_created_idx').on(table.createdAt),
+  ]
+);
+
+// ============================================================================
 // BALEYBOT METRICS (for analytics tracking)
 // ============================================================================
 
@@ -1274,8 +1399,69 @@ export const baleybotAlerts = pgTable(
 );
 
 // ============================================================================
+// PLANS (billing tier definitions)
+// ============================================================================
+
+export const plans = pgTable('plans', {
+  id: varchar('id', { length: 50 }).primaryKey(), // 'free', 'pro', 'team'
+  name: varchar('name', { length: 100 }).notNull(),
+  stripePriceId: varchar('stripe_price_id', { length: 100 }),
+  limits: jsonb('limits').notNull(), // PlanLimits JSON
+  isActive: boolean('is_active').default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ============================================================================
+// SUBSCRIPTIONS (workspace → plan binding via Stripe)
+// ============================================================================
+
+export const subscriptions = pgTable(
+  'subscriptions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull()
+      .unique(),
+    planId: varchar('plan_id', { length: 50 })
+      .references(() => plans.id)
+      .notNull(),
+    stripeCustomerId: varchar('stripe_customer_id', { length: 100 }),
+    stripeSubscriptionId: varchar('stripe_subscription_id', { length: 100 }),
+    status: varchar('status', { length: 20 }).notNull(), // active, past_due, cancelled, trialing
+    currentPeriodStart: timestamp('current_period_start').notNull(),
+    currentPeriodEnd: timestamp('current_period_end').notNull(),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('subscriptions_workspace_idx').on(table.workspaceId),
+    index('subscriptions_plan_idx').on(table.planId),
+    index('subscriptions_status_idx').on(table.status),
+    index('subscriptions_stripe_customer_idx').on(table.stripeCustomerId),
+  ]
+);
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
+
+export const plansRelations = relations(plans, ({ many }) => ({
+  subscriptions: many(subscriptions),
+}));
+
+export const subscriptionsRelations = relations(subscriptions, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [subscriptions.workspaceId],
+    references: [workspaces.id],
+  }),
+  plan: one(plans, {
+    fields: [subscriptions.planId],
+    references: [plans.id],
+  }),
+}));
 
 export const builderEventsRelations = relations(builderEvents, ({ one }) => ({
   workspace: one(workspaces, {
@@ -1404,6 +1590,13 @@ export const scheduledTasksRelations = relations(scheduledTasks, ({ one }) => ({
   }),
 }));
 
+export const companionConversationsRelations = relations(companionConversations, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [companionConversations.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
+
 export const baleybotExecutionsRelations = relations(baleybotExecutions, ({ one }) => ({
   baleybot: one(baleybots, {
     fields: [baleybotExecutions.baleybotId],
@@ -1477,7 +1670,36 @@ export const executionEventsRelations = relations(executionEvents, ({ one }) => 
   }),
 }));
 
+export const usersRelations = relations(users, ({ many }) => ({
+  workspaces: many(workspaces),
+  memberships: many(workspaceMembers),
+}));
+
+export const workspaceMembersRelations = relations(workspaceMembers, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [workspaceMembers.workspaceId],
+    references: [workspaces.id],
+  }),
+  user: one(users, {
+    fields: [workspaceMembers.userId],
+    references: [users.id],
+  }),
+}));
+
+export const workspaceInvitationsRelations = relations(workspaceInvitations, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [workspaceInvitations.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
+
 export const workspacesRelations = relations(workspaces, ({ many, one }) => ({
+  owner: one(users, {
+    fields: [workspaces.ownerId],
+    references: [users.id],
+  }),
+  members: many(workspaceMembers),
+  invitations: many(workspaceInvitations),
   connections: many(connections),
   tools: many(tools),
   blocks: many(blocks),
@@ -1490,6 +1712,7 @@ export const workspacesRelations = relations(workspaces, ({ many, one }) => ({
   baleybotMemory: many(baleybotMemory),
   notifications: many(notifications),
   scheduledTasks: many(scheduledTasks),
+  companionConversations: many(companionConversations),
 }));
 
 export const apiKeysRelations = relations(apiKeys, ({ one }) => ({

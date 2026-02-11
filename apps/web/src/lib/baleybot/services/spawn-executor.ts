@@ -16,6 +16,7 @@ import type { BuiltInToolContext, SpawnBaleybotResult } from '../tools/built-in'
 import { executeBaleybot, type ExecutorContext, type RuntimeToolDefinition } from '../executor';
 import { getBuiltInRuntimeTools } from '../tools/built-in/implementations';
 import type { WorkspacePolicies as FullWorkspacePolicies } from '../types';
+import type { BaleybotStreamEvent } from '@baleybots/core';
 import { createLogger } from '@/lib/logger';
 
 // ============================================================================
@@ -238,6 +239,8 @@ export function createSpawnBaleybotExecutor(options?: {
   getTools?: (ctx: BuiltInToolContext) => Map<string, RuntimeToolDefinition>;
   /** Optional: inject policy provider for testing */
   getPolicies?: PolicyProvider;
+  /** Optional: callback for streaming events from spawned child BBs */
+  onChildSegment?: (event: BaleybotStreamEvent) => void;
 }): SpawnBaleybotExecutor {
   const maxDepth = options?.maxSpawnDepth ?? DEFAULT_MAX_SPAWN_DEPTH;
   const getTools = options?.getTools ?? getBuiltInRuntimeTools;
@@ -343,11 +346,23 @@ export function createSpawnBaleybotExecutor(options?: {
       // Convert input to string (executor expects string input)
       const inputStr = typeof input === 'string' ? input : JSON.stringify(input);
 
-      // Execute the BaleyBot
+      // Execute the BaleyBot with optional streaming callback
       const result = await executeBaleybot(
         targetBB.balCode,
         inputStr,
-        executorContext
+        executorContext,
+        {
+          onSegment: options?.onChildSegment
+            ? (childEvent: BaleybotStreamEvent) => {
+                options.onChildSegment!({
+                  type: 'tool_execution_stream',
+                  toolName: 'spawn_baleybot',
+                  nestedEvent: childEvent,
+                  childBotName: targetBB.name,
+                } as BaleybotStreamEvent);
+              }
+            : undefined,
+        }
       );
 
       const durationMs = Date.now() - startTime;

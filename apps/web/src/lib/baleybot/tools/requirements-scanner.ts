@@ -3,10 +3,29 @@
 /**
  * Tool Requirements Scanner
  *
- * Maps tool names to the connection types they require.
- * Used by the Connections Panel to show what's needed vs what's configured.
+ * Resolves tool requirements and connection bindings.
+ *
+ * Two modes:
+ * 1. **Catalog-based** (preferred): When a FullToolCatalog is available, requirements
+ *    and health status come directly from the enriched ToolDefinition metadata.
+ * 2. **Name-based** (fallback): Parses tool names (query_postgres_*, query_mysql_*)
+ *    and checks against a built-in name list. Used when no catalog is available.
+ *
+ * Consumers should prefer catalog-based functions (`getToolRequirements`,
+ * `getToolHealthStatus`) and pass a catalog when they have one.
  */
 
+import type { ToolDefinition, ToolRequirement as EnrichedToolRequirement } from '../types';
+import { isBuiltInTool, getBuiltInToolMetadata } from './built-in';
+
+// ============================================================================
+// TYPES (backward-compatible — kept for existing consumers)
+// ============================================================================
+
+/**
+ * Legacy tool requirement from name-based scanning.
+ * For new code, prefer the enriched `ToolRequirement` from types.ts.
+ */
 export interface ToolRequirement {
   toolName: string;
   connectionType: 'openai' | 'anthropic' | 'ollama' | 'postgres' | 'mysql' | 'none';
@@ -28,66 +47,60 @@ export interface ConnectionBindingStatus {
   reason: string;
 }
 
+export interface ConnectionSummary {
+  /** Connection types that are required by the bot's tools */
+  required: Array<{
+    connectionType: string;
+    tools: string[];
+  }>;
+  /** Whether an AI provider connection is needed (always true for BB execution) */
+  needsAiProvider: boolean;
+  /** Total unique connection types needed */
+  totalRequired: number;
+}
+
+// ============================================================================
+// CATALOG-BASED FUNCTIONS (preferred — uses enriched ToolDefinition)
+// ============================================================================
+
 /**
- * Mapping of built-in tools to their connection requirements.
- * 'none' means the tool works without any external connection.
+ * Get enriched requirements for a tool from the catalog.
+ * Returns an empty array if the tool is not found or has no requirements.
  */
-const TOOL_REQUIREMENTS: Record<string, ToolRequirement> = {
-  web_search: {
-    toolName: 'web_search',
-    connectionType: 'none',
-    description: 'Search the web (uses Tavily or AI fallback)',
-    required: false,
-  },
-  fetch_url: {
-    toolName: 'fetch_url',
-    connectionType: 'none',
-    description: 'Fetch content from a URL',
-    required: false,
-  },
-  spawn_baleybot: {
-    toolName: 'spawn_baleybot',
-    connectionType: 'none',
-    description: 'Execute another BaleyBot',
-    required: false,
-  },
-  send_notification: {
-    toolName: 'send_notification',
-    connectionType: 'none',
-    description: 'Send a notification to the user',
-    required: false,
-  },
-  store_memory: {
-    toolName: 'store_memory',
-    connectionType: 'none',
-    description: 'Persist key-value data',
-    required: false,
-  },
-  shared_storage: {
-    toolName: 'shared_storage',
-    connectionType: 'none',
-    description: 'Cross-bot shared storage',
-    required: false,
-  },
-  schedule_task: {
-    toolName: 'schedule_task',
-    connectionType: 'none',
-    description: 'Schedule future execution (requires approval)',
-    required: false,
-  },
-  create_agent: {
-    toolName: 'create_agent',
-    connectionType: 'none',
-    description: 'Create an ephemeral agent (requires approval)',
-    required: false,
-  },
-  create_tool: {
-    toolName: 'create_tool',
-    connectionType: 'none',
-    description: 'Create an ephemeral tool (requires approval)',
-    required: false,
-  },
-};
+export function getToolRequirements(
+  toolName: string,
+  catalogTools: ToolDefinition[]
+): EnrichedToolRequirement[] {
+  const tool = catalogTools.find(t => t.name === toolName);
+  return tool?.requirements ?? [];
+}
+
+/**
+ * Get the health status of a tool from the catalog.
+ * Returns 'unknown' if the tool is not found.
+ */
+export function getToolHealthStatus(
+  toolName: string,
+  catalogTools: ToolDefinition[]
+): 'ready' | 'needs-setup' | 'error' | 'unknown' {
+  const tool = catalogTools.find(t => t.name === toolName);
+  return tool?.healthStatus ?? 'unknown';
+}
+
+/**
+ * Get all tools from the catalog that need setup (healthStatus !== 'ready').
+ */
+export function getToolsNeedingSetup(
+  catalogTools: ToolDefinition[]
+): ToolDefinition[] {
+  return catalogTools.filter(
+    t => t.healthStatus && t.healthStatus !== 'ready'
+  );
+}
+
+// ============================================================================
+// NAME-BASED UTILITIES (kept for backward compatibility + string parsing)
+// ============================================================================
 
 /**
  * Convert a human connection name to the normalized slug used by
@@ -144,12 +157,25 @@ export function evaluateToolConnectionBinding(
   toolName: string,
   connections: Array<{ id: string; type: string; name: string; status: string }>
 ): ConnectionBindingStatus {
-  const builtIn = TOOL_REQUIREMENTS[toolName];
-  if (builtIn) {
+  if (isBuiltInTool(toolName)) {
+    // Check if this built-in tool has unmet API key requirements
+    const metadata = getBuiltInToolMetadata(toolName);
+    if (metadata?.requirements.some(r => r.type === 'api_key')) {
+      const hasKey = toolName === 'web_search'
+        ? !!process.env.TAVILY_API_KEY
+        : true; // Future API-key tools can be added here
+      if (!hasKey) {
+        return {
+          status: 'needs-setup',
+          connectionType: 'none',
+          reason: metadata.requirements.find(r => r.type === 'api_key')?.description ?? 'API key required',
+        };
+      }
+    }
     return {
       status: 'ready',
-      connectionType: builtIn.connectionType,
-      reason: builtIn.description,
+      connectionType: 'none',
+      reason: 'Built-in tool',
     };
   }
 
@@ -216,13 +242,52 @@ export function evaluateToolConnectionBinding(
   };
 }
 
-/** Scan a list of tool names and return their requirements */
-export function scanToolRequirements(tools: string[]): ToolRequirement[] {
+/**
+ * Scan a list of tool names and return their requirements.
+ *
+ * When `catalogTools` is provided, requirements are resolved from the enriched
+ * catalog (connection-derived tools already have source metadata). Falls back
+ * to name-based heuristics for tools not in the catalog.
+ */
+export function scanToolRequirements(
+  tools: string[],
+  catalogTools?: ToolDefinition[]
+): ToolRequirement[] {
   return tools.map((toolName) => {
-    const known = TOOL_REQUIREMENTS[toolName];
-    if (known) return known;
+    // Catalog-based resolution (preferred)
+    if (catalogTools) {
+      const catalogTool = catalogTools.find(t => t.name === toolName);
+      if (catalogTool) {
+        // Derive connectionType from source metadata
+        const source = catalogTool.source;
+        if (source?.kind === 'connection') {
+          return {
+            toolName,
+            connectionType: source.connectionType as ToolRequirement['connectionType'],
+            description: catalogTool.description,
+            required: true,
+          };
+        }
+        // Built-in or workspace tool with no connection requirement
+        return {
+          toolName,
+          connectionType: 'none' as const,
+          description: catalogTool.description,
+          required: false,
+        };
+      }
+    }
 
-    // Unknown tool — might be a connection-derived tool.
+    // Fallback: name-based heuristic for tools not in catalog
+    if (isBuiltInTool(toolName)) {
+      return {
+        toolName,
+        connectionType: 'none' as const,
+        description: 'Built-in tool',
+        required: false,
+      };
+    }
+
     const parsed = parseConnectionTool(toolName);
     if (parsed.connectionType === 'postgres') {
       return {
@@ -252,21 +317,16 @@ export function scanToolRequirements(tools: string[]): ToolRequirement[] {
   });
 }
 
-export interface ConnectionSummary {
-  /** Connection types that are required by the bot's tools */
-  required: Array<{
-    connectionType: string;
-    tools: string[];
-  }>;
-  /** Whether an AI provider connection is needed (always true for BB execution) */
-  needsAiProvider: boolean;
-  /** Total unique connection types needed */
-  totalRequired: number;
-}
-
-/** Get a summary of all connections needed by the bot */
-export function getConnectionSummary(tools: string[]): ConnectionSummary {
-  const requirements = scanToolRequirements(tools);
+/**
+ * Get a summary of all connections needed by the bot's tools.
+ *
+ * When `catalogTools` is provided, uses enriched catalog metadata.
+ */
+export function getConnectionSummary(
+  tools: string[],
+  catalogTools?: ToolDefinition[]
+): ConnectionSummary {
+  const requirements = scanToolRequirements(tools, catalogTools);
   const byType = new Map<string, string[]>();
 
   for (const req of requirements) {

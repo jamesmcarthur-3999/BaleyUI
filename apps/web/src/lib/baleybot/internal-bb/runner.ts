@@ -4,7 +4,6 @@ import {
   type InternalExecutionOptions,
 } from '../internal-baleybots';
 import { createLogger } from '@/lib/logger';
-import { creatorOutputSchema } from '../creator-types';
 
 const log = createLogger('internal-bb-runner');
 
@@ -106,7 +105,7 @@ function extractBalancedJsonSegment(raw: string): string | undefined {
   return undefined;
 }
 
-function normalizeOutputCandidate(output: unknown): unknown {
+export function normalizeOutputCandidate(output: unknown): unknown {
   if (output && typeof output === 'object' && !Array.isArray(output)) {
     return output;
   }
@@ -888,39 +887,6 @@ export const nlToSqlOutputSchema = z.preprocess(
   })
 );
 
-const webSearchResultSchema = z
-  .object({
-    title: z.string().default(''),
-    url: z.string().default(''),
-    snippet: z.string().optional(),
-    content: z.string().optional(),
-  })
-  .transform((result) => ({
-    title: result.title,
-    url: result.url,
-    snippet: result.snippet ?? result.content ?? '',
-  }));
-
-export const webSearchFallbackOutputSchema = z.preprocess((value) => {
-  if (Array.isArray(value)) {
-    return { results: value };
-  }
-
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    if (!Array.isArray(record.results) && Array.isArray(record.searchResults)) {
-      return {
-        ...record,
-        results: record.searchResults,
-      };
-    }
-  }
-
-  return value;
-}, z.object({
-  results: z.array(webSearchResultSchema),
-}));
-
 export const toolExecutorOutputSchema = z.preprocess(
   (value) => (typeof value === 'string' ? { success: true, text: value } : value),
   z.object({
@@ -940,32 +906,7 @@ export type DeploymentAdvisorOutput = z.infer<typeof deploymentAdvisorOutputSche
 export type BalGeneratorOutput = z.infer<typeof balGeneratorOutputSchema>;
 export type PatternLearnerOutput = z.infer<typeof patternLearnerOutputSchema>;
 export type ExecutionReviewerOutput = z.infer<typeof executionReviewerOutputSchema>;
-export type WebSearchFallbackOutput = z.infer<typeof webSearchFallbackOutputSchema>;
 export type ToolExecutorOutput = z.infer<typeof toolExecutorOutputSchema>;
-
-export async function runCreatorDiscovery(
-  input: string,
-  options?: InternalBBRunOptions<CreatorDiscoveryOutput>
-): Promise<CreatorDiscoveryOutput> {
-  return runInternalBB({
-    botName: 'creator_discovery',
-    input,
-    schema: creatorDiscoveryOutputSchema,
-    options,
-  });
-}
-
-export async function runCreatorBot(
-  input: string,
-  options?: InternalBBRunOptions<z.infer<typeof creatorOutputSchema>>
-): Promise<z.infer<typeof creatorOutputSchema>> {
-  return runInternalBB({
-    botName: 'creator_bot',
-    input,
-    schema: creatorOutputSchema,
-    options,
-  });
-}
 
 export async function runCreatorActionAdvisor(
   input: string,
@@ -1096,18 +1037,6 @@ export async function runNlToSql(
     botName: databaseType === 'mysql' ? 'nl_to_sql_mysql' : 'nl_to_sql_postgres',
     input,
     schema: nlToSqlOutputSchema,
-    options,
-  });
-}
-
-export async function runWebSearchFallback(
-  input: string,
-  options?: InternalBBRunOptions<WebSearchFallbackOutput>
-): Promise<WebSearchFallbackOutput> {
-  return runInternalBB({
-    botName: 'web_search_fallback',
-    input,
-    schema: webSearchFallbackOutputSchema,
     options,
   });
 }

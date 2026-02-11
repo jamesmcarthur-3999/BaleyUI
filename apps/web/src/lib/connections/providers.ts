@@ -3,7 +3,7 @@
  * Supports OpenAI, Anthropic, Ollama, PostgreSQL, and MySQL.
  */
 
-export type ProviderType = 'openai' | 'anthropic' | 'ollama' | 'postgres' | 'mysql';
+export type ProviderType = 'openai' | 'anthropic' | 'ollama' | 'postgres' | 'mysql' | 'mcp';
 
 export type AIProviderType = 'openai' | 'anthropic' | 'ollama';
 export type DatabaseProviderType = 'postgres' | 'mysql';
@@ -14,6 +14,10 @@ export function isAIProvider(type: ProviderType): type is AIProviderType {
 
 export function isDatabaseProvider(type: ProviderType): type is DatabaseProviderType {
   return type === 'postgres' || type === 'mysql';
+}
+
+export function isMCPProvider(type: ProviderType): type is 'mcp' {
+  return type === 'mcp';
 }
 
 export interface ProviderDefinition {
@@ -195,6 +199,50 @@ export const PROVIDERS: Record<ProviderType, ProviderDefinition> = {
       },
     ],
   },
+  mcp: {
+    type: 'mcp',
+    name: 'MCP Server',
+    description: 'Connect to an MCP (Model Context Protocol) server for external tools',
+    requiresApiKey: false,
+    configFields: [
+      {
+        name: 'transportType',
+        label: 'Transport Type',
+        type: 'text',
+        required: true,
+        placeholder: 'http',
+        defaultValue: 'http',
+      },
+      {
+        name: 'url',
+        label: 'Server URL',
+        type: 'url',
+        required: false,
+        placeholder: 'https://mcp.example.com',
+      },
+      {
+        name: 'command',
+        label: 'Command (for stdio)',
+        type: 'text',
+        required: false,
+        placeholder: 'npx @modelcontextprotocol/server-example',
+      },
+      {
+        name: 'authToken',
+        label: 'Auth Token',
+        type: 'password',
+        required: false,
+        placeholder: 'Bearer token or API key',
+      },
+      {
+        name: 'toolPrefix',
+        label: 'Tool Prefix',
+        type: 'text',
+        required: false,
+        placeholder: 'github_',
+      },
+    ],
+  },
 };
 
 export interface AIConnectionConfig {
@@ -214,7 +262,22 @@ export interface DatabaseConnectionConfig {
   schema?: string;
 }
 
-export type ConnectionConfig = AIConnectionConfig | DatabaseConnectionConfig;
+export interface MCPConnectionConfig {
+  transportType: 'http' | 'sse' | 'stdio';
+  url?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+  authType?: 'none' | 'bearer' | 'basic';
+  authToken?: string;
+  toolPrefix?: string;
+  catalogId?: string;
+  discoveredToolCount?: number;
+  discoveredTools?: string[];
+}
+
+export type ConnectionConfig = AIConnectionConfig | DatabaseConnectionConfig | MCPConnectionConfig;
 
 export interface OllamaModel {
   name: string;
@@ -243,5 +306,7 @@ export interface TestConnectionResult {
     models?: string[];
     error?: string;
     tableCount?: number;
+    toolCount?: number;
+    toolNames?: string[];
   };
 }

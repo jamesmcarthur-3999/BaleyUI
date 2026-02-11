@@ -16,8 +16,6 @@ export interface ChatQuickPrompt {
 interface ChatInputProps {
   /** Current state for contextual placeholder */
   status: CreationStatus;
-  /** Whether discovery inputs are still needed for next stage */
-  discoveryPending?: boolean;
   /** Callback when message sent */
   onSend: (message: string) => void;
   /** Disable input */
@@ -33,11 +31,7 @@ interface ChatInputProps {
 /**
  * Get contextual placeholder text based on creation status
  */
-function getPlaceholder(status: CreationStatus, discoveryPending: boolean): string {
-  if (discoveryPending) {
-    return 'Share the next detail...';
-  }
-
+function getPlaceholder(status: CreationStatus): string {
   switch (status) {
     case 'empty':
       return 'Describe the bot you want to build...';
@@ -47,6 +41,8 @@ function getPlaceholder(status: CreationStatus, discoveryPending: boolean): stri
       return 'Ask for changes, tests, or launch prep...';
     case 'running':
       return 'Wait for completion...';
+    case 'waiting_for_input':
+      return 'Type your answer...';
     case 'error':
       return 'Tell me what to fix...';
     default:
@@ -67,7 +63,6 @@ function getPlaceholder(status: CreationStatus, discoveryPending: boolean): stri
  */
 export function ChatInput({
   status,
-  discoveryPending = false,
   onSend,
   disabled = false,
   quickPrompts = [],
@@ -207,7 +202,7 @@ export function ChatInput({
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           disabled={isDisabled}
-          placeholder={getPlaceholder(status, discoveryPending)}
+          placeholder={getPlaceholder(status)}
           rows={1}
           aria-label="Message to BaleyBot creator"
           aria-describedby="chat-input-hint"
@@ -246,9 +241,7 @@ export function ChatInput({
       {/* Footer: minimal helper + character count */}
       <div className="mt-2 flex items-center justify-between px-1 gap-2">
         <p id="chat-input-hint" className="text-[11px] text-muted-foreground/75">
-          {discoveryPending
-            ? 'Short answers are enough.'
-            : 'Press Enter to send.'}
+          Press Enter to send.
         </p>
         {value.length > MAX_LENGTH * 0.8 && (
           <span className={cn(

@@ -86,19 +86,15 @@ function CommandItem({
         'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
         'text-left transition-all duration-150',
         isSelected
-          ? 'bg-primary/10 text-primary'
-          : 'hover:bg-muted/80'
+          ? 'bg-primary/[0.06] text-primary'
+          : 'hover:bg-foreground/[0.03]'
       )}
       onClick={onSelect}
     >
-      <div
-        className={cn(
-          'h-8 w-8 rounded-lg flex items-center justify-center shrink-0 transition-colors',
-          isSelected ? 'bg-primary/20 text-primary' : 'bg-muted'
-        )}
-      >
-        <Icon className="h-4 w-4" />
-      </div>
+      <Icon className={cn(
+        'h-4 w-4 shrink-0 transition-colors',
+        isSelected ? 'text-primary' : 'text-muted-foreground'
+      )} />
 
       <div className="flex-1 min-w-0">
         <p className="font-medium text-sm truncate">{command.title}</p>
@@ -177,7 +173,7 @@ export function CommandPalette({
       description: 'Manage AI provider connections',
       icon: Plug,
       category: 'navigation',
-      action: () => router.push(ROUTES.connections.list),
+      action: () => router.push(ROUTES.capabilities.connections),
       keywords: ['connections', 'providers', 'openai', 'anthropic', 'ollama'],
     },
     {
@@ -186,7 +182,7 @@ export function CommandPalette({
       description: 'Browse the tool catalog',
       icon: Wrench,
       category: 'navigation',
-      action: () => router.push(ROUTES.tools.list),
+      action: () => router.push(ROUTES.capabilities.tools),
       keywords: ['tools', 'catalog', 'search', 'fetch'],
     },
     {
@@ -205,7 +201,7 @@ export function CommandPalette({
       icon: Settings,
       category: 'navigation',
       shortcut: 'mod+,',
-      action: () => router.push(ROUTES.settings.workspace),
+      action: () => router.push(ROUTES.settings.general),
       keywords: ['settings', 'preferences', 'config', 'workspace'],
     },
     {
@@ -214,7 +210,7 @@ export function CommandPalette({
       description: 'Manage your API keys',
       icon: Key,
       category: 'navigation',
-      action: () => router.push(ROUTES.settings.apiKeys),
+      action: () => router.push(ROUTES.capabilities.apiKeys),
       keywords: ['api', 'keys', 'tokens', 'authentication'],
     },
     // Quick Actions
@@ -245,7 +241,7 @@ export function CommandPalette({
       description: 'Configure workspace preferences',
       icon: Building,
       category: 'settings',
-      action: () => router.push(ROUTES.settings.workspace),
+      action: () => router.push(ROUTES.settings.general),
       keywords: ['workspace', 'settings', 'config'],
     },
     // Help
@@ -341,14 +337,14 @@ export function CommandPalette({
       <DialogContent
         className={cn(
           'max-w-lg p-0 gap-0 overflow-hidden',
-          'glass elevation-3 border-border/50',
+          'glass-panel elevation-3 rounded-2xl',
           className
         )}
         onKeyDown={handleKeyDown}
       >
         <DialogTitle className="sr-only">Command Palette</DialogTitle>
         {/* Search Input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-foreground/[0.04]">
           <Search className="h-5 w-5 text-muted-foreground shrink-0" />
           <Input
             ref={inputRef}
@@ -417,18 +413,18 @@ export function CommandPalette({
         </ScrollArea>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/50 bg-muted/30 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between px-4 py-2.5 border-t border-foreground/[0.04] bg-transparent text-xs text-muted-foreground">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 rounded bg-background border">↑↓</kbd>
+              <kbd className="px-1.5 py-0.5 rounded bg-foreground/[0.04] border border-foreground/[0.06]">↑↓</kbd>
               navigate
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 rounded bg-background border">↵</kbd>
+              <kbd className="px-1.5 py-0.5 rounded bg-foreground/[0.04] border border-foreground/[0.06]">↵</kbd>
               select
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 rounded bg-background border">esc</kbd>
+              <kbd className="px-1.5 py-0.5 rounded bg-foreground/[0.04] border border-foreground/[0.06]">esc</kbd>
               close
             </span>
           </div>

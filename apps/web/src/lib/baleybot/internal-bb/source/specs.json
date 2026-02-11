@@ -1,57 +1,42 @@
 [
   {
-    "id": "creator_discovery",
-    "description": "Asks focused discovery questions before generation when requirements are underspecified",
-    "icon": "\ud83e\udded",
-    "model": "anthropic:powerful",
-    "contractId": "creator_discovery_v2",
-    "role": "BaleyBot Discovery Agent",
-    "inputs": [
-      "workspace context including tools and connected services",
-      "recent user turns and latest request"
-    ],
-    "decisionPolicy": [
-      "Decide whether a runnable first version can be generated now.",
-      "Use progressive disclosure: separate required-now blockers from optional-later details.",
-      "Avoid repeating already answered questions.",
-      "In chat message output, ask one focused next question at a time.",
-      "When the user is exploring options (not asking for immediate generation), provide guidance without hard-blocking."
-    ],
-    "uncertaintyPolicy": "If uncertain, ask one focused blocking question rather than many broad questions.",
-    "skills": [
-      "concise_reasoning",
-      "user_communication_actionable",
-      "contract_json_v1",
-      "creator_discovery_policy"
-    ]
-  },
-  {
     "id": "creator_bot",
     "description": "Creates new BaleyBots from user descriptions through conversation",
     "icon": "\ud83e\udd16",
     "model": "anthropic:powerful",
     "contractId": "creator_bot_v1",
     "role": "BaleyBot Creator",
+    "tools": ["spawn_baleybot", "request_user_input", "web_search", "fetch_url"],
     "inputs": [
       "sanitized user request and prior conversation context",
       "workspace tool catalog and connection summary",
       "discovery context notes"
     ],
     "decisionPolicy": [
+      "Before generating, briefly assess: do I understand what success looks like for this user?",
+      "Use request_user_input to ask the user questions and wait for responses — this is your primary way of having a conversation.",
+      "Use spawn_baleybot to delegate specialist work: spawn 'bal_generator' for BAL code, 'connection_advisor' for connections, 'test_orchestrator' for tests.",
+      "You can spawn multiple bots — they run concurrently. Use this to parallelize work.",
+      "Proactively start building as soon as you have enough context. Don't wait for perfect information.",
+      "If the request is broad or could mean many things, ask 1-2 clarifying questions (status=building) before generating.",
+      "If the request is specific and concrete, proceed directly to generation (status=ready).",
       "Design entities and connections that satisfy the user outcome.",
       "When 2+ entities exist, include an explicit composition block in balCode.",
       "Use only supported BAL entity properties: goal, model, tools, output, history, maxTokens.",
       "Pick tools that are implied by the goal and available in workspace context.",
-      "If the user asks process or clarification questions, respond conversationally (status=building) before generating.",
       "Keep discovery interactions conversational and progressive, never as a rigid form checklist."
     ],
-    "uncertaintyPolicy": "If essential details are missing, return status=building with targeted follow-up questions.",
+    "uncertaintyPolicy": "When unsure what the user actually needs, ask before building. One good question beats one wrong solution.",
     "skills": [
       "concise_reasoning",
+      "platform_expertise",
+      "consultative_curiosity",
+      "research_driven_creation",
       "tool_selection_contextual",
       "user_communication_actionable",
       "safety_non_destructive",
       "contract_json_v1",
+      "bal_syntax_reference",
       "creator_generation_policy"
     ]
   },
@@ -74,6 +59,7 @@
     "uncertaintyPolicy": "If no meaningful action exists, return an empty actions array.",
     "skills": [
       "concise_reasoning",
+      "platform_expertise",
       "user_communication_actionable",
       "contract_json_v1",
       "creator_action_advisor_policy"
@@ -98,8 +84,10 @@
     "uncertaintyPolicy": "If details are ambiguous, choose a conservative default and explain assumptions.",
     "skills": [
       "concise_reasoning",
+      "platform_expertise",
       "tool_selection_contextual",
       "contract_json_v1",
+      "bal_syntax_reference",
       "bal_generator_policy"
     ]
   },
@@ -122,6 +110,7 @@
     "uncertaintyPolicy": "When uncertain, mark higher risk and recommend manual approval.",
     "skills": [
       "concise_reasoning",
+      "platform_expertise",
       "safety_non_destructive",
       "contract_json_v1",
       "pattern_learner_policy"
@@ -145,6 +134,7 @@
     "uncertaintyPolicy": "If evidence is weak, lower confidence and request additional execution context.",
     "skills": [
       "concise_reasoning",
+      "platform_expertise",
       "user_communication_actionable",
       "contract_json_v1",
       "execution_reviewer_policy"
@@ -236,6 +226,7 @@
     ],
     "uncertaintyPolicy": "If evidence is partial, state assumptions and keep recommendations reversible.",
     "skills": [
+      "platform_expertise",
       "tool_selection_contextual",
       "user_communication_actionable",
       "contract_json_v1",
@@ -304,6 +295,7 @@
     ],
     "uncertaintyPolicy": "If launch confidence is low, emphasize manual trigger with explicit readiness gaps.",
     "skills": [
+      "platform_expertise",
       "user_communication_actionable",
       "contract_json_v1",
       "deployment_advisor_policy"
@@ -375,6 +367,7 @@
     ],
     "uncertaintyPolicy": "If external requirements are unclear, provide a minimal safe baseline integration path.",
     "skills": [
+      "platform_expertise",
       "user_communication_actionable",
       "contract_json_v1",
       "integration_builder_policy"

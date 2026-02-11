@@ -144,8 +144,50 @@ export interface GeneratorContext {
   existingBaleybots: BaleybotSummary[];
 }
 
+// ============================================================================
+// TOOL ENRICHMENT TYPES
+// ============================================================================
+
 /**
- * Tool definition for the generator
+ * What a tool requires to function (e.g. a connection, API key, config, permission).
+ * Resolved at catalog assembly time — `satisfied` and `connectionId` are populated then.
+ */
+export interface ToolRequirement {
+  type: 'connection' | 'api_key' | 'config' | 'permission';
+  connectionType?: string;               // e.g., 'postgres', 'slack', 'openai'
+  description: string;                   // Human-readable: "PostgreSQL database connection"
+  satisfied?: boolean;                   // Resolved at catalog assembly time
+  connectionId?: string;                 // Which connection satisfies this (if any)
+}
+
+/**
+ * Where a tool came from — discriminated union for source tracking.
+ */
+export type ToolSource =
+  | { kind: 'built-in' }
+  | { kind: 'connection'; connectionId: string; connectionName: string; connectionType: string }
+  | { kind: 'mcp'; connectionId: string }
+  | { kind: 'workspace'; toolId: string }
+  | { kind: 'ephemeral'; createdBy: string };
+
+/**
+ * Usage example for a tool, shown in AI context and tool browser.
+ */
+export interface ToolExample {
+  input: Record<string, unknown>;
+  description: string;
+}
+
+/**
+ * Tool definition with enriched metadata.
+ *
+ * The base fields (name, description, inputSchema) are required.
+ * Enrichment fields (requirements, tags, source, etc.) are optional and populated
+ * progressively — built-in tools get them from BUILT_IN_TOOLS_METADATA, connection-derived
+ * tools get them at generation time, and workspace tools may have minimal metadata.
+ *
+ * The `source` field tracks provenance. The `healthStatus` field is resolved at catalog
+ * assembly time by checking whether all `requirements` are satisfied.
  */
 export interface ToolDefinition {
   name: string;
@@ -154,6 +196,24 @@ export interface ToolDefinition {
   category?: string;
   dangerLevel?: 'safe' | 'moderate' | 'dangerous';
   capabilities?: string[];
+
+  // Enrichment fields (Phase 1)
+  /** SDK-aligned capability: read, write, or both */
+  capability?: 'read' | 'write' | 'both';
+  /** What this tool needs to work */
+  requirements?: ToolRequirement[];
+  /** Searchable tags for discovery: ['database', 'read', 'sql'] */
+  tags?: string[];
+  /** Usage examples for AI context and tool browser */
+  examples?: ToolExample[];
+  /** Where the tool came from */
+  source?: ToolSource;
+  /** If derived from a connection */
+  connectionId?: string;
+  /** Resolved at catalog assembly time based on requirements satisfaction */
+  healthStatus?: 'ready' | 'needs-setup' | 'error' | 'unknown';
+  /** How to make this tool work (shown when healthStatus is 'needs-setup') */
+  setupInstructions?: string;
 }
 
 /**

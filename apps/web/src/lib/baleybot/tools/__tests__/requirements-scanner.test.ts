@@ -1,5 +1,5 @@
 // apps/web/src/lib/baleybot/tools/__tests__/requirements-scanner.test.ts
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   connectionNameToSlug,
   evaluateToolConnectionBinding,
@@ -81,6 +81,38 @@ describe('connection-derived tool parsing and binding', () => {
       { id: '1', type: 'mysql', name: 'Analytics', status: 'connected' },
     ]);
     expect(result.status).toBe('mismatch');
+  });
+});
+
+describe('evaluateToolConnectionBinding — built-in API key check', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('returns needs-setup for web_search when TAVILY_API_KEY is not set', () => {
+    delete process.env.TAVILY_API_KEY;
+    const result = evaluateToolConnectionBinding('web_search', []);
+    expect(result.status).toBe('needs-setup');
+    expect(result.reason).toContain('Tavily');
+  });
+
+  it('returns ready for web_search when TAVILY_API_KEY is set', () => {
+    process.env.TAVILY_API_KEY = 'tvly-test-key-123';
+    const result = evaluateToolConnectionBinding('web_search', []);
+    expect(result.status).toBe('ready');
+    expect(result.reason).toBe('Built-in tool');
+  });
+
+  it('returns ready for other built-in tools regardless of env', () => {
+    delete process.env.TAVILY_API_KEY;
+    const result = evaluateToolConnectionBinding('fetch_url', []);
+    expect(result.status).toBe('ready');
   });
 });
 

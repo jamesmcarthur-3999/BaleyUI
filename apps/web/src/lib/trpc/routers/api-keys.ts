@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, protectedProcedure } from '../trpc';
+import { router, roleProcedure, adminProcedure } from '../trpc';
 import { apiKeys, eq, and, isNull } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import crypto from 'crypto';
@@ -48,7 +48,7 @@ export const apiKeysRouter = router({
    * List all API keys for the workspace.
    * Returns keys with masked values (prefix...last4).
    */
-  list: protectedProcedure.query(async ({ ctx }) => {
+  list: roleProcedure.query(async ({ ctx }) => {
     const keys = await ctx.db.query.apiKeys.findMany({
       where: and(
         eq(apiKeys.workspaceId, ctx.workspace.id),
@@ -73,7 +73,7 @@ export const apiKeysRouter = router({
    * Create a new API key.
    * Returns the full key ONCE - it will never be shown again.
    */
-  create: protectedProcedure
+  create: adminProcedure
     .input(
       z.object({
         name: z.string().min(1).max(255),
@@ -126,7 +126,7 @@ export const apiKeysRouter = router({
   /**
    * Revoke an API key (soft delete by setting revokedAt).
    */
-  revoke: protectedProcedure
+  revoke: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       // Verify the key exists and belongs to the workspace

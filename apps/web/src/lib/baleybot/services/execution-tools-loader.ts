@@ -15,13 +15,14 @@ import {
   notDeleted,
 } from '@baleyui/db';
 import { decrypt } from '@/lib/encryption';
-import type { DatabaseConnectionConfig } from '@/lib/connections/providers';
+import type { DatabaseConnectionConfig, MCPConnectionConfig } from '@/lib/connections/providers';
 import type { ConnectionConfig } from '@/lib/types';
 import {
   getRuntimeTools,
   type CatalogContext,
   type RuntimeToolsContext,
   type DatabaseConnectionInput,
+  type MCPConnectionInput,
 } from '../tools/catalog-service';
 import type { BuiltInToolContext } from '../tools/built-in';
 import type { RuntimeToolDefinition } from '../executor';
@@ -90,9 +91,10 @@ function decryptDatabaseConfig(config: ConnectionConfig): DatabaseConnectionConf
 export async function loadExecutionTools(input: LoadToolsInput): Promise<LoadToolsResult> {
   const { workspaceId, toolCtx, declaredTools } = input;
 
-  // Fetch database connections and workspace tools in parallel
-  const [dbConnections, workspaceTools] = await Promise.all([
+  // Fetch database connections, MCP connections, and workspace tools in parallel
+  const [dbConnections, mcpConns, workspaceTools] = await Promise.all([
     loadDatabaseConnections(workspaceId),
+    loadMCPConnections(workspaceId),
     loadWorkspaceTools(workspaceId),
   ]);
 
@@ -102,6 +104,7 @@ export async function loadExecutionTools(input: LoadToolsInput): Promise<LoadToo
     workspacePolicies: null,
     includeConnectionTools: dbConnections.length > 0,
     databaseConnections: dbConnections,
+    mcpConnections: mcpConns.length > 0 ? mcpConns : undefined,
     workspaceTools: workspaceTools.map((t) => ({
       name: t.name,
       description: t.description,
@@ -119,7 +122,7 @@ export async function loadExecutionTools(input: LoadToolsInput): Promise<LoadToo
   };
 
   // Get combined runtime tools
-  const runtimeTools = getRuntimeTools(catalogCtx, runtimeCtx);
+  const runtimeTools = await getRuntimeTools(catalogCtx, runtimeCtx);
 
   // Add workspace custom tools as NL-powered tools
   for (const tool of workspaceTools) {
@@ -148,6 +151,7 @@ export async function loadExecutionTools(input: LoadToolsInput): Promise<LoadToo
     totalTools: toolNames.length,
     builtIn: toolNames.filter((n) => !n.startsWith('query_') && !workspaceTools.some((t) => t.name === n)).length,
     database: toolNames.filter((n) => n.startsWith('query_')).length,
+    mcp: mcpConns.length,
     custom: workspaceTools.filter((t) => toolNames.includes(t.name)).length,
   });
 
@@ -187,6 +191,51 @@ async function loadDatabaseConnections(workspaceId: string): Promise<DatabaseCon
     });
   } catch (error) {
     log.error('Failed to load database connections', { workspaceId, error });
+    return [];
+  }
+}
+
+// ============================================================================
+// MCP CONNECTIONS LOADER
+// ============================================================================
+
+async function loadMCPConnections(workspaceId: string): Promise<MCPConnectionInput[]> {
+  try {
+    const mcpConns = await db.query.connections.findMany({
+      where: and(
+        eq(connections.workspaceId, workspaceId),
+        eq(connections.type, 'mcp'),
+        eq(connections.status, 'connected'),
+        notDeleted(connections)
+      ),
+    });
+
+    return mcpConns.map((conn) => {
+      const config = conn.config as ConnectionConfig;
+
+      // Decrypt auth token if present
+      const mcpConfig: MCPConnectionConfig = {
+        transportType: (config.transportType as MCPConnectionConfig['transportType']) ?? 'http',
+        url: config.url as string | undefined,
+        command: config.command as string | undefined,
+        args: config.args as string[] | undefined,
+        env: config.env as Record<string, string> | undefined,
+        headers: config.headers as Record<string, string> | undefined,
+        authType: config.authType as MCPConnectionConfig['authType'],
+        authToken: decryptMaybe(config.authToken as string | undefined),
+        toolPrefix: config.toolPrefix as string | undefined,
+        discoveredToolCount: config.discoveredToolCount as number | undefined,
+        discoveredTools: config.discoveredTools as string[] | undefined,
+      };
+
+      return {
+        connectionId: conn.id,
+        connectionName: conn.name,
+        config: mcpConfig,
+      };
+    });
+  } catch (error) {
+    log.error('Failed to load MCP connections', { workspaceId, error });
     return [];
   }
 }

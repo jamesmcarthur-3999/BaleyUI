@@ -18,7 +18,7 @@ vi.mock('@/lib/logger', () => ({
   }),
 }));
 
-import { runCreatorDiscovery } from '../runner';
+import { runCreatorActionAdvisor } from '../runner';
 
 describe('runInternalBB output parsing', () => {
   beforeEach(() => {
@@ -30,37 +30,36 @@ describe('runInternalBB output parsing', () => {
       executionId: 'exec-1',
       output: [
         '```json',
-        '{"needsMoreInfo":false,"message":"ok","questions":[],"contextNotes":[]}',
+        '{"actions":[{"label":"Try this","prompt":"Build a webhook bot","mode":"send"}]}',
         '```',
       ].join('\n'),
     });
 
-    const parsed = await runCreatorDiscovery('test input', {
+    const parsed = await runCreatorActionAdvisor('test input', {
       userWorkspaceId: 'ws-1',
       triggeredBy: 'internal',
       repairAttempts: 0,
     });
 
-    expect(parsed.needsMoreInfo).toBe(false);
-    expect(parsed.message).toBe('ok');
-    expect(parsed.questions).toEqual([]);
+    expect(parsed.actions).toHaveLength(1);
+    expect(parsed.actions[0]?.label).toBe('Try this');
+    expect(parsed.actions[0]?.prompt).toBe('Build a webhook bot');
   });
 
   it('parses JSON embedded in surrounding text', async () => {
     mockExecuteInternalBaleybot.mockResolvedValueOnce({
       executionId: 'exec-2',
       output:
-        'Sure - here is the contract output:\n{"needsMoreInfo":true,"questions":[{"id":"q1","label":"Source","description":"Which source should I use?","requiredNow":true}],"contextNotes":[]}',
+        'Sure - here is the output:\n{"actions":[{"label":"Add monitoring","prompt":"Add monitoring to track uptime","mode":"send"}]}',
     });
 
-    const parsed = await runCreatorDiscovery('test input', {
+    const parsed = await runCreatorActionAdvisor('test input', {
       userWorkspaceId: 'ws-1',
       triggeredBy: 'internal',
       repairAttempts: 0,
     });
 
-    expect(parsed.needsMoreInfo).toBe(true);
-    expect(parsed.questions).toHaveLength(1);
-    expect(parsed.questions[0]?.label).toBe('Source');
+    expect(parsed.actions).toHaveLength(1);
+    expect(parsed.actions[0]?.label).toBe('Add monitoring');
   });
 });

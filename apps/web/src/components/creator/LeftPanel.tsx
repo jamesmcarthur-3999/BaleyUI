@@ -1,16 +1,14 @@
 'use client';
 
 import { ConversationThread } from './ConversationThread';
-import type { ViewAction } from './ConversationThread';
+import type { StreamingProgress } from './ConversationThread';
 import { ChatInput } from './ChatInput';
 import type { ChatQuickPrompt } from './ChatInput';
 import { ExecutionHistory } from './ExecutionHistory';
 import type {
   CreatorMessage,
   CreationStatus,
-  CreationProgress,
 } from '@/lib/baleybot/creator-types';
-import type { StreamingProgressSnapshot } from './StreamingProgressCard';
 
 interface Execution {
   id: string;
@@ -24,6 +22,12 @@ interface Execution {
   createdAt: Date | string;
 }
 
+interface AgentActivityEvent {
+  event: Record<string, unknown>;
+  entityName?: string;
+  timestamp: number;
+}
+
 interface LeftPanelProps {
   messages: CreatorMessage[];
   status: CreationStatus;
@@ -31,13 +35,13 @@ interface LeftPanelProps {
   isCreatorDisabled: boolean;
   executions?: Execution[];
   onExecutionClick?: (id: string) => void;
-  onViewAction?: (action: ViewAction) => void;
   onOptionSelect?: (optionId: string) => void;
-  creationProgress?: CreationProgress | null;
-  streamingProgress?: StreamingProgressSnapshot | null;
+  /** Streaming progress info for the building indicator */
+  streamingProgress?: StreamingProgress | null;
   quickPrompts?: ChatQuickPrompt[];
   quickPromptContextLabel?: string;
-  discoveryPending?: boolean;
+  /** Agent activity events for the expandable activity panel */
+  agentEvents?: AgentActivityEvent[];
 }
 
 /**
@@ -52,13 +56,11 @@ export function LeftPanel({
   isCreatorDisabled,
   executions,
   onExecutionClick,
-  onViewAction,
   onOptionSelect,
-  creationProgress,
   streamingProgress,
   quickPrompts = [],
   quickPromptContextLabel,
-  discoveryPending = false,
+  agentEvents,
 }: LeftPanelProps) {
   return (
     <div className="flex flex-col h-full">
@@ -66,11 +68,10 @@ export function LeftPanel({
         messages={messages}
         embedded
         isBuilding={status === 'building'}
-        creationProgress={creationProgress}
         streamingProgress={streamingProgress}
         className="flex-1 min-h-0"
-        onViewAction={onViewAction}
         onOptionSelect={onOptionSelect}
+        agentEvents={agentEvents}
       />
 
       {executions && executions.length > 0 && (
@@ -86,7 +87,6 @@ export function LeftPanel({
       <div className="shrink-0 border-t border-border/30 px-4 py-3">
         <ChatInput
           status={status}
-          discoveryPending={discoveryPending}
           onSend={onSendMessage}
           disabled={isCreatorDisabled}
           quickPrompts={quickPrompts}

@@ -93,7 +93,7 @@ describe('internal-baleybots integration', () => {
 
   describe('INTERNAL_BALEYBOTS definitions', () => {
     const expectedBots = [
-      'creator_discovery',
+      'baley',
       'creator_bot',
       'creator_action_advisor',
       'bal_generator',
@@ -127,7 +127,11 @@ describe('internal-baleybots integration', () => {
           expect(typeof def.description).toBe('string');
           expect(typeof def.icon).toBe('string');
           expect(typeof def.balCode).toBe('string');
-          expect(def.balCode).toContain(name); // BAL code contains entity name
+          // Compositions have multi-entity BAL, so their name may not appear
+          // as an entity name in the code. Single-entity bots should contain their name.
+          if (!def.balCode.includes('chain {') && !def.balCode.includes('parallel {')) {
+            expect(def.balCode).toContain(name);
+          }
         }
       }
     });

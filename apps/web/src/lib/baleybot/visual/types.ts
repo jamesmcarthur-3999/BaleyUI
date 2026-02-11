@@ -24,6 +24,12 @@ export interface VisualNode {
     stopWhen?: string;
     retries?: number;
     runtimeStatus?: 'idle' | 'running' | 'completed' | 'needs_attention';
+    runtimeTarget?: 'cloud' | 'local';
+    exportStatus?: 'none' | 'building' | 'ready';
+    transport?: 'sse' | 'websocket';
+    provider?: 'openai' | 'anthropic' | 'ollama';
+    usageCost?: number;
+    tokenCount?: number;
     kind?: string;
     parentId?: string;
     collapsed?: boolean;

@@ -184,11 +184,11 @@ describe('getVisibleTabs', () => {
       activated: 'incomplete',
       monitored: 'incomplete',
     });
-    expect(tabs).toContain('test');
+    expect(tabs).toContain('review');
     expect(tabs).not.toContain('schema');
   });
 
-  it('shows connections when applicable and designed', () => {
+  it('shows test tab when design is complete', () => {
     const tabs = getVisibleTabs({
       designed: 'complete',
       connected: 'incomplete',
@@ -196,45 +196,21 @@ describe('getVisibleTabs', () => {
       activated: 'incomplete',
       monitored: 'incomplete',
     });
-    expect(tabs).toContain('connections');
+    expect(tabs).toEqual(['visual', 'code', 'review']);
   });
 
-  it('hides connections when not-applicable', () => {
+  it('never includes old tabs (connections, triggers, monitor, analytics)', () => {
     const tabs = getVisibleTabs({
       designed: 'complete',
-      connected: 'not-applicable',
-      tested: 'incomplete',
-      activated: 'not-applicable',
-      monitored: 'not-applicable',
+      connected: 'complete',
+      tested: 'complete',
+      activated: 'complete',
+      monitored: 'complete',
     });
     expect(tabs).not.toContain('connections');
     expect(tabs).not.toContain('triggers');
     expect(tabs).not.toContain('monitor');
-  });
-
-  it('shows triggers when connected or tested', () => {
-    const tabs = getVisibleTabs({
-      designed: 'complete',
-      connected: 'complete',
-      tested: 'incomplete',
-      activated: 'incomplete',
-      monitored: 'incomplete',
-    });
-    expect(tabs).toContain('triggers');
-  });
-
-  it('includes analytics only after design starts', () => {
-    const tabs = getVisibleTabs(createInitialReadiness());
     expect(tabs).not.toContain('analytics');
-
-    const tabsDesigned = getVisibleTabs({
-      designed: 'in-progress',
-      connected: 'incomplete',
-      tested: 'incomplete',
-      activated: 'incomplete',
-      monitored: 'incomplete',
-    });
-    expect(tabsDesigned).toContain('analytics');
   });
 });
 
@@ -263,7 +239,7 @@ describe('getRecommendedAction', () => {
     expect(state.designed).toBe('complete');
     const action = getRecommendedAction(state);
     expect(action?.dimension).toBe('connected');
-    expect(action?.tabTarget).toBe('connections');
+    expect(action?.tabTarget).toBe('launch');
   });
 
   it('returns tested after connections are met', () => {
@@ -276,7 +252,7 @@ describe('getRecommendedAction', () => {
     });
     const action = getRecommendedAction(state);
     expect(action?.dimension).toBe('tested');
-    expect(action?.tabTarget).toBe('test');
+    expect(action?.tabTarget).toBe('review');
   });
 
   it('returns activated after testing is complete', () => {
@@ -289,7 +265,7 @@ describe('getRecommendedAction', () => {
     });
     const action = getRecommendedAction(state);
     expect(action?.dimension).toBe('activated');
-    expect(action?.tabTarget).toBe('triggers');
+    expect(action?.tabTarget).toBe('launch');
   });
 
   it('returns null when all applicable dimensions are complete', () => {
@@ -341,6 +317,6 @@ describe('getRecommendedAction', () => {
     });
     const action = getRecommendedAction(state);
     expect(action?.dimension).toBe('monitored');
-    expect(action?.tabTarget).toBe('monitor');
+    expect(action?.tabTarget).toBe('launch');
   });
 });

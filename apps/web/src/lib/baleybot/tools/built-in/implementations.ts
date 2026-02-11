@@ -30,9 +30,13 @@ import {
   CREATE_AGENT_SCHEMA,
   CREATE_TOOL_SCHEMA,
   SHARED_STORAGE_SCHEMA,
+  REQUEST_USER_INPUT_SCHEMA,
   BUILT_IN_TOOLS_METADATA,
 } from './index';
+import type { RequestUserInputResult } from './request-user-input';
 import { createSharedStorageToolImpl } from '../../services/shared-storage-service';
+import { createSpawnBaleybotExecutor } from '../../services/spawn-executor';
+import type { BaleybotStreamEvent } from '@baleybots/core';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('built-in-tools');
@@ -437,6 +441,40 @@ async function createToolImpl(
 }
 
 // ============================================================================
+// REQUEST USER INPUT
+// ============================================================================
+
+interface RequestUserInputArgs {
+  question: string;
+}
+
+/**
+ * Injected request_user_input handler.
+ * The creator pipeline adapter injects this so the concierge can pause
+ * and wait for user responses mid-execution.
+ */
+type RequestUserInputHandler = (
+  args: RequestUserInputArgs,
+  ctx: BuiltInToolContext
+) => Promise<RequestUserInputResult>;
+
+let requestUserInputHandler: RequestUserInputHandler | null = null;
+
+export function setRequestUserInputHandler(handler: RequestUserInputHandler | null): void {
+  requestUserInputHandler = handler;
+}
+
+async function requestUserInputImpl(
+  args: RequestUserInputArgs,
+  _ctx: BuiltInToolContext
+): Promise<RequestUserInputResult> {
+  if (!requestUserInputHandler) {
+    throw new Error('request_user_input handler not configured');
+  }
+  return requestUserInputHandler(args, _ctx);
+}
+
+// ============================================================================
 // EXPORT: Create RuntimeToolDefinition for executor
 // ============================================================================
 
@@ -467,7 +505,10 @@ function createRuntimeTool(
 /**
  * Get all built-in tools as RuntimeToolDefinitions, bound to the provided context.
  */
-export function getBuiltInRuntimeTools(ctx: BuiltInToolContext): Map<string, RuntimeToolDefinition> {
+export function getBuiltInRuntimeTools(
+  ctx: BuiltInToolContext,
+  options?: { onChildSegment?: (event: BaleybotStreamEvent) => void }
+): Map<string, RuntimeToolDefinition> {
   const tools = new Map<string, RuntimeToolDefinition>();
 
   // Helper to wrap typed implementations as generic tool functions
@@ -491,13 +532,29 @@ export function getBuiltInRuntimeTools(ctx: BuiltInToolContext): Map<string, Run
     ctx
   ));
 
-  tools.set('spawn_baleybot', createRuntimeTool(
-    'spawn_baleybot',
-    'Execute another BaleyBot and return its result',
-    SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>,
-    wrapImpl<SpawnBaleybotArgs>(spawnBaleybotImpl),
-    ctx
-  ));
+  // If onChildSegment is provided, create a streaming-aware spawn executor.
+  // Otherwise fall back to the globally-configured executor.
+  if (options?.onChildSegment) {
+    const streamingSpawnExecutor = createSpawnBaleybotExecutor({
+      onChildSegment: options.onChildSegment,
+    });
+    tools.set('spawn_baleybot', createRuntimeTool(
+      'spawn_baleybot',
+      'Execute another BaleyBot and return its result',
+      SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>,
+      async (args: Record<string, unknown>, toolCtx: BuiltInToolContext) =>
+        streamingSpawnExecutor(String(args.baleybot), args.input, toolCtx),
+      ctx
+    ));
+  } else {
+    tools.set('spawn_baleybot', createRuntimeTool(
+      'spawn_baleybot',
+      'Execute another BaleyBot and return its result',
+      SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>,
+      wrapImpl<SpawnBaleybotArgs>(spawnBaleybotImpl),
+      ctx
+    ));
+  }
 
   tools.set('send_notification', createRuntimeTool(
     'send_notification',
@@ -551,6 +608,14 @@ export function getBuiltInRuntimeTools(ctx: BuiltInToolContext): Map<string, Run
         { workspaceId: toolCtx.workspaceId, baleybotId: toolCtx.baleybotId, executionId: toolCtx.executionId }
       );
     },
+    ctx
+  ));
+
+  tools.set('request_user_input', createRuntimeTool(
+    'request_user_input',
+    'Ask the user a question and wait for their response',
+    REQUEST_USER_INPUT_SCHEMA as Record<string, unknown>,
+    wrapImpl<RequestUserInputArgs>(requestUserInputImpl),
     ctx
   ));
 

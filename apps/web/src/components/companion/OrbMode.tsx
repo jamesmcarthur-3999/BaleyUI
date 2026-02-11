@@ -64,22 +64,25 @@ function OrbGlow({
   pulsing: boolean;
 }) {
   const glowColors: Record<OrbState, string> = {
-    idle: 'from-primary/20 to-transparent',
-    listening: 'from-red-500/30 to-transparent',
-    thinking: 'from-primary/40 to-transparent',
-    speaking: 'from-blue-500/30 to-transparent',
-    success: 'from-green-500/30 to-transparent',
-    error: 'from-red-500/40 to-transparent',
+    idle: 'transparent',
+    listening: 'hsl(0 72% 51% / 0.25)',
+    thinking: 'hsl(262 83% 58% / 0.3)',
+    speaking: 'hsl(217 91% 60% / 0.25)',
+    success: 'hsl(152 69% 45% / 0.25)',
+    error: 'hsl(0 72% 51% / 0.3)',
   };
 
   return (
     <div
       className={cn(
-        'absolute inset-0 rounded-full bg-gradient-radial',
+        'absolute inset-0 rounded-full',
         'scale-150 blur-sm',
-        glowColors[state],
-        pulsing && 'animate-pulse'
+        'transition-opacity duration-500 ease-out',
+        pulsing ? 'opacity-100' : 'opacity-0'
       )}
+      style={{
+        background: `radial-gradient(circle, ${glowColors[state]}, transparent)`,
+      }}
     />
   );
 }
@@ -96,12 +99,12 @@ function OrbCore({
   onClick: () => void;
 }) {
   const stateColors: Record<OrbState, string> = {
-    idle: 'from-primary to-primary/80',
-    listening: 'from-red-500 to-red-600',
-    thinking: 'from-primary via-primary/90 to-primary/80',
-    speaking: 'from-blue-500 to-blue-600',
-    success: 'from-green-500 to-green-600',
-    error: 'from-red-500 to-red-600',
+    idle: 'bg-primary shadow-md shadow-primary/10',
+    listening: 'bg-red-500 shadow-md shadow-red-500/20',
+    thinking: 'bg-primary shadow-md shadow-primary/15',
+    speaking: 'bg-blue-500 shadow-md shadow-blue-500/15',
+    success: 'bg-green-500 shadow-md shadow-green-500/15',
+    error: 'bg-red-500 shadow-md shadow-red-500/15',
   };
 
   const StateIcon =
@@ -116,33 +119,25 @@ function OrbCore({
       aria-label={`AI assistant - ${state}`}
       className={cn(
         'relative h-14 w-14 rounded-full',
-        'bg-gradient-to-br',
         stateColors[state],
-        'shadow-lg',
         'flex items-center justify-center',
-        'transition-transform duration-300 ease-out',
-        'hover:scale-110',
+        'transition-all duration-500 ease-out',
+        'hover:scale-105',
         'focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2',
-        state === 'thinking' && 'animate-pulse'
+        state === 'thinking' && 'animate-orb-breathe'
       )}
     >
-      {/* Inner glow */}
-      <div className="absolute inset-1 rounded-full bg-white/10" />
-
       {/* Icon */}
       <StateIcon className="h-6 w-6 text-primary-foreground relative z-10" />
 
-      {/* Thinking ripples */}
+      {/* Thinking ring */}
       {state === 'thinking' && (
-        <>
-          <div className="absolute inset-0 rounded-full border-2 border-primary-foreground/20 animate-ping" />
-          <div className="absolute inset-0 rounded-full border-2 border-primary-foreground/10 animate-ping [animation-delay:0.5s]" />
-        </>
+        <div className="absolute inset-0 rounded-full border-2 border-primary-foreground/20 animate-orb-ring-expand" />
       )}
 
       {/* Listening indicator */}
       {state === 'listening' && (
-        <div className="absolute -inset-1 rounded-full border-2 border-red-400/50 animate-pulse" />
+        <div className="absolute -inset-1 rounded-full border-2 border-red-400/40 animate-pulse-soft" />
       )}
     </button>
   );
@@ -182,9 +177,9 @@ function ActivityIndicator({
     <div
       className={cn(
         'absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full',
-        'bg-background border rounded-lg shadow-lg',
+        'glass-surface rounded-xl elevation-2',
         'px-3 py-2 min-w-[200px] max-w-[280px]',
-        'animate-in slide-in-from-bottom-2 fade-in duration-200'
+        'animate-companion-panel-enter'
       )}
     >
       <div className="flex items-start gap-2">
@@ -255,9 +250,9 @@ function QuickActions({
         className={cn(
           'absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full',
           'flex items-center gap-1',
-          'bg-background border rounded-full shadow-lg',
+          'glass-surface rounded-full elevation-2',
           'px-1 py-1',
-          'animate-in slide-in-from-bottom-2 fade-in duration-200'
+          'animate-companion-panel-enter'
         )}
       >
         {actions.map(({ icon: Icon, label, onClick, variant = 'ghost' }) => (

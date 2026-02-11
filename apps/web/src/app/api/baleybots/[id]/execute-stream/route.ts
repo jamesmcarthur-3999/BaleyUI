@@ -31,7 +31,7 @@ import { createLogger } from '@/lib/logger';
 import {
   configureWebSearch,
 } from '@/lib/baleybot/tools/built-in/implementations';
-import { initializeBuiltInToolServices } from '@/lib/baleybot/services';
+import { initializeBuiltInToolServices, getWorkspaceTavilyKey } from '@/lib/baleybot/services';
 import { getPreferredModel } from '@/lib/baleybot/executor';
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
 import { validateApiKey } from '@/lib/api/validate-api-key';
@@ -252,9 +252,10 @@ export async function POST(
             apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
           }
 
-          // Configure web search if Tavily key is available
-          if (process.env.TAVILY_API_KEY) {
-            configureWebSearch(process.env.TAVILY_API_KEY);
+          // Configure web search if Tavily key is available (env or workspace DB)
+          const tavilyKey = await getWorkspaceTavilyKey(workspaceId);
+          if (tavilyKey) {
+            configureWebSearch(tavilyKey);
           }
 
           // Initialize built-in tool services (spawn, notify, schedule, memory)

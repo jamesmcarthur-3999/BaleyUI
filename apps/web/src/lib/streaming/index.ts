@@ -39,5 +39,12 @@ export type { AISDKStreamEvent } from './adapter';
 // Re-export AI SDK hooks for convenience
 export { useChat, useCompletion } from '@ai-sdk/react';
 
+// Transport abstraction layer (SSE + WebSocket)
+export type { StreamTransport, TransportConnectOptions } from './transport';
+export { SSETransport } from './sse-transport';
+export { WebSocketTransport } from './ws-transport';
+export { createTransport } from './create-transport';
+export type { TransportPreference } from './create-transport';
+
 // Utilities (SSE parsing, partial JSON)
 export { parseSSEChunk, parsePartialJSON } from './utils';

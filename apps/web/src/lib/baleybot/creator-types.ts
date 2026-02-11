@@ -89,15 +89,6 @@ export type BuilderPresentationMode = 'simple' | 'advanced';
  */
 export type TriggerSetupStep = 'start' | 'input' | 'review';
 
-/**
- * UI state snapshot for builder presentation and trigger setup flow.
- */
-export interface BuilderExperienceState {
-  mode: BuilderPresentationMode;
-  triggerStep: TriggerSetupStep;
-  showAdvancedTriggerTypes: boolean;
-}
-
 // ============================================================================
 // MESSAGE TYPES
 // ============================================================================
@@ -283,24 +274,6 @@ export interface CreatorPlanLedger {
   updatedAt: number;
 }
 
-export interface CreatorPlanDelta {
-  summary: string;
-  goal?: string;
-  stage?: string;
-  resolvedDecisions?: CreatorPlanDecision[];
-  openDecisions?: CreatorPlanDecision[];
-  assumptions?: CreatorPlanLedger['assumptions'];
-  nextQuestion?: CreatorPlanDecision | null;
-  runnableConfidence?: number;
-}
-
-export interface CreatorToolActivity {
-  name: string;
-  status: 'pending' | 'running' | 'success' | 'error';
-  message?: string;
-  timestamp: number;
-}
-
 /**
  * A message in the creation session chat history.
  * Used for the floating chat interface during bot creation.
@@ -328,7 +301,7 @@ export interface CreatorMessage {
  * Status of the creation session state machine.
  * Tracks the overall state of the bot being built.
  */
-export type CreationStatus = 'empty' | 'building' | 'ready' | 'running' | 'error';
+export type CreationStatus = 'empty' | 'building' | 'ready' | 'running' | 'error' | 'waiting_for_input';
 
 /**
  * State of the visual canvas.
@@ -379,21 +352,6 @@ export interface CreationSession {
 // ============================================================================
 // STREAMING TYPES
 // ============================================================================
-
-/**
- * A streaming chunk from the creator AI.
- * Used to progressively update the canvas as the AI builds the bot.
- * Discriminated union for type-safe streaming.
- */
-export type CreatorStreamChunk =
-  | { type: 'status'; data: { message: string } }
-  | { type: 'thinking'; data: { content: string } }
-  | { type: 'entity'; data: Omit<VisualEntity, 'position' | 'status'> }
-  | { type: 'entity_remove'; data: { id: string } }
-  | { type: 'connection'; data: Omit<Connection, 'status'> }
-  | { type: 'connection_remove'; data: { id: string } }
-  | { type: 'complete'; data: CreatorOutput }
-  | { type: 'error'; data: { message: string; code?: string } };
 
 /**
  * Real-time progress tracking during bot creation.
@@ -479,7 +437,7 @@ export const creatorOutputSchema = z.object({
   /** Suggested icon (emoji) — catches invalid values */
   icon: z.string().catch('🤖'),
   /** Creation status — catches unexpected values like "complete" */
-  status: z.enum(['building', 'ready']).catch('ready'),
+  status: z.enum(['building', 'ready']).catch('building'),
 }).superRefine((data, ctx) => {
   if (data.status === 'ready') {
     if (data.entities.length === 0) {

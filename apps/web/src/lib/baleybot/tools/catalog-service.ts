@@ -42,7 +42,7 @@ import {
   type DatabaseConnectionInfo,
   type DatabaseSchema,
 } from './connection-derived';
-import type { DatabaseConnectionConfig } from '@/lib/connections/providers';
+import type { DatabaseConnectionConfig, MCPConnectionConfig } from '@/lib/connections/providers';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('tool-catalog');
@@ -74,6 +74,17 @@ export interface DatabaseConnectionInput {
 }
 
 /**
+ * MCP connection info for tool generation
+ */
+export interface MCPConnectionInput {
+  connectionId: string;
+  connectionName: string;
+  config: MCPConnectionConfig;
+  /** Pre-discovered tools (optional, will be discovered if not provided) */
+  discoveredTools?: Array<{ name: string; description: string; inputSchema: unknown }>;
+}
+
+/**
  * Context for building the tool catalog
  */
 export interface CatalogContext {
@@ -86,6 +97,8 @@ export interface CatalogContext {
   includeConnectionTools?: boolean;
   /** Database connections for generating database tools */
   databaseConnections?: DatabaseConnectionInput[];
+  /** MCP connections for generating MCP-derived tools */
+  mcpConnections?: MCPConnectionInput[];
 }
 
 /**
@@ -98,6 +111,8 @@ export interface FullToolCatalog extends ToolCatalog {
   connectionDerived: ToolDefinition[];
   /** Workspace custom tools only */
   workspace: ToolDefinition[];
+  /** MCP server tools */
+  mcp: ToolDefinition[];
 }
 
 // ============================================================================
@@ -158,45 +173,149 @@ export async function introspectDatabaseConnection(
 }
 
 // ============================================================================
+// MCP TOOL GENERATION
+// ============================================================================
+
+/**
+ * Generate tool definitions from MCP connections using pre-discovered tools.
+ * For runtime tool generation (with live connections), use getMCPRuntimeTools.
+ */
+function generateMCPToolDefinitions(
+  connections: MCPConnectionInput[]
+): ToolDefinition[] {
+  const tools: ToolDefinition[] = [];
+
+  for (const conn of connections) {
+    if (!conn.discoveredTools || conn.discoveredTools.length === 0) continue;
+
+    for (const mcpTool of conn.discoveredTools) {
+      const prefix = conn.config.toolPrefix ?? '';
+      const toolName = `${prefix}${mcpTool.name}`;
+
+      tools.push({
+        name: toolName,
+        description: `[${conn.connectionName}] ${mcpTool.description}`,
+        inputSchema: mcpTool.inputSchema as Record<string, unknown>,
+        source: {
+          kind: 'mcp' as const,
+          connectionId: conn.connectionId,
+        },
+        tags: ['mcp', conn.connectionName.toLowerCase()],
+        healthStatus: 'ready',
+      });
+    }
+  }
+
+  return tools;
+}
+
+// ============================================================================
 // CATALOG SERVICE
 // ============================================================================
 
 /**
+ * Resolve the health status for a tool based on whether its requirements are met.
+ * Called during catalog assembly for tools that don't already have a healthStatus.
+ */
+function resolveHealthStatus(
+  tool: ToolDefinition,
+  connections: Array<{ id: string; type: string; status: string }>
+): ToolDefinition['healthStatus'] {
+  // If already resolved (e.g. connection-derived tools set it at generation time)
+  if (tool.healthStatus && tool.healthStatus !== 'unknown') {
+    return tool.healthStatus;
+  }
+
+  const reqs = tool.requirements;
+  if (!reqs || reqs.length === 0) {
+    return 'ready';
+  }
+
+  for (const req of reqs) {
+    if (req.type === 'connection' && req.connectionType) {
+      const match = connections.find(
+        c => c.type === req.connectionType && c.status === 'connected'
+      );
+      if (!match) return 'needs-setup';
+      req.satisfied = true;
+      req.connectionId = match.id;
+    }
+    // api_key requirements are soft (fallback exists for web_search)
+    // permission requirements are always satisfied (checked at runtime)
+  }
+
+  return 'ready';
+}
+
+/**
  * Get all available tools for a workspace, combining built-in and workspace tools.
  * Applies workspace policies to categorize tools.
+ * Resolves health status for all tools based on available connections.
  */
 export function getToolCatalog(ctx: CatalogContext): FullToolCatalog {
-  // 1. Get built-in tool definitions
+  // 1. Get built-in tool definitions (already enriched with source, tags, etc.)
   const builtInTools = getBuiltInToolDefinitions();
 
-  // 2. Get workspace custom tools (if provided)
-  const workspaceTools = ctx.workspaceTools ?? [];
+  // 2. Get workspace custom tools (if provided), tag with source
+  const workspaceTools = (ctx.workspaceTools ?? []).map(tool => ({
+    ...tool,
+    source: tool.source ?? { kind: 'workspace' as const, toolId: tool.name },
+    healthStatus: tool.healthStatus ?? ('ready' as const),
+  }));
 
-  // 3. Get connection-derived tools from database connections
+  // 3. Get connection-derived tools from database connections (already enriched)
   let connectionTools: ToolDefinition[] = [];
   if (ctx.includeConnectionTools && ctx.databaseConnections) {
     connectionTools = generateDatabaseTools(ctx.databaseConnections);
   }
 
-  // 4. Combine all tools
+  // 3b. Get MCP-derived tools from MCP connections
+  let mcpTools: ToolDefinition[] = [];
+  if (ctx.mcpConnections && ctx.mcpConnections.length > 0) {
+    mcpTools = generateMCPToolDefinitions(ctx.mcpConnections);
+  }
+
+  // 4. Build a flat connections list for health resolution
+  const connectionsList = [
+    ...(ctx.databaseConnections ?? []).map(c => ({
+      id: c.connectionId,
+      type: c.type,
+      status: c.schema ? 'connected' : 'disconnected',
+    })),
+    ...(ctx.mcpConnections ?? []).map(c => ({
+      id: c.connectionId,
+      type: 'mcp',
+      status: 'connected',
+    })),
+  ];
+
+  // 5. Resolve health status for all tools
+  const resolvedBuiltIn = builtInTools.map(t => ({
+    ...t,
+    healthStatus: resolveHealthStatus(t, connectionsList),
+  }));
+
+  // 6. Combine all tools
   const allTools: ToolDefinition[] = [
-    ...builtInTools,
+    ...resolvedBuiltIn,
     ...connectionTools,
+    ...mcpTools,
     ...workspaceTools,
   ];
 
-  // 5. Build categorized catalog using existing logic
+  // 7. Build categorized catalog using existing logic
   const baseCatalog = buildToolCatalog({
     availableTools: allTools,
     policies: ctx.workspacePolicies,
   });
 
-  // 6. Return extended catalog with source tracking
+  // 8. Return extended catalog with source tracking
   return {
     ...baseCatalog,
-    builtIn: builtInTools,
+    builtIn: resolvedBuiltIn,
     connectionDerived: connectionTools,
     workspace: workspaceTools,
+    mcp: mcpTools,
   };
 }
 
@@ -219,10 +338,10 @@ export interface RuntimeToolsContext {
  * Get runtime tools for execution, bound to the provided context.
  * Returns a Map of tool name -> RuntimeToolDefinition.
  */
-export function getRuntimeTools(
+export async function getRuntimeTools(
   ctx: CatalogContext,
   runtimeCtx: RuntimeToolsContext
-): Map<string, RuntimeToolDefinition> {
+): Promise<Map<string, RuntimeToolDefinition>> {
   // 1. Get built-in runtime tools
   const builtInRuntimeTools = getBuiltInRuntimeTools(runtimeCtx.toolCtx);
 
@@ -253,7 +372,37 @@ export function getRuntimeTools(
     }
   }
 
-  // 3. Return combined tools
+  // 3. Load MCP runtime tools if connections are provided
+  if (ctx.mcpConnections && ctx.mcpConnections.length > 0) {
+    try {
+      const { getMCPRuntimeTools: loadMCPTools } = await import(
+        '@/lib/connections/mcp-service'
+      );
+
+      for (const conn of ctx.mcpConnections) {
+        try {
+          const { tools: mcpRuntimeTools } = await loadMCPTools(
+            conn.connectionId,
+            conn.connectionName,
+            conn.config
+          );
+
+          for (const [name, tool] of mcpRuntimeTools) {
+            builtInRuntimeTools.set(name, tool);
+          }
+        } catch (error) {
+          logger.error('Failed to load MCP runtime tools', {
+            connectionName: conn.connectionName,
+            error,
+          });
+        }
+      }
+    } catch (error) {
+      logger.error('Failed to import MCP service', { error });
+    }
+  }
+
+  // 4. Return combined tools
   return builtInRuntimeTools;
 }
 
@@ -261,10 +410,10 @@ export function getRuntimeTools(
  * Backward-compatible version of getRuntimeTools
  * @deprecated Use the version with RuntimeToolsContext instead
  */
-export function getRuntimeToolsLegacy(
+export async function getRuntimeToolsLegacy(
   ctx: CatalogContext,
   toolCtx: BuiltInToolContext
-): Map<string, RuntimeToolDefinition> {
+): Promise<Map<string, RuntimeToolDefinition>> {
   return getRuntimeTools(ctx, { toolCtx });
 }
 
@@ -296,10 +445,18 @@ export function formatToolCatalogForCreatorBot(catalog: FullToolCatalog): string
       const approvalNote = metadata?.approvalRequired
         ? ' **(Requires Approval at Runtime)**'
         : '';
+      const healthNote = tool.healthStatus === 'needs-setup'
+        ? ' ⚠️ Needs Setup'
+        : tool.healthStatus === 'error'
+          ? ' ❌ Error'
+          : '';
 
-      lines.push(`### ${tool.name}${approvalNote}`);
+      lines.push(`### ${tool.name}${approvalNote}${healthNote}`);
       lines.push('');
       lines.push(tool.description);
+      if (tool.tags && tool.tags.length > 0) {
+        lines.push(`**Tags:** ${tool.tags.join(', ')}`);
+      }
       lines.push('');
       lines.push('**Input:**');
       lines.push('```json');
@@ -315,6 +472,19 @@ export function formatToolCatalogForCreatorBot(catalog: FullToolCatalog): string
     lines.push('');
 
     for (const tool of catalog.connectionDerived) {
+      lines.push(`### ${tool.name}`);
+      lines.push('');
+      lines.push(tool.description);
+      lines.push('');
+    }
+  }
+
+  // MCP tools section
+  if (catalog.mcp.length > 0) {
+    lines.push('## MCP Server Tools (External Integrations)');
+    lines.push('');
+
+    for (const tool of catalog.mcp) {
       lines.push(`### ${tool.name}`);
       lines.push('');
       lines.push(tool.description);
@@ -402,9 +572,13 @@ export function formatToolCatalogForCreatorBotCompact(
 
   appendSection('Built-in', catalog.builtIn, (tool) => {
     const metadata = BUILT_IN_TOOLS_METADATA.find((entry) => entry.name === tool.name);
+    if (tool.healthStatus === 'needs-setup') return 'needs setup';
     return metadata?.approvalRequired ? 'approval at runtime' : undefined;
   });
-  appendSection('Connection Tools', catalog.connectionDerived, () => 'from connected data source');
+  appendSection('Connection Tools', catalog.connectionDerived, (tool) =>
+    tool.healthStatus === 'ready' ? 'connected' : 'needs setup'
+  );
+  appendSection('MCP Server Tools', catalog.mcp, () => 'mcp');
   appendSection('Custom Workspace Tools', catalog.workspace, () => 'workspace');
 
   lines.push('## Selection Rules');
@@ -485,3 +659,10 @@ export {
   getBuiltInToolDefinitions,
 };
 export type { BuiltInToolMetadata, BuiltInToolContext };
+
+// Re-export catalog-based requirement functions
+export {
+  getToolRequirements,
+  getToolHealthStatus,
+  getToolsNeedingSetup,
+} from './requirements-scanner';

@@ -71,7 +71,8 @@ export function ContextNode({ data, selected }: NodeProps<ContextNodeType>) {
           'w-[210px] rounded-xl border px-3 py-2.5 bg-card shadow-sm transition-all',
           selected ? 'border-primary ring-2 ring-primary/20' : 'border-border/60',
           meta.background,
-          getRuntimeTone(data.runtimeStatus)
+          getRuntimeTone(data.runtimeStatus),
+          data.runtimeStatus === 'running' && data.kind === 'trigger' && 'border-2 border-emerald-500/30 animate-pulse-soft'
         )}
       >
         <div className="flex items-center gap-2">

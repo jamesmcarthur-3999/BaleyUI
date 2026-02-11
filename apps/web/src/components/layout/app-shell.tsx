@@ -15,6 +15,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { Sidebar } from './sidebar';
 import { useBreadcrumbs } from './breadcrumb-context';
+import { useCompanionChat } from '@/hooks/useCompanionChat';
 import { cn } from '@/lib/utils';
 
 interface AppShellProps {
@@ -26,6 +27,7 @@ function AppShell({ children }: AppShellProps) {
   const { breadcrumbs } = useBreadcrumbs();
   const pathname = usePathname();
   const isBaleybotDetail = pathname?.startsWith('/dashboard/baleybots/');
+  const companion = useCompanionChat();
 
   return (
     <div className="flex h-screen bg-gradient-hero">
@@ -109,10 +111,20 @@ function AppShell({ children }: AppShellProps) {
         <main className="flex-1 overflow-auto">{children}</main>
       </div>
 
-      {/* AI Companion — hidden on baleybot pages to avoid competing with creator chat */}
+      {/* Baley AI Companion — hidden on baleybot pages to avoid competing with creator chat */}
       {!isBaleybotDetail && (
-        <CompanionContainer defaultMode="orb" position="bottom-right">
-          <ChatMode />
+        <CompanionContainer
+          defaultMode="orb"
+          position="bottom-right"
+          hasAlert={companion.health.hasIssues}
+        >
+          <ChatMode
+            messages={companion.messages}
+            isLoading={companion.isStreaming}
+            onSendMessage={companion.send}
+            onStopGeneration={companion.stop}
+            placeholder="Ask Baley anything..."
+          />
         </CompanionContainer>
       )}
 

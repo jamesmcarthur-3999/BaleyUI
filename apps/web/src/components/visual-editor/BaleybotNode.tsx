@@ -1,7 +1,6 @@
 'use client';
 
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { Zap, Clock, Globe, Wrench, Target, Shield, Thermometer, Brain, RotateCcw, Database, Puzzle, Upload, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { VisualNode } from '@/lib/baleybot/visual/types';
 
@@ -10,65 +9,102 @@ type BaleybotNodeData = VisualNode['data'];
 // Define a custom node type for React Flow
 type BaleybotNodeType = Node<BaleybotNodeData, 'baleybot'>;
 
+// --- MCP prefix detection ---
+
+export const MCP_PREFIXES: Record<string, string> = {
+  'stripe_': 'Stripe', 'github_': 'GitHub', 'notion_': 'Notion',
+  'linear_': 'Linear', 'hubspot_': 'HubSpot', 'sentry_': 'Sentry',
+  'atlassian_': 'Atlassian', 'zapier_': 'Zapier', 'supabase_': 'Supabase',
+  'neon_': 'Neon', 'cf_': 'Cloudflare', 'exa_': 'Exa',
+  'paypal_': 'PayPal', 'square_': 'Square', 'canva_': 'Canva',
+  'intercom_': 'Intercom', 'asana_': 'Asana', 'webflow_': 'Webflow',
+  'maps_': 'Google Maps', 'telnyx_': 'Telnyx', 'box_': 'Box',
+  'cloudinary_': 'Cloudinary', 'ramp_': 'Ramp', 'wiki_': 'DeepWiki',
+  'hf_': 'Hugging Face', 'semgrep_': 'Semgrep', 'aws_': 'AWS',
+  'mp_': 'Mercado Pago', 'wix_': 'Wix', 'buildkite_': 'Buildkite',
+};
+
+// --- Built-in tool display info ---
+
+const BUILTIN_TOOLS: Record<string, { icon: string; label: string }> = {
+  web_search: { icon: '🌐', label: 'Search' },
+  fetch_url: { icon: '📡', label: 'Fetch' },
+  spawn_baleybot: { icon: '🤖', label: 'Spawn' },
+  send_notification: { icon: '🔔', label: 'Notify' },
+  store_memory: { icon: '💾', label: 'Memory' },
+  shared_storage: { icon: '📦', label: 'Storage' },
+  schedule_task: { icon: '📅', label: 'Schedule' },
+  create_agent: { icon: '🧬', label: 'Agent' },
+  create_tool: { icon: '🔧', label: 'Tool' },
+};
+
+// --- Tool categorization ---
+
+interface CategorizedTools {
+  builtin: Array<{ icon: string; label: string }>;
+  mcp: Array<{ name: string; toolCount: number }>;
+  database: Array<{ type: string; name: string }>;
+  custom: string[];
+  approval: string[];
+}
+
+export function categorizeTools(tools: string[], canRequest: string[]): CategorizedTools {
+  const result: CategorizedTools = {
+    builtin: [],
+    mcp: [],
+    database: [],
+    custom: [],
+    approval: [...canRequest],
+  };
+
+  const mcpGroups = new Map<string, number>();
+
+  for (const tool of tools) {
+    // Check built-in
+    if (BUILTIN_TOOLS[tool]) {
+      result.builtin.push(BUILTIN_TOOLS[tool]);
+      continue;
+    }
+
+    // Check database
+    const pgMatch = tool.match(/^query_postgres_(.+)$/);
+    if (pgMatch?.[1]) {
+      result.database.push({ type: 'postgres', name: formatSourceSlug(pgMatch[1]) });
+      continue;
+    }
+    const myMatch = tool.match(/^query_mysql_(.+)$/);
+    if (myMatch?.[1]) {
+      result.database.push({ type: 'mysql', name: formatSourceSlug(myMatch[1]) });
+      continue;
+    }
+
+    // Check MCP prefix
+    let isMcp = false;
+    for (const [prefix, serviceName] of Object.entries(MCP_PREFIXES)) {
+      if (tool.startsWith(prefix)) {
+        mcpGroups.set(serviceName, (mcpGroups.get(serviceName) ?? 0) + 1);
+        isMcp = true;
+        break;
+      }
+    }
+    if (isMcp) continue;
+
+    // Everything else is custom
+    result.custom.push(tool);
+  }
+
+  for (const [name, toolCount] of mcpGroups) {
+    result.mcp.push({ name, toolCount });
+  }
+
+  return result;
+}
+
+// --- Node component ---
+
 export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
   const nodeData = data;
-  const dataSources = extractDataSources(nodeData.tools ?? []);
-
-  const getTriggerIcon = () => {
-    if (!nodeData.trigger) return null;
-    switch (nodeData.trigger.type) {
-      case 'schedule':
-        return <Clock className="h-3 w-3 text-amber-500" />;
-      case 'webhook':
-        return <Globe className="h-3 w-3 text-blue-500" />;
-      case 'other_bb':
-        return <Zap className="h-3 w-3 text-emerald-500" />;
-      case 'db_event':
-        return <Database className="h-3 w-3 text-cyan-500" />;
-      case 'mcp_event':
-        return <Puzzle className="h-3 w-3 text-violet-500" />;
-      case 'file_upload':
-        return <Upload className="h-3 w-3 text-sky-500" />;
-      default:
-        return null;
-    }
-  };
-
-  const getTriggerLabel = () => {
-    if (!nodeData.trigger) return null;
-    switch (nodeData.trigger.type) {
-      case 'schedule':
-        return nodeData.trigger.schedule || 'Scheduled';
-      case 'webhook':
-        return 'Webhook';
-      case 'other_bb':
-        return `On ${nodeData.trigger.completionType || 'completion'}`;
-      case 'db_event': {
-        const table = nodeData.trigger.dbTable?.trim();
-        const dbEvent = nodeData.trigger.dbEvent?.trim();
-        if (table && dbEvent) return `${table}:${dbEvent}`;
-        if (table) return table;
-        if (dbEvent) return `DB ${dbEvent}`;
-        return 'DB event';
-      }
-      case 'mcp_event': {
-        const server = nodeData.trigger.mcpServer?.trim();
-        const tool = nodeData.trigger.mcpTool?.trim();
-        const resource = nodeData.trigger.mcpResource?.trim();
-        if (server && tool) return `${server}/${tool}`;
-        if (server && resource) return `${server}:${resource}`;
-        if (server) return `MCP ${server}`;
-        return 'MCP event';
-      }
-      case 'file_upload': {
-        const types = nodeData.trigger.acceptedMimeTypes?.slice(0, 2).join(', ');
-        if (types && types.length > 0) return `Upload: ${types}`;
-        return 'File upload';
-      }
-      default:
-        return null;
-    }
-  };
+  const categorized = categorizeTools(nodeData.tools ?? [], nodeData.canRequest ?? []);
 
   const runtimeTone =
     nodeData.runtimeStatus === 'running'
@@ -79,14 +115,26 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
           ? 'border-red-500/40 ring-2 ring-red-500/30'
           : '';
 
-  const runtimeLabel =
+  const statusDot =
     nodeData.runtimeStatus === 'running'
-      ? 'Running'
+      ? 'bg-sky-500'
       : nodeData.runtimeStatus === 'completed'
-        ? 'Completed'
+        ? 'bg-emerald-500'
         : nodeData.runtimeStatus === 'needs_attention'
-          ? 'Needs attention'
+          ? 'bg-red-500'
           : null;
+
+  const triggerIcon = nodeData.trigger && nodeData.trigger.type !== 'manual'
+    ? getTriggerIcon(nodeData.trigger.type)
+    : null;
+
+  const hasTools = categorized.builtin.length > 0
+    || categorized.mcp.length > 0
+    || categorized.database.length > 0
+    || categorized.custom.length > 0
+    || categorized.approval.length > 0;
+
+  const outputFields = nodeData.output ? Object.keys(nodeData.output) : [];
 
   return (
     <>
@@ -94,12 +142,12 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
       <Handle
         type="target"
         position={Position.Left}
-        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+        className="!w-2 !h-2 !bg-muted-foreground/50 !border-2 !border-background"
       />
 
       <div
         className={cn(
-          'w-[290px] rounded-xl border bg-card shadow-lg transition-all',
+          'w-[290px] rounded-xl border bg-card shadow-sm transition-all',
           selected
             ? 'border-primary ring-2 ring-primary/20'
             : 'border-border hover:border-primary/50',
@@ -109,144 +157,93 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
         {/* Header */}
         <div className="px-4 py-3 border-b border-border/50">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center text-lg">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center text-lg shrink-0">
                 {getNodeEmoji(nodeData.name)}
               </div>
-              <div>
-                <h4 className="font-semibold text-sm">{formatNodeName(nodeData.name)}</h4>
-                {nodeData.model && (
-                  <p className="text-xs text-muted-foreground">{formatModel(nodeData.model)}</p>
-                )}
-              </div>
+              <h4 className="font-semibold text-sm truncate min-w-0">
+                {formatNodeName(nodeData.name)}
+              </h4>
             </div>
-            {runtimeLabel && (
-              <span className={cn(
-                'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium',
-                nodeData.runtimeStatus === 'running' && 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
-                nodeData.runtimeStatus === 'completed' && 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-                nodeData.runtimeStatus === 'needs_attention' && 'bg-red-500/15 text-red-700 dark:text-red-300'
-              )}>
-                <Activity className="h-2.5 w-2.5" />
-                {runtimeLabel}
-              </span>
-            )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {statusDot && (
+                <span className={cn('h-2 w-2 rounded-full', statusDot)} />
+              )}
+              {triggerIcon && (
+                <span className="text-xs">{triggerIcon}</span>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Content */}
-        <div className="px-4 py-3 space-y-2">
+        <div className="px-4 py-3 space-y-2.5">
           {/* Goal */}
-          <div className="flex items-start gap-2">
-            <Target className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
-            <p className="text-xs text-muted-foreground line-clamp-2">
-              {nodeData.goal || 'No goal specified'}
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground line-clamp-2">
+            {nodeData.goal || 'No goal specified'}
+          </p>
 
-          {/* Individual tools */}
-          {nodeData.tools && nodeData.tools.length > 0 && (
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                <Wrench className="h-3 w-3 text-muted-foreground shrink-0" />
-                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Actions</span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {nodeData.tools.map((tool) => (
-                  <span
-                    key={tool}
-                    className={cn(
-                      'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium',
-                      getToolStyle(tool)
-                    )}
-                  >
-                    <span>{getToolIcon(tool)}</span>
-                    {formatToolName(tool)}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {dataSources.length > 0 && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5">
-                <Database className="h-3 w-3 text-cyan-500 shrink-0" />
-                <span className="text-[10px] font-medium text-cyan-700 dark:text-cyan-300 uppercase tracking-wider">
-                  Connected Inputs
+          {/* Tools section */}
+          {hasTools && (
+            <div className="flex flex-wrap gap-1">
+              {/* Built-in tools */}
+              {categorized.builtin.map((t) => (
+                <span
+                  key={t.label}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground"
+                >
+                  {t.icon} {t.label}
                 </span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {dataSources.map((source) => (
-                  <span
-                    key={source.id}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border border-cyan-500/20"
-                  >
-                    {source.label}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+              ))}
 
-          {/* Approval-required tools */}
-          {nodeData.canRequest && nodeData.canRequest.length > 0 && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5">
-                <Shield className="h-3 w-3 text-amber-500 shrink-0" />
-                <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider">Needs Approval</span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {nodeData.canRequest.map((tool) => (
-                  <span
-                    key={tool}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20"
-                  >
-                    {getToolIcon(tool)} {formatToolName(tool)}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+              {/* MCP connections */}
+              {categorized.mcp.map((m) => (
+                <span
+                  key={m.name}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-500/10 text-indigo-700 dark:text-indigo-300"
+                >
+                  🔌 {m.name}
+                </span>
+              ))}
 
-          {/* Advanced config badges (only when selected) */}
-          {selected && (nodeData.temperature !== undefined || nodeData.reasoning || nodeData.retries) && (
-            <div className="flex flex-wrap gap-1.5">
-              {nodeData.temperature !== undefined && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/10 text-orange-700 dark:text-orange-300 border border-orange-500/20">
-                  <Thermometer className="h-2.5 w-2.5" />
-                  {nodeData.temperature}
+              {/* Database connections */}
+              {categorized.database.map((d) => (
+                <span
+                  key={`${d.type}-${d.name}`}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
+                >
+                  🗄️ {d.name}
                 </span>
-              )}
-              {nodeData.reasoning && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20">
-                  <Brain className="h-2.5 w-2.5" />
-                  {typeof nodeData.reasoning === 'object' ? nodeData.reasoning.effort : 'on'}
-                </span>
-              )}
-              {nodeData.retries !== undefined && nodeData.retries > 0 && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
-                  <RotateCcw className="h-2.5 w-2.5" />
-                  {nodeData.retries}x
-                </span>
-              )}
-            </div>
-          )}
+              ))}
 
-          {/* Trigger badge */}
-          {nodeData.trigger && nodeData.trigger.type !== 'manual' && (
-            <div className="flex items-center gap-1.5">
-              {getTriggerIcon()}
-              <span className="text-xs text-muted-foreground">Start: {getTriggerLabel()}</span>
+              {/* Custom tools */}
+              {categorized.custom.map((t) => (
+                <span
+                  key={t}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground"
+                >
+                  ⚡ {t.replace(/_/g, ' ')}
+                </span>
+              ))}
+
+              {/* Approval tools */}
+              {categorized.approval.map((t) => (
+                <span
+                  key={`approval-${t}`}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                >
+                  🛡️ {t.replace(/_/g, ' ')}
+                </span>
+              ))}
             </div>
           )}
         </div>
 
-        {/* Output schema indicator */}
-        {nodeData.output && Object.keys(nodeData.output).length > 0 && (
+        {/* Output field names — subtle footer */}
+        {outputFields.length > 0 && (
           <div className="px-4 py-2 bg-muted/30 border-t border-border/50 rounded-b-xl">
-            <p className="text-xs text-muted-foreground">
-              Output: {Object.keys(nodeData.output).join(', ')}
+            <p className="text-[10px] text-muted-foreground truncate">
+              → {outputFields.join(' · ')}
             </p>
           </div>
         )}
@@ -256,33 +253,22 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
       <Handle
         type="source"
         position={Position.Right}
-        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+        className="!w-2 !h-2 !bg-muted-foreground/50 !border-2 !border-background"
       />
     </>
   );
 }
 
-function formatNodeName(name: string): string {
+// --- Exported helpers ---
+
+export function formatNodeName(name: string): string {
   return name
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 }
 
-function formatModel(model: string): string {
-  // Extract just the model name, e.g., "openai:gpt-4o-mini" -> "GPT-4o Mini"
-  const parts = model.split(':');
-  const modelName = parts[1] || parts[0] || model;
-
-  return modelName
-    .replace(/gpt-(\d+)/i, 'GPT-$1')
-    .replace(/claude-/i, 'Claude ')
-    .replace(/-mini/i, ' Mini')
-    .replace(/-/g, ' ');
-}
-
-function getNodeEmoji(name: string): string {
-  // Try to infer an appropriate emoji from the node name
+export function getNodeEmoji(name: string): string {
   const lowerName = name.toLowerCase();
 
   if (lowerName.includes('analyze') || lowerName.includes('analysis')) return '🔍';
@@ -299,65 +285,18 @@ function getNodeEmoji(name: string): string {
   return '🤖';
 }
 
-function getToolIcon(tool: string): string {
-  if (tool === 'web_search') return '🔍';
-  if (tool === 'fetch_url') return '🌐';
-  if (tool === 'spawn_baleybot') return '🤖';
-  if (tool === 'send_notification') return '🔔';
-  if (tool === 'store_memory') return '💾';
-  if (tool === 'shared_storage') return '📦';
-  if (tool === 'schedule_task') return '📅';
-  if (tool === 'create_agent') return '🧬';
-  if (tool === 'create_tool') return '🔧';
-  if (tool.startsWith('query_postgres')) return '🐘';
-  if (tool.startsWith('query_mysql')) return '🐬';
-  return '⚡';
-}
+// --- Internal helpers ---
 
-function getToolStyle(tool: string): string {
-  if (tool === 'spawn_baleybot') return 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20';
-  if (tool === 'store_memory' || tool === 'shared_storage') return 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20';
-  if (tool.startsWith('query_')) return 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20';
-  return 'bg-muted text-muted-foreground border border-border/50';
-}
-
-function formatToolName(tool: string): string {
-  if (tool.startsWith('query_postgres_')) {
-    return `postgres data: ${tool.replace(/^query_postgres_/, '').replace(/_/g, ' ')}`;
+function getTriggerIcon(type: string): string {
+  switch (type) {
+    case 'schedule': return '⏰';
+    case 'webhook': return '🌐';
+    case 'other_bb': return '⚡';
+    case 'db_event': return '🗄️';
+    case 'mcp_event': return '🔌';
+    case 'file_upload': return '📤';
+    default: return '';
   }
-  if (tool.startsWith('query_mysql_')) {
-    return `mysql data: ${tool.replace(/^query_mysql_/, '').replace(/_/g, ' ')}`;
-  }
-  return tool.replace(/_/g, ' ');
-}
-
-function extractDataSources(
-  tools: string[]
-): Array<{ id: string; label: string }> {
-  const sources = new Map<string, { id: string; label: string }>();
-
-  for (const tool of tools) {
-    const postgresMatch = tool.match(/^query_postgres_(.+)$/);
-    if (postgresMatch?.[1]) {
-      const slug = postgresMatch[1];
-      sources.set(tool, {
-        id: tool,
-        label: `Postgres: ${formatSourceSlug(slug)}`,
-      });
-      continue;
-    }
-
-    const mysqlMatch = tool.match(/^query_mysql_(.+)$/);
-    if (mysqlMatch?.[1]) {
-      const slug = mysqlMatch[1];
-      sources.set(tool, {
-        id: tool,
-        label: `MySQL: ${formatSourceSlug(slug)}`,
-      });
-    }
-  }
-
-  return Array.from(sources.values());
 }
 
 function formatSourceSlug(slug: string): string {

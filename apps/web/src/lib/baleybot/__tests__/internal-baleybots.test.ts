@@ -54,23 +54,23 @@ vi.mock('@/lib/encryption', () => ({
 // ============================================================================
 
 const ALL_INTERNAL_BOTS = [
-  'creator_discovery',
-  'creator_bot',
-  'creator_action_advisor',
   'bal_generator',
-  'pattern_learner',
-  'execution_reviewer',
-  'nl_to_sql_postgres',
-  'nl_to_sql_mysql',
-  'web_search_fallback',
+  'baley',
   'connection_advisor',
-  'test_orchestrator',
-  'test_generator',
+  'creator_action_advisor',
+  'creator_bot',
   'deployment_advisor',
-  'test_validator',
-  'test_results_analyzer',
+  'execution_reviewer',
   'integration_builder',
+  'nl_to_sql_mysql',
+  'nl_to_sql_postgres',
+  'pattern_learner',
+  'test_generator',
+  'test_orchestrator',
+  'test_results_analyzer',
+  'test_validator',
   'tool_executor',
+  'web_search_fallback',
 ] as const;
 
 // Bots whose BAL the SDK parser can currently handle.
@@ -108,8 +108,10 @@ describe('internal-baleybots', () => {
 
     it.each(ALL_INTERNAL_BOTS)('%s balCode contains an entity with a goal', (botName) => {
       const bot = INTERNAL_BALEYBOTS[botName]!;
-      // BAL code should contain the entity name
-      expect(bot.balCode).toContain(botName);
+      // Compositions (like creator_build_team) contain multiple entity names, not the composition name
+      if (!bot.balCode.includes('chain {') && !bot.balCode.includes('parallel {')) {
+        expect(bot.balCode).toContain(botName);
+      }
       // BAL code should define a goal
       expect(bot.balCode).toContain('"goal"');
     });
@@ -175,10 +177,23 @@ describe('internal-baleybots', () => {
     it.todo('test_orchestrator output has topology and tests');
     it.todo('deployment_advisor output has trigger recommendations and checklist');
 
-    // Verify model and output fields via string matching (bypasses parser)
-    it.each(ALL_INTERNAL_BOTS)('%s balCode contains an "output" block', (botName) => {
+    // Verify output fields via string matching (bypasses parser)
+    // All current internal bots have output schemas except baley (conversational, no output)
+    const BOTS_WITH_OUTPUT = ALL_INTERNAL_BOTS.filter(name => name !== 'baley');
+    it.each(BOTS_WITH_OUTPUT)('%s balCode contains an "output" block', (botName) => {
       const bot = INTERNAL_BALEYBOTS[botName]!;
       expect(bot.balCode).toContain('"output"');
+    });
+
+    it('baley has no output block (conversational)', () => {
+      expect(INTERNAL_BALEYBOTS.baley!.balCode).not.toContain('"output"');
+    });
+
+    it('baley goal mentions key capabilities', () => {
+      const balCode = INTERNAL_BALEYBOTS.baley!.balCode;
+      expect(balCode).toContain('get_workspace_health');
+      expect(balCode).toContain('navigate_user_to');
+      expect(balCode).toContain('list_baleybots');
     });
 
     it('creator_bot balCode specifies claude-sonnet model', () => {

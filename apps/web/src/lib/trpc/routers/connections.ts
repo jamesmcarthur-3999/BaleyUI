@@ -1,11 +1,13 @@
 import { z } from 'zod';
-import { router, protectedProcedure } from '../trpc';
-import { connections, eq, and, notDeleted, softDelete, updateWithLock, sql } from '@baleyui/db';
+import { router, roleProcedure, editorProcedure } from '../trpc';
+import { connections, baleybots, eq, and, notDeleted, softDelete, updateWithLock, sql } from '@baleyui/db';
+import { buildToolUsageMap } from '@/lib/baleybot/tool-usage-analyzer';
+import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
 import { encrypt, decrypt } from '@/lib/encryption';
 import { testConnection } from '@/lib/connections/test';
 import { listOllamaModels } from '@/lib/connections/ollama';
-import { isDatabaseProvider } from '@/lib/connections/providers';
-import type { ProviderType } from '@/lib/connections/providers';
+import { isDatabaseProvider, isMCPProvider } from '@/lib/connections/providers';
+import type { ProviderType, MCPConnectionConfig } from '@/lib/connections/providers';
 import type { ConnectionConfig } from '@/lib/types';
 import { createLogger } from '@/lib/logger';
 import {
@@ -27,11 +29,14 @@ const log = createLogger('connections-router');
 /**
  * Get the list of sensitive fields that should be encrypted for a given provider type.
  */
-type SensitiveField = 'apiKey' | 'password';
+type SensitiveField = 'apiKey' | 'password' | 'authToken';
 
 function getSensitiveFields(type: string): SensitiveField[] {
   if (isDatabaseProvider(type as ProviderType)) {
     return ['password'];
+  }
+  if (isMCPProvider(type as ProviderType)) {
+    return ['authToken'];
   }
   return ['apiKey'];
 }
@@ -102,12 +107,30 @@ const databaseConfigSchema = z.object({
 });
 
 /**
- * Flexible connection config schema that accepts both AI and database fields.
+ * MCP provider config schema
+ */
+const mcpConfigSchema = z.object({
+  transportType: z.enum(['http', 'sse', 'stdio']).optional(),
+  url: z.string().url().max(2000).optional(),
+  command: z.string().max(1000).optional(),
+  args: z.array(z.string().max(500)).max(20).optional(),
+  env: z.record(z.string(), z.string().max(500)).optional(),
+  headers: z.record(z.string(), z.string().max(2000)).optional(),
+  authType: z.enum(['none', 'bearer', 'basic']).optional(),
+  authToken: z.string().max(2000).optional(),
+  toolPrefix: z.string().max(50).regex(/^[a-z0-9_]*$/, 'Tool prefix must be lowercase alphanumeric with underscores').optional(),
+  catalogId: z.string().max(100).optional(),
+  discoveredToolCount: z.number().int().min(0).optional(),
+  discoveredTools: z.array(z.string()).optional(),
+});
+
+/**
+ * Flexible connection config schema that accepts AI, database, and MCP fields.
  * The router enforces which fields are required based on the provider type.
  */
-const connectionConfigSchema = aiConfigSchema.merge(databaseConfigSchema);
+const connectionConfigSchema = aiConfigSchema.merge(databaseConfigSchema).merge(mcpConfigSchema);
 
-const providerTypeSchema = z.enum(['openai', 'anthropic', 'ollama', 'postgres', 'mysql']);
+const providerTypeSchema = z.enum(['openai', 'anthropic', 'ollama', 'postgres', 'mysql', 'mcp']);
 
 // ============================================================================
 // ROUTER
@@ -117,7 +140,7 @@ export const connectionsRouter = router({
   /**
    * List all connections for the workspace.
    */
-  list: protectedProcedure
+  list: roleProcedure
     .input(
       z.object({
         limit: z.number().int().min(1).max(100).optional().default(50),
@@ -175,6 +198,18 @@ export const connectionsRouter = router({
           };
         }
 
+        // Mask auth tokens for MCP providers
+        if (config.authToken) {
+          return {
+            ...conn,
+            config: {
+              ...config,
+              authToken: '••••••••',
+              _hasAuthToken: true,
+            },
+          };
+        }
+
         return conn;
       });
     }),
@@ -182,7 +217,7 @@ export const connectionsRouter = router({
   /**
    * Get a single connection by ID.
    */
-  get: protectedProcedure
+  get: roleProcedure
     .input(z.object({ id: uuidSchema }))
     .query(async ({ ctx, input }) => {
       const connection = await ctx.db.query.connections.findFirst({
@@ -220,7 +255,7 @@ export const connectionsRouter = router({
   /**
    * Create a new connection.
    */
-  create: protectedProcedure
+  create: editorProcedure
     .input(
       z.object({
         type: providerTypeSchema,
@@ -286,7 +321,7 @@ export const connectionsRouter = router({
   /**
    * Update a connection.
    */
-  update: protectedProcedure
+  update: editorProcedure
     .input(
       z.object({
         id: uuidSchema,
@@ -333,7 +368,7 @@ export const connectionsRouter = router({
   /**
    * Delete a connection (soft delete).
    */
-  delete: protectedProcedure
+  delete: editorProcedure
     .input(z.object({ id: uuidSchema }))
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.db.query.connections.findFirst({
@@ -358,7 +393,7 @@ export const connectionsRouter = router({
    * Test a connection by calling the provider's API or database server.
    * On success for database connections, introspects the schema and caches it.
    */
-  test: protectedProcedure
+  test: roleProcedure
     .input(
       z.object({
         id: uuidSchema.optional(),
@@ -416,6 +451,21 @@ export const connectionsRouter = router({
           }
         }
 
+        // For MCP connections, cache discovered tools on success
+        if (isMCPProvider(type as ProviderType) && result.success && result.details) {
+          const mcpConfig = config as unknown as MCPConnectionConfig;
+          const updatedConfig = {
+            ...mcpConfig,
+            discoveredToolCount: result.details.toolCount,
+            discoveredTools: result.details.toolNames,
+          };
+          statusUpdate.config = updatedConfig;
+          log.info('Cached MCP discovered tools', {
+            connectionId: input.id,
+            toolCount: result.details.toolCount,
+          });
+        }
+
         // For database connections, introspect and cache the schema on success
         if (isDatabaseProvider(type as ProviderType) && result.success) {
           try {
@@ -453,7 +503,7 @@ export const connectionsRouter = router({
   /**
    * Set a connection as the default for its provider type.
    */
-  setDefault: protectedProcedure
+  setDefault: editorProcedure
     .input(z.object({ id: uuidSchema }))
     .mutation(async ({ ctx, input }) => {
       return await ctx.db.transaction(async (tx) => {
@@ -493,7 +543,7 @@ export const connectionsRouter = router({
   /**
    * Refresh Ollama models for a connection.
    */
-  refreshOllamaModels: protectedProcedure
+  refreshOllamaModels: editorProcedure
     .input(z.object({ id: uuidSchema }))
     .mutation(async ({ ctx, input }) => {
       const connection = await ctx.db.query.connections.findFirst({
@@ -527,4 +577,173 @@ export const connectionsRouter = router({
 
       return updated;
     }),
+
+  /**
+   * Get tool service status (e.g. Tavily for web_search).
+   * Checks both env var and workspace-saved keys.
+   */
+  toolServices: roleProcedure.query(async ({ ctx }) => {
+    // Check if Tavily key is saved in workspace connections
+    const tavilyConnection = await ctx.db.query.connections.findFirst({
+      where: and(
+        eq(connections.workspaceId, ctx.workspace.id),
+        eq(connections.type, 'tavily'),
+        notDeleted(connections)
+      ),
+      columns: { id: true, status: true },
+    });
+
+    const hasEnvKey = !!process.env.TAVILY_API_KEY;
+    const hasSavedKey = tavilyConnection?.status === 'connected';
+
+    return [
+      {
+        id: 'tavily',
+        name: 'Web Search',
+        provider: 'Tavily',
+        tool: 'web_search',
+        description: 'Powers the web_search tool for all BaleyBots. Search the web for real-time information.',
+        configured: hasEnvKey || hasSavedKey,
+        source: hasEnvKey ? 'env' as const : hasSavedKey ? 'workspace' as const : null,
+        envVar: 'TAVILY_API_KEY',
+        signUpUrl: 'https://tavily.com',
+      },
+    ];
+  }),
+
+  /**
+   * Save an API key for a tool service (e.g. Tavily).
+   * Stored encrypted in the connections table.
+   */
+  saveToolServiceKey: editorProcedure
+    .input(
+      z.object({
+        serviceId: z.enum(['tavily']),
+        apiKey: z.string().min(1, 'API key is required').max(500),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const encryptedKey = encrypt(input.apiKey);
+
+      // Check if a connection already exists for this service
+      const existing = await ctx.db.query.connections.findFirst({
+        where: and(
+          eq(connections.workspaceId, ctx.workspace.id),
+          eq(connections.type, input.serviceId),
+          notDeleted(connections)
+        ),
+        columns: { id: true, version: true },
+      });
+
+      if (existing) {
+        // Update existing
+        await updateWithLock(connections, existing.id, existing.version, {
+          config: { apiKey: encryptedKey },
+          status: 'connected',
+        });
+        return { saved: true, action: 'updated' as const };
+      }
+
+      // Create new
+      await ctx.db.insert(connections).values({
+        workspaceId: ctx.workspace.id,
+        type: input.serviceId,
+        name: input.serviceId === 'tavily' ? 'Tavily Web Search' : input.serviceId,
+        config: { apiKey: encryptedKey },
+        status: 'connected',
+        isDefault: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      return { saved: true, action: 'created' as const };
+    }),
+
+  /**
+   * Remove a tool service key.
+   */
+  removeToolServiceKey: editorProcedure
+    .input(
+      z.object({
+        serviceId: z.enum(['tavily']),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.query.connections.findFirst({
+        where: and(
+          eq(connections.workspaceId, ctx.workspace.id),
+          eq(connections.type, input.serviceId),
+          notDeleted(connections)
+        ),
+        columns: { id: true },
+      });
+
+      if (existing) {
+        await softDelete(connections, existing.id, ctx.userId ?? 'system');
+      }
+
+      return { removed: true };
+    }),
+
+  /**
+   * Get connection usage stats: which BaleyBots use each connection's tools or model provider.
+   */
+  getUsageStats: roleProcedure.query(async ({ ctx }) => {
+    const bots = await ctx.db.query.baleybots.findMany({
+      where: and(eq(baleybots.workspaceId, ctx.workspace.id), notDeleted(baleybots)),
+      columns: { id: true, name: true, balCode: true },
+    });
+
+    const usageMap = buildToolUsageMap(bots);
+
+    // Map connection names to their derived tool usage
+    const allConnections = await ctx.db.query.connections.findMany({
+      where: and(eq(connections.workspaceId, ctx.workspace.id), notDeleted(connections)),
+      columns: { id: true, name: true, type: true },
+    });
+
+    const connectionUsage: Record<string, { toolCount: number; botCount: number; bots: Array<{ id: string; name: string }> }> = {};
+
+    for (const conn of allConnections) {
+      // Database connections generate query_<type>_<name> tools
+      const toolPrefix = `query_${conn.type}_`;
+      const relatedBots = new Map<string, { id: string; name: string }>();
+      let toolCount = 0;
+
+      for (const [toolName, usage] of Object.entries(usageMap)) {
+        if (toolName.startsWith(toolPrefix)) {
+          toolCount++;
+          for (const bot of usage.bots) {
+            relatedBots.set(bot.id, bot);
+          }
+        }
+      }
+
+      // Also check if bots reference the provider prefix in model config (e.g., "anthropic:")
+      // This is a BAL model property check - we look at bot BAL for the provider type
+      const providerBots = bots.filter((bot) => {
+        try {
+          const parsed = parseBalCode(bot.balCode);
+          return parsed.entities.some(
+            (e: { config: Record<string, unknown> }) =>
+              typeof e.config.model === 'string' && e.config.model.startsWith(`${conn.type}:`)
+          );
+        } catch {
+          return false;
+        }
+      });
+
+      for (const bot of providerBots) {
+        relatedBots.set(bot.id, { id: bot.id, name: bot.name });
+      }
+
+      connectionUsage[conn.id] = {
+        toolCount,
+        botCount: relatedBots.size,
+        bots: Array.from(relatedBots.values()),
+      };
+    }
+
+    return connectionUsage;
+  }),
 });

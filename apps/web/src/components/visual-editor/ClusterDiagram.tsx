@@ -72,12 +72,12 @@ function toReactFlowEdge(edge: VisualEdge): Edge {
     source: edge.source,
     target: edge.target,
     type: 'smoothstep',
-    animated: edge.animated,
+    animated: false,
     label: edge.label,
     markerEnd: {
       type: MarkerType.ArrowClosed,
-      width: 20,
-      height: 20,
+      width: 14,
+      height: 14,
     },
   };
 
@@ -86,72 +86,70 @@ function toReactFlowEdge(edge: VisualEdge): Edge {
     case 'chain':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(var(--primary))' },
+        style: { stroke: 'hsl(var(--muted-foreground))', strokeOpacity: 0.35 },
       };
     case 'conditional_pass':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(142.1, 76.2%, 36.3%)' }, // emerald
+        style: { stroke: 'hsl(142.1, 76.2%, 36.3%)', strokeWidth: 1.5 },
         labelStyle: { fill: 'hsl(142.1, 76.2%, 36.3%)' },
       };
     case 'conditional_fail':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(0, 84.2%, 60.2%)' }, // red
+        style: { stroke: 'hsl(0, 84.2%, 60.2%)', strokeWidth: 1.5 },
         labelStyle: { fill: 'hsl(0, 84.2%, 60.2%)' },
       };
     case 'parallel':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(217.2, 91.2%, 59.8%)', strokeDasharray: '5,5' }, // blue dashed
+        style: { stroke: 'hsl(var(--muted-foreground))', strokeOpacity: 0.4, strokeDasharray: '5,5' },
       };
     case 'loop':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(33, 95%, 55%)', strokeWidth: 2, strokeDasharray: '6,4' }, // orange dashed
-        animated: true,
+        style: { stroke: 'hsl(45, 93%, 47%)', strokeWidth: 1.5, strokeDasharray: '6,4' },
       };
     case 'spawn':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(280, 80%, 55%)', strokeWidth: 2, strokeDasharray: '8,4' }, // purple dashed
-        animated: true,
+        style: { stroke: 'hsl(280, 80%, 55%)', strokeDasharray: '8,4' },
       };
     case 'shared_data':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(45, 90%, 50%)', strokeWidth: 1.5, strokeDasharray: '3,3' }, // gold dotted
+        style: { stroke: 'hsl(var(--muted-foreground))', strokeOpacity: 0.25, strokeDasharray: '3,3' },
       };
     case 'trigger':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(142.1, 76.2%, 36.3%)', strokeWidth: 2 }, // green solid
+        style: { stroke: 'hsl(142.1, 76.2%, 36.3%)', strokeWidth: 1.5 },
         animated: true,
       };
     case 'try_catch':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(0, 72%, 51%)', strokeWidth: 2, strokeDasharray: '6,4' }, // red dashed
+        style: { stroke: 'hsl(0, 72%, 51%)', strokeDasharray: '6,4' },
       };
     case 'route':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(262, 83%, 58%)', strokeWidth: 2 }, // purple solid
+        style: { stroke: 'hsl(262, 83%, 58%)', strokeWidth: 1.5 },
       };
     case 'gate':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(45, 93%, 47%)', strokeWidth: 2, strokeDasharray: '4,4' }, // yellow dashed
+        style: { stroke: 'hsl(45, 93%, 47%)', strokeDasharray: '4,4' },
       };
     case 'filter':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(199, 89%, 48%)', strokeWidth: 1.5, strokeDasharray: '3,3' }, // cyan dashed
+        style: { stroke: 'hsl(var(--muted-foreground))', strokeDasharray: '3,3' },
       };
     case 'runtime':
       return {
         ...baseEdge,
-        style: { stroke: 'hsl(205, 100%, 55%)', strokeWidth: 2.5 },
+        style: { stroke: 'hsl(205, 100%, 55%)', strokeWidth: 2 },
         animated: true,
       };
     default:
@@ -256,48 +254,27 @@ export function ClusterDiagram({
           nodeColor={() => 'hsl(var(--primary))'}
           maskColor="hsl(var(--background) / 0.8)"
         />
-        {/* Edge legend */}
+        {/* Simplified edge legend — only show for present edge types */}
         {edgeTypes.size > 0 && (
           <div className="absolute top-3 left-3 z-10 bg-card/90 backdrop-blur-sm border border-border rounded-lg px-3 py-2 space-y-1.5">
             <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Flow Map</p>
             {edgeTypes.has('chain') && (
-              <LegendItem color="hsl(var(--primary))" dashed={false} label="Step order" />
-            )}
-            {edgeTypes.has('spawn') && (
-              <LegendItem color="hsl(280, 80%, 55%)" dashed label="Creates another step" />
-            )}
-            {edgeTypes.has('shared_data') && (
-              <LegendItem color="hsl(45, 90%, 50%)" dashed label="Data link" />
-            )}
-            {edgeTypes.has('trigger') && (
-              <LegendItem color="hsl(142.1, 76.2%, 36.3%)" dashed={false} label="Start signal" />
+              <LegendItem color="hsl(var(--muted-foreground))" dashed={false} label="Flow" />
             )}
             {edgeTypes.has('parallel') && (
-              <LegendItem color="hsl(217.2, 91.2%, 59.8%)" dashed label="Runs at the same time" />
+              <LegendItem color="hsl(var(--muted-foreground))" dashed label="Parallel" />
+            )}
+            {(edgeTypes.has('conditional_pass') || edgeTypes.has('conditional_fail')) && (
+              <LegendItem color="hsl(142.1, 76.2%, 36.3%)" dashed={false} label="Yes / No" />
             )}
             {edgeTypes.has('loop') && (
-              <LegendItem color="hsl(33, 95%, 55%)" dashed label="Repeats until done" />
+              <LegendItem color="hsl(45, 93%, 47%)" dashed label="Loop" />
             )}
-            {edgeTypes.has('conditional_pass') && (
-              <LegendItem color="hsl(142.1, 76.2%, 36.3%)" dashed={false} label="Condition true" />
-            )}
-            {edgeTypes.has('conditional_fail') && (
-              <LegendItem color="hsl(0, 84.2%, 60.2%)" dashed={false} label="Condition false" />
-            )}
-            {edgeTypes.has('try_catch') && (
-              <LegendItem color="hsl(0, 72%, 51%)" dashed label="Fallback path" />
-            )}
-            {edgeTypes.has('route') && (
-              <LegendItem color="hsl(262, 83%, 58%)" dashed={false} label="Routed path" />
-            )}
-            {edgeTypes.has('gate') && (
-              <LegendItem color="hsl(45, 93%, 47%)" dashed label="Gate check" />
-            )}
-            {edgeTypes.has('filter') && (
-              <LegendItem color="hsl(199, 89%, 48%)" dashed label="Filtered path" />
+            {edgeTypes.has('shared_data') && (
+              <LegendItem color="hsl(var(--muted-foreground))" dashed label="Data link" />
             )}
             {edgeTypes.has('runtime') && (
-              <LegendItem color="hsl(205, 100%, 55%)" dashed={false} label="Live activity" />
+              <LegendItem color="hsl(205, 100%, 55%)" dashed={false} label="Live" />
             )}
           </div>
         )}

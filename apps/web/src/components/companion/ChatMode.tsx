@@ -4,27 +4,41 @@ import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Send,
-  Paperclip,
   StopCircle,
   RefreshCw,
   Copy,
   Check,
   User,
   Bot,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  ChevronDown,
 } from 'lucide-react';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
+export type ContentBlock =
+  | { type: 'text'; content: string }
+  | {
+      type: 'tool_call';
+      id: string;
+      toolName: string;
+      status: 'running' | 'complete' | 'error';
+      result?: string;
+      error?: string;
+    };
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  blocks?: ContentBlock[];
   timestamp: Date;
   status?: 'sending' | 'sent' | 'error';
   metadata?: {
@@ -42,6 +56,86 @@ interface ChatModeProps {
   onRetry?: (messageId: string) => void;
   className?: string;
   placeholder?: string;
+}
+
+// ============================================================================
+// TOOL CALL BLOCK COMPONENT
+// ============================================================================
+
+function ToolCallBlock({ block }: { block: Extract<ContentBlock, { type: 'tool_call' }> }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const displayName = block.toolName
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+  return (
+    <div className="my-1">
+      <button
+        onClick={() => {
+          if (block.status !== 'running') setExpanded(!expanded);
+        }}
+        className={cn(
+          'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs w-full text-left transition-colors',
+          'bg-foreground/[0.03] text-muted-foreground hover:bg-foreground/[0.05]'
+        )}
+      >
+        {block.status === 'running' && (
+          <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 text-primary" />
+        )}
+        {block.status === 'complete' && (
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600" />
+        )}
+        {block.status === 'error' && (
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+        )}
+
+        <span className="font-medium truncate">{displayName}</span>
+
+        {block.status !== 'running' && (block.result || block.error) && (
+          <ChevronDown
+            className={cn(
+              'h-3 w-3 ml-auto shrink-0 transition-transform',
+              expanded && 'rotate-180'
+            )}
+          />
+        )}
+      </button>
+
+      {expanded && (block.result || block.error) && (
+        <div className="mt-1 px-3 py-2 rounded-lg bg-foreground/[0.02] text-xs">
+          <pre className="whitespace-pre-wrap break-words text-muted-foreground max-h-32 overflow-y-auto">
+            {block.error || block.result}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// BLOCK RENDERER
+// ============================================================================
+
+function BlockRenderer({ blocks }: { blocks: ContentBlock[] }) {
+  return (
+    <>
+      {blocks.map((block, i) => {
+        if (block.type === 'text') {
+          if (!block.content) return null;
+          return (
+            <p key={i} className="text-sm whitespace-pre-wrap">
+              {block.content}
+            </p>
+          );
+        }
+        if (block.type === 'tool_call') {
+          return <ToolCallBlock key={block.id} block={block} />;
+        }
+        return null;
+      })}
+    </>
+  );
 }
 
 // ============================================================================
@@ -68,27 +162,28 @@ function MessageBubble({
 
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
+  const hasBlocks = message.blocks && message.blocks.length > 0;
 
   return (
     <div
       className={cn(
-        'flex gap-3 group',
+        'flex gap-2.5 group animate-message-enter',
         isUser && 'flex-row-reverse'
       )}
     >
       {/* Avatar */}
       <div
         className={cn(
-          'h-8 w-8 rounded-full flex items-center justify-center shrink-0',
+          'h-6 w-6 rounded-full flex items-center justify-center shrink-0',
           isUser
-            ? 'bg-primary text-primary-foreground'
-            : 'bg-muted'
+            ? 'bg-primary/10 text-primary'
+            : 'bg-foreground/[0.06] text-muted-foreground'
         )}
       >
         {isUser ? (
-          <User className="h-4 w-4" />
+          <User className="h-3 w-3" />
         ) : (
-          <Bot className="h-4 w-4" />
+          <Bot className="h-3 w-3" />
         )}
       </div>
 
@@ -101,14 +196,18 @@ function MessageBubble({
       >
         <div
           className={cn(
-            'rounded-2xl px-4 py-2.5',
+            'rounded-xl px-3.5 py-2.5',
             isUser
-              ? 'bg-primary text-primary-foreground rounded-tr-sm'
-              : 'bg-muted rounded-tl-sm',
-            message.status === 'error' && 'border-2 border-destructive'
+              ? 'bg-primary/[0.07] text-foreground'
+              : 'bg-foreground/[0.03] text-foreground',
+            message.status === 'error' && 'ring-1 ring-destructive/30'
           )}
         >
-          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+          {hasBlocks ? (
+            <BlockRenderer blocks={message.blocks!} />
+          ) : (
+            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+          )}
         </div>
 
         {/* Message actions */}
@@ -118,7 +217,7 @@ function MessageBubble({
             isUser && 'flex-row-reverse'
           )}
         >
-          <span className="text-xs text-muted-foreground">
+          <span className="text-[10px] text-muted-foreground/50">
             {message.timestamp.toLocaleTimeString([], {
               hour: '2-digit',
               minute: '2-digit',
@@ -154,9 +253,9 @@ function MessageBubble({
           )}
 
           {message.metadata?.tokens && (
-            <Badge variant="outline" className="text-[10px] h-5">
+            <span className="text-[10px] text-muted-foreground/50">
               {message.metadata.tokens} tokens
-            </Badge>
+            </span>
           )}
         </div>
       </div>
@@ -170,16 +269,12 @@ function MessageBubble({
 
 function TypingIndicator() {
   return (
-    <div className="flex gap-3">
-      <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-        <Bot className="h-4 w-4" />
+    <div className="flex gap-2.5">
+      <div className="h-6 w-6 rounded-full bg-foreground/[0.06] flex items-center justify-center">
+        <Bot className="h-3 w-3 text-muted-foreground" />
       </div>
-      <div className="rounded-2xl rounded-tl-sm bg-muted px-4 py-3">
-        <div className="flex gap-1">
-          <div className="h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: '0ms' }} />
-          <div className="h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: '150ms' }} />
-          <div className="h-2 w-2 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: '300ms' }} />
-        </div>
+      <div className="rounded-xl bg-foreground/[0.03] px-4 py-2.5">
+        <div className="h-4 w-24 rounded-full animate-typing-shimmer" />
       </div>
     </div>
   );
@@ -240,7 +335,9 @@ export function ChatMode({
         <div className="space-y-4">
           {messages.length === 0 ? (
             <div className="text-center py-8">
-              <Bot className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+              <div className="h-10 w-10 rounded-full bg-primary/10 mx-auto mb-3 flex items-center justify-center">
+                <div className="h-3 w-3 rounded-full bg-primary/40 animate-pulse-soft" />
+              </div>
               <h4 className="font-medium">Start a conversation</h4>
               <p className="text-sm text-muted-foreground mt-1">
                 Ask me anything about your agents and workflows
@@ -265,9 +362,9 @@ export function ChatMode({
       </ScrollArea>
 
       {/* Input */}
-      <div className="p-4 border-t">
+      <div className="p-3 pt-2">
         <div className="relative flex items-end gap-2">
-          <div className="flex-1 relative">
+          <div className="flex-1 glass-input rounded-2xl">
             <Textarea
               ref={textareaRef}
               value={input}
@@ -276,43 +373,36 @@ export function ChatMode({
               placeholder={placeholder}
               disabled={isLoading}
               className={cn(
-                'min-h-[44px] max-h-[120px] resize-none pr-10',
-                'rounded-xl border-muted-foreground/20'
+                'min-h-[44px] max-h-[120px] resize-none',
+                'border-0 bg-transparent shadow-none focus-visible:ring-0'
               )}
               rows={1}
             />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-1 bottom-1 h-8 w-8 text-muted-foreground hover:text-foreground"
-              disabled={isLoading}
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
           </div>
 
           {isLoading ? (
             <Button
               size="icon"
               variant="destructive"
-              className="h-11 w-11 rounded-xl"
+              className="h-9 w-9 rounded-xl"
               onClick={onStopGeneration}
             >
-              <StopCircle className="h-5 w-5" />
+              <StopCircle className="h-4 w-4" />
             </Button>
           ) : (
             <Button
               size="icon"
-              className="h-11 w-11 rounded-xl"
+              variant="ghost"
+              className="h-9 w-9 rounded-xl bg-transparent text-muted-foreground hover:text-primary hover:bg-primary/10"
               onClick={handleSend}
               disabled={!input.trim()}
             >
-              <Send className="h-5 w-5" />
+              <Send className="h-4 w-4" />
             </Button>
           )}
         </div>
 
-        <p className="text-[10px] text-muted-foreground text-center mt-2">
+        <p className="text-[10px] text-muted-foreground/40 text-center mt-2">
           Press Enter to send, Shift+Enter for new line
         </p>
       </div>

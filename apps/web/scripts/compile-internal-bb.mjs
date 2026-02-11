@@ -257,7 +257,14 @@ function buildBalCode(spec, goal, contract, modelPolicy) {
     .map(([key, value]) => `    ${JSON.stringify(key)}: ${JSON.stringify(value)}`)
     .join(',\n');
 
-  return `${spec.id} {\n  \"goal\": ${JSON.stringify(goal)},\n  \"model\": ${JSON.stringify(resolvedModel)},\n  \"output\": {\n${outputEntries}\n  }\n}\n`;
+  // Build optional tools block (BAL brace syntax)
+  let toolsBlock = '';
+  if (spec.tools && spec.tools.length > 0) {
+    const toolsList = spec.tools.map(t => JSON.stringify(t)).join(', ');
+    toolsBlock = `,\n  "tools": { ${toolsList} }`;
+  }
+
+  return `${spec.id} {\n  \"goal\": ${JSON.stringify(goal)},\n  \"model\": ${JSON.stringify(resolvedModel)}${toolsBlock},\n  \"output\": {\n${outputEntries}\n  }\n}\n`;
 }
 
 function generateDefinitions(specs, contracts, skills, modelPolicy) {

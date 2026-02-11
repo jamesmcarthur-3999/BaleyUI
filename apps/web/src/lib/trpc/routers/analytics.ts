@@ -18,6 +18,11 @@ import {
 import { TRPCError } from '@trpc/server';
 import { calculateCost } from '@/lib/analytics/cost-calculator';
 import type { TrainingDataItem } from '@/lib/types';
+import {
+  getWorkspaceBilling,
+  createCheckoutSession,
+  createPortalSession,
+} from '@/lib/billing/service';
 
 const dateRangeInput = z.object({
   startDate: z.date().optional(),
@@ -610,4 +615,49 @@ export const analyticsRouter = router({
           .sort((a, b) => a.date.localeCompare(b.date)),
       };
     }),
+
+  // ========================================================================
+  // BILLING PROCEDURES (contained within analytics)
+  // ========================================================================
+
+  /**
+   * Get current plan, usage summary, and subscription status.
+   */
+  getBilling: protectedProcedure.query(async ({ ctx }) => {
+    return getWorkspaceBilling(ctx.workspace.id);
+  }),
+
+  /**
+   * Create a Stripe Checkout session for plan upgrade.
+   * Returns the checkout URL.
+   */
+  upgrade: protectedProcedure
+    .input(z.object({ planId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const url = await createCheckoutSession(ctx.workspace.id, input.planId);
+        return { url };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: err instanceof Error ? err.message : 'Failed to create checkout session',
+        });
+      }
+    }),
+
+  /**
+   * Create a Stripe Billing Portal session.
+   * Returns the portal URL for managing invoices, payment methods, cancellation.
+   */
+  manageBilling: protectedProcedure.mutation(async ({ ctx }) => {
+    try {
+      const url = await createPortalSession(ctx.workspace.id);
+      return { url };
+    } catch (err) {
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: err instanceof Error ? err.message : 'Failed to create portal session',
+      });
+    }
+  }),
 });

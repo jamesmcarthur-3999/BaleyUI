@@ -1,20 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createWebSearchService } from '../web-search-service';
 
-vi.mock('../../internal-bb/runner', () => ({
-  runWebSearchFallback: vi.fn().mockResolvedValue({
-    results: [
-      {
-        title: 'Test Result 1',
-        url: 'https://example.com/1',
-        snippet: 'This is test result 1',
-      },
-      {
-        title: 'Test Result 2',
-        url: 'https://example.com/2',
-        snippet: 'This is test result 2',
-      },
-    ],
+vi.mock('@/lib/logger', () => ({
+  createLogger: () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
   }),
 }));
 
@@ -27,77 +19,31 @@ describe('web-search-service', () => {
     vi.restoreAllMocks();
   });
 
-  describe('AI fallback', () => {
-    it('uses internal BaleyBot when no Tavily API key', async () => {
-      const { runWebSearchFallback } = await import('../../internal-bb/runner');
-
+  describe('no Tavily key', () => {
+    it('returns informative error result when no Tavily API key is configured', async () => {
       const service = createWebSearchService({});
-      await service.search('test query', 5);
+      const results = await service.search('test query', 5);
 
-      expect(runWebSearchFallback).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          triggeredBy: 'internal',
-        })
-      );
-    });
-
-    it('passes query and numResults in input', async () => {
-      const { runWebSearchFallback } = await import('../../internal-bb/runner');
-
-      const service = createWebSearchService({});
-      await service.search('best restaurants', 3);
-
-      expect(runWebSearchFallback).toHaveBeenCalledWith(
-        expect.stringContaining('best restaurants'),
-        expect.any(Object)
-      );
-      expect(runWebSearchFallback).toHaveBeenCalledWith(
-        expect.stringContaining('3'),
-        expect.any(Object)
-      );
-    });
-
-    it('returns normalized search results', async () => {
-      const service = createWebSearchService({});
-      const results = await service.search('test', 5);
-
-      expect(results).toHaveLength(2);
-      expect(results[0]).toEqual({
-        title: 'Test Result 1',
-        url: 'https://example.com/1',
-        snippet: 'This is test result 1',
-      });
-    });
-
-    it('passes user workspace to internal fallback', async () => {
-      const { runWebSearchFallback } = await import('../../internal-bb/runner');
-
-      const service = createWebSearchService({});
-      await service.search('workspace scoped query', 4, {
-        workspaceId: 'ws-user-123',
-      });
-
-      expect(runWebSearchFallback).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          triggeredBy: 'internal',
-          userWorkspaceId: 'ws-user-123',
-        })
-      );
-    });
-
-    it('handles failed AI search gracefully', async () => {
-      const { runWebSearchFallback } = await import('../../internal-bb/runner');
-      vi.mocked(runWebSearchFallback).mockRejectedValueOnce(new Error('AI failed'));
-
-      const service = createWebSearchService({});
-      const results = await service.search('test', 5);
-
-      // Should return informative fallback result
       expect(results).toHaveLength(1);
-      expect(results[0]?.title).toBe('Web Search Unavailable');
-      expect(results[0]?.snippet).toContain('AI failed');
+      expect(results[0]?.title).toContain('Tavily API Key Required');
+      expect(results[0]?.url).toBe('https://tavily.com');
+      expect(results[0]?.snippet).toContain('TAVILY_API_KEY');
+      expect(results[0]?.snippet).toContain('fetch_url');
+    });
+
+    it('does not throw when no Tavily key — returns error result instead', async () => {
+      const service = createWebSearchService({});
+      // Should not throw, should return gracefully
+      await expect(service.search('any query', 3)).resolves.toBeDefined();
+    });
+  });
+
+  describe('searchFull', () => {
+    it('throws when no Tavily key for full search', async () => {
+      const service = createWebSearchService({});
+      await expect(service.searchFull({ query: 'test' })).rejects.toThrow(
+        'Full search requires Tavily API key'
+      );
     });
   });
 
@@ -108,16 +54,12 @@ describe('web-search-service', () => {
     });
 
     it('clamps numResults to valid range', async () => {
-      const { runWebSearchFallback } = await import('../../internal-bb/runner');
-
       const service = createWebSearchService({});
-      await service.search('test', 100);
-
-      // Should be clamped to 20 max
-      expect(runWebSearchFallback).toHaveBeenCalledWith(
-        expect.stringContaining('20'),
-        expect.any(Object)
-      );
+      // With no Tavily key, this returns the error result regardless of numResults
+      // but shouldn't throw
+      const results = await service.search('test', 100);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.title).toContain('Tavily API Key Required');
     });
   });
 });

@@ -460,6 +460,11 @@ export async function executeBaleybot(
         : undefined,
       onEvent: (event: BALExecutionEvent) => {
         if (event.type === 'token' && event.event) {
+          // Tag the event with entity name for downstream consumers
+          const botName = event.botName as string | undefined;
+          if (botName) {
+            (event.event as Record<string, unknown>).__entityName = botName;
+          }
           segments.push(event.event);
           options?.onSegment?.(event.event);
         }

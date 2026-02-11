@@ -50,15 +50,15 @@ const mainNav: NavItem[] = [
   { label: 'Activity', href: ROUTES.activity.list, icon: Activity },
 ];
 
-const resourceNav: NavItem[] = [
-  { label: 'Connections', href: ROUTES.connections.list, icon: Plug },
-  { label: 'Tools', href: ROUTES.tools.list, icon: Wrench },
+const capabilitiesNav: NavItem[] = [
+  { label: 'Tools', href: ROUTES.capabilities.tools, icon: Wrench },
+  { label: 'Connections', href: ROUTES.capabilities.connections, icon: Plug },
+  { label: 'API Keys', href: ROUTES.capabilities.apiKeys, icon: Key },
 ];
 
 const bottomNav: NavItem[] = [
   { label: 'Analytics', href: ROUTES.analytics.overview, icon: BarChart3 },
-  { label: 'Settings', href: ROUTES.settings.workspace, icon: Settings },
-  { label: 'API Keys', href: ROUTES.settings.apiKeys, icon: Key },
+  { label: 'Settings', href: ROUTES.settings.general, icon: Settings },
 ];
 
 const adminNav: NavItem[] = [
@@ -89,7 +89,7 @@ function NavLink({
         'group flex items-center gap-3 rounded-xl border px-3 py-2 text-sm transition-all',
         'border-transparent hover:border-border/70 hover:bg-muted/45 hover:text-foreground',
         isActive
-          ? 'border-primary/30 bg-primary/12 text-foreground font-medium shadow-[0_10px_24px_-20px_hsl(var(--primary)/0.9)]'
+          ? 'border-primary/20 bg-primary/8 text-foreground font-medium'
           : 'text-muted-foreground',
         collapsed && 'justify-center px-2'
       )}
@@ -197,7 +197,7 @@ export function Sidebar() {
 
         <Separator className="bg-border/60" />
 
-        <NavGroup label="Resources" items={resourceNav} pathname={pathname} collapsed={collapsed} />
+        <NavGroup label="Capabilities" items={capabilitiesNav} pathname={pathname} collapsed={collapsed} />
 
         <Separator className="bg-border/60" />
 

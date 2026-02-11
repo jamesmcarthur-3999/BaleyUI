@@ -6,6 +6,7 @@
 import {
   AIConnectionConfig,
   DatabaseConnectionConfig,
+  MCPConnectionConfig,
   TestConnectionResult,
   OllamaModelsResponse,
 } from './providers';
@@ -412,7 +413,7 @@ export async function testMySQLConnection(
  */
 export async function testConnection(
   type: string,
-  config: AIConnectionConfig | DatabaseConnectionConfig
+  config: AIConnectionConfig | DatabaseConnectionConfig | MCPConnectionConfig
 ): Promise<TestConnectionResult> {
   switch (type) {
     case 'openai':
@@ -425,6 +426,10 @@ export async function testConnection(
       return testPostgresConnection(config as DatabaseConnectionConfig);
     case 'mysql':
       return testMySQLConnection(config as DatabaseConnectionConfig);
+    case 'mcp': {
+      const { testMCPConnection } = await import('./mcp-service');
+      return testMCPConnection(config as MCPConnectionConfig);
+    }
     default:
       return {
         success: false,

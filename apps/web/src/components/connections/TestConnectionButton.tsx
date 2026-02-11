@@ -8,7 +8,7 @@ import { trpc } from '@/lib/trpc/client';
 
 interface TestConnectionButtonProps {
   connectionId?: string;
-  type?: 'openai' | 'anthropic' | 'ollama' | 'postgres' | 'mysql';
+  type?: 'openai' | 'anthropic' | 'ollama' | 'postgres' | 'mysql' | 'mcp';
   config?: {
     apiKey?: string;
     baseUrl?: string;
