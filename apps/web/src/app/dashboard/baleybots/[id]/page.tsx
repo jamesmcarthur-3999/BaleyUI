@@ -289,16 +289,6 @@ type CreatorStreamEvent =
       timestamp?: number;
     }
   | {
-      type: 'creator_input_requested';
-      executionId?: string;
-      question?: string;
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_input_received';
-      timestamp?: number;
-    }
-  | {
       type: 'creator_agent_event';
       event?: Record<string, unknown>;
       entityName?: string;
@@ -434,15 +424,13 @@ export default function BaleybotPage() {
     useState<{ phase: string; message: string; startedAt: number } | null>(null);
   const [creatorGuidanceActions, setCreatorGuidanceActions] = useState<CreatorGuidanceAction[]>([]);
 
-  // Creator input loop state (request_user_input)
-  const [creatorExecutionId, setCreatorExecutionId] = useState<string | null>(null);
-  const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
-
   // Agent activity events (for AgentActivityPanel)
-  const [agentEvents, setAgentEvents] = useState<Array<{ event: Record<string, unknown>; entityName?: string; timestamp: number }>>([]);;
+  const [agentEvents, setAgentEvents] = useState<Array<{ event: Record<string, unknown>; entityName?: string; timestamp: number }>>([]);
 
-  // Ref for BAL-native concierge streaming (accumulates text for fallback)
+  // Streaming text state — creator_bot's conversational text shown in real-time
+  const [streamingText, setStreamingText] = useState('');
   const streamingTextRef = useRef('');
+  const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Ref to track if initial prompt was sent (avoids effect dependency issues)
   const initialPromptSentRef = useRef(false);
@@ -745,8 +733,8 @@ export default function BaleybotPage() {
     setCreatorGuidanceActions([]);
     setValidationStatus('idle');
     setAgentEvents([]);
-    setCreatorExecutionId(null);
-    setPendingQuestion(null);
+    setStreamingText('');
+    streamingTextRef.current = '';
     setCreatorStreamingProgress({
       phase: 'discovery',
       message: 'Starting creator workflow...',
@@ -762,9 +750,6 @@ export default function BaleybotPage() {
       },
       onEvent: (event) => {
         if (event.type === 'creator_stream_started') {
-          if (event.executionId) {
-            setCreatorExecutionId(event.executionId);
-          }
           setCreatorStreamingProgress((previous) =>
             previous
               ? {
@@ -772,42 +757,6 @@ export default function BaleybotPage() {
                   phase: 'discovery',
                   message: 'Understanding your request...',
                 }
-              : previous
-          );
-          return;
-        }
-
-        // Bot is asking for user input — pause and wait
-        if (event.type === 'creator_input_requested') {
-          // Commit any accumulated streaming text as a visible assistant message
-          // so the user can see what the bot asked before the input prompt appears
-          if (streamingTextRef.current.trim()) {
-            const interimMessage: CreatorMessage = {
-              id: `interim-${Date.now()}`,
-              role: 'assistant',
-              content: streamingTextRef.current.trim(),
-              timestamp: new Date(),
-            };
-            setMessages((prev) => [...prev, interimMessage]);
-            streamingTextRef.current = '';
-          }
-
-          setStatus('waiting_for_input');
-          setPendingQuestion(event.question ?? null);
-          if (event.executionId) {
-            setCreatorExecutionId(event.executionId);
-          }
-          setCreatorStreamingProgress(null);
-          return;
-        }
-
-        // User responded — execution continues
-        if (event.type === 'creator_input_received') {
-          setStatus('building');
-          setPendingQuestion(null);
-          setCreatorStreamingProgress((previous) =>
-            previous
-              ? { ...previous, phase: 'building', message: 'Continuing...' }
               : previous
           );
           return;
@@ -828,11 +777,18 @@ export default function BaleybotPage() {
           return;
         }
 
-        // Accumulate text for fallback (not displayed — creator output is structured JSON)
+        // Show streaming text in chat (creator_bot is conversational now)
         if (event.type === 'creator_text_delta') {
           const content = event.content ?? '';
           if (content) {
             streamingTextRef.current += content;
+            // Throttle state updates to ~5fps (200ms)
+            if (!throttleRef.current) {
+              throttleRef.current = setTimeout(() => {
+                setStreamingText(streamingTextRef.current);
+                throttleRef.current = null;
+              }, 200);
+            }
           }
           return;
         }
@@ -893,6 +849,13 @@ export default function BaleybotPage() {
         }
       },
     });
+
+    // Flush any remaining streaming text
+    if (throttleRef.current) {
+      clearTimeout(throttleRef.current);
+      throttleRef.current = null;
+    }
+    setStreamingText('');
 
     // If the concierge streamed text but no structured result (conversation-only turn),
     // build a synthetic building response from the streamed text
@@ -1119,55 +1082,9 @@ export default function BaleybotPage() {
   };
 
   /**
-   * Handle responding to a request_user_input question.
-   * Posts to the creator respond endpoint to resolve the pending channel.
-   */
-  const handleRespondToInput = async (message: string) => {
-    if (!creatorExecutionId) return;
-
-    const sanitizedMessage = sanitizeCreatorText(message);
-
-    // Add user message to conversation
-    const userMessage: CreatorMessage = {
-      id: `msg-${Date.now()}-input-response`,
-      role: 'user',
-      content: sanitizedMessage,
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, userMessage]);
-    setPendingQuestion(null);
-
-    try {
-      const res = await fetch('/api/baleybots/creator/respond', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          executionId: creatorExecutionId,
-          response: sanitizedMessage,
-        }),
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as Record<string, string>).error ?? 'Failed to send response');
-      }
-      // The SSE stream from the original request continues with new events
-    } catch (error) {
-      console.error('Failed to respond to creator input:', error);
-      setStatus('error');
-    }
-  };
-
-  /**
    * Handle sending a message to the Creator Bot
    */
   const handleSendMessage = async (message: string) => {
-    // If the bot is waiting for input, route through the respond endpoint
-    if (status === 'waiting_for_input') {
-      await handleRespondToInput(message);
-      return;
-    }
-
     const sanitizedMessage = sanitizeCreatorText(message);
 
     // 0. Capture previous state for change summary (Phase 3.2)
@@ -2282,6 +2199,7 @@ export default function BaleybotPage() {
                 quickPrompts={quickPrompts}
                 quickPromptContextLabel={quickPromptContextLabel}
                 agentEvents={agentEvents}
+                streamingText={streamingText}
               />
             </div>
 

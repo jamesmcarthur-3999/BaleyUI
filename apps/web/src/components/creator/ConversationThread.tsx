@@ -36,6 +36,8 @@ interface ConversationThreadProps {
   onOptionSelect?: (optionId: string) => void;
   /** Agent activity events for the expandable activity panel */
   agentEvents?: AgentActivityEvent[];
+  /** Real-time streaming text from creator_bot (shown as a live message bubble) */
+  streamingText?: string;
 }
 
 /**
@@ -52,6 +54,7 @@ export function ConversationThread({
   streamingProgress,
   onOptionSelect: _onOptionSelect,
   agentEvents,
+  streamingText,
 }: ConversationThreadProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastMessageCountRef = useRef(messages.length);
@@ -67,76 +70,54 @@ export function ConversationThread({
     lastMessageCountRef.current = messages.length;
   }, [messages.length]);
 
-  // Also scroll when building starts
+  // Also scroll when building starts or streaming text updates
   useEffect(() => {
-    if (isBuilding && scrollRef.current) {
+    if ((isBuilding || streamingText) && scrollRef.current) {
       scrollRef.current.scrollTo({
         top: scrollRef.current.scrollHeight,
         behavior: 'smooth',
       });
     }
-  }, [isBuilding]);
+  }, [isBuilding, streamingText]);
 
   if (messages.length === 0 && !isBuilding) {
     return null;
   }
 
-  // Embedded mode: simple scrollable list, no chrome
-  if (embedded) {
-    return (
-      <div className={cn('flex-1 overflow-hidden flex flex-col', className)}>
-        <div
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto px-4 py-3 space-y-4"
-        >
-          {messages.map((message, index) =>
-            message.role === 'user' ? (
-              <UserMessage
-                key={message.id}
-                message={message}
-                isLatest={index === messages.length - 1}
-              />
-            ) : (
-              <AssistantMessage
-                key={message.id}
-                message={message}
-                isLatest={index === messages.length - 1}
-              />
-            )
-          )}
-          {isBuilding && (
-            <BuildingIndicator progress={streamingProgress} agentEvents={agentEvents} />
-          )}
-        </div>
-      </div>
-    );
-  }
+  const streamingBubble = streamingText ? (
+    <StreamingMessage text={streamingText} agentEvents={agentEvents} />
+  ) : isBuilding ? (
+    <BuildingIndicator progress={streamingProgress} agentEvents={agentEvents} />
+  ) : null;
 
-  // Standard mode (non-embedded) — same clean chat
+  const messageList = (
+    <>
+      {messages.map((message, index) =>
+        message.role === 'user' ? (
+          <UserMessage
+            key={message.id}
+            message={message}
+            isLatest={index === messages.length - 1 && !streamingBubble}
+          />
+        ) : (
+          <AssistantMessage
+            key={message.id}
+            message={message}
+            isLatest={index === messages.length - 1 && !streamingBubble}
+          />
+        )
+      )}
+      {streamingBubble}
+    </>
+  );
+
   return (
     <div className={cn('flex-1 overflow-hidden flex flex-col', className)}>
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-4 py-3 space-y-4"
       >
-        {messages.map((message, index) =>
-          message.role === 'user' ? (
-            <UserMessage
-              key={message.id}
-              message={message}
-              isLatest={index === messages.length - 1}
-            />
-          ) : (
-            <AssistantMessage
-              key={message.id}
-              message={message}
-              isLatest={index === messages.length - 1}
-            />
-          )
-        )}
-        {isBuilding && (
-          <BuildingIndicator progress={streamingProgress} agentEvents={agentEvents} />
-        )}
+        {messageList}
       </div>
     </div>
   );
@@ -240,6 +221,38 @@ function AssistantMessage({
         >
           {formatTime(message.timestamp)}
         </time>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// STREAMING MESSAGE (live text from creator_bot)
+// ============================================================================
+
+function StreamingMessage({ text, agentEvents }: { text: string; agentEvents?: AgentActivityEvent[] }) {
+  return (
+    <div className="animate-fade-in">
+      <div className="rounded-[1.1rem] border border-border/60 bg-card/70 p-4 shadow-[0_12px_35px_-28px_rgba(0,0,0,0.8)]">
+        <div className="flex items-center gap-1 mb-2">
+          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground">
+            <Bot className="h-3.5 w-3.5" />
+            BaleyBot
+          </span>
+          <span className="inline-flex gap-[3px] ml-1.5">
+            <span className="w-[4px] h-[4px] rounded-full bg-primary/70 animate-loading-dot" style={{ animationDelay: '0ms' }} />
+            <span className="w-[4px] h-[4px] rounded-full bg-primary/70 animate-loading-dot" style={{ animationDelay: '200ms' }} />
+            <span className="w-[4px] h-[4px] rounded-full bg-primary/70 animate-loading-dot" style={{ animationDelay: '400ms' }} />
+          </span>
+        </div>
+        <div className="text-[15px] text-foreground/95 leading-7">
+          <RenderMarkdown text={text} />
+        </div>
+
+        {/* Agent activity panel — shows when spawned bots are active */}
+        {agentEvents && agentEvents.length > 0 && (
+          <AgentActivityPanel events={agentEvents} className="mt-3" />
+        )}
       </div>
     </div>
   );

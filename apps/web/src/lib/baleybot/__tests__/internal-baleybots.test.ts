@@ -172,21 +172,23 @@ describe('internal-baleybots', () => {
     // These tests depend on complex type parsing — marked as todo until SDK patch
     it.todo('creator_bot has correct model (awaiting SDK complex type parser)');
     it.todo('test_validator uses gpt-5-mini (awaiting SDK complex type parser)');
-    it.todo('creator_bot output has entities, balCode, name, status fields');
+    it.todo('creator_bot spawn_baleybot integration (conversational mode with bal_generator spawn)');
     it.todo('bal_generator output has balCode, entities, suggestedName, suggestedIcon fields');
     it.todo('test_orchestrator output has topology and tests');
     it.todo('deployment_advisor output has trigger recommendations and checklist');
 
     // Verify output fields via string matching (bypasses parser)
     // All current internal bots have output schemas except baley (conversational, no output)
-    const BOTS_WITH_OUTPUT = ALL_INTERNAL_BOTS.filter(name => name !== 'baley');
+    // Bots that use conversational mode (no structured output schema)
+    const CONVERSATIONAL_BOTS = new Set(['baley', 'creator_bot']);
+    const BOTS_WITH_OUTPUT = ALL_INTERNAL_BOTS.filter(name => !CONVERSATIONAL_BOTS.has(name));
     it.each(BOTS_WITH_OUTPUT)('%s balCode contains an "output" block', (botName) => {
       const bot = INTERNAL_BALEYBOTS[botName]!;
       expect(bot.balCode).toContain('"output"');
     });
 
-    it('baley has no output block (conversational)', () => {
-      expect(INTERNAL_BALEYBOTS.baley!.balCode).not.toContain('"output"');
+    it.each([...CONVERSATIONAL_BOTS])('%s has no output block (conversational)', (botName) => {
+      expect(INTERNAL_BALEYBOTS[botName]!.balCode).not.toContain('"output"');
     });
 
     it('baley goal mentions key capabilities', () => {
@@ -208,11 +210,10 @@ describe('internal-baleybots', () => {
       expect(INTERNAL_BALEYBOTS.creator_action_advisor!.balCode).toContain('"actions": "array<object>"');
     });
 
-    it('creator_bot output keeps structured arrays for entities and connections', () => {
+    it('creator_bot has no output block (conversational mode)', () => {
       const balCode = INTERNAL_BALEYBOTS.creator_bot!.balCode;
-      expect(balCode).toContain('"entities": "array<object>"');
-      expect(balCode).toContain('"connections": "array<object>"');
-      expect(balCode).toContain('"questions": "array<object>"');
+      expect(balCode).not.toContain('"output"');
+      expect(balCode).toContain('Communication Contract: creator_bot_v2');
     });
   });
 

@@ -41,8 +41,6 @@ function getPlaceholder(status: CreationStatus): string {
       return 'Ask for changes, tests, or launch prep...';
     case 'running':
       return 'Wait for completion...';
-    case 'waiting_for_input':
-      return 'Type your answer...';
     case 'error':
       return 'Tell me what to fix...';
     default:

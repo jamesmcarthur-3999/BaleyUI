@@ -1057,7 +1057,7 @@ export const baleybotsRouter = router({
   getCreatorGuidance: editorProcedure
     .input(
       z.object({
-        status: z.enum(['empty', 'building', 'ready', 'running', 'error', 'waiting_for_input']),
+        status: z.enum(['empty', 'building', 'ready', 'running', 'error']),
         messages: z.array(
           z.object({
             role: z.enum(['user', 'assistant']),
@@ -1095,7 +1095,7 @@ export const baleybotsRouter = router({
   getCreatorSuggestedActions: editorProcedure
     .input(
       z.object({
-        status: z.enum(['empty', 'building', 'ready', 'running', 'error', 'waiting_for_input']),
+        status: z.enum(['empty', 'building', 'ready', 'running', 'error']),
         messages: z.array(
           z.object({
             role: z.enum(['user', 'assistant']),

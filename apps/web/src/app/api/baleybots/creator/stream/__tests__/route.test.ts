@@ -157,6 +157,43 @@ describe('POST /api/baleybots/creator/stream', () => {
     expect(payload).toContain('data: [DONE]');
   });
 
+  it('streams conversational text for building (no spawn) turns', async () => {
+    mockExecuteCreatorPipeline.mockImplementation(async (args: { onEvent: (event: Record<string, unknown>) => void }) => {
+      args.onEvent({
+        type: 'creator_text_delta',
+        content: 'What matters most to you — speed or accuracy?',
+        timestamp: Date.now(),
+      });
+      args.onEvent({
+        type: 'creator_complete',
+        result: {
+          status: 'building',
+          message: 'What matters most to you — speed or accuracy?',
+          entities: [],
+          connections: [],
+          balCode: '',
+          name: 'Unnamed BaleyBot',
+          description: '',
+          icon: '🤖',
+        },
+        summary: 'Gathering more details before building.',
+        timestamp: Date.now(),
+      });
+      return null;
+    });
+
+    const response = await POST(createRequest({ message: 'build me a customer support bot' }));
+    expect(response.status).toBe(200);
+
+    const payload = await readResponseStream(response);
+    expect(payload).toContain('"type":"creator_text_delta"');
+    expect(payload).toContain('What matters most');
+    expect(payload).toContain('"status":"building"');
+    // No input_requested events in the new conversational flow
+    expect(payload).not.toContain('creator_input_requested');
+    expect(payload).toContain('data: [DONE]');
+  });
+
   it('streams creator_error when processing fails', async () => {
     mockExecuteCreatorPipeline.mockRejectedValue(new Error('creator exploded'));
 

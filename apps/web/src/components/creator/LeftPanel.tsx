@@ -42,6 +42,8 @@ interface LeftPanelProps {
   quickPromptContextLabel?: string;
   /** Agent activity events for the expandable activity panel */
   agentEvents?: AgentActivityEvent[];
+  /** Real-time streaming text from creator_bot conversation */
+  streamingText?: string;
 }
 
 /**
@@ -61,6 +63,7 @@ export function LeftPanel({
   quickPrompts = [],
   quickPromptContextLabel,
   agentEvents,
+  streamingText,
 }: LeftPanelProps) {
   return (
     <div className="flex flex-col h-full">
@@ -72,6 +75,7 @@ export function LeftPanel({
         className="flex-1 min-h-0"
         onOptionSelect={onOptionSelect}
         agentEvents={agentEvents}
+        streamingText={streamingText}
       />
 
       {executions && executions.length > 0 && (

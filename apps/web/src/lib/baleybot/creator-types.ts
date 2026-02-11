@@ -301,7 +301,7 @@ export interface CreatorMessage {
  * Status of the creation session state machine.
  * Tracks the overall state of the bot being built.
  */
-export type CreationStatus = 'empty' | 'building' | 'ready' | 'running' | 'error' | 'waiting_for_input';
+export type CreationStatus = 'empty' | 'building' | 'ready' | 'running' | 'error';
 
 /**
  * State of the visual canvas.

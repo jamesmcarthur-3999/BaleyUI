@@ -1,67 +1,12 @@
 {
-  "creator_discovery_v1": {
-    "id": "creator_discovery_v1",
-    "output": {
-      "needsMoreInfo": "boolean",
-      "message": "string",
-      "questions": "array<object>",
-      "contextNotes": "array<string>"
-    },
+  "creator_bot_v2": {
+    "id": "creator_bot_v2",
+    "output": {},
     "rules": [
-      "Return exactly one JSON object with no markdown fencing.",
-      "Set needsMoreInfo=true only when generation must block now.",
-      "Use requiredNow=true only for blocking questions."
-    ]
-  },
-  "creator_discovery_v2": {
-    "id": "creator_discovery_v2",
-    "output": {
-      "needsMoreInfo": "boolean",
-      "message": "string",
-      "questions": "array<object>",
-      "contextNotes": "array<string>",
-      "delta": "object"
-    },
-    "rules": [
-      "Return exactly one JSON object with no markdown fencing.",
-      "Set needsMoreInfo=true only when generation must block now.",
-      "Use requiredNow=true only for blocking questions.",
-      "delta must summarize resolved vs open discovery decisions."
-    ]
-  },
-  "creator_bot_v1": {
-    "id": "creator_bot_v1",
-    "output": {
-      "thinking": "string",
-      "message": "string",
-      "questions": "array<object>",
-      "assumptions": "array<object>",
-      "runnableConfidence": "number",
-      "blockMode": "string",
-      "entities": "array<object>",
-      "connections": "array<object>",
-      "balCode": "string",
-      "name": "string",
-      "description": "string",
-      "icon": "string",
-      "status": "string"
-    },
-    "rules": [
-      "Return exactly one JSON object with no markdown fencing.",
-      "status must be either building or ready.",
-      "When multiple entities are present, balCode must include a composition block.",
-      "Discovery messages should ask one focused next question at a time."
-    ]
-  },
-  "creator_action_advisor_v1": {
-    "id": "creator_action_advisor_v1",
-    "output": {
-      "actions": "array<object>"
-    },
-    "rules": [
-      "Return 0-3 actions only.",
-      "Each action prompt must be directly executable by the creator flow.",
-      "Avoid repeating stale or generic actions."
+      "Respond in natural conversational text. Your text IS the user-facing conversation.",
+      "Use spawn_baleybot('bal_generator', designSpec) when ready to generate BAL code.",
+      "When asking clarifying questions, just write them in your response text.",
+      "After spawning specialists, summarize what you built."
     ]
   },
   "creator_action_advisor_v2": {
@@ -140,19 +85,6 @@
       "Return 3-5 results when possible.",
       "Each result must include title, url, and snippet fields.",
       "Prefer widely recognizable and likely valid sources."
-    ]
-  },
-  "connection_advisor_v1": {
-    "id": "connection_advisor_v1",
-    "output": {
-      "analysis": "object",
-      "recommendations": "array<string>",
-      "warnings": "array<string>"
-    },
-    "rules": [
-      "Separate deterministic requirements from optimization recommendations.",
-      "Call out missing required connections clearly.",
-      "Keep recommendations concrete and ordered."
     ]
   },
   "connection_advisor_v2": {
