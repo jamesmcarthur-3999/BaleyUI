@@ -1,9 +1,9 @@
-import { useCallback, useRef } from 'react';
+import { useRef } from 'react';
 
 export function useGridNavigation(itemCount: number, columns: number) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent, currentIndex: number) => {
+  const handleKeyDown = (e: React.KeyboardEvent, currentIndex: number) => {
     let nextIndex = currentIndex;
 
     switch (e.key) {
@@ -33,7 +33,7 @@ export function useGridNavigation(itemCount: number, columns: number) {
 
     const items = containerRef.current?.querySelectorAll('[role="gridcell"]');
     (items?.[nextIndex] as HTMLElement)?.focus();
-  }, [itemCount, columns]);
+  };
 
   return { containerRef, handleKeyDown };
 }

@@ -8,11 +8,6 @@
  * - AI errors: retry with fallback model
  */
 
-// TODO: STYLE-002 - This file is over 600 lines (~607 lines). Consider splitting into:
-// - self-healing/types.ts (type definitions)
-// - self-healing/handlers.ts (error handler implementations)
-// - self-healing/service.ts (main service)
-
 import type { ExecutorContext } from '../executor';
 import { createLogger } from '@/lib/logger';
 

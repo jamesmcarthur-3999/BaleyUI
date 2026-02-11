@@ -183,9 +183,10 @@ export default function BaleybotsListPage() {
   const [selectedBotIds, setSelectedBotIds] = useState<Set<string>>(new Set());
   const [inspectedBotId, setInspectedBotId] = useState<string | null>(null);
 
-  const { data: baleybots, isLoading } = trpc.baleybots.list.useQuery(undefined, {
+  const { data: baleybotsData, isLoading } = trpc.baleybots.list.useQuery(undefined, {
     staleTime: 5 * 60 * 1000,
   });
+  const baleybots = baleybotsData?.items;
 
   const { data: inspectedBot, isLoading: isLoadingInspectedBot } =
     trpc.baleybots.get.useQuery(

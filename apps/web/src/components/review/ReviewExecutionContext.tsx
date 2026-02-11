@@ -35,12 +35,6 @@ export interface ReviewExecutionState {
   currentBlocks: ReviewContentBlock[];          // Blocks being built during streaming
 }
 
-interface ReviewExecutionContextValue {
-  state: ReviewExecutionState;
-  execute: (input: string | Record<string, unknown>) => Promise<void>;
-  clearResult: () => void;
-}
-
 // ============================================================================
 // CONTEXT
 // ============================================================================
@@ -74,6 +68,7 @@ type ExecuteStreamEvent =
 
 interface ReviewExecutionProviderProps {
   baleybotId: string;
+  onExecutionComplete?: (result: { success: boolean; executionId: string | null; durationMs: number }) => void;
   children: ReactNode;
 }
 
@@ -82,8 +77,16 @@ function nextMessageId(): string {
   return `msg-${Date.now()}-${++messageIdCounter}`;
 }
 
+interface ReviewExecutionContextValue {
+  state: ReviewExecutionState;
+  execute: (input: string | Record<string, unknown>) => Promise<void>;
+  cancel: () => void;
+  clearResult: () => void;
+}
+
 export function ReviewExecutionProvider({
   baleybotId,
+  onExecutionComplete,
   children,
 }: ReviewExecutionProviderProps) {
   const [state, setState] = useState<ReviewExecutionState>({
@@ -101,10 +104,33 @@ export function ReviewExecutionProvider({
   const outputAccRef = useRef('');
   const toolCallsRef = useRef<Record<string, ToolCallState>>({});
   const currentBlocksRef = useRef<ReviewContentBlock[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const cancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setState((prev) => ({
+      ...prev,
+      isExecuting: false,
+      currentBlocks: [],
+      toolCalls: {},
+    }));
+  };
 
   const execute = async (input: string | Record<string, unknown>) => {
+    // Pass raw value to the server — the server already handles both string and object inputs
+    const inputForBody = input;
     const inputText = typeof input === 'string' ? input : JSON.stringify(input);
     const startTime = Date.now();
+
+    // Cancel any in-flight execution
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     // Reset refs
     outputAccRef.current = '';
@@ -136,7 +162,8 @@ export function ReviewExecutionProvider({
     try {
       await streamPostSSE<ExecuteStreamEvent>({
         url: `/api/baleybots/${baleybotId}/execute-stream`,
-        body: { input: inputText, triggeredBy: 'manual' },
+        body: { input: inputForBody, triggeredBy: 'manual' },
+        signal: controller.signal,
         onEvent: (event) => {
           switch (event.type) {
             case 'execution_started': {
@@ -311,15 +338,27 @@ export function ReviewExecutionProvider({
         timestamp: Date.now(),
       };
 
-      setState((prev) => ({
-        ...prev,
-        isExecuting: false,
-        output: finalOutput || prev.output,
-        messages: [...prev.messages, assistantMessage],
-        currentBlocks: [],
-        toolCalls: {},
-      }));
+      setState((prev) => {
+        const updatedState = {
+          ...prev,
+          isExecuting: false,
+          output: finalOutput || prev.output,
+          messages: [...prev.messages, assistantMessage],
+          currentBlocks: [],
+          toolCalls: {},
+        };
+
+        // Notify parent about execution completion
+        onExecutionComplete?.({
+          success: !prev.error,
+          executionId: prev.executionId,
+          durationMs: Date.now() - startTime,
+        });
+
+        return updatedState;
+      });
     } catch (error) {
+      if (controller.signal.aborted) return;
       const message = error instanceof Error ? error.message : 'Execution failed';
       setState((prev) => ({
         ...prev,
@@ -328,6 +367,12 @@ export function ReviewExecutionProvider({
         currentBlocks: [],
         toolCalls: {},
       }));
+
+      onExecutionComplete?.({
+        success: false,
+        executionId: null,
+        durationMs: Date.now() - startTime,
+      });
     }
   };
 
@@ -349,7 +394,7 @@ export function ReviewExecutionProvider({
   };
 
   return (
-    <ReviewExecutionContext.Provider value={{ state, execute, clearResult }}>
+    <ReviewExecutionContext.Provider value={{ state, execute, cancel, clearResult }}>
       {children}
     </ReviewExecutionContext.Provider>
   );

@@ -20,7 +20,7 @@ describe('computeApplicability', () => {
   it('marks connected as true when tools require connections', () => {
     const result = computeApplicability(['schedule_task'], false);
     expect(result.connected).toBe(true);
-    expect(result.activated).toBe(true);
+    expect(result.integrated).toBe(true);
     expect(result.monitored).toBe(true);
   });
 
@@ -29,10 +29,10 @@ describe('computeApplicability', () => {
     expect(result.connected).toBe(true);
   });
 
-  it('marks activated/monitored only for schedule_task', () => {
+  it('marks integrated/monitored only for schedule_task', () => {
     const result = computeApplicability(['spawn_baleybot'], false);
     expect(result.connected).toBe(true);
-    expect(result.activated).toBe(false);
+    expect(result.integrated).toBe(false);
     expect(result.monitored).toBe(false);
   });
 });
@@ -136,7 +136,7 @@ describe('createInitialReadiness', () => {
     expect(result.designed).toBe('incomplete');
     expect(result.connected).toBe('incomplete');
     expect(result.tested).toBe('incomplete');
-    expect(result.activated).toBe('incomplete');
+    expect(result.integrated).toBe('incomplete');
     expect(result.monitored).toBe('incomplete');
   });
 });
@@ -152,7 +152,7 @@ describe('countCompleted', () => {
       designed: 'complete',
       connected: 'not-applicable',
       tested: 'complete',
-      activated: 'not-applicable',
+      integrated: 'not-applicable',
       monitored: 'not-applicable',
     });
     expect(result).toEqual({ completed: 2, total: 2 });
@@ -163,7 +163,7 @@ describe('countCompleted', () => {
       designed: 'complete',
       connected: 'complete',
       tested: 'in-progress',
-      activated: 'incomplete',
+      integrated: 'incomplete',
       monitored: 'not-applicable',
     });
     expect(result).toEqual({ completed: 2, total: 4 });
@@ -181,10 +181,10 @@ describe('getVisibleTabs', () => {
       designed: 'in-progress',
       connected: 'incomplete',
       tested: 'incomplete',
-      activated: 'incomplete',
+      integrated: 'incomplete',
       monitored: 'incomplete',
     });
-    expect(tabs).toContain('review');
+    expect(tabs).toContain('test');
     expect(tabs).not.toContain('schema');
   });
 
@@ -193,10 +193,10 @@ describe('getVisibleTabs', () => {
       designed: 'complete',
       connected: 'incomplete',
       tested: 'incomplete',
-      activated: 'incomplete',
+      integrated: 'incomplete',
       monitored: 'incomplete',
     });
-    expect(tabs).toEqual(['visual', 'code', 'review']);
+    expect(tabs).toEqual(['visual', 'code', 'test']);
   });
 
   it('never includes old tabs (connections, triggers, monitor, analytics)', () => {
@@ -204,7 +204,7 @@ describe('getVisibleTabs', () => {
       designed: 'complete',
       connected: 'complete',
       tested: 'complete',
-      activated: 'complete',
+      integrated: 'complete',
       monitored: 'complete',
     });
     expect(tabs).not.toContain('connections');
@@ -239,7 +239,7 @@ describe('getRecommendedAction', () => {
     expect(state.designed).toBe('complete');
     const action = getRecommendedAction(state);
     expect(action?.dimension).toBe('connected');
-    expect(action?.tabTarget).toBe('launch');
+    expect(action?.tabTarget).toBe('integrate');
   });
 
   it('returns tested after connections are met', () => {
@@ -252,10 +252,10 @@ describe('getRecommendedAction', () => {
     });
     const action = getRecommendedAction(state);
     expect(action?.dimension).toBe('tested');
-    expect(action?.tabTarget).toBe('review');
+    expect(action?.tabTarget).toBe('test');
   });
 
-  it('returns activated after testing is complete', () => {
+  it('returns integrated after testing is complete', () => {
     const state = computeReadiness({
       hasBalCode: true, hasEntities: true,
       tools: ['schedule_task'],
@@ -264,8 +264,8 @@ describe('getRecommendedAction', () => {
       hasTrigger: false, hasMonitoring: false,
     });
     const action = getRecommendedAction(state);
-    expect(action?.dimension).toBe('activated');
-    expect(action?.tabTarget).toBe('launch');
+    expect(action?.dimension).toBe('integrated');
+    expect(action?.tabTarget).toBe('integrate');
   });
 
   it('returns null when all applicable dimensions are complete', () => {
@@ -276,7 +276,7 @@ describe('getRecommendedAction', () => {
       testsPassed: true, hasTestRuns: 1,
       hasTrigger: false, hasMonitoring: false,
     });
-    // web_search only → activated/monitored = not-applicable, connected N/A (no connection-requiring tools with hasConnections=true still marks connected=true)
+    // web_search only → integrated/monitored = not-applicable, connected N/A (no connection-requiring tools with hasConnections=true still marks connected=true)
     const action = getRecommendedAction(state);
     expect(action).toBeNull();
   });
@@ -307,7 +307,7 @@ describe('getRecommendedAction', () => {
     expect(action?.dimension).toBe('designed');
   });
 
-  it('returns monitored after activated is complete', () => {
+  it('returns monitored after integrated is complete', () => {
     const state = computeReadiness({
       hasBalCode: true, hasEntities: true,
       tools: ['schedule_task'],
@@ -317,6 +317,6 @@ describe('getRecommendedAction', () => {
     });
     const action = getRecommendedAction(state);
     expect(action?.dimension).toBe('monitored');
-    expect(action?.tabTarget).toBe('launch');
+    expect(action?.tabTarget).toBe('integrate');
   });
 });

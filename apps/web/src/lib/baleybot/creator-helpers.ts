@@ -27,8 +27,8 @@ export function computeAvailableTabs(args: {
 }): AdaptiveTab[] {
   const tabs = [...getVisibleTabs(args.readiness)];
 
-  if (args.savedBaleybotId && !tabs.includes('launch')) {
-    tabs.push('launch');
+  if (args.savedBaleybotId && !tabs.includes('integrate')) {
+    tabs.push('integrate');
   }
 
   const tabsAfterDesignGate = args.isDesignReviewRequired
@@ -154,7 +154,7 @@ export function isSameReadiness(a: ReadinessState, b: ReadinessState): boolean {
     a.designed === b.designed &&
     a.connected === b.connected &&
     a.tested === b.tested &&
-    a.activated === b.activated &&
+    a.integrated === b.integrated &&
     a.monitored === b.monitored
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   Check,
   ChevronRight,
@@ -208,17 +208,10 @@ export function TriggerConfig({
   const step = setupStep ?? internalStep;
   const setStep = onSetupStepChange ?? setInternalStep;
 
-  const validation = useMemo(
-    () => validateAndNormalizeTriggerConfig(normalized ?? { type: 'manual' }),
-    [normalized]
-  );
+  const validation = validateAndNormalizeTriggerConfig(normalized ?? { type: 'manual' });
 
-  const dbConnections = useMemo(
-    () =>
-      availableConnections.filter(
-        (connection) => connection.type === 'postgres' || connection.type === 'mysql'
-      ),
-    [availableConnections]
+  const dbConnections = availableConnections.filter(
+    (connection) => connection.type === 'postgres' || connection.type === 'mysql'
   );
 
   const hasAdvancedVisible = presentationMode === 'advanced' || showAdvancedTriggerTypes;

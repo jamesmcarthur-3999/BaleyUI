@@ -9,6 +9,33 @@
 import { NextResponse } from 'next/server';
 import { handleWebhookEvent } from '@/lib/billing/service';
 
+/**
+ * Simple in-memory idempotency guard for webhook event IDs.
+ * Prevents duplicate processing when Stripe retries or delivers twice.
+ * Events expire after 10 minutes to prevent unbounded growth.
+ */
+const processedEvents = new Map<string, number>();
+const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function markEventProcessed(eventId: string): boolean {
+  const now = Date.now();
+  // Lazy cleanup: purge expired entries when map grows large
+  if (processedEvents.size > 500) {
+    for (const [id, timestamp] of processedEvents) {
+      if (now - timestamp > IDEMPOTENCY_TTL_MS) {
+        processedEvents.delete(id);
+      }
+    }
+  }
+
+  if (processedEvents.has(eventId)) {
+    return false; // Already processed
+  }
+
+  processedEvents.set(eventId, now);
+  return true; // First time processing
+}
+
 export async function POST(req: Request) {
   const body = await req.text();
   const sig = req.headers.get('stripe-signature');
@@ -30,6 +57,11 @@ export async function POST(req: Request) {
     const stripe = new Stripe(stripeSecretKey);
 
     const event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
+
+    // Idempotency check: skip already-processed events
+    if (!markEventProcessed(event.id)) {
+      return NextResponse.json({ received: true, deduplicated: true });
+    }
 
     await handleWebhookEvent(event);
 

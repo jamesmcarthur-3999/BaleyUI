@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { useRouter } from 'next/navigation';
 import { useWorkspaceHealth } from './useWorkspaceHealth';
@@ -23,9 +23,53 @@ export function useCompanionChat() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [pendingInput, setPendingInput] = useState<PendingInput | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // RAF batching: accumulate text deltas and flush once per animation frame
+  const pendingDeltaRef = useRef('');
+  const rafIdRef = useRef<number | null>(null);
+  const currentAssistantIdRef = useRef<string | null>(null);
   const pathname = usePathname();
   const router = useRouter();
   const health = useWorkspaceHealth();
+
+  // Cleanup RAF on unmount
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, []);
+
+  /** Flush accumulated text deltas into React state (called once per frame) */
+  const flushPendingDelta = () => {
+    rafIdRef.current = null;
+    const delta = pendingDeltaRef.current;
+    if (!delta) return;
+    pendingDeltaRef.current = '';
+    const assistantId = currentAssistantIdRef.current;
+    if (!assistantId) return;
+
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== assistantId) return m;
+        const blocks = [...(m.blocks ?? [])];
+        const lastBlock = blocks[blocks.length - 1];
+        if (lastBlock && lastBlock.type === 'text') {
+          blocks[blocks.length - 1] = {
+            ...lastBlock,
+            content: lastBlock.content + delta,
+          };
+        } else {
+          blocks.push({ type: 'text', content: delta });
+        }
+        return {
+          ...m,
+          content: m.content + delta,
+          blocks,
+        };
+      })
+    );
+  };
 
   const send = async (message: string) => {
     if (isStreaming) return;
@@ -54,6 +98,7 @@ export function useCompanionChat() {
 
     setIsStreaming(true);
     abortRef.current = new AbortController();
+    currentAssistantIdRef.current = assistantId;
 
     try {
       const conversationHistory = messages.map((m) => ({
@@ -104,28 +149,11 @@ export function useCompanionChat() {
 
             switch (event.type) {
               case 'companion_text_delta': {
-                const delta = event.content ?? '';
-                setMessages((prev) =>
-                  prev.map((m) => {
-                    if (m.id !== assistantId) return m;
-                    const blocks = [...(m.blocks ?? [])];
-                    // Append to last text block or create a new one
-                    const lastBlock = blocks[blocks.length - 1];
-                    if (lastBlock && lastBlock.type === 'text') {
-                      blocks[blocks.length - 1] = {
-                        ...lastBlock,
-                        content: lastBlock.content + delta,
-                      };
-                    } else {
-                      blocks.push({ type: 'text', content: delta });
-                    }
-                    return {
-                      ...m,
-                      content: m.content + delta,
-                      blocks,
-                    };
-                  })
-                );
+                // Accumulate deltas and flush via RAF (one React update per frame)
+                pendingDeltaRef.current += event.content ?? '';
+                if (rafIdRef.current === null) {
+                  rafIdRef.current = requestAnimationFrame(flushPendingDelta);
+                }
                 break;
               }
 
@@ -249,6 +277,13 @@ export function useCompanionChat() {
         )
       );
     } finally {
+      // Flush any remaining batched text deltas
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      flushPendingDelta();
+      currentAssistantIdRef.current = null;
       setIsStreaming(false);
       abortRef.current = null;
     }

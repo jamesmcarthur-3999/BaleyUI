@@ -29,34 +29,50 @@ const {
 // Module mocks
 // ============================================================================
 
-vi.mock('@baleyui/db', () => ({
-  db: {
-    query: {
-      workspaces: { findFirst: (...args: unknown[]) => mockFindFirstWorkspace(...args) },
-      baleybots: { findFirst: (...args: unknown[]) => mockFindFirstBaleybot(...args) },
-      baleybotExecutions: { findFirst: (...args: unknown[]) => mockFindFirstExecution(...args) },
+vi.mock('@baleyui/db', () => {
+  const mockUpdate = vi.fn(() => ({
+    set: vi.fn(() => ({
+      where: vi.fn((...args: unknown[]) => {
+        mockUpdateSetWhere(...args);
+        return Promise.resolve();
+      }),
+    })),
+  }));
+  return {
+    db: {
+      query: {
+        workspaces: { findFirst: (...args: unknown[]) => mockFindFirstWorkspace(...args) },
+        baleybots: { findFirst: (...args: unknown[]) => mockFindFirstBaleybot(...args) },
+        baleybotExecutions: { findFirst: (...args: unknown[]) => mockFindFirstExecution(...args) },
+      },
+      insert: vi.fn(() => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(() => mockInsertReturning()),
+        })),
+      })),
+      update: mockUpdate,
     },
-    insert: vi.fn(() => ({
-      values: vi.fn(() => ({
-        returning: vi.fn(() => mockInsertReturning()),
-      })),
-    })),
-    update: vi.fn(() => ({
-      set: vi.fn(() => ({
-        where: vi.fn((...args: unknown[]) => {
-          mockUpdateSetWhere(...args);
-          return Promise.resolve();
-        }),
-      })),
-    })),
-  },
-  baleybots: { id: 'id', workspaceId: 'workspaceId' },
-  baleybotExecutions: { id: 'id', baleybotId: 'baleybotId', idempotencyKey: 'idempotencyKey' },
-  workspaces: { id: 'id' },
-  eq: vi.fn((a: unknown, b: unknown) => ({ _type: 'eq', a, b })),
-  and: vi.fn((...args: unknown[]) => ({ _type: 'and', args })),
-  notDeleted: vi.fn(() => ({ _type: 'notDeleted' })),
-}));
+    baleybots: { id: 'id', workspaceId: 'workspaceId', version: 'version' },
+    baleybotExecutions: { id: 'id', baleybotId: 'baleybotId', idempotencyKey: 'idempotencyKey' },
+    workspaces: { id: 'id' },
+    eq: vi.fn((a: unknown, b: unknown) => ({ _type: 'eq', a, b })),
+    and: vi.fn((...args: unknown[]) => ({ _type: 'and', args })),
+    notDeleted: vi.fn(() => ({ _type: 'notDeleted' })),
+    withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+      // Provide a mock tx that has the same shape as db
+      const mockTx = {
+        update: mockUpdate,
+        insert: vi.fn(() => ({
+          values: vi.fn(() => ({
+            returning: vi.fn(() => mockInsertReturning()),
+          })),
+        })),
+      };
+      return fn(mockTx);
+    }),
+    updateWithLock: vi.fn(() => Promise.resolve({ version: 2 })),
+  };
+});
 
 vi.mock('@/lib/rate-limit', () => ({
   checkApiRateLimit: (...args: unknown[]) => mockCheckApiRateLimit(...args),
@@ -140,6 +156,7 @@ const DEFAULT_BALEYBOT = {
   webhookSecret: 'secret-123',
   webhookEnabled: true,
   status: 'active',
+  version: 1,
 };
 
 function setupValidWebhook() {

@@ -824,39 +824,9 @@ function rebuildBAL(
       lines.push(`  "output": {\n${outputLines}\n  },`);
     }
 
-    // Temperature
-    if (entity.config.temperature !== undefined) {
-      lines.push(`  "temperature": ${entity.config.temperature},`);
-    }
-
-    // Reasoning
-    if (entity.config.reasoning !== undefined) {
-      if (typeof entity.config.reasoning === 'object' && entity.config.reasoning !== null) {
-        const r = entity.config.reasoning as { effort?: string };
-        lines.push(`  "reasoning": "${r.effort || 'medium'}",`);
-      } else if (entity.config.reasoning) {
-        lines.push(`  "reasoning": true,`);
-      }
-    }
-
-    // Retries
-    if (entity.config.retries !== undefined && (entity.config.retries as number) > 0) {
-      lines.push(`  "retries": ${entity.config.retries},`);
-    }
-
-    // Stop condition
-    if (entity.config.stopWhen) {
-      lines.push(`  "stopWhen": "${escapeString(entity.config.stopWhen as string)}",`);
-    }
-
-    // Can Request / Needs Approval
-    if (
-      entity.config.can_request &&
-      Array.isArray(entity.config.can_request) &&
-      entity.config.can_request.length > 0
-    ) {
-      lines.push(`  "can_request": [${(entity.config.can_request as string[]).map((t) => `"${t}"`).join(', ')}],`);
-    }
+    // NOTE: temperature, reasoning, retries, stopWhen, can_request are NOT
+    // supported by the BAL parser. The visual editor config preserves them
+    // for future use, but they must not be emitted into BAL code.
 
     // Trigger
     if (entity.config.trigger) {

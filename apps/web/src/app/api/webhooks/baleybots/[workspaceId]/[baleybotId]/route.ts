@@ -19,6 +19,8 @@ import {
   eq,
   and,
   notDeleted,
+  withTransaction,
+  updateWithLock,
 } from '@baleyui/db';
 import { executeBALCode } from '@baleyui/sdk';
 import { createLogger } from '@/lib/logger';
@@ -146,6 +148,7 @@ export async function POST(
         webhookSecret: true,
         webhookEnabled: true,
         status: true,
+        version: true,
       },
     });
 
@@ -250,24 +253,27 @@ export async function POST(
 
     const durationMs = Date.now() - startTime;
 
-    // Update execution record with success
-    await db
-      .update(baleybotExecutions)
-      .set({
-        status: 'completed',
-        output: result as unknown as Record<string, unknown>,
-        completedAt: new Date(),
-        durationMs,
-      })
-      .where(eq(baleybotExecutions.id, execution.id));
+    // Update execution record + BB atomically
+    await withTransaction(async (tx) => {
+      await tx
+        .update(baleybotExecutions)
+        .set({
+          status: 'completed',
+          output: result as unknown as Record<string, unknown>,
+          completedAt: new Date(),
+          durationMs,
+        })
+        .where(eq(baleybotExecutions.id, execution.id));
 
-    // Update BB execution count using SQL increment
-    await db
-      .update(baleybots)
-      .set({
-        lastExecutedAt: new Date(),
-      })
-      .where(eq(baleybots.id, baleybot.id));
+      // Use optimistic locking for the baleybots table (has version column)
+      await updateWithLock(
+        baleybots,
+        baleybot.id,
+        baleybot.version,
+        { lastExecutedAt: new Date() },
+        tx
+      );
+    });
 
     log.info('BaleyBot execution completed', { baleybotId, baleybotName: baleybot.name, durationMs, executionId: execution.id });
 

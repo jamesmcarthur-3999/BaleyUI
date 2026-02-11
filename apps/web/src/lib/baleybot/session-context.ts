@@ -42,7 +42,7 @@ export function formatSessionContext(ctx: SessionContext): string {
   const lines: string[] = [
     `Bot: ${ctx.botName}`,
     `Entities: ${ctx.entities.map(e => `${e.name} (${e.tools.join(', ')})`).join('; ')}`,
-    `Readiness: designed=${ctx.readiness.designed}, connected=${ctx.readiness.connected}, tested=${ctx.readiness.tested}, activated=${ctx.readiness.activated}, monitored=${ctx.readiness.monitored}`,
+    `Readiness: designed=${ctx.readiness.designed}, connected=${ctx.readiness.connected}, tested=${ctx.readiness.tested}, integrated=${ctx.readiness.integrated}, monitored=${ctx.readiness.monitored}`,
   ];
 
   if (ctx.connectedProviders.length > 0) {

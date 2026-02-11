@@ -5,7 +5,7 @@
  * Used to warn users before losing unsaved work.
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { deepEqual } from '@/lib/utils/deep-equal';
 
 /**
@@ -111,18 +111,16 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
   }, [currentState]);
 
   // Mark current state as clean (after save)
-  // useCallback is required here because markClean is used in useEffect dependency
-  // arrays by consumers - without stable identity it causes infinite render loops
-  const markClean = useCallback(() => {
+  const markClean = () => {
     savedStateRef.current = { ...currentStateRef.current };
     suppressNextCheckRef.current = true;
     setIsDirty(false);
-  }, []);
+  };
 
   // Mark state as dirty manually (e.g., after AI modifies entities)
-  const markDirty = useCallback(() => {
+  const markDirty = () => {
     setIsDirty(true);
-  }, []);
+  };
 
   // Get human-readable list of what changed
   const getChanges = (): string[] => {

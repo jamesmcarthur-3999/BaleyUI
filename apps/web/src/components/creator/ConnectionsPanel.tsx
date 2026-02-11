@@ -1,7 +1,7 @@
 // apps/web/src/components/creator/ConnectionsPanel.tsx
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   ArrowRight,
   CheckCircle2,
@@ -126,7 +126,7 @@ export function ConnectionsPanel({
   const [addFormSuggestedName, setAddFormSuggestedName] = useState<string | undefined>();
 
   const existingNames = connections.map(c => c.name);
-  const uniqueTools = useMemo(() => [...new Set(tools)], [tools]);
+  const uniqueTools = [...new Set(tools)];
 
   // Categorize connections
   const aiProviders = connections.filter(

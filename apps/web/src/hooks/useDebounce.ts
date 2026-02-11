@@ -5,7 +5,7 @@
  * Used to prevent rapid action conflicts (e.g., rapid save clicks).
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 /**
  * Debounce a value - returns the value only after it hasn't changed for `delay` ms
@@ -104,7 +104,7 @@ export function useDebouncedCallback<T extends (...args: unknown[]) => unknown>(
   const hasLeadingCalledRef = useRef(false);
 
   // Cancel pending execution
-  const cancel = useCallback(() => {
+  const cancel = () => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
@@ -112,10 +112,10 @@ export function useDebouncedCallback<T extends (...args: unknown[]) => unknown>(
     setIsPending(false);
     lastArgsRef.current = null;
     hasLeadingCalledRef.current = false;
-  }, []);
+  };
 
   // Execute immediately with last args
-  const flush = useCallback(() => {
+  const flush = () => {
     if (timeoutRef.current && lastArgsRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
@@ -124,42 +124,39 @@ export function useDebouncedCallback<T extends (...args: unknown[]) => unknown>(
       lastArgsRef.current = null;
       hasLeadingCalledRef.current = false;
     }
-  }, []);
+  };
 
   // The debounced function
-  const debouncedFn = useCallback(
-    (...args: Parameters<T>) => {
-      lastArgsRef.current = args;
+  const debouncedFn = (...args: Parameters<T>) => {
+    lastArgsRef.current = args;
 
-      // Leading edge execution
-      if (leading && !hasLeadingCalledRef.current) {
-        hasLeadingCalledRef.current = true;
-        callbackRef.current(...args);
-        if (!trailing) {
-          return;
-        }
+    // Leading edge execution
+    if (leading && !hasLeadingCalledRef.current) {
+      hasLeadingCalledRef.current = true;
+      callbackRef.current(...args);
+      if (!trailing) {
+        return;
       }
+    }
 
-      // Clear existing timeout
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
+    // Clear existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+
+    setIsPending(true);
+
+    // Set new timeout for trailing edge
+    timeoutRef.current = setTimeout(() => {
+      if (trailing && lastArgsRef.current) {
+        callbackRef.current(...lastArgsRef.current);
       }
-
-      setIsPending(true);
-
-      // Set new timeout for trailing edge
-      timeoutRef.current = setTimeout(() => {
-        if (trailing && lastArgsRef.current) {
-          callbackRef.current(...lastArgsRef.current);
-        }
-        setIsPending(false);
-        timeoutRef.current = null;
-        lastArgsRef.current = null;
-        hasLeadingCalledRef.current = false;
-      }, delay);
-    },
-    [delay, leading, trailing]
-  );
+      setIsPending(false);
+      timeoutRef.current = null;
+      lastArgsRef.current = null;
+      hasLeadingCalledRef.current = false;
+    }, delay);
+  };
 
   // Cleanup on unmount
   useEffect(() => {
@@ -195,27 +192,24 @@ export function useThrottledCallback<T extends (...args: unknown[]) => unknown>(
   const lastRunRef = useRef<number>(0);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const throttledFn = useCallback(
-    (...args: Parameters<T>) => {
-      const now = Date.now();
-      const timeSinceLastRun = now - lastRunRef.current;
+  const throttledFn = (...args: Parameters<T>) => {
+    const now = Date.now();
+    const timeSinceLastRun = now - lastRunRef.current;
 
-      if (timeSinceLastRun >= limit) {
-        lastRunRef.current = now;
-        callbackRef.current(...args);
-      } else {
-        // Schedule for later if not already scheduled
-        if (!timeoutRef.current) {
-          timeoutRef.current = setTimeout(() => {
-            lastRunRef.current = Date.now();
-            callbackRef.current(...args);
-            timeoutRef.current = null;
-          }, limit - timeSinceLastRun);
-        }
+    if (timeSinceLastRun >= limit) {
+      lastRunRef.current = now;
+      callbackRef.current(...args);
+    } else {
+      // Schedule for later if not already scheduled
+      if (!timeoutRef.current) {
+        timeoutRef.current = setTimeout(() => {
+          lastRunRef.current = Date.now();
+          callbackRef.current(...args);
+          timeoutRef.current = null;
+        }, limit - timeSinceLastRun);
       }
-    },
-    [limit]
-  );
+    }
+  };
 
   // Cleanup on unmount
   useEffect(() => {

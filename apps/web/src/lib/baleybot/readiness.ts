@@ -6,14 +6,14 @@
  * Tracks production-readiness dimensions for a BaleyBot.
  */
 
-export type ReadinessDimension = 'designed' | 'connected' | 'tested' | 'activated' | 'monitored';
+export type ReadinessDimension = 'designed' | 'connected' | 'tested' | 'integrated' | 'monitored';
 export type DimensionStatus = 'incomplete' | 'in-progress' | 'complete' | 'not-applicable';
 
 export interface ReadinessState {
   designed: DimensionStatus;
   connected: DimensionStatus;
   tested: DimensionStatus;
-  activated: DimensionStatus;
+  integrated: DimensionStatus;
   monitored: DimensionStatus;
 }
 
@@ -21,7 +21,7 @@ export interface ReadinessApplicability {
   designed: true;
   connected: boolean;
   tested: true;
-  activated: boolean;
+  integrated: boolean;
   monitored: boolean;
 }
 
@@ -45,7 +45,7 @@ export function computeApplicability(
     designed: true,
     connected: needsConnection,
     tested: true,
-    activated: needsActivation,
+    integrated: needsActivation,
     monitored: needsActivation,
   };
 }
@@ -61,7 +61,7 @@ export interface SpecialistSignals {
   connectionAdvisorRan?: boolean;
   /** test_orchestrator returned output → enriches `tested` */
   testOrchestratorRan?: boolean;
-  /** deployment_advisor returned output → enriches `activated` */
+  /** deployment_advisor returned output → enriches `integrated` */
   deploymentAdvisorRan?: boolean;
 }
 
@@ -94,8 +94,8 @@ export function computeReadiness(params: {
       ? 'in-progress'
       : 'incomplete';
 
-  // activated: trigger configured OR specialist deployment_advisor assessed
-  const activatedStatus: DimensionStatus = !applicability.activated
+  // integrated: trigger configured OR specialist deployment_advisor assessed
+  const integratedStatus: DimensionStatus = !applicability.integrated
     ? 'not-applicable'
     : params.hasTrigger || specialist?.deploymentAdvisorRan
       ? 'complete'
@@ -107,7 +107,7 @@ export function computeReadiness(params: {
     designed: params.hasBalCode && params.hasEntities ? 'complete' : params.hasBalCode ? 'in-progress' : 'incomplete',
     connected: connectedStatus,
     tested: testedStatus,
-    activated: activatedStatus,
+    integrated: integratedStatus,
     monitored: !applicability.monitored
       ? 'not-applicable'
       : params.hasMonitoring ? 'complete' : 'incomplete',
@@ -119,7 +119,7 @@ export function createInitialReadiness(): ReadinessState {
     designed: 'incomplete',
     connected: 'incomplete',
     tested: 'incomplete',
-    activated: 'incomplete',
+    integrated: 'incomplete',
     monitored: 'incomplete',
   };
 }
@@ -132,9 +132,9 @@ export function countCompleted(state: ReadinessState): { completed: number; tota
 }
 
 /**
- * Simplified tab set: Builder, Code, Try, Go Live
+ * Simplified tab set: Builder, Code, Test, Integrate
  */
-export type AdaptiveTab = 'visual' | 'code' | 'review' | 'launch';
+export type AdaptiveTab = 'visual' | 'code' | 'test' | 'integrate';
 
 export interface RecommendedAction {
   dimension: ReadinessDimension;
@@ -166,7 +166,7 @@ export function getRecommendedAction(state: ReadinessState): RecommendedAction |
       status: state.connected,
       label: 'Set Up Connections',
       description: 'Connect the AI provider and any services your tools need',
-      tabTarget: 'launch',
+      tabTarget: 'integrate',
       optionId: 'setup-connections',
     },
     {
@@ -174,23 +174,23 @@ export function getRecommendedAction(state: ReadinessState): RecommendedAction |
       status: state.tested,
       label: 'Run Tests',
       description: 'Run tests to verify your bot works',
-      tabTarget: 'review',
+      tabTarget: 'test',
       optionId: 'run-tests',
     },
     {
-      dimension: 'activated',
-      status: state.activated,
-      label: 'Set Up Triggers',
-      description: 'Configure when your bot should run automatically',
-      tabTarget: 'launch',
-      optionId: 'setup-triggers',
+      dimension: 'integrated',
+      status: state.integrated,
+      label: 'Set Up Integration',
+      description: 'Configure how your bot connects to your systems',
+      tabTarget: 'integrate',
+      optionId: 'setup-integration',
     },
     {
       dimension: 'monitored',
       status: state.monitored,
       label: 'Enable Monitoring',
       description: 'Set up monitoring to track performance',
-      tabTarget: 'launch',
+      tabTarget: 'integrate',
       optionId: 'enable-monitoring',
     },
   ];
@@ -213,7 +213,7 @@ export function getRecommendedAction(state: ReadinessState): RecommendedAction |
 export function getVisibleTabs(readiness: ReadinessState): AdaptiveTab[] {
   const tabs: AdaptiveTab[] = ['visual', 'code'];
   if (readiness.designed === 'complete' || readiness.designed === 'in-progress') {
-    tabs.push('review');
+    tabs.push('test');
   }
   return tabs;
 }

@@ -132,10 +132,8 @@ function buildEntityBlock(node: BalGraphNode): string {
     lines.push(`  ,"tools": { ${tools.map((tool) => `"${escapeString(tool)}"`).join(', ')} }`);
   }
 
-  const canRequest = node.data.canRequest ?? [];
-  if (canRequest.length > 0) {
-    lines.push(`  ,"can_request": [${canRequest.map((tool) => `"${escapeString(tool)}"`).join(', ')}]`);
-  }
+  // NOTE: can_request is not a supported BAL parser property yet.
+  // Omitted to avoid producing invalid BAL code.
 
   if (node.data.output && Object.keys(node.data.output).length > 0) {
     const fields = Object.entries(node.data.output)

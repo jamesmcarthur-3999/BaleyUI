@@ -8,6 +8,10 @@ export { ReviewExecutionProvider, useReviewExecution } from './ReviewExecutionCo
 export { ChatInterface } from './ChatInterface';
 export { ResultView } from './ResultView';
 export { ExecutionFlowReview } from './ExecutionFlowReview';
-export { FileUploadReview } from './FileUploadReview';
-export { WebhookTester } from './WebhookTester';
-export { StructuredFormReview } from './StructuredFormReview';
+export { DynamicTestRenderer } from './DynamicTestRenderer';
+export { JsonFormInput } from './JsonFormInput';
+export { WebhookSimulator } from './WebhookSimulator';
+export { FileInput } from './FileInput';
+export { UrlInput } from './UrlInput';
+export { RunButton } from './RunButton';
+export { ContextSetup } from './ContextSetup';

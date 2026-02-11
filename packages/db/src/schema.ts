@@ -869,6 +869,12 @@ export const baleybotExecutions = pgTable(
     durationMs: integer('duration_ms'),
     tokenCount: integer('token_count'),
 
+    // Detailed usage (populated at execution completion for direct analytics queries)
+    model: varchar('model', { length: 255 }),
+    tokensInput: integer('tokens_input'),
+    tokensOutput: integer('tokens_output'),
+    estimatedCost: doublePrecision('estimated_cost'),
+
     // Trigger info
     triggeredBy: varchar('triggered_by', { length: 50 }), // 'manual', 'schedule', 'webhook', 'other_bb'
     triggerSource: varchar('trigger_source', { length: 255 }), // e.g., BB ID if triggered by another BB
@@ -876,14 +882,19 @@ export const baleybotExecutions = pgTable(
     // Idempotency key for webhook deduplication
     idempotencyKey: varchar('idempotency_key', { length: 255 }),
 
+    // Conversation threading (groups multi-turn executions)
+    conversationId: uuid('conversation_id'),
+
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => [
     index('baleybot_executions_baleybot_idx').on(table.baleybotId),
     index('baleybot_executions_status_idx').on(table.status),
     index('baleybot_executions_created_idx').on(table.createdAt),
+    index('baleybot_executions_model_idx').on(table.model),
     index('baleybot_executions_baleybot_status_idx').on(table.baleybotId, table.status),
     index('bb_exec_bot_created_idx').on(table.baleybotId, table.createdAt),
+    index('bb_exec_conversation_idx').on(table.baleybotId, table.conversationId),
     uniqueIndex('bb_exec_idempotency_idx')
       .on(table.baleybotId, table.idempotencyKey)
       .where(sql`${table.idempotencyKey} IS NOT NULL`),

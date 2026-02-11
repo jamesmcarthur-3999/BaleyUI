@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Code, LayoutGrid, Loader2, Plus, Trash2 } from 'lucide-react';
 import { ClusterDiagram } from './ClusterDiagram';
 import { NodeEditor } from './NodeEditor';
@@ -494,16 +494,13 @@ export function VisualEditor({
     onChange(commandResult.balCode);
   };
 
-  const builderHint = useMemo(() => {
-    if (!canUseCanvasCommands) {
-      return isSimpleMode
-        ? 'This flow uses advanced logic. Switch to Advanced mode if you need to edit structure.'
-        : 'This flow uses advanced logic. You can still edit each step, but add/remove should be done in code view.';
-    }
-    return isSimpleMode
+  const builderHint = !canUseCanvasCommands
+    ? isSimpleMode
+      ? 'This flow uses advanced logic. Switch to Advanced mode if you need to edit structure.'
+      : 'This flow uses advanced logic. You can still edit each step, but add/remove should be done in code view.'
+    : isSimpleMode
       ? 'Click a step to edit it. Add Step builds your flow one step at a time.'
       : 'Click a step to edit it. Use + Add Step to grow the flow.';
-  }, [canUseCanvasCommands, isSimpleMode]);
 
   return (
     <div className={cn('flex flex-col h-full', className)}>

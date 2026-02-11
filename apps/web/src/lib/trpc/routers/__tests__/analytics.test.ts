@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   createMockContext,
-  createMockBlock,
   type MockContext,
 } from '../../__tests__/test-utils';
 
@@ -26,17 +25,17 @@ describe('Analytics Router Logic', () => {
   });
 
   describe('getCostSummary', () => {
-    it('returns cost breakdown by block', async () => {
-      const costByBlockResult = [
-        { blockId: 'b-1', blockName: 'Classifier', model: 'gpt-4', inputTokens: 1000, outputTokens: 500, executions: 10 },
-        { blockId: 'b-2', blockName: 'Summarizer', model: 'gpt-3.5', inputTokens: 5000, outputTokens: 2000, executions: 50 },
+    it('returns cost breakdown by BaleyBot', async () => {
+      const costByBotResult = [
+        { baleybotId: 'bb-1', baleybotName: 'Classifier', model: 'openai:gpt-4o', inputTokens: 1000, outputTokens: 500, totalCost: 0.0075, executions: 10 },
+        { baleybotId: 'bb-2', baleybotName: 'Summarizer', model: 'openai:gpt-4o-mini', inputTokens: 5000, outputTokens: 2000, totalCost: 0.002, executions: 50 },
       ];
 
       ctx.db.select.mockReturnValue({
         from: vi.fn().mockReturnValue({
           innerJoin: vi.fn().mockReturnValue({
             where: vi.fn().mockReturnValue({
-              groupBy: vi.fn().mockResolvedValue(costByBlockResult),
+              groupBy: vi.fn().mockResolvedValue(costByBotResult),
             }),
           }),
         }),
@@ -45,14 +44,14 @@ describe('Analytics Router Logic', () => {
       const result = await ctx.db.select({}).from({}).innerJoin({}).where({}).groupBy({});
 
       expect(result).toHaveLength(2);
-      expect(result[0].blockName).toBe('Classifier');
+      expect(result[0].baleybotName).toBe('Classifier');
       expect(result[1].executions).toBe(50);
     });
 
     it('returns cost breakdown by model', async () => {
       const costByModelResult = [
-        { model: 'gpt-4', inputTokens: 10000, outputTokens: 5000, executions: 100 },
-        { model: 'claude-3-sonnet', inputTokens: 8000, outputTokens: 3000, executions: 80 },
+        { model: 'openai:gpt-4o', inputTokens: 10000, outputTokens: 5000, totalCost: 0.075, executions: 100 },
+        { model: 'anthropic:claude-sonnet-4-20250514', inputTokens: 8000, outputTokens: 3000, totalCost: 0.069, executions: 80 },
       ];
 
       ctx.db.select.mockReturnValue({
@@ -68,7 +67,7 @@ describe('Analytics Router Logic', () => {
       const result = await ctx.db.select({}).from({}).innerJoin({}).where({}).groupBy({});
 
       expect(result).toHaveLength(2);
-      expect(result[0].model).toBe('gpt-4');
+      expect(result[0].model).toBe('openai:gpt-4o');
     });
 
     it('returns zero total cost when no executions', async () => {
@@ -89,15 +88,14 @@ describe('Analytics Router Logic', () => {
       expect(totalCost).toBe(0);
     });
 
-    it('filters by blockId when specified', () => {
-      // The router adds blockId to conditions when input.blockId is present
+    it('filters by baleybotId when specified', () => {
       const conditions = [
         { _type: 'eq', a: 'workspaceId', b: 'ws-1' },
-        { _type: 'eq', a: 'blockId', b: 'specific-block' },
+        { _type: 'eq', a: 'baleybotId', b: 'specific-bot' },
       ];
 
       expect(conditions).toHaveLength(2);
-      expect(conditions[1]!.b).toBe('specific-block');
+      expect(conditions[1]!.b).toBe('specific-bot');
     });
   });
 
@@ -121,17 +119,17 @@ describe('Analytics Router Logic', () => {
       expect(result[0].avgMs).toBe(200);
     });
 
-    it('returns latency breakdown by block', async () => {
-      const byBlockResult = [
-        { blockId: 'b-1', blockName: 'Fast Block', blockType: 'code', p50: 10, p95: 25, p99: 50, avgMs: 15, executions: 1000 },
-        { blockId: 'b-2', blockName: 'Slow Block', blockType: 'decision', p50: 500, p95: 1200, p99: 2000, avgMs: 600, executions: 100 },
+    it('returns latency breakdown by BaleyBot', async () => {
+      const byBotResult = [
+        { baleybotId: 'bb-1', baleybotName: 'Fast Bot', p50: 10, p95: 25, p99: 50, avgMs: 15, executions: 1000 },
+        { baleybotId: 'bb-2', baleybotName: 'Slow Bot', p50: 500, p95: 1200, p99: 2000, avgMs: 600, executions: 100 },
       ];
 
       ctx.db.select.mockReturnValue({
         from: vi.fn().mockReturnValue({
           innerJoin: vi.fn().mockReturnValue({
             where: vi.fn().mockReturnValue({
-              groupBy: vi.fn().mockResolvedValue(byBlockResult),
+              groupBy: vi.fn().mockResolvedValue(byBotResult),
             }),
           }),
         }),
@@ -140,7 +138,7 @@ describe('Analytics Router Logic', () => {
       const result = await ctx.db.select({}).from({}).innerJoin({}).where({}).groupBy({});
 
       expect(result).toHaveLength(2);
-      expect(result[0].blockName).toBe('Fast Block');
+      expect(result[0].baleybotName).toBe('Fast Bot');
       expect(result[1].p50).toBe(500);
     });
 
@@ -199,39 +197,6 @@ describe('Analytics Router Logic', () => {
       for (const g of granularities) {
         expect(['day', 'week', 'month']).toContain(g);
       }
-    });
-  });
-
-  describe('getCodeVsAiComparison', () => {
-    it('verifies block exists before comparison', async () => {
-      const mockBlock = createMockBlock({ id: 'b-1', model: 'gpt-4' });
-      ctx.db.query.blocks.findFirst.mockResolvedValue(mockBlock);
-
-      const result = await ctx.db.query.blocks.findFirst();
-
-      expect(result).not.toBeNull();
-      expect(result?.model).toBe('gpt-4');
-    });
-
-    it('returns null when block not found', async () => {
-      ctx.db.query.blocks.findFirst.mockResolvedValue(null);
-
-      const result = await ctx.db.query.blocks.findFirst();
-
-      expect(result).toBeNull();
-      // In actual router, this would throw NOT_FOUND
-    });
-
-    it('calculates AI vs code comparison metrics', () => {
-      const aiStats = { avgLatency: 500, inputTokens: 10000, outputTokens: 5000, executions: 100 };
-      const codeStats = { avgLatency: 10, executions: 200 };
-
-      const aiCost = (aiStats.inputTokens + aiStats.outputTokens) / 1000 * 0.001;
-      const avgAiCost = aiStats.executions > 0 ? aiCost / aiStats.executions : 0;
-
-      expect(aiStats.avgLatency).toBeGreaterThan(codeStats.avgLatency);
-      expect(avgAiCost).toBeGreaterThan(0);
-      expect(codeStats.executions).toBeGreaterThan(aiStats.executions);
     });
   });
 

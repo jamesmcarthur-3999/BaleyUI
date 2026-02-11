@@ -20,7 +20,9 @@ import {
   eq,
   and,
   lte,
+  sql,
   notDeleted,
+  withTransaction,
 } from '@baleyui/db';
 import { executeBALCode } from '@baleyui/sdk';
 import { parseCronExpression } from './cron-utils';
@@ -80,15 +82,20 @@ export async function GET(request: Request): Promise<Response> {
   log.info(' Starting scheduled task processing');
 
   try {
-    // Query due tasks (limit to 50 per invocation)
-    const dueTasks = await db.query.scheduledTasks.findMany({
-      where: and(
-        eq(scheduledTasks.status, 'pending'),
-        lte(scheduledTasks.runAt, new Date())
-      ),
-      limit: 50,
-      orderBy: (tasks, { asc }) => [asc(tasks.runAt)],
-    });
+    // Query and lock due tasks (limit to 50 per invocation).
+    // Uses FOR UPDATE SKIP LOCKED to prevent concurrent cron instances
+    // from double-executing the same tasks.
+    const dueTasks = await db.execute(sql`
+      SELECT id, workspace_id AS "workspaceId", baleybot_id AS "baleybotId",
+             run_at AS "runAt", cron_expression AS "cronExpression",
+             input, status, run_count AS "runCount", max_runs AS "maxRuns"
+      FROM scheduled_tasks
+      WHERE status = 'pending'
+        AND run_at <= NOW()
+      ORDER BY run_at ASC
+      LIMIT 50
+      FOR UPDATE SKIP LOCKED
+    `) as unknown as ScheduledTask[];
 
     if (dueTasks.length === 0) {
       log.info(' No due tasks found');
@@ -210,33 +217,34 @@ async function processScheduledTask(task: ScheduledTask): Promise<TaskResult> {
 
     const durationMs = Date.now() - taskStartTime;
 
-    // Update execution record with success
-    await db
-      .update(baleybotExecutions)
-      .set({
-        status: 'completed',
-        output: result as unknown as Record<string, unknown>,
-        completedAt: new Date(),
-        durationMs,
-      })
-      .where(eq(baleybotExecutions.id, execution.id));
-
-    // Handle recurring tasks
-    if (task.cronExpression) {
-      await rescheduleRecurringTask(task);
-    } else {
-      // One-time task completed
-      await db
-        .update(scheduledTasks)
+    // Update execution record + task status atomically
+    await withTransaction(async (tx) => {
+      await tx
+        .update(baleybotExecutions)
         .set({
           status: 'completed',
-          lastRunAt: new Date(),
-          lastRunStatus: 'completed',
-          executionId: execution.id,
-          runCount: (task.runCount ?? 0) + 1,
+          output: result as unknown as Record<string, unknown>,
+          completedAt: new Date(),
+          durationMs,
         })
-        .where(eq(scheduledTasks.id, task.id));
-    }
+        .where(eq(baleybotExecutions.id, execution.id));
+
+      if (task.cronExpression) {
+        await rescheduleRecurringTask(task, tx);
+      } else {
+        // One-time task completed
+        await tx
+          .update(scheduledTasks)
+          .set({
+            status: 'completed',
+            lastRunAt: new Date(),
+            lastRunStatus: 'completed',
+            executionId: execution.id,
+            runCount: (task.runCount ?? 0) + 1,
+          })
+          .where(eq(scheduledTasks.id, task.id));
+      }
+    });
 
     return {
       taskId: task.id,
@@ -282,13 +290,17 @@ async function processScheduledTask(task: ScheduledTask): Promise<TaskResult> {
 // RECURRING TASK HANDLING
 // ============================================================================
 
-async function rescheduleRecurringTask(task: ScheduledTask): Promise<void> {
+async function rescheduleRecurringTask(
+  task: ScheduledTask,
+  tx?: Parameters<Parameters<typeof db.transaction>[0]>[0]
+): Promise<void> {
   if (!task.cronExpression) return;
+  const executor = tx || db;
 
   // Check if max runs reached
   if (task.maxRuns !== null && (task.runCount ?? 0) + 1 >= task.maxRuns) {
     log.info('Task reached max runs', { taskId: task.id });
-    await db
+    await executor
       .update(scheduledTasks)
       .set({ status: 'completed' })
       .where(eq(scheduledTasks.id, task.id));
@@ -305,7 +317,7 @@ async function rescheduleRecurringTask(task: ScheduledTask): Promise<void> {
 
   log.info('Rescheduling task', { taskId: task.id, nextRun: nextRun.toISOString() });
 
-  await db
+  await executor
     .update(scheduledTasks)
     .set({
       status: 'pending',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 /**
  * State snapshot for history tracking
@@ -90,45 +90,42 @@ export function useHistory<T>(options: UseHistoryOptions<T> = {}): UseHistoryRet
   /**
    * Push a new state onto the history
    */
-  const push = useCallback(
-    (state: T, description?: string) => {
-      setFuture([]); // Clear redo stack
+  const push = (state: T, description?: string) => {
+    setFuture([]); // Clear redo stack
 
-      if (present) {
-        setPast((prev) => {
-          const newPast = [...prev, present];
-          // Limit history size
-          if (newPast.length > maxStates) {
-            return newPast.slice(newPast.length - maxStates);
-          }
-          return newPast;
-        });
-      }
-
-      setPresent({
-        state,
-        timestamp: Date.now(),
-        description,
+    if (present) {
+      setPast((prev) => {
+        const newPast = [...prev, present];
+        // Limit history size
+        if (newPast.length > maxStates) {
+          return newPast.slice(newPast.length - maxStates);
+        }
+        return newPast;
       });
-    },
-    [present, maxStates]
-  );
+    }
+
+    setPresent({
+      state,
+      timestamp: Date.now(),
+      description,
+    });
+  };
 
   /**
    * Replace current state without adding to history
    */
-  const replace = useCallback((state: T) => {
+  const replace = (state: T) => {
     setPresent((prev) =>
       prev
         ? { ...prev, state, timestamp: Date.now() }
         : { state, timestamp: Date.now() }
     );
-  }, []);
+  };
 
   /**
    * Undo to previous state
    */
-  const undo = useCallback(() => {
+  const undo = () => {
     if (past.length === 0) return;
 
     const previous = past[past.length - 1]!; // Safe: checked length above
@@ -142,12 +139,12 @@ export function useHistory<T>(options: UseHistoryOptions<T> = {}): UseHistoryRet
 
     // Notify consumer of state change
     onStateChange?.(previous.state);
-  }, [past, present, onStateChange]);
+  };
 
   /**
    * Redo to next state
    */
-  const redo = useCallback(() => {
+  const redo = () => {
     if (future.length === 0) return;
 
     const next = future[0]!; // Safe: checked length above
@@ -161,16 +158,16 @@ export function useHistory<T>(options: UseHistoryOptions<T> = {}): UseHistoryRet
 
     // Notify consumer of state change
     onStateChange?.(next.state);
-  }, [future, present, onStateChange]);
+  };
 
   /**
    * Clear all history
    */
-  const clear = useCallback(() => {
+  const clear = () => {
     setPast([]);
     setPresent(null);
     setFuture([]);
-  }, []);
+  };
 
   /**
    * Handle keyboard shortcuts

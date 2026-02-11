@@ -126,6 +126,9 @@ export function ConversationThread({
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-5"
+        role="log"
+        aria-live="polite"
+        aria-label="Conversation"
       >
         {messageList}
       </div>

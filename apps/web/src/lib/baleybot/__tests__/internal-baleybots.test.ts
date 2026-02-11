@@ -66,6 +66,7 @@ const ALL_INTERNAL_BOTS = [
   'nl_to_sql_postgres',
   'pattern_learner',
   'test_generator',
+  'test_interface_designer',
   'test_orchestrator',
   'test_results_analyzer',
   'test_validator',
@@ -93,9 +94,9 @@ describe('internal-baleybots', () => {
       }
     });
 
-    it('has exactly 17 internal bots', () => {
+    it('has exactly 18 internal bots', () => {
       const definedBots = Object.keys(INTERNAL_BALEYBOTS);
-      expect(definedBots).toHaveLength(17);
+      expect(definedBots).toHaveLength(18);
     });
 
     it.each(ALL_INTERNAL_BOTS)('%s has required fields (name, description, icon, balCode)', (botName) => {
@@ -180,7 +181,7 @@ describe('internal-baleybots', () => {
     // Verify output fields via string matching (bypasses parser)
     // All current internal bots have output schemas except baley (conversational, no output)
     // Bots that use conversational mode (no structured output schema)
-    const CONVERSATIONAL_BOTS = new Set(['baley', 'creator_bot']);
+    const CONVERSATIONAL_BOTS = new Set(['baley', 'creator_bot', 'integration_builder']);
     const BOTS_WITH_OUTPUT = ALL_INTERNAL_BOTS.filter(name => !CONVERSATIONAL_BOTS.has(name));
     it.each(BOTS_WITH_OUTPUT)('%s balCode contains an "output" block', (botName) => {
       const bot = INTERNAL_BALEYBOTS[botName]!;

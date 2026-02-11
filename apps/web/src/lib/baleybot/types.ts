@@ -47,17 +47,22 @@ export type BaleybotLifecycleStage = 'draft' | 'verified' | 'launch_prepared' | 
  */
 export interface RuntimeInterfaceSpec {
   version: 1;
-  mode: 'chat' | 'form' | 'hybrid';
+  mode: 'chat' | 'form' | 'hybrid' | 'file' | 'webhook';
   inputSchema?: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
   components: Array<
-    | { type: 'chat_input'; id: string; label: string }
-    | { type: 'json_form'; id: string; schema: Record<string, unknown> }
-    | { type: 'file_input'; id: string; accept: string[] }
+    | { type: 'chat_input'; id: string; label: string; placeholder?: string }
+    | { type: 'json_form'; id: string; label: string; schema?: Record<string, unknown>; samplePayload?: Record<string, unknown> }
+    | { type: 'file_input'; id: string; label: string; accept?: string[]; maxSizeMb?: number }
     | { type: 'run_button'; id: string; label: string }
     | { type: 'result_view'; id: string; format: 'text' | 'json' | 'table' | 'mixed' }
     | { type: 'cluster_trace'; id: string; showEntityTiming: boolean }
+    | { type: 'webhook_simulator'; id: string; label: string; samplePayload?: Record<string, unknown> }
+    | { type: 'url_input'; id: string; label: string; placeholder?: string }
+    | { type: 'context_setup'; id: string; label: string; fields: Array<{ key: string; label: string; type: 'text' | 'number' | 'json' }> }
   >;
+  testSuggestions?: string[];
+  rationale?: string;
 }
 
 /**
@@ -573,6 +578,14 @@ export interface ExecutionResult {
   segments: BaleybotStreamEvent[];
   durationMs: number;
   tokenCount?: number;
+  /** Model used for execution (e.g. "openai:gpt-4o") */
+  model?: string;
+  /** Input tokens consumed */
+  tokensInput?: number;
+  /** Output tokens consumed */
+  tokensOutput?: number;
+  /** Estimated cost in USD */
+  estimatedCost?: number;
   /** Schema validation result (if entity has output schema) */
   schemaValidation?: SchemaValidationResult;
 }

@@ -19,6 +19,22 @@ const plusJakarta = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: 'BaleyUI - AI-First Product Development',
   description: 'Visual platform for building, composing, and evolving AI-powered workflows',
+  metadataBase: new URL('https://baley-ui-web.vercel.app'),
+  openGraph: {
+    title: 'BaleyUI',
+    description: 'Visual platform for building, composing, and evolving AI-powered workflows',
+    siteName: 'BaleyUI',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary',
+    title: 'BaleyUI',
+    description: 'Visual platform for building, composing, and evolving AI-powered workflows',
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({

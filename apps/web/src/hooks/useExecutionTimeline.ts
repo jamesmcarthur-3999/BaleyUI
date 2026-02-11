@@ -5,7 +5,7 @@
  * Wraps useExecutionStream and provides structured node state tracking.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useExecutionStream } from './useExecutionStream';
 import type {
   ExecutionEvent,
@@ -97,160 +97,153 @@ export function useExecutionTimeline(
   const [error, setError] = useState<string | null>(initialExecution?.error || null);
 
   // Check if execution is already complete from initial data
-  const isInitiallyComplete = useMemo(
-    () =>
-      initialExecution?.status
-        ? ['completed', 'failed', 'cancelled'].includes(initialExecution.status)
-        : false,
-    [initialExecution?.status]
-  );
+  const isInitiallyComplete = initialExecution?.status
+    ? ['completed', 'failed', 'cancelled'].includes(initialExecution.status)
+    : false;
 
   // Process incoming events
-  const handleEvent = useCallback(
-    (event: ExecutionEvent) => {
-      switch (event.type) {
-        case 'execution_start':
-          setStatus('running');
-          break;
+  const handleEvent = (event: ExecutionEvent) => {
+    switch (event.type) {
+      case 'execution_start':
+        setStatus('running');
+        break;
 
-        case 'node_start': {
-          const nodeStart = event as { nodeId: string; blockExecutionId: string; input: unknown };
-          setActiveNodeId(nodeStart.nodeId);
-          setNodeStates((prev) => {
-            const next = new Map(prev);
-            next.set(nodeStart.nodeId, {
-              nodeId: nodeStart.nodeId,
-              status: 'running',
-              blockExecutionId: nodeStart.blockExecutionId,
-              startedAt: new Date(),
-              input: nodeStart.input,
-              streamContent: '',
-              toolCalls: [],
-            });
-            return next;
+      case 'node_start': {
+        const nodeStart = event as { nodeId: string; blockExecutionId: string; input: unknown };
+        setActiveNodeId(nodeStart.nodeId);
+        setNodeStates((prev) => {
+          const next = new Map(prev);
+          next.set(nodeStart.nodeId, {
+            nodeId: nodeStart.nodeId,
+            status: 'running',
+            blockExecutionId: nodeStart.blockExecutionId,
+            startedAt: new Date(),
+            input: nodeStart.input,
+            streamContent: '',
+            toolCalls: [],
           });
-          break;
-        }
-
-        case 'node_stream': {
-          const nodeStream = event as { nodeId: string; event: BaleybotStreamEvent };
-          const streamEvent = nodeStream.event;
-
-          setNodeStates((prev) => {
-            const next = new Map(prev);
-            const current = next.get(nodeStream.nodeId);
-            if (!current) return prev;
-
-            const updated = { ...current };
-
-            // Handle text deltas
-            if (streamEvent.type === 'text_delta') {
-              updated.streamContent += streamEvent.content;
-            }
-
-            // Handle tool calls
-            if (streamEvent.type === 'tool_call_stream_start') {
-              updated.toolCalls = [
-                ...updated.toolCalls,
-                {
-                  id: streamEvent.id,
-                  toolName: streamEvent.toolName,
-                  status: 'streaming',
-                },
-              ];
-            }
-
-            if (streamEvent.type === 'tool_call_stream_complete') {
-              updated.toolCalls = updated.toolCalls.map((tc) =>
-                tc.id === streamEvent.id
-                  ? { ...tc, arguments: streamEvent.arguments, status: 'executing' as const }
-                  : tc
-              );
-            }
-
-            if (streamEvent.type === 'tool_execution_output') {
-              updated.toolCalls = updated.toolCalls.map((tc) =>
-                tc.id === streamEvent.id
-                  ? {
-                      ...tc,
-                      result: streamEvent.result,
-                      error: streamEvent.error,
-                      status: streamEvent.error ? ('error' as const) : ('completed' as const),
-                    }
-                  : tc
-              );
-            }
-
-            next.set(nodeStream.nodeId, updated);
-            return next;
-          });
-          break;
-        }
-
-        case 'node_complete': {
-          const nodeComplete = event as { nodeId: string; output: unknown; durationMs: number };
-          setNodeStates((prev) => {
-            const next = new Map(prev);
-            const current = next.get(nodeComplete.nodeId);
-            if (!current) return prev;
-
-            next.set(nodeComplete.nodeId, {
-              ...current,
-              status: 'completed',
-              output: nodeComplete.output,
-              completedAt: new Date(),
-              durationMs: nodeComplete.durationMs,
-            });
-            return next;
-          });
-          // Don't clear activeNodeId here - let the next node_start do it
-          break;
-        }
-
-        case 'node_error': {
-          const nodeError = event as { nodeId: string; error: string };
-          setNodeStates((prev) => {
-            const next = new Map(prev);
-            const current = next.get(nodeError.nodeId);
-            if (!current) return prev;
-
-            next.set(nodeError.nodeId, {
-              ...current,
-              status: 'failed',
-              error: nodeError.error,
-              completedAt: new Date(),
-            });
-            return next;
-          });
-          break;
-        }
-
-        case 'execution_complete': {
-          const execComplete = event as { output: unknown };
-          setStatus('completed');
-          setOutput(execComplete.output);
-          setActiveNodeId(null);
-          onComplete?.(execComplete.output);
-          break;
-        }
-
-        case 'execution_error': {
-          const execError = event as { error: string };
-          setStatus('failed');
-          setError(execError.error);
-          setActiveNodeId(null);
-          onError?.(execError.error);
-          break;
-        }
-
-        case 'execution_cancelled':
-          setStatus('cancelled');
-          setActiveNodeId(null);
-          break;
+          return next;
+        });
+        break;
       }
-    },
-    [onComplete, onError]
-  );
+
+      case 'node_stream': {
+        const nodeStream = event as { nodeId: string; event: BaleybotStreamEvent };
+        const streamEvent = nodeStream.event;
+
+        setNodeStates((prev) => {
+          const next = new Map(prev);
+          const current = next.get(nodeStream.nodeId);
+          if (!current) return prev;
+
+          const updated = { ...current };
+
+          // Handle text deltas
+          if (streamEvent.type === 'text_delta') {
+            updated.streamContent += streamEvent.content;
+          }
+
+          // Handle tool calls
+          if (streamEvent.type === 'tool_call_stream_start') {
+            updated.toolCalls = [
+              ...updated.toolCalls,
+              {
+                id: streamEvent.id,
+                toolName: streamEvent.toolName,
+                status: 'streaming',
+              },
+            ];
+          }
+
+          if (streamEvent.type === 'tool_call_stream_complete') {
+            updated.toolCalls = updated.toolCalls.map((tc) =>
+              tc.id === streamEvent.id
+                ? { ...tc, arguments: streamEvent.arguments, status: 'executing' as const }
+                : tc
+            );
+          }
+
+          if (streamEvent.type === 'tool_execution_output') {
+            updated.toolCalls = updated.toolCalls.map((tc) =>
+              tc.id === streamEvent.id
+                ? {
+                    ...tc,
+                    result: streamEvent.result,
+                    error: streamEvent.error,
+                    status: streamEvent.error ? ('error' as const) : ('completed' as const),
+                  }
+                : tc
+            );
+          }
+
+          next.set(nodeStream.nodeId, updated);
+          return next;
+        });
+        break;
+      }
+
+      case 'node_complete': {
+        const nodeComplete = event as { nodeId: string; output: unknown; durationMs: number };
+        setNodeStates((prev) => {
+          const next = new Map(prev);
+          const current = next.get(nodeComplete.nodeId);
+          if (!current) return prev;
+
+          next.set(nodeComplete.nodeId, {
+            ...current,
+            status: 'completed',
+            output: nodeComplete.output,
+            completedAt: new Date(),
+            durationMs: nodeComplete.durationMs,
+          });
+          return next;
+        });
+        // Don't clear activeNodeId here - let the next node_start do it
+        break;
+      }
+
+      case 'node_error': {
+        const nodeError = event as { nodeId: string; error: string };
+        setNodeStates((prev) => {
+          const next = new Map(prev);
+          const current = next.get(nodeError.nodeId);
+          if (!current) return prev;
+
+          next.set(nodeError.nodeId, {
+            ...current,
+            status: 'failed',
+            error: nodeError.error,
+            completedAt: new Date(),
+          });
+          return next;
+        });
+        break;
+      }
+
+      case 'execution_complete': {
+        const execComplete = event as { output: unknown };
+        setStatus('completed');
+        setOutput(execComplete.output);
+        setActiveNodeId(null);
+        onComplete?.(execComplete.output);
+        break;
+      }
+
+      case 'execution_error': {
+        const execError = event as { error: string };
+        setStatus('failed');
+        setError(execError.error);
+        setActiveNodeId(null);
+        onError?.(execError.error);
+        break;
+      }
+
+      case 'execution_cancelled':
+        setStatus('cancelled');
+        setActiveNodeId(null);
+        break;
+    }
+  };
 
   // Use the base execution stream hook
   const {
@@ -283,16 +276,12 @@ export function useExecutionTimeline(
   }, [events, handleEvent]);
 
   // Get current streaming content for display
-  const currentStreamContent = useMemo(() => {
-    if (!activeNodeId) return '';
-    return nodeStates.get(activeNodeId)?.streamContent || '';
-  }, [activeNodeId, nodeStates]);
+  const currentStreamContent = activeNodeId
+    ? nodeStates.get(activeNodeId)?.streamContent || ''
+    : '';
 
   // Check if complete
-  const isComplete = useMemo(
-    () => ['completed', 'failed', 'cancelled'].includes(status),
-    [status]
-  );
+  const isComplete = ['completed', 'failed', 'cancelled'].includes(status);
 
   return {
     status,

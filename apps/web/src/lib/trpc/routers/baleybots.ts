@@ -1,12 +1,3 @@
-// TODO: STYLE-002 - This file is ~2,600 lines. Consider splitting into:
-// - baleybots-queries.ts (list, getById queries)
-// - baleybots-mutations.ts (create, update, delete mutations)
-// - baleybots-execution.ts (execute, stream procedures)
-// - baleybots-creator.ts (creator pipeline, guidance)
-// - baleybots-testing.ts (test generation, validation, analysis)
-// - baleybots-launch.ts (readiness, launch kit, deploy)
-// - baleybots-schemas.ts (shared zod schemas)
-
 import { z } from 'zod';
 import { router, roleProcedure, editorProcedure, operatorProcedure, adminProcedure } from '../trpc';
 import {
@@ -15,6 +6,7 @@ import {
   baleybotTriggers,
   connections,
   eq,
+  lt,
   and,
   desc,
   notDeleted,
@@ -25,13 +17,13 @@ import {
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { sanitizeCreatorText } from '@/lib/baleybot/creator-sanitization';
-import { canExecute } from '@/lib/baleybot/executor';
+import { canExecute, executeBaleybot, type ExecutorContext } from '@/lib/baleybot/executor';
 import { getPreferredProvider } from '@/lib/baleybot';
 import { buildCreatorRequestContext } from '@/lib/baleybot/creator-request-context';
 import { executeInternalBaleybot } from '@/lib/baleybot/internal-baleybots';
 import { runCreatorActionAdvisor } from '@/lib/baleybot/internal-bb/runner';
 import { creatorOutputSchema } from '@/lib/baleybot/creator-types';
-import { executeBALCode, compileBALCode } from '@baleyui/sdk';
+import { compileBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
 import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
 import { evaluateLaunchReadiness, buildLaunchKit, buildDefaultRuntimeInterface } from '@/lib/baleybot/launch-prep';
@@ -53,8 +45,9 @@ import {
   runTestOrchestrator,
   runTestResultsAnalyzer,
   runTestValidator,
+  runTestInterfaceDesigner,
 } from '@/lib/baleybot/internal-bb/runner';
-import { getWorkspaceAICredentials, initializeBuiltInToolServices, getWorkspaceTavilyKey } from '@/lib/baleybot/services';
+import { initializeBuiltInToolServices, getWorkspaceTavilyKey } from '@/lib/baleybot/services';
 import { sharedStorageService } from '@/lib/baleybot/services/shared-storage-service';
 import { configureWebSearch } from '@/lib/baleybot/tools/built-in/implementations';
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
@@ -245,6 +238,19 @@ export const baleybotsRouter = router({
         conditions.push(eq(baleybots.status, input.status));
       }
 
+      // Cursor-based pagination: fetch items created before the cursor
+      if (input?.cursor) {
+        const cursorBot = await ctx.db.query.baleybots.findFirst({
+          where: eq(baleybots.id, input.cursor),
+          columns: { createdAt: true },
+        });
+        if (cursorBot) {
+          conditions.push(lt(baleybots.createdAt, cursorBot.createdAt));
+        }
+      }
+
+      const limit = input?.limit ?? 50;
+
       // API-004: Select only fields needed for list display
       const allBaleybots = await ctx.db.query.baleybots.findMany({
         where: and(...conditions),
@@ -262,7 +268,7 @@ export const baleybotsRouter = router({
           // Exclude heavy fields: balCode, structure, entityNames, dependencies, conversationHistory
         },
         orderBy: [desc(baleybots.createdAt)],
-        limit: input?.limit ?? 50,
+        limit: limit + 1, // Fetch one extra to determine if there's a next page
         with: {
           executions: {
             limit: 1,
@@ -278,11 +284,18 @@ export const baleybotsRouter = router({
         },
       });
 
-      return allBaleybots.map((bb) => ({
-        ...bb,
-        lastExecution: bb.executions[0] ?? null,
-        executions: undefined, // Don't include full executions array
-      }));
+      const hasMore = allBaleybots.length > limit;
+      const items = hasMore ? allBaleybots.slice(0, limit) : allBaleybots;
+      const nextCursor = hasMore ? items[items.length - 1]?.id : undefined;
+
+      return {
+        items: items.map((bb) => ({
+          ...bb,
+          lastExecution: bb.executions[0] ?? null,
+          executions: undefined, // Don't include full executions array
+        })),
+        nextCursor,
+      };
     }),
 
   /**
@@ -668,7 +681,7 @@ export const baleybotsRouter = router({
         return exec;
       });
 
-      // Execute the BAL code outside the transaction so failure status updates persist
+      // Execute through the unified executor (handles analytics, usage tracking, alerts)
       const startTime = Date.now();
       try {
         // Update status to running
@@ -676,20 +689,6 @@ export const baleybotsRouter = router({
           .update(baleybotExecutions)
           .set({ status: 'running', startedAt: new Date() })
           .where(eq(baleybotExecutions.id, execution.id));
-
-        // Get preferred provider from BAL code (respects model specified in entities)
-        const preferredProvider = getPreferredProvider(baleybot.balCode);
-
-        // Get AI credentials from workspace connections, matching the BAL code's provider
-        const credentials = await getWorkspaceAICredentials(ctx.workspace.id, preferredProvider);
-        if (!credentials) {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: preferredProvider
-              ? `No ${preferredProvider} provider configured for this workspace. Please add an ${preferredProvider === 'openai' ? 'OpenAI' : 'Anthropic'} connection in Settings.`
-              : 'No AI provider configured for this workspace. Please add an OpenAI or Anthropic connection in Settings.',
-          });
-        }
 
         // Configure web search if Tavily key is available (env or workspace DB)
         const tavilyKey = await getWorkspaceTavilyKey(ctx.workspace.id);
@@ -714,56 +713,49 @@ export const baleybotsRouter = router({
           toolCtx,
         });
 
-        // Convert to format expected by SDK
-        const availableTools: Record<string, {
-          name: string;
-          description: string;
-          inputSchema: Record<string, unknown>;
-          function: (args: Record<string, unknown>) => Promise<unknown>;
-        }> = {};
-
-        for (const [name, tool] of runtimeTools.entries()) {
-          availableTools[name] = {
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-            function: tool.function,
-          };
-        }
-
         log.info('Loaded tools for execution', {
           executionId: execution.id,
-          tools: Object.keys(availableTools),
+          tools: Array.from(runtimeTools.keys()),
         });
 
-        // Execute the BAL code with the provided input and available tools
-        // Don't override model - let BAL code's model specification take precedence
+        // Execute through the unified executor path
+        const executorCtx: ExecutorContext = {
+          workspaceId: ctx.workspace.id,
+          baleybotId: input.id,
+          availableTools: runtimeTools,
+          workspacePolicies: null,
+          triggeredBy: (input.triggeredBy as ExecutorContext['triggeredBy']) || 'manual',
+          triggerSource: input.triggerSource ?? undefined,
+        };
+
         const inputStr = input.input ? JSON.stringify(input.input) : undefined;
-        const result = await executeBALCode(baleybot.balCode, {
-          input: inputStr,
-          apiKey: credentials.apiKey,
-          timeout: 60000, // 60 second timeout
-          availableTools,
-        });
-
-        const duration = Date.now() - startTime;
+        const result = await executeBaleybot(baleybot.balCode, inputStr ?? '', executorCtx);
 
         log.info('Baleybot execution completed', {
           baleybotId: input.id,
           executionId: execution.id,
           status: result.status,
-          durationMs: duration,
+          durationMs: result.durationMs,
+          model: result.model,
+          tokensInput: result.tokensInput,
+          tokensOutput: result.tokensOutput,
         });
 
-        // Update execution with result
+        // Update execution with result (including usage data for analytics)
         await ctx.db
           .update(baleybotExecutions)
           .set({
-            status: result.status === 'success' ? 'completed' : result.status === 'cancelled' ? 'cancelled' : 'failed',
-            output: result.result,
+            status: result.status,
+            output: result.output,
             error: result.error,
+            segments: result.segments,
             completedAt: new Date(),
-            durationMs: duration,
+            durationMs: result.durationMs,
+            tokenCount: result.tokenCount,
+            model: result.model,
+            tokensInput: result.tokensInput,
+            tokensOutput: result.tokensOutput,
+            estimatedCost: result.estimatedCost,
           })
           .where(eq(baleybotExecutions.id, execution.id));
 
@@ -1464,6 +1456,103 @@ export const baleybotsRouter = router({
   /**
    * Generate test cases using the test_generator internal BB.
    */
+  designTestInterface: editorProcedure
+    .input(z.object({ baleybotId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const baleybot = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.baleybotId),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots),
+        ),
+      });
+      if (!baleybot) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+      if (!baleybot.balCode) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'BaleyBot has no BAL code' });
+      }
+
+      // Compile BAL to extract PipelineStructure (compile-only, no execution)
+      let compiled: { structure?: unknown } = {};
+      try {
+        compiled = compileBALCode(baleybot.balCode, {});
+      } catch (compileErr) {
+        // BAL may be syntactically valid but fail compilation — continue with empty structure
+        log.warn('BAL compilation failed for test interface design', {
+          baleybotId: input.baleybotId,
+          error: compileErr instanceof Error ? compileErr.message : String(compileErr),
+        });
+      }
+
+      // Parse BAL to get entity details
+      let parsed: { entities: Array<{ name: string; config?: Record<string, unknown> }> } = { entities: [] };
+      try {
+        parsed = parseBalCode(baleybot.balCode);
+      } catch (parseErr) {
+        log.warn('BAL parse failed for test interface design', {
+          baleybotId: input.baleybotId,
+          error: parseErr instanceof Error ? parseErr.message : String(parseErr),
+        });
+      }
+      const entityMeta = parsed.entities.map(e => ({
+        name: e.name,
+        goal: typeof e.config?.goal === 'string' ? e.config.goal : '',
+        tools: (Array.isArray(e.config?.tools) ? e.config.tools : []) as string[],
+        model: typeof e.config?.model === 'string' ? e.config.model : undefined,
+        output: e.config?.output != null && typeof e.config.output === 'object'
+          ? (e.config.output as Record<string, string>)
+          : undefined,
+      }));
+
+      // Fetch trigger config if one exists
+      const trigger = await ctx.db.query.baleybotTriggers.findFirst({
+        where: and(
+          eq(baleybotTriggers.targetBaleybotId, input.baleybotId),
+          eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+        ),
+      });
+
+      // Build rich context for the AI
+      const contextStr = [
+        'BAL Code:',
+        baleybot.balCode,
+        '',
+        'PipelineStructure:',
+        JSON.stringify(compiled.structure ?? { type: 'bot', name: parsed.entities[0]?.name ?? 'unknown' }, null, 2),
+        '',
+        'Entity Metadata:',
+        ...entityMeta.map(e =>
+          `- ${e.name}: goal="${e.goal}", tools=[${e.tools.join(', ')}]${e.output ? `, output=${JSON.stringify(e.output)}` : ''}${e.model ? `, model=${e.model}` : ''}`
+        ),
+        '',
+        trigger ? `Trigger Config: type=${trigger.triggerType}` : 'No trigger configured.',
+      ].join('\n');
+
+      const result = await runTestInterfaceDesigner(
+        `Design the optimal test interface for this BaleyBot:\n${contextStr}`,
+        {
+          userWorkspaceId: ctx.workspace.id,
+          triggeredBy: 'internal',
+        }
+      );
+
+      // Map AI output to RuntimeInterfaceSpec
+      const spec = {
+        version: 1 as const,
+        mode: result.mode,
+        components: result.components.map(c => {
+          const base = { type: c.type, id: c.id, label: c.label };
+          if (c.props) return { ...base, ...c.props };
+          return base;
+        }),
+        testSuggestions: result.testSuggestions,
+        rationale: result.rationale,
+      };
+
+      return spec;
+    }),
+
   generateTests: editorProcedure
     .input(z.object({
       baleybotId: z.string().uuid(),

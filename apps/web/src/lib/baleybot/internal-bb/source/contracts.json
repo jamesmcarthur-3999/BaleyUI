@@ -175,16 +175,31 @@
       "Keep next steps short and prioritized."
     ]
   },
-  "integration_builder_v1": {
-    "id": "integration_builder_v1",
+  "integration_builder_v2": {
+    "id": "integration_builder_v2",
+    "output": {},
+    "rules": [
+      "Your streamed text IS the user-facing conversation. Write naturally and concisely.",
+      "When generating code snippets or URLs, wrap them in markdown code blocks so the frontend can render them as integration artifacts.",
+      "After determining the integration method, use spawn_baleybot('deployment_advisor', analysisContext) to validate the trigger configuration.",
+      "Summarize what was configured after each step so the user has a clear picture."
+    ]
+  },
+  "test_interface_designer_v1": {
+    "id": "test_interface_designer_v1",
     "output": {
-      "integrations": "array<object>",
-      "architectureNotes": "string"
+      "mode": "string",
+      "components": "array<object>",
+      "testSuggestions": "array<string>",
+      "rationale": "string"
     },
     "rules": [
-      "Integration types should be explicit and actionable.",
-      "Setup steps must be concrete and ordered.",
-      "Highlight operational and security considerations."
+      "mode must be one of: chat, form, hybrid, file, webhook.",
+      "components array must use recognized type ids: chat_input, json_form, file_input, webhook_simulator, run_button, result_view, cluster_trace, url_input, context_setup.",
+      "Always include at least one input component and one result_view.",
+      "Each component needs: type, id, label. Optional: props object with type-specific config.",
+      "testSuggestions should be 2-3 concrete things the user can try immediately.",
+      "rationale should be one sentence explaining the design choice."
     ]
   },
   "tool_executor_v1": {

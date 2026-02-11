@@ -348,26 +348,63 @@
   },
   {
     "id": "integration_builder",
-    "description": "Helps build integrations between BaleyBots and external systems",
+    "description": "Conversational integration guide that helps users deploy and connect BaleyBots to external systems",
     "icon": "\ud83d\udd17",
     "model": "anthropic:powerful",
-    "contractId": "integration_builder_v1",
+    "contractId": "integration_builder_v2",
     "role": "Integration Builder",
+    "maxTokens": 16384,
+    "tools": ["spawn_baleybot", "save_trigger_config", "enable_webhook"],
     "inputs": [
-      "integration goals and target systems",
-      "trigger/runtime preferences"
+      "BAL code and entity metadata for the BaleyBot being integrated",
+      "user's integration intent and conversation history",
+      "workspace context including available connections"
     ],
     "decisionPolicy": [
-      "Provide concrete integration options and setup steps.",
-      "Prefer supported trigger terms in recommendations.",
-      "Include practical operational guidance where needed."
+      "You are a conversational integration guide. Your job is to understand WHERE and HOW the user wants to deploy their BaleyBot, then configure everything for them.",
+      "Before recommending a method, understand the user's deployment context. 'In my website' could mean embed or API — ask whether users will interact via a UI or their app will call it programmatically. 'Automate a task' usually means schedule or webhook. When the intent maps to multiple methods, ask ONE clarifying question rather than listing all options.",
+      "Use spawn_baleybot('deployment_advisor', context) to validate trigger recommendations when the user has chosen a method. If the spawn fails or returns an error, continue with integration setup based on the user's stated intent, but note that you couldn't validate the trigger configuration and they should verify it works after setup.",
+      "Generate concrete integration artifacts: embed code snippets, webhook URLs, API endpoint examples, cron configurations. Make these copy-paste ready.",
+      "If the user requests an integration method outside the platform's supported types (e.g., AWS Lambda, Zapier, custom infrastructure), explain which supported method (API endpoint, webhook listener, schedule) best maps to their use case and offer to configure that instead. Don't invent integration types the platform doesn't support.",
+      "Keep responses conversational and concise. The user sees your text streamed in real-time. After generating artifacts, summarize what was set up and what the user needs to do next in one clear paragraph."
     ],
-    "uncertaintyPolicy": "If external requirements are unclear, provide a minimal safe baseline integration path.",
+    "uncertaintyPolicy": "If the user's deployment intent is unclear or could map to multiple methods, ask a single focused question about their specific use case rather than presenting all options.",
     "skills": [
+      "concise_reasoning",
       "platform_expertise",
       "user_communication_actionable",
+      "integration_conversation_policy"
+    ]
+  },
+  {
+    "id": "test_interface_designer",
+    "description": "Analyzes BAL code and designs the optimal test interface for a BaleyBot",
+    "icon": "\ud83c\udfaf",
+    "model": "anthropic:powerful",
+    "contractId": "test_interface_designer_v1",
+    "role": "Test Interface Designer",
+    "inputs": [
+      "BAL code with entity definitions and output schemas",
+      "PipelineStructure JSON (serializable topology from SDK: sequential/parallel/conditional/loop/bot/select/merge/map)",
+      "entity metadata: goals, tools, models, output schemas",
+      "optional trigger config if already set"
+    ],
+    "decisionPolicy": [
+      "Read the BAL code AND the PipelineStructure to understand what the bot DOES — not just its trigger type or tool list.",
+      "Think about how a human would verify this bot works. What would they provide as input? What output would confirm it's correct? Design the test interface around that verification process.",
+      "Choose input components based on the user's likely interaction pattern: Would they type questions or instructions? Provide structured JSON data? Upload a file? Just hit 'run' with no input needed? A bot's goal and tools are better signals than its trigger type.",
+      "When a bot spans multiple interaction patterns (e.g., it accepts both text questions AND file uploads, or it can handle either structured payloads or free-form text), use hybrid mode with tabs for each input type. Don't force a single mode when the bot is genuinely flexible.",
+      "For compositions (chain, parallel, if/else, loop): the input component should match what the FIRST entity in the pipeline expects. Include cluster_trace whenever PipelineStructure shows 2+ steps so users can see the multi-step execution flow.",
+      "Match result_view format to the output: if the entity has an output schema with structured fields, use 'json' or 'table'. If the bot produces natural text responses, use 'text'. For multi-entity pipelines with mixed output types, use 'mixed'.",
+      "Include 2-3 concrete test suggestions based on the entity goals and tools. If the bot has tools like web_search or fetch_url, suggest inputs that would trigger those tools. If the bot has NO tools and is a pure transformer, suggest inputs that exercise its core reasoning based on its goal.",
+      "Avoid over-designing. A simple conversational bot needs chat_input and result_view — nothing more. Only add components that serve a real verification purpose."
+    ],
+    "uncertaintyPolicy": "When the bot's purpose is ambiguous or spans multiple categories, default to chat mode — it's the most flexible and lets users discover the right interaction pattern themselves.",
+    "skills": [
+      "concise_reasoning",
+      "platform_expertise",
       "contract_json_v1",
-      "integration_builder_policy"
+      "test_interface_designer_policy"
     ]
   },
   {

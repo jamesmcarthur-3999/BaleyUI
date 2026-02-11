@@ -31,6 +31,9 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
 
+  // Encryption (required for connection credential storage)
+  ENCRYPTION_KEY: z.string().length(64, 'ENCRYPTION_KEY must be 64 hex characters (32 bytes). Generate with: openssl rand -hex 32').optional(),
+
   // Optional services
   TAVILY_API_KEY: z.string().optional(),
 

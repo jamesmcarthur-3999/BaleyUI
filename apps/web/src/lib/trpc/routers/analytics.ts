@@ -1,10 +1,9 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import {
-  blockExecutions,
-  blocks,
   baleybotExecutions,
   baleybots,
+  blocks,
   decisions,
   eq,
   and,
@@ -43,173 +42,169 @@ function defaultDateRange(startDate?: Date, endDate?: Date) {
 
 /**
  * tRPC router for analytics and metrics.
+ *
+ * All cost/latency/trend queries use `baleybotExecutions` which now stores
+ * model, tokensInput, tokensOutput, and estimatedCost directly on each execution.
  */
 export const analyticsRouter = router({
   /**
-   * Get cost summary with breakdown by block and model.
+   * Get cost summary with breakdown by BaleyBot and model.
    */
   getCostSummary: protectedProcedure
     .input(
       dateRangeInput.and(z.object({
-        blockId: z.string().uuid().optional(),
+        baleybotId: z.string().uuid().optional(),
       }))
     )
     .query(async ({ ctx, input }) => {
       const { start, end } = defaultDateRange(input.startDate, input.endDate);
 
-      // Build where conditions
       const conditions = [
-        eq(blocks.workspaceId, ctx.workspace.id),
-        notDeleted(blocks),
-        gte(blockExecutions.createdAt, start),
-        lte(blockExecutions.createdAt, end),
+        eq(baleybots.workspaceId, ctx.workspace.id),
+        notDeleted(baleybots),
+        gte(baleybotExecutions.createdAt, start),
+        lte(baleybotExecutions.createdAt, end),
+        isNotNull(baleybotExecutions.model),
+        isNotNull(baleybotExecutions.tokensInput),
       ];
 
-      if (input.blockId) {
-        conditions.push(eq(blockExecutions.blockId, input.blockId));
+      if (input.baleybotId) {
+        conditions.push(eq(baleybotExecutions.baleybotId, input.baleybotId));
       }
 
-      // Get cost by block
-      const costByBlockResult = await ctx.db
+      // Cost by BaleyBot
+      const costByBotResult = await ctx.db
         .select({
-          blockId: blockExecutions.blockId,
-          blockName: blocks.name,
-          model: blockExecutions.model,
-          inputTokens: sql<number>`COALESCE(SUM(${blockExecutions.tokensInput}), 0)::int`,
-          outputTokens: sql<number>`COALESCE(SUM(${blockExecutions.tokensOutput}), 0)::int`,
+          baleybotId: baleybotExecutions.baleybotId,
+          baleybotName: baleybots.name,
+          baleybotIcon: baleybots.icon,
+          model: baleybotExecutions.model,
+          inputTokens: sql<number>`COALESCE(SUM(${baleybotExecutions.tokensInput}), 0)::int`,
+          outputTokens: sql<number>`COALESCE(SUM(${baleybotExecutions.tokensOutput}), 0)::int`,
+          totalCost: sql<number>`COALESCE(SUM(${baleybotExecutions.estimatedCost}), 0)`,
           executions: sql<number>`COUNT(*)::int`,
         })
-        .from(blockExecutions)
-        .innerJoin(blocks, eq(blockExecutions.blockId, blocks.id))
-        .where(
-          and(
-            ...conditions,
-            isNotNull(blockExecutions.model),
-            isNotNull(blockExecutions.tokensInput)
-          )
-        )
-        .groupBy(blockExecutions.blockId, blocks.name, blockExecutions.model);
+        .from(baleybotExecutions)
+        .innerJoin(baleybots, eq(baleybotExecutions.baleybotId, baleybots.id))
+        .where(and(...conditions))
+        .groupBy(baleybotExecutions.baleybotId, baleybots.name, baleybots.icon, baleybotExecutions.model);
 
-      // Calculate costs for each block
-      const costByBlock = costByBlockResult.reduce((acc, item) => {
-        const cost = calculateCost(
-          item.model || '',
-          item.inputTokens,
-          item.outputTokens
-        );
+      // Aggregate by bot (a bot may use multiple models)
+      const costByBot = costByBotResult.reduce((acc, item) => {
+        const cost = item.totalCost > 0
+          ? item.totalCost
+          : calculateCost(item.model || '', item.inputTokens, item.outputTokens);
 
-        const existing = acc.find((b) => b.blockId === item.blockId);
+        const existing = acc.find((b) => b.baleybotId === item.baleybotId);
         if (existing) {
           existing.cost += cost;
           existing.executions += item.executions;
         } else {
           acc.push({
-            blockId: item.blockId,
-            name: item.blockName,
+            baleybotId: item.baleybotId,
+            name: item.baleybotName,
+            icon: item.baleybotIcon,
             cost,
             executions: item.executions,
           });
         }
-
         return acc;
-      }, [] as Array<{ blockId: string; name: string; cost: number; executions: number }>);
+      }, [] as Array<{ baleybotId: string; name: string; icon: string | null; cost: number; executions: number }>);
 
-      // Get cost by model
+      // Cost by model
       const costByModelResult = await ctx.db
         .select({
-          model: blockExecutions.model,
-          inputTokens: sql<number>`COALESCE(SUM(${blockExecutions.tokensInput}), 0)::int`,
-          outputTokens: sql<number>`COALESCE(SUM(${blockExecutions.tokensOutput}), 0)::int`,
+          model: baleybotExecutions.model,
+          inputTokens: sql<number>`COALESCE(SUM(${baleybotExecutions.tokensInput}), 0)::int`,
+          outputTokens: sql<number>`COALESCE(SUM(${baleybotExecutions.tokensOutput}), 0)::int`,
+          totalCost: sql<number>`COALESCE(SUM(${baleybotExecutions.estimatedCost}), 0)`,
           executions: sql<number>`COUNT(*)::int`,
         })
-        .from(blockExecutions)
-        .innerJoin(blocks, eq(blockExecutions.blockId, blocks.id))
-        .where(
-          and(
-            ...conditions,
-            isNotNull(blockExecutions.model),
-            isNotNull(blockExecutions.tokensInput)
-          )
-        )
-        .groupBy(blockExecutions.model);
+        .from(baleybotExecutions)
+        .innerJoin(baleybots, eq(baleybotExecutions.baleybotId, baleybots.id))
+        .where(and(...conditions))
+        .groupBy(baleybotExecutions.model);
 
-      const costByModel = costByModelResult.map((item) => ({
-        model: item.model || 'unknown',
-        cost: calculateCost(item.model || '', item.inputTokens, item.outputTokens),
-        tokenCount: item.inputTokens + item.outputTokens,
-        executions: item.executions,
-      }));
+      const costByModel = costByModelResult.map((item) => {
+        const cost = item.totalCost > 0
+          ? item.totalCost
+          : calculateCost(item.model || '', item.inputTokens, item.outputTokens);
+        return {
+          model: item.model || 'unknown',
+          cost,
+          tokenCount: item.inputTokens + item.outputTokens,
+          executions: item.executions,
+        };
+      });
 
-      // Calculate total cost
       const totalCost = costByModel.reduce((sum, item) => sum + item.cost, 0);
 
       return {
         totalCost,
-        costByBlock: costByBlock.sort((a, b) => b.cost - a.cost),
+        costByBot: costByBot.sort((a, b) => b.cost - a.cost),
         costByModel: costByModel.sort((a, b) => b.cost - a.cost),
       };
     }),
 
   /**
-   * Get latency metrics with percentiles.
+   * Get latency metrics with percentiles across BaleyBot executions.
    */
   getLatencyMetrics: protectedProcedure
     .input(
       dateRangeInput.and(z.object({
-        blockId: z.string().uuid().optional(),
+        baleybotId: z.string().uuid().optional(),
       }))
     )
     .query(async ({ ctx, input }) => {
       const { start, end } = defaultDateRange(input.startDate, input.endDate);
 
-      // Build where conditions
       const conditions = [
-        eq(blocks.workspaceId, ctx.workspace.id),
-        notDeleted(blocks),
-        isNotNull(blockExecutions.durationMs),
-        gte(blockExecutions.createdAt, start),
-        lte(blockExecutions.createdAt, end),
+        eq(baleybots.workspaceId, ctx.workspace.id),
+        notDeleted(baleybots),
+        isNotNull(baleybotExecutions.durationMs),
+        gte(baleybotExecutions.createdAt, start),
+        lte(baleybotExecutions.createdAt, end),
       ];
 
-      if (input.blockId) {
-        conditions.push(eq(blockExecutions.blockId, input.blockId));
+      if (input.baleybotId) {
+        conditions.push(eq(baleybotExecutions.baleybotId, input.baleybotId));
       }
 
-      // Get overall percentiles
+      // Overall percentiles
       const overallResult = await ctx.db
         .select({
-          p50: sql<number>`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${blockExecutions.durationMs})::int`,
-          p95: sql<number>`PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ${blockExecutions.durationMs})::int`,
-          p99: sql<number>`PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY ${blockExecutions.durationMs})::int`,
-          avgMs: sql<number>`AVG(${blockExecutions.durationMs})::int`,
+          p50: sql<number>`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${baleybotExecutions.durationMs})::int`,
+          p95: sql<number>`PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ${baleybotExecutions.durationMs})::int`,
+          p99: sql<number>`PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY ${baleybotExecutions.durationMs})::int`,
+          avgMs: sql<number>`AVG(${baleybotExecutions.durationMs})::int`,
         })
-        .from(blockExecutions)
-        .innerJoin(blocks, eq(blockExecutions.blockId, blocks.id))
+        .from(baleybotExecutions)
+        .innerJoin(baleybots, eq(baleybotExecutions.baleybotId, baleybots.id))
         .where(and(...conditions));
 
       const overall = overallResult[0] || { p50: 0, p95: 0, p99: 0, avgMs: 0 };
 
-      // Get latency by block
-      const byBlockResult = await ctx.db
+      // Latency by bot
+      const byBotResult = await ctx.db
         .select({
-          blockId: blockExecutions.blockId,
-          blockName: blocks.name,
-          blockType: blocks.type,
-          p50: sql<number>`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${blockExecutions.durationMs})::int`,
-          p95: sql<number>`PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ${blockExecutions.durationMs})::int`,
-          p99: sql<number>`PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY ${blockExecutions.durationMs})::int`,
-          avgMs: sql<number>`AVG(${blockExecutions.durationMs})::int`,
+          baleybotId: baleybotExecutions.baleybotId,
+          baleybotName: baleybots.name,
+          baleybotIcon: baleybots.icon,
+          p50: sql<number>`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${baleybotExecutions.durationMs})::int`,
+          p95: sql<number>`PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ${baleybotExecutions.durationMs})::int`,
+          p99: sql<number>`PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY ${baleybotExecutions.durationMs})::int`,
+          avgMs: sql<number>`AVG(${baleybotExecutions.durationMs})::int`,
           executions: sql<number>`COUNT(*)::int`,
         })
-        .from(blockExecutions)
-        .innerJoin(blocks, eq(blockExecutions.blockId, blocks.id))
+        .from(baleybotExecutions)
+        .innerJoin(baleybots, eq(baleybotExecutions.baleybotId, baleybots.id))
         .where(and(...conditions))
-        .groupBy(blockExecutions.blockId, blocks.name, blocks.type);
+        .groupBy(baleybotExecutions.baleybotId, baleybots.name, baleybots.icon);
 
-      const byBlock = byBlockResult.map((item) => ({
-        blockId: item.blockId,
-        name: item.blockName,
-        type: item.blockType,
+      const byBot = byBotResult.map((item) => ({
+        baleybotId: item.baleybotId,
+        name: item.baleybotName,
+        icon: item.baleybotIcon,
         p50: item.p50,
         p95: item.p95,
         p99: item.p99,
@@ -222,7 +217,7 @@ export const analyticsRouter = router({
         p95: overall.p95,
         p99: overall.p99,
         avgMs: overall.avgMs,
-        byBlock: byBlock.sort((a, b) => b.executions - a.executions),
+        byBot: byBot.sort((a, b) => b.executions - a.executions),
       };
     }),
 
@@ -242,15 +237,12 @@ export const analyticsRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const conditions = [
-        eq(blocks.workspaceId, ctx.workspace.id),
-        notDeleted(blocks),
-        gte(blockExecutions.createdAt, input.startDate),
-        lte(blockExecutions.createdAt, input.endDate),
-        isNotNull(blockExecutions.model),
-        isNotNull(blockExecutions.tokensInput),
+        eq(baleybots.workspaceId, ctx.workspace.id),
+        notDeleted(baleybots),
+        gte(baleybotExecutions.createdAt, input.startDate),
+        lte(baleybotExecutions.createdAt, input.endDate),
       ];
 
-      // Determine date truncation based on granularity
       let dateTrunc: string;
       switch (input.granularity) {
         case 'week':
@@ -265,29 +257,28 @@ export const analyticsRouter = router({
 
       const trendResult = await ctx.db
         .select({
-          date: sql<Date>`DATE_TRUNC('${sql.raw(dateTrunc)}', ${blockExecutions.createdAt})`,
-          model: blockExecutions.model,
-          inputTokens: sql<number>`COALESCE(SUM(${blockExecutions.tokensInput}), 0)::int`,
-          outputTokens: sql<number>`COALESCE(SUM(${blockExecutions.tokensOutput}), 0)::int`,
+          date: sql<Date>`DATE_TRUNC('${sql.raw(dateTrunc)}', ${baleybotExecutions.createdAt})`,
+          model: baleybotExecutions.model,
+          inputTokens: sql<number>`COALESCE(SUM(${baleybotExecutions.tokensInput}), 0)::int`,
+          outputTokens: sql<number>`COALESCE(SUM(${baleybotExecutions.tokensOutput}), 0)::int`,
+          totalCost: sql<number>`COALESCE(SUM(${baleybotExecutions.estimatedCost}), 0)`,
           executions: sql<number>`COUNT(*)::int`,
         })
-        .from(blockExecutions)
-        .innerJoin(blocks, eq(blockExecutions.blockId, blocks.id))
+        .from(baleybotExecutions)
+        .innerJoin(baleybots, eq(baleybotExecutions.baleybotId, baleybots.id))
         .where(and(...conditions))
-        .groupBy(sql`DATE_TRUNC('${sql.raw(dateTrunc)}', ${blockExecutions.createdAt})`, blockExecutions.model)
-        .orderBy(sql`DATE_TRUNC('${sql.raw(dateTrunc)}', ${blockExecutions.createdAt})`);
+        .groupBy(sql`DATE_TRUNC('${sql.raw(dateTrunc)}', ${baleybotExecutions.createdAt})`, baleybotExecutions.model)
+        .orderBy(sql`DATE_TRUNC('${sql.raw(dateTrunc)}', ${baleybotExecutions.createdAt})`);
 
-      // Aggregate by date
+      // Aggregate by date (across models)
       const dataByDate = trendResult.reduce((acc, item) => {
         const dateKey = item.date.toISOString();
-        const cost = calculateCost(item.model || '', item.inputTokens, item.outputTokens);
+        const cost = item.totalCost > 0
+          ? item.totalCost
+          : calculateCost(item.model || '', item.inputTokens, item.outputTokens);
 
         if (!acc[dateKey]) {
-          acc[dateKey] = {
-            date: item.date,
-            cost: 0,
-            executions: 0,
-          };
+          acc[dateKey] = { date: item.date, cost: 0, executions: 0 };
         }
 
         acc[dateKey].cost += cost;
@@ -304,92 +295,7 @@ export const analyticsRouter = router({
     }),
 
   /**
-   * Compare code vs AI execution metrics for a specific block.
-   */
-  getCodeVsAiComparison: protectedProcedure
-    .input(
-      z.object({
-        blockId: z.string().uuid(),
-      })
-    )
-    .query(async ({ ctx, input }) => {
-      // Verify block exists and belongs to workspace
-      const block = await ctx.db.query.blocks.findFirst({
-        where: and(
-          eq(blocks.id, input.blockId),
-          eq(blocks.workspaceId, ctx.workspace.id),
-          notDeleted(blocks)
-        ),
-      });
-
-      if (!block) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Block not found',
-        });
-      }
-
-      // Get AI execution stats
-      const aiStats = await ctx.db
-        .select({
-          avgLatency: sql<number>`AVG(${blockExecutions.durationMs})::int`,
-          inputTokens: sql<number>`COALESCE(SUM(${blockExecutions.tokensInput}), 0)::int`,
-          outputTokens: sql<number>`COALESCE(SUM(${blockExecutions.tokensOutput}), 0)::int`,
-          executions: sql<number>`COUNT(*)::int`,
-        })
-        .from(blockExecutions)
-        .where(
-          and(
-            eq(blockExecutions.blockId, input.blockId),
-            isNotNull(blockExecutions.model)
-          )
-        );
-
-      const aiResult = aiStats[0] || {
-        avgLatency: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        executions: 0,
-      };
-
-      const aiCost =
-        block.model && aiResult.executions > 0
-          ? calculateCost(block.model, aiResult.inputTokens, aiResult.outputTokens)
-          : 0;
-
-      // Get code execution stats (executions without a model)
-      const codeStats = await ctx.db
-        .select({
-          avgLatency: sql<number>`AVG(${blockExecutions.durationMs})::int`,
-          executions: sql<number>`COUNT(*)::int`,
-        })
-        .from(blockExecutions)
-        .where(
-          and(
-            eq(blockExecutions.blockId, input.blockId),
-            sql`${blockExecutions.model} IS NULL`
-          )
-        );
-
-      const codeResult = codeStats[0] || { avgLatency: 0, executions: 0 };
-
-      return {
-        ai: {
-          avgLatency: aiResult.avgLatency,
-          avgCost: aiResult.executions > 0 ? aiCost / aiResult.executions : 0,
-          executions: aiResult.executions,
-        },
-        code: {
-          avgLatency: codeResult.avgLatency,
-          avgCost: 0,
-          executions: codeResult.executions,
-        },
-      };
-    }),
-
-  /**
-   * Export training data as JSONL.
-   * Returns metadata about the export (actual file generation would be handled separately).
+   * Export training data as JSONL from decision records.
    */
   exportTrainingData: protectedProcedure
     .input(
@@ -401,7 +307,6 @@ export const analyticsRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      // Build where conditions
       const conditions = [
         eq(blocks.workspaceId, ctx.workspace.id),
         notDeleted(blocks),
@@ -423,7 +328,6 @@ export const analyticsRouter = router({
         conditions.push(isNotNull(decisions.feedbackCorrect));
       }
 
-      // Fetch decisions for export
       const exportData = await ctx.db
         .select({
           id: decisions.id,
@@ -440,22 +344,13 @@ export const analyticsRouter = router({
         .innerJoin(blocks, eq(decisions.blockId, blocks.id))
         .where(and(...conditions))
         .orderBy(desc(decisions.createdAt))
-        .limit(5000); // Limit to prevent extremely large exports
+        .limit(5000);
 
-      // Transform to JSONL format
       const jsonlLines: TrainingDataItem[] = exportData.map((item) => {
         const trainingItem: TrainingDataItem = {
           messages: [
-            {
-              role: 'user',
-              content: JSON.stringify(item.input),
-            },
-            {
-              role: 'assistant',
-              content: JSON.stringify(
-                item.feedbackCorrectedOutput || item.output
-              ),
-            },
+            { role: 'user', content: JSON.stringify(item.input) },
+            { role: 'assistant', content: JSON.stringify(item.feedbackCorrectedOutput || item.output) },
           ],
         };
 
@@ -474,7 +369,7 @@ export const analyticsRouter = router({
     }),
 
   /**
-   * Get per-bot analytics: execution counts, success rate, duration, tokens, daily trend, top errors.
+   * Get per-bot analytics: execution counts, success rate, duration, tokens, cost, daily trend, top errors.
    */
   getBaleybotAnalytics: protectedProcedure
     .input(z.object({ baleybotId: z.string().uuid(), days: z.number().min(1).max(365).default(30) }))
@@ -482,13 +377,16 @@ export const analyticsRouter = router({
       const since = new Date();
       since.setDate(since.getDate() - input.days);
 
-      // Join through baleybots to verify workspace ownership
       const executions = await ctx.db
         .select({
           id: baleybotExecutions.id,
           status: baleybotExecutions.status,
           durationMs: baleybotExecutions.durationMs,
           tokenCount: baleybotExecutions.tokenCount,
+          tokensInput: baleybotExecutions.tokensInput,
+          tokensOutput: baleybotExecutions.tokensOutput,
+          estimatedCost: baleybotExecutions.estimatedCost,
+          model: baleybotExecutions.model,
           error: baleybotExecutions.error,
           startedAt: baleybotExecutions.startedAt,
         })
@@ -509,8 +407,9 @@ export const analyticsRouter = router({
       const failures = executions.filter(e => e.status === 'failed').length;
       const avgDuration = total > 0 ? executions.reduce((s, e) => s + (e.durationMs || 0), 0) / total : 0;
       const totalTokens = executions.reduce((s, e) => s + (e.tokenCount || 0), 0);
+      const totalCost = executions.reduce((s, e) => s + (e.estimatedCost || 0), 0);
 
-      // Daily trend (last N days)
+      // Daily trend
       const dailyCounts: Record<string, number> = {};
       executions.forEach(e => {
         if (e.startedAt) {
@@ -537,6 +436,7 @@ export const analyticsRouter = router({
         successRate: total > 0 ? successes / total : 0,
         avgDurationMs: Math.round(avgDuration),
         totalTokens,
+        totalCost,
         dailyTrend: Object.entries(dailyCounts)
           .map(([date, count]) => ({ date, count }))
           .sort((a, b) => a.date.localeCompare(b.date)),
@@ -545,7 +445,7 @@ export const analyticsRouter = router({
     }),
 
   /**
-   * Get aggregate dashboard overview: total executions, success rate, avg duration, top bots, daily trend.
+   * Get aggregate dashboard overview: total executions, success rate, avg duration, cost, top bots, daily trend.
    */
   getDashboardOverview: protectedProcedure
     .input(z.object({ days: z.number().min(1).max(365).default(30) }))
@@ -553,7 +453,6 @@ export const analyticsRouter = router({
       const since = new Date();
       since.setDate(since.getDate() - input.days);
 
-      // Join through baleybots to verify workspace ownership
       const executions = await ctx.db
         .select({
           id: baleybotExecutions.id,
@@ -562,6 +461,7 @@ export const analyticsRouter = router({
           baleybotIcon: baleybots.icon,
           status: baleybotExecutions.status,
           durationMs: baleybotExecutions.durationMs,
+          estimatedCost: baleybotExecutions.estimatedCost,
           startedAt: baleybotExecutions.startedAt,
         })
         .from(baleybotExecutions)
@@ -578,23 +478,25 @@ export const analyticsRouter = router({
       const total = executions.length;
       const successes = executions.filter(e => e.status === 'completed').length;
       const avgDuration = total > 0 ? executions.reduce((s, e) => s + (e.durationMs || 0), 0) / total : 0;
+      const totalCost = executions.reduce((s, e) => s + (e.estimatedCost || 0), 0);
 
-      // Top bots by execution count (with name and icon)
-      const botInfo: Record<string, { count: number; name: string; icon: string | null }> = {};
+      // Top bots by execution count
+      const botInfo: Record<string, { count: number; name: string; icon: string | null; cost: number }> = {};
       executions.forEach(e => {
         if (e.baleybotId) {
           const existing = botInfo[e.baleybotId];
           if (existing) {
             existing.count++;
+            existing.cost += e.estimatedCost || 0;
           } else {
-            botInfo[e.baleybotId] = { count: 1, name: e.baleybotName, icon: e.baleybotIcon };
+            botInfo[e.baleybotId] = { count: 1, name: e.baleybotName, icon: e.baleybotIcon, cost: e.estimatedCost || 0 };
           }
         }
       });
       const topBots = Object.entries(botInfo)
         .sort((a, b) => b[1].count - a[1].count)
         .slice(0, 5)
-        .map(([baleybotId, info]) => ({ baleybotId, count: info.count, name: info.name, icon: info.icon }));
+        .map(([baleybotId, info]) => ({ baleybotId, count: info.count, name: info.name, icon: info.icon, cost: info.cost }));
 
       // Daily trend
       const dailyCounts: Record<string, number> = {};
@@ -609,11 +511,96 @@ export const analyticsRouter = router({
         totalExecutions: total,
         successRate: total > 0 ? successes / total : 0,
         avgDurationMs: Math.round(avgDuration),
+        totalCost,
         topBots,
         dailyTrend: Object.entries(dailyCounts)
           .map(([date, count]) => ({ date, count }))
           .sort((a, b) => a.date.localeCompare(b.date)),
       };
+    }),
+
+  // ========================================================================
+  // PER-BOT EXECUTION LIST (for Monitor panel)
+  // ========================================================================
+
+  /**
+   * Get recent executions for a specific BaleyBot with pagination.
+   */
+  getBaleybotExecutions: protectedProcedure
+    .input(z.object({
+      baleybotId: z.string().uuid(),
+      limit: z.number().min(1).max(100).default(20),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ ctx, input }) => {
+      const executions = await ctx.db
+        .select({
+          id: baleybotExecutions.id,
+          status: baleybotExecutions.status,
+          input: baleybotExecutions.input,
+          output: baleybotExecutions.output,
+          error: baleybotExecutions.error,
+          durationMs: baleybotExecutions.durationMs,
+          tokenCount: baleybotExecutions.tokenCount,
+          model: baleybotExecutions.model,
+          estimatedCost: baleybotExecutions.estimatedCost,
+          triggeredBy: baleybotExecutions.triggeredBy,
+          conversationId: baleybotExecutions.conversationId,
+          startedAt: baleybotExecutions.startedAt,
+          completedAt: baleybotExecutions.completedAt,
+          createdAt: baleybotExecutions.createdAt,
+        })
+        .from(baleybotExecutions)
+        .innerJoin(baleybots, eq(baleybotExecutions.baleybotId, baleybots.id))
+        .where(
+          and(
+            eq(baleybotExecutions.baleybotId, input.baleybotId),
+            eq(baleybots.workspaceId, ctx.workspace.id),
+            notDeleted(baleybots),
+          )
+        )
+        .orderBy(desc(baleybotExecutions.createdAt))
+        .limit(input.limit)
+        .offset(input.offset);
+
+      return executions;
+    }),
+
+  /**
+   * Get conversations grouped by conversationId for chat-type BBs.
+   */
+  getBaleybotConversations: protectedProcedure
+    .input(z.object({
+      baleybotId: z.string().uuid(),
+      limit: z.number().min(1).max(50).default(20),
+    }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({
+          conversationId: baleybotExecutions.conversationId,
+          messageCount: sql<number>`count(*)::int`,
+          firstAt: sql<Date>`min(${baleybotExecutions.createdAt})`,
+          lastAt: sql<Date>`max(${baleybotExecutions.createdAt})`,
+          lastStatus: sql<string>`coalesce((array_agg(${baleybotExecutions.status} ORDER BY ${baleybotExecutions.createdAt} DESC))[1], 'unknown')`,
+          totalTokens: sql<number>`coalesce(sum(${baleybotExecutions.tokenCount}), 0)::int`,
+          totalCost: sql<number>`coalesce(sum(${baleybotExecutions.estimatedCost}), 0)`,
+          totalDurationMs: sql<number>`coalesce(sum(${baleybotExecutions.durationMs}), 0)::int`,
+        })
+        .from(baleybotExecutions)
+        .innerJoin(baleybots, eq(baleybotExecutions.baleybotId, baleybots.id))
+        .where(
+          and(
+            eq(baleybotExecutions.baleybotId, input.baleybotId),
+            eq(baleybots.workspaceId, ctx.workspace.id),
+            notDeleted(baleybots),
+            isNotNull(baleybotExecutions.conversationId),
+          )
+        )
+        .groupBy(baleybotExecutions.conversationId)
+        .orderBy(sql`max(${baleybotExecutions.createdAt}) DESC`)
+        .limit(input.limit);
+
+      return rows;
     }),
 
   // ========================================================================

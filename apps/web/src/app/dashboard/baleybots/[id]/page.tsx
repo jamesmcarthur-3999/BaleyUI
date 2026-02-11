@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { trpc } from '@/lib/trpc/client';
@@ -32,7 +32,6 @@ const BalCodeEditor = dynamic(
     ),
   }
 );
-import { TriggerConfig } from '@/components/baleybots/TriggerConfig';
 import type { TriggerConfig as TriggerConfigType } from '@/lib/baleybot/types';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { ConflictAction } from '@/components/creator';
@@ -49,7 +48,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { ArrowLeft, LayoutGrid, Code2, MessageSquare, PanelRight, FlaskConical, Rocket } from 'lucide-react';
-import { DeployPanel } from '@/components/deploy';
+import { IntegrationConversation } from '@/components/integrate/IntegrationConversation';
+import { BotMonitorPanel } from '@/components/monitor';
 import { ReviewPage } from '@/components/review';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
@@ -341,9 +341,10 @@ export default function BaleybotPage() {
   const isFullyLoaded = isNew || (!isLoadingBaleybot && !isFetchingBaleybot && isStateInitialized && existingBaleybot);
 
   // Fetch available BBs for trigger config source selector
-  const { data: availableBaleybots } = trpc.baleybots.list.useQuery(undefined, {
-    enabled: viewMode === 'launch',
+  const { data: availableBaleybotsData } = trpc.baleybots.list.useQuery(undefined, {
+    enabled: viewMode === 'integrate',
   });
+  const availableBaleybots = availableBaleybotsData?.items;
 
   // Fetch workspace connections (for connections panel AND readiness computation)
   const { data: workspaceConnections, isLoading: isLoadingConnections } = trpc.connections.list.useQuery(
@@ -371,7 +372,7 @@ export default function BaleybotPage() {
     refetch: refetchLaunchReadiness,
   } = trpc.baleybots.evaluateLaunchReadiness.useQuery(
     { baleybotId: savedBaleybotId!, requiredPassRate: 0.8 },
-    { enabled: !!savedBaleybotId && viewMode === 'launch' },
+    { enabled: !!savedBaleybotId && viewMode === 'integrate' },
   );
 
   // Load trigger config when query completes
@@ -396,60 +397,48 @@ export default function BaleybotPage() {
     status: c.status ?? 'unconfigured',
     isDefault: c.isDefault ?? false,
   }));
-  const connectionToolSuggestions = useMemo(() => {
-    return (normalizedConnections ?? [])
-      .filter(
-        (connection) =>
-          connection.status === 'connected' &&
-          (connection.type === 'postgres' || connection.type === 'mysql')
-      )
-      .map((connection) =>
-        `query_${connection.type}_${connection.name
-          .toLowerCase()
-          .trim()
-          .replace(/[^a-z0-9]+/g, '_')
-          .replace(/^_+|_+$/g, '')}`
-      );
-  }, [normalizedConnections]);
-  const savedStructureSidecar = useMemo(
-    () => extractSidecarFromStructure(existingBaleybot?.structure),
-    [existingBaleybot?.structure]
-  );
-  const graphSidecar = useMemo(
-    () =>
-      buildDerivedGraphSidecar({
-        entities,
-        connections: normalizedConnections,
-        existingSidecar: savedStructureSidecar,
+  const connectionToolSuggestions = (normalizedConnections ?? [])
+    .filter(
+      (connection) =>
+        connection.status === 'connected' &&
+        (connection.type === 'postgres' || connection.type === 'mysql')
+    )
+    .map((connection) =>
+      `query_${connection.type}_${connection.name
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')}`
+    );
+  const savedStructureSidecar = extractSidecarFromStructure(existingBaleybot?.structure);
+  const graphSidecar = buildDerivedGraphSidecar({
+    entities,
+    connections: normalizedConnections,
+    existingSidecar: savedStructureSidecar,
+  });
+  const creatorGuidanceInput = {
+    status,
+    messages: messages
+      .filter((m) => m.role !== 'system')
+      .slice(-30)
+      .map((message) => {
+        const metadata: Record<string, unknown> = {};
+        if (message.metadata?.creatorLifecycle) {
+          metadata.creatorLifecycle = message.metadata.creatorLifecycle;
+        }
+        if (message.metadata?.diagnostic) {
+          metadata.diagnostic = message.metadata.diagnostic;
+        }
+        if (message.metadata?.streamSummary) {
+          metadata.streamSummary = message.metadata.streamSummary;
+        }
+        return {
+          role: message.role as 'user' | 'assistant',
+          content: message.content.slice(0, 4000),
+          metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+        };
       }),
-    [entities, normalizedConnections, savedStructureSidecar]
-  );
-  const creatorGuidanceInput = useMemo(
-    () => ({
-      status,
-      messages: messages
-        .filter((m) => m.role !== 'system')
-        .slice(-30)
-        .map((message) => {
-          const metadata: Record<string, unknown> = {};
-          if (message.metadata?.creatorLifecycle) {
-            metadata.creatorLifecycle = message.metadata.creatorLifecycle;
-          }
-          if (message.metadata?.diagnostic) {
-            metadata.diagnostic = message.metadata.diagnostic;
-          }
-          if (message.metadata?.streamSummary) {
-            metadata.streamSummary = message.metadata.streamSummary;
-          }
-          return {
-            role: message.role as 'user' | 'assistant',
-            content: message.content.slice(0, 4000),
-            metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-          };
-        }),
-    }),
-    [messages, status]
-  );
+  };
   const {
     data: creatorGuidanceData,
   } = trpc.baleybots.getCreatorGuidance.useQuery(creatorGuidanceInput, {
@@ -465,15 +454,9 @@ export default function BaleybotPage() {
     setCreatorGuidanceActions(creatorGuidanceData.actions);
   }, [creatorGuidanceData, isStreaming]);
 
-  const quickPrompts = useMemo(
-    () => buildGuidanceQuickPrompts(creatorGuidanceActions),
-    [creatorGuidanceActions]
-  );
+  const quickPrompts = buildGuidanceQuickPrompts(creatorGuidanceActions);
 
-  const quickPromptContextLabel = useMemo(() => {
-    if (quickPrompts.length > 0) return 'Suggested next action';
-    return undefined;
-  }, [quickPrompts.length]);
+  const quickPromptContextLabel = quickPrompts.length > 0 ? 'Suggested next action' : undefined;
 
   // =====================================================================
   // TEST EXECUTION HOOK
@@ -1130,8 +1113,7 @@ export default function BaleybotPage() {
           break;
 
         case 'force-save':
-          // TODO: In a full implementation, this would pass a flag to skip version check
-          // For now, we just retry the save which may work if the conflict was resolved
+          // Retry save uses optimistic locking (updateWithLock) — safer than force-overwrite
           setShowConflictDialog(false);
           await handleSave();
           break;
@@ -1176,7 +1158,7 @@ export default function BaleybotPage() {
       await promoteToLiveMutation.mutateAsync({ baleybotId: savedBaleybotId });
       await utils.baleybots.get.invalidate({ id: savedBaleybotId });
       await utils.analytics.getBaleybotAnalytics.invalidate({ baleybotId: savedBaleybotId });
-      setViewMode('launch');
+      setViewMode('integrate');
     } catch (error) {
       toast({
         title: 'Could not promote to live',
@@ -1419,7 +1401,7 @@ export default function BaleybotPage() {
     const hasProgressedBeyondDesign =
       readiness.connected === 'complete' ||
       readiness.tested !== 'incomplete' ||
-      readiness.activated === 'complete' ||
+      readiness.integrated === 'complete' ||
       readiness.monitored === 'complete';
     if (hasProgressedBeyondDesign) {
       setIsDesignConfirmed(true);
@@ -1514,17 +1496,17 @@ export default function BaleybotPage() {
     if (optionId === 'confirm-design') {
       setIsDesignConfirmed(true);
       designGateReminderShownRef.current = false;
-      navigateToTab('review', { bypassDesignGate: true });
+      navigateToTab('test', { bypassDesignGate: true });
       return;
     }
 
     // Readiness-guided option cards → navigate to tab
     const optionToTab: Record<string, AdaptiveTab> = {
       'review-design': 'visual',
-      'setup-connections': 'launch',
-      'run-tests': 'review',
-      'setup-triggers': 'launch',
-      'enable-monitoring': 'launch',
+      'setup-connections': 'integrate',
+      'run-tests': 'test',
+      'setup-integration': 'integrate',
+      'enable-monitoring': 'integrate',
     };
 
     const tabTarget = optionToTab[optionId];
@@ -1558,7 +1540,7 @@ export default function BaleybotPage() {
       setIsDesignConfirmed(true);
       designGateReminderShownRef.current = false;
       if (existingBaleybot.lifecycleStage === 'live' || existingBaleybot.lifecycleStage === 'paused') {
-        setViewMode('launch');
+        setViewMode('integrate');
       }
 
       // Parse BAL code to extract entity details (tools, goal, model)
@@ -1908,8 +1890,8 @@ export default function BaleybotPage() {
                       const tabConfig: Record<AdaptiveTab, { icon: React.ReactNode; label: string }> = {
                         visual: { icon: <LayoutGrid className="h-3.5 w-3.5" />, label: 'Builder' },
                         code: { icon: <Code2 className="h-3.5 w-3.5" />, label: 'Code' },
-                        review: { icon: <FlaskConical className="h-3.5 w-3.5" />, label: 'Review' },
-                        launch: { icon: <Rocket className="h-3.5 w-3.5" />, label: 'Go Live' },
+                        test: { icon: <FlaskConical className="h-3.5 w-3.5" />, label: 'Test' },
+                        integrate: { icon: <Rocket className="h-3.5 w-3.5" />, label: 'Integrate' },
                       };
                       const config = tabConfig[tab];
                       return (
@@ -1979,8 +1961,8 @@ export default function BaleybotPage() {
 
 
 
-                  {/* Review View */}
-                  {viewMode === 'review' && savedBaleybotId && (
+                  {/* Test View */}
+                  {viewMode === 'test' && savedBaleybotId && (
                     <ReviewPage
                       baleybotId={savedBaleybotId}
                       balCode={balCode}
@@ -1996,110 +1978,51 @@ export default function BaleybotPage() {
                       validationStatus={validationStatus}
                       botName={name}
                       botIcon={icon}
+                      onExecutionComplete={(result) => {
+                        // Update test cases to feed readiness (Gap 4)
+                        setTestCases((prev) => {
+                          const newCase: TestCase = {
+                            id: result.executionId ?? crypto.randomUUID(),
+                            name: `Test run ${prev.length + 1}`,
+                            level: 'integration',
+                            input: '',
+                            status: result.success ? 'passed' : 'failed',
+                            durationMs: result.durationMs,
+                          };
+                          return [...prev, newCase];
+                        });
+                      }}
                     />
                   )}
 
-                  {/* Go Live View */}
-                  {viewMode === 'launch' && (
-                    <DeployPanel
-                      lifecycleStage={lifecycleStage}
-                      launchKit={launchKit}
-                      launchBusy={launchBusy}
-                      savedBaleybotId={savedBaleybotId}
-                      baleybotName={existingBaleybot?.name ?? 'BaleyBot'}
-                      readiness={readiness}
-                      readinessItems={[
-                        {
-                          dimension: 'designed',
-                          label: 'Design',
-                          description: balCode && entities.length > 0
-                            ? `${entities.length} step${entities.length === 1 ? '' : 's'} configured`
-                            : 'Build your bot in the chat first',
-                        },
-                        {
-                          dimension: 'connected',
-                          label: 'Connections',
-                          description: (normalizedConnections ?? []).some(c => ['openai', 'anthropic', 'ollama'].includes(c.type) && c.status === 'connected')
-                            ? 'AI provider connected'
-                            : 'Connect an AI provider to power your bot',
-                        },
-                        {
-                          dimension: 'tested',
-                          label: 'Tests',
-                          description: launchReadiness?.testPassRate != null
-                            ? `${Math.round(launchReadiness.testPassRate * 100)}% pass rate`
-                            : 'Review your bot in the Review tab first',
-                          action: (launchReadiness?.testPassRate == null || launchReadiness.testPassRate < 0.8)
-                            ? { label: 'Run tests', onClick: () => navigateToTab('review') }
-                            : undefined,
-                        },
-                        {
-                          dimension: 'activated',
-                          label: 'Trigger',
-                          description: triggerConfig?.type
-                            ? `Starts via ${triggerConfig.type.replace(/_/g, ' ')}`
-                            : 'Choose how this bot gets triggered',
-                        },
-                      ]}
-                      blockingIssues={launchReadiness?.blockingIssues}
-                      readyForLaunchPrep={launchReadiness?.readyForLaunchPrep}
-                      entityCount={entities.length}
-                      toolCount={new Set(entities.flatMap(e => e.tools)).size}
-                      providerCount={(normalizedConnections ?? []).filter(c => ['openai', 'anthropic', 'ollama'].includes(c.type) && c.status === 'connected').length || 1}
-                      isGeneratingLaunchKit={generateLaunchKitMutation.isPending}
-                      isPromotingToLive={promoteToLiveMutation.isPending}
-                      onGenerateLaunchKit={handleGenerateLaunchKit}
-                      onPromoteToLive={handlePromoteToLive}
-                      onPauseOrResume={handlePauseOrResumeLive}
-                      onRefreshReadiness={() => refetchLaunchReadiness()}
-                      triggerSetupSlot={
-                        !triggerConfig?.type ? (
-                          <div className="rounded-xl border p-4 space-y-3">
-                            <p className="text-sm font-medium">How should this bot start?</p>
-                            <TriggerConfig
-                              value={triggerConfig}
-                              onChange={setTriggerConfig}
-                              workspaceId={existingBaleybot?.workspaceId}
-                              baleybotId={savedBaleybotId ?? undefined}
-                              presentationMode={builderMode}
-                              setupStep={triggerSetupStep}
-                              onSetupStepChange={setTriggerSetupStep}
-                              availableBaleybots={
-                                availableBaleybots
-                                  ?.filter((bb) => bb.id !== savedBaleybotId)
-                                  .map((bb) => ({ id: bb.id, name: bb.name })) ?? []
-                              }
-                              availableConnections={
-                                (workspaceConnections ?? []).map((conn) => ({
-                                  id: conn.id,
-                                  name: conn.name,
-                                  type: conn.type,
-                                  status: conn.status ?? undefined,
-                                }))
-                              }
-                            />
-                          </div>
-                        ) : undefined
-                      }
-                      connectionSetupSlot={
-                        !(normalizedConnections ?? []).some(c => ['openai', 'anthropic', 'ollama'].includes(c.type) && c.status === 'connected') ? (
-                          <ConnectionsPanel
-                            tools={entities.flatMap(e => e.tools)}
-                            connections={normalizedConnections ?? []}
-                            baleybotId={savedBaleybotId ?? undefined}
-                            balCode={balCode}
-                            entitySummaries={entities.map((entity) => ({
-                              name: entity.name,
-                              tools: entity.tools,
-                            }))}
-                            isLoading={isLoadingConnections}
-                            onConnectionCreated={() => utils.connections.list.invalidate()}
-                            onApplyToolRemap={handleApplyToolRemap}
-                            onNavigateToTest={() => navigateToTab('review')}
-                          />
-                        ) : undefined
-                      }
-                    />
+                  {/* Integrate / Monitor View */}
+                  {viewMode === 'integrate' && savedBaleybotId && (
+                    <div className="h-full overflow-y-auto">
+                      {lifecycleStage === 'live' ? (
+                        <BotMonitorPanel
+                          baleybotId={savedBaleybotId}
+                          baleybotName={existingBaleybot?.name ?? (name || 'BaleyBot')}
+                          onPauseOrResume={handlePauseOrResumeLive}
+                          isPauseResumeBusy={pauseLiveBotMutation.isPending || promoteToLiveMutation.isPending}
+                          className="p-4"
+                        />
+                      ) : (
+                        <IntegrationConversation
+                          baleybotId={savedBaleybotId}
+                          baleybotName={existingBaleybot?.name ?? (name || 'BaleyBot')}
+                          lifecycleStage={lifecycleStage}
+                          onTriggerSaved={(config) => {
+                            setTriggerConfig(config);
+                            utils.baleybots.getTriggerConfig.invalidate({ baleybotId: savedBaleybotId });
+                          }}
+                          onGoLive={handlePromoteToLive}
+                          onGenerateLaunchKit={handleGenerateLaunchKit}
+                          onPauseOrResume={handlePauseOrResumeLive}
+                          isLaunchBusy={launchBusy}
+                          className="h-full"
+                        />
+                      )}
+                    </div>
                   )}
 
                 </ErrorBoundary>

@@ -10,56 +10,35 @@ interface ModelPricing {
 
 /**
  * Model pricing table (cost per 1K tokens)
- * Updated to reflect 2025 pricing
+ * Supports both bare model names ("gpt-4o") and provider-prefixed ("openai:gpt-4o")
+ * Updated to reflect 2026 pricing
  */
 const MODEL_PRICING: Record<string, ModelPricing> = {
   // OpenAI models
-  'gpt-4o': {
-    inputCostPer1K: 0.0025,
-    outputCostPer1K: 0.01,
-  },
-  'gpt-4o-mini': {
-    inputCostPer1K: 0.00015,
-    outputCostPer1K: 0.0006,
-  },
-  'gpt-4-turbo': {
-    inputCostPer1K: 0.01,
-    outputCostPer1K: 0.03,
-  },
-  'gpt-4': {
-    inputCostPer1K: 0.03,
-    outputCostPer1K: 0.06,
-  },
-  'gpt-3.5-turbo': {
-    inputCostPer1K: 0.0005,
-    outputCostPer1K: 0.0015,
-  },
+  'gpt-4o': { inputCostPer1K: 0.0025, outputCostPer1K: 0.01 },
+  'openai:gpt-4o': { inputCostPer1K: 0.0025, outputCostPer1K: 0.01 },
+  'gpt-4o-mini': { inputCostPer1K: 0.00015, outputCostPer1K: 0.0006 },
+  'openai:gpt-4o-mini': { inputCostPer1K: 0.00015, outputCostPer1K: 0.0006 },
+  'gpt-5-mini': { inputCostPer1K: 0.00015, outputCostPer1K: 0.0006 },
+  'openai:gpt-5-mini': { inputCostPer1K: 0.00015, outputCostPer1K: 0.0006 },
+  'gpt-4-turbo': { inputCostPer1K: 0.01, outputCostPer1K: 0.03 },
+  'openai:gpt-4-turbo': { inputCostPer1K: 0.01, outputCostPer1K: 0.03 },
+  'gpt-4': { inputCostPer1K: 0.03, outputCostPer1K: 0.06 },
+  'openai:gpt-4': { inputCostPer1K: 0.03, outputCostPer1K: 0.06 },
+  'gpt-3.5-turbo': { inputCostPer1K: 0.0005, outputCostPer1K: 0.0015 },
+  'openai:gpt-3.5-turbo': { inputCostPer1K: 0.0005, outputCostPer1K: 0.0015 },
 
   // Anthropic models
-  'claude-3-5-sonnet-20241022': {
-    inputCostPer1K: 0.003,
-    outputCostPer1K: 0.015,
-  },
-  'claude-3-5-sonnet': {
-    inputCostPer1K: 0.003,
-    outputCostPer1K: 0.015,
-  },
-  'claude-3-opus-20240229': {
-    inputCostPer1K: 0.015,
-    outputCostPer1K: 0.075,
-  },
-  'claude-3-opus': {
-    inputCostPer1K: 0.015,
-    outputCostPer1K: 0.075,
-  },
-  'claude-3-sonnet-20240229': {
-    inputCostPer1K: 0.003,
-    outputCostPer1K: 0.015,
-  },
-  'claude-3-haiku-20240307': {
-    inputCostPer1K: 0.00025,
-    outputCostPer1K: 0.00125,
-  },
+  'claude-sonnet-4-20250514': { inputCostPer1K: 0.003, outputCostPer1K: 0.015 },
+  'anthropic:claude-sonnet-4-20250514': { inputCostPer1K: 0.003, outputCostPer1K: 0.015 },
+  'claude-3-5-sonnet-20241022': { inputCostPer1K: 0.003, outputCostPer1K: 0.015 },
+  'anthropic:claude-3-5-sonnet-20241022': { inputCostPer1K: 0.003, outputCostPer1K: 0.015 },
+  'claude-3-5-haiku-20241022': { inputCostPer1K: 0.00025, outputCostPer1K: 0.00125 },
+  'anthropic:claude-3-5-haiku-20241022': { inputCostPer1K: 0.00025, outputCostPer1K: 0.00125 },
+  'claude-3-opus-20240229': { inputCostPer1K: 0.015, outputCostPer1K: 0.075 },
+  'anthropic:claude-3-opus-20240229': { inputCostPer1K: 0.015, outputCostPer1K: 0.075 },
+  'claude-3-haiku-20240307': { inputCostPer1K: 0.00025, outputCostPer1K: 0.00125 },
+  'anthropic:claude-3-haiku-20240307': { inputCostPer1K: 0.00025, outputCostPer1K: 0.00125 },
 };
 
 /**
@@ -80,10 +59,16 @@ export function calculateCost(
     return 0;
   }
 
-  // Get pricing for the model
+  // Get pricing for the model (try exact match first, then strip provider prefix)
   let pricing = MODEL_PRICING[model];
 
-  // If exact model not found, try to match by prefix
+  // If not found, try stripping provider prefix (e.g. "openai:gpt-4o" -> "gpt-4o")
+  if (!pricing && model.includes(':')) {
+    const bareModel = model.split(':').slice(1).join(':');
+    pricing = MODEL_PRICING[bareModel];
+  }
+
+  // If still not found, try fuzzy match by substring
   if (!pricing) {
     const modelKey = Object.keys(MODEL_PRICING).find((key) =>
       model.toLowerCase().includes(key.toLowerCase())

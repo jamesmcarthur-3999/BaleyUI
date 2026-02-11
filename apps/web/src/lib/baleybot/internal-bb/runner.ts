@@ -617,6 +617,23 @@ export const toolExecutorOutputSchema = z.preprocess(
   })
 );
 
+export const testInterfaceDesignerOutputSchema = z.object({
+  mode: z.enum(['chat', 'form', 'hybrid', 'file', 'webhook']).catch('chat'),
+  components: z.array(z.object({
+    type: z.string(),
+    id: z.string(),
+    label: z.string(),
+    props: z.record(z.string(), z.unknown()).optional(),
+  })).min(1).catch([
+    { type: 'chat_input', id: 'fallback-chat', label: 'Test Input' },
+    { type: 'result_view', id: 'fallback-result', label: 'Result' },
+  ]),
+  testSuggestions: z.array(z.string()).catch([]),
+  rationale: z.string().catch(''),
+});
+
+export type TestInterfaceDesignerOutput = z.infer<typeof testInterfaceDesignerOutputSchema>;
+
 export type CreatorActionAdvisorOutput = z.infer<typeof creatorActionAdvisorOutputSchema>;
 export type TestGeneratorOutput = z.infer<typeof testGeneratorOutputSchema>;
 export type ConnectionAdvisorOutput = z.infer<typeof connectionAdvisorOutputSchema>;
@@ -770,5 +787,29 @@ export async function runToolExecutor(
     input,
     schema: toolExecutorOutputSchema,
     options,
+  });
+}
+
+export async function runTestInterfaceDesigner(
+  input: string,
+  options?: InternalBBRunOptions<TestInterfaceDesignerOutput>
+): Promise<TestInterfaceDesignerOutput> {
+  return runInternalBB({
+    botName: 'test_interface_designer',
+    input,
+    schema: testInterfaceDesignerOutputSchema,
+    options: {
+      fallbackMode: 'value',
+      fallbackValue: {
+        mode: 'chat' as const,
+        components: [
+          { type: 'chat_input', id: 'fallback-chat', label: 'Test Input' },
+          { type: 'result_view', id: 'fallback-result', label: 'Result' },
+        ],
+        testSuggestions: [],
+        rationale: 'Fallback: AI-driven design unavailable',
+      },
+      ...options,
+    },
   });
 }

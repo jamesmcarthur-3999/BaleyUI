@@ -433,7 +433,7 @@ export async function executeInternalBaleybot(
       signal: options.signal,
     });
 
-    // Update execution record
+    // Update execution record (including usage data for analytics)
     await db
       .update(baleybotExecutions)
       .set({
@@ -443,6 +443,11 @@ export async function executeInternalBaleybot(
         segments: result.segments,
         completedAt: new Date(),
         durationMs: Date.now() - startTime,
+        tokenCount: result.tokenCount,
+        model: result.model,
+        tokensInput: result.tokensInput,
+        tokensOutput: result.tokensOutput,
+        estimatedCost: result.estimatedCost,
       })
       .where(eq(baleybotExecutions.id, execution.id));
 

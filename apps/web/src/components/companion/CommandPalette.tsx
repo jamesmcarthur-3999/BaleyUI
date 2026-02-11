@@ -142,9 +142,10 @@ export function CommandPalette({
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Fetch BaleyBots for search
-  const { data: baleybots } = trpc.baleybots.list.useQuery(undefined, {
+  const { data: baleybotsData } = trpc.baleybots.list.useQuery(undefined, {
     enabled: open,
   });
+  const baleybots = baleybotsData?.items;
 
   // Build commands dynamically
   const commands: Command[] = [

@@ -37,7 +37,7 @@ export default function AnalyticsPage() {
     granularity: 'day',
   });
 
-  const totalExecutions = costSummary?.costByBlock.reduce((sum, b) => sum + b.executions, 0) || 0;
+  const totalExecutions = costSummary?.costByBot.reduce((sum, b) => sum + b.executions, 0) || 0;
   const avgCostPerExecution =
     costSummary && totalExecutions > 0 ? costSummary.totalCost / totalExecutions : 0;
 
@@ -49,7 +49,7 @@ export default function AnalyticsPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Analytics</h1>
             <p className="text-muted-foreground">
-              Monitor costs, performance, and usage across your AI blocks
+              Monitor costs, performance, and usage across your BaleyBots
             </p>
           </div>
         </div>
@@ -173,35 +173,35 @@ export default function AnalyticsPage() {
               </CardContent>
             </Card>
 
-            {/* Top Blocks by Cost */}
-            {costSummary && costSummary.costByBlock.length > 0 && (
+            {/* Top BaleyBots by Cost */}
+            {costSummary && costSummary.costByBot.length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Top Blocks by Cost</CardTitle>
-                  <CardDescription>Highest spending blocks in the selected date range</CardDescription>
+                  <CardTitle>Top BaleyBots by Cost</CardTitle>
+                  <CardDescription>Highest spending BaleyBots in the selected date range</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {costSummary.costByBlock.slice(0, 5).map((block, index) => (
+                    {costSummary.costByBot.slice(0, 5).map((bot, index) => (
                       <div
-                        key={index}
+                        key={bot.baleybotId}
                         className="flex items-center justify-between border-b pb-3 last:border-0"
                       >
                         <div className="flex items-center gap-3">
                           <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-semibold text-sm">
-                            {index + 1}
+                            {bot.icon || (index + 1)}
                           </div>
                           <div>
-                            <div className="font-medium">{block.name}</div>
+                            <div className="font-medium">{bot.name}</div>
                             <div className="text-xs text-muted-foreground">
-                              {block.executions.toLocaleString()} executions
+                              {bot.executions.toLocaleString()} executions
                             </div>
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="font-semibold">{formatCost(block.cost)}</div>
+                          <div className="font-semibold">{formatCost(bot.cost)}</div>
                           <div className="text-xs text-muted-foreground">
-                            {formatCost(block.cost / block.executions)} avg
+                            {formatCost(bot.cost / bot.executions)} avg
                           </div>
                         </div>
                       </div>

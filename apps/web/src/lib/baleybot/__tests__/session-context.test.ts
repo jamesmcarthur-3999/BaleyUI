@@ -13,7 +13,7 @@ describe('formatSessionContext', () => {
       designed: 'complete',
       connected: 'incomplete',
       tested: 'incomplete',
-      activated: 'not-applicable',
+      integrated: 'not-applicable',
       monitored: 'not-applicable',
     },
     connectedProviders: ['anthropic'],

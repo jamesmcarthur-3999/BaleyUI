@@ -7,7 +7,7 @@ import { ToolCallCard } from '@/components/streaming/ToolCallCard';
 import type { ToolCall } from '@/components/streaming/ToolCallCard';
 import { StreamdownMarkdown } from '@/components/shared/StreamdownMarkdown';
 import { Button } from '@/components/ui/button';
-import { Send, Loader2, Bot, User } from 'lucide-react';
+import { Send, Loader2, Bot, User, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ToolCallState } from '@/lib/streaming/types/state';
 
@@ -175,7 +175,7 @@ function StreamingPreview() {
 // ============================================================================
 
 export function ChatInterface({ className }: ChatInterfaceProps) {
-  const { state, execute } = useReviewExecution();
+  const { state, execute, cancel } = useReviewExecution();
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -259,18 +259,26 @@ export function ChatInterface({ className }: ChatInterfaceProps) {
           rows={1}
           disabled={state.isExecuting}
         />
-        <Button
-          size="icon"
-          onClick={handleSubmit}
-          disabled={!input.trim() || state.isExecuting}
-          className="shrink-0 h-9 w-9"
-        >
-          {state.isExecuting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
+        {state.isExecuting ? (
+          <Button
+            size="icon"
+            variant="destructive"
+            onClick={cancel}
+            className="shrink-0 h-9 w-9"
+            title="Cancel execution"
+          >
+            <Square className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            size="icon"
+            onClick={handleSubmit}
+            disabled={!input.trim()}
+            className="shrink-0 h-9 w-9"
+          >
             <Send className="h-4 w-4" />
-          )}
-        </Button>
+          </Button>
+        )}
       </div>
     </div>
   );

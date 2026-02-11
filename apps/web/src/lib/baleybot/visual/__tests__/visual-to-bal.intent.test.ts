@@ -208,7 +208,7 @@ loop ("until": "result.passed == true", "max": 3) {
     expect(updated).toContain('loop ("until": "result.passed == true", "max": 3)');
   });
 
-  it('updates approval-required tools when canRequest changes', () => {
+  it('does not emit can_request in BAL (unsupported property)', () => {
     const parsed: ParsedEntities = {
       entities: [
         {
@@ -227,6 +227,9 @@ loop ("until": "result.passed == true", "max": 3) {
       changes: { canRequest: ['send_notification'] },
     });
 
-    expect(updated).toContain('"can_request": ["send_notification"]');
+    // can_request is not a supported BAL parser property, so it should NOT appear in output
+    expect(updated).not.toContain('can_request');
+    // The entity should still have its tools
+    expect(updated).toContain('"tools": { "send_notification" }');
   });
 });

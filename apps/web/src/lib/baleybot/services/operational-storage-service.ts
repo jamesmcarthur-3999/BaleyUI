@@ -13,6 +13,7 @@ import {
   db,
   connections,
   baleybotExecutions,
+  baleybotMetrics,
   eq,
   and,
   notDeleted,
@@ -239,9 +240,17 @@ function createInternalStorageService(
       });
     },
 
-    async storeAnalytics(_record: AnalyticsRecord): Promise<void> {
-      // TODO(ANALYTICS-001): Implement when analytics tables are created
-      log.debug('Analytics storage not yet implemented for internal DB');
+    async storeAnalytics(record: AnalyticsRecord): Promise<void> {
+      await db.insert(baleybotMetrics).values({
+        workspaceId: record.workspaceId,
+        baleybotId: record.baleybotId,
+        executionId: record.id,
+        metricName: record.metricName,
+        metricType: record.metricType,
+        value: record.value,
+        dimensions: record.dimensions as Record<string, unknown>,
+        timestamp: record.timestamp,
+      });
     },
 
     async queryExecutions(

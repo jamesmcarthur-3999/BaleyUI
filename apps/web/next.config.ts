@@ -37,6 +37,21 @@ const nextConfig: NextConfig = {
     return config;
   },
   async headers() {
+    // CSP directives — allows Clerk, Vercel analytics, and inline styles (Next.js requires them)
+    const cspDirectives = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://*.clerk.accounts.dev",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "img-src 'self' data: blob: https://img.clerk.com https://*.clerk.accounts.dev",
+      "font-src 'self' https://fonts.gstatic.com",
+      "connect-src 'self' https://*.clerk.accounts.dev https://api.clerk.com https://*.neon.tech wss://*.neon.tech",
+      "frame-src 'self' https://challenges.cloudflare.com https://*.clerk.accounts.dev",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "frame-ancestors 'none'",
+    ].join('; ');
+
     return [
       {
         source: '/(.*)',
@@ -47,6 +62,7 @@ const nextConfig: NextConfig = {
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
           { key: 'X-DNS-Prefetch-Control', value: 'on' },
+          { key: 'Content-Security-Policy', value: cspDirectives },
         ],
       },
     ];

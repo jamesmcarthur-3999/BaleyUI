@@ -3,6 +3,36 @@ import crypto from 'crypto';
 const KEY_VERSION_PREFIX = 'v1:';
 
 /**
+ * Validate ENCRYPTION_KEY at module load time.
+ * Fails fast in production if the key is missing or malformed.
+ * In development/test, logs a warning but allows the process to continue.
+ */
+function validateEncryptionKeyAtStartup(): void {
+  const key = process.env.ENCRYPTION_KEY;
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (!key) {
+    const msg =
+      'ENCRYPTION_KEY environment variable is not set. ' +
+      'Generate one with: openssl rand -hex 32';
+    if (isProd) throw new Error(msg);
+    console.warn(`[encryption] ${msg}`);
+    return;
+  }
+
+  if (key.length !== 64) {
+    const msg =
+      'ENCRYPTION_KEY must be 64 hex characters (32 bytes). ' +
+      'Generate one with: openssl rand -hex 32';
+    if (isProd) throw new Error(msg);
+    console.warn(`[encryption] ${msg}`);
+  }
+}
+
+// Validate eagerly — crashes production builds before any request is served
+validateEncryptionKeyAtStartup();
+
+/**
  * Get the encryption key from environment variables.
  * The key must be 32 bytes (64 hex characters) for AES-256.
  * @throws Error if ENCRYPTION_KEY is not set or invalid

@@ -20,6 +20,7 @@
     "test:coverage": "pnpm --filter @baleyui/web test:coverage",
     "db:generate": "pnpm --filter @baleyui/db db:generate",
     "db:migrate": "pnpm --filter @baleyui/db db:migrate",
+    "db:deploy": "pnpm --filter @baleyui/db db:deploy",
     "db:push": "pnpm --filter @baleyui/db db:push",
     "db:studio": "pnpm --filter @baleyui/db db:studio"
   },

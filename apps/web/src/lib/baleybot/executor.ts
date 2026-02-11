@@ -31,6 +31,7 @@ import {
   resolveProviderConfig,
   type AIProviderType,
 } from './services/ai-credentials-service';
+import { calculateCost as calculateExecutionCost } from './cost/usage-tracker';
 
 // ============================================================================
 // PERF-008: BAL PARSING CACHE
@@ -522,6 +523,33 @@ export async function executeBaleybot(
   const durationMs = Date.now() - startTime;
 
   // ============================================================================
+  // EXTRACT TOKEN USAGE FROM SEGMENTS
+  // ============================================================================
+
+  let tokensInput = 0;
+  let tokensOutput = 0;
+  let apiCalls = 0;
+  let toolCallCount = 0;
+
+  for (const segment of segments) {
+    const seg = segment as Record<string, unknown>;
+    if (seg.type === 'done' && typeof seg.usage === 'object' && seg.usage !== null) {
+      const usage = seg.usage as Record<string, number>;
+      tokensInput += usage.inputTokens ?? 0;
+      tokensOutput += usage.outputTokens ?? 0;
+      apiCalls += 1;
+    }
+    if (seg.type === 'tool_use_start') {
+      toolCallCount += 1;
+    }
+  }
+
+  const totalTokens = tokensInput + tokensOutput;
+  const estimatedCost = totalTokens > 0
+    ? calculateExecutionCost(tokensInput, tokensOutput, model)
+    : undefined;
+
+  // ============================================================================
   // POST-EXECUTION: Analytics, Usage Tracking, and Alerts (non-blocking)
   // All service calls are wrapped in try/catch so failures don't affect results.
   // ============================================================================
@@ -610,6 +638,11 @@ export async function executeBaleybot(
     error,
     segments,
     durationMs,
+    model,
+    tokensInput: tokensInput || undefined,
+    tokensOutput: tokensOutput || undefined,
+    tokenCount: totalTokens || undefined,
+    estimatedCost,
     schemaValidation,
   };
 }
