@@ -138,6 +138,12 @@ type CreatorStreamEvent =
       event?: Record<string, unknown>;
       entityName?: string;
       timestamp?: number;
+    }
+  | {
+      type: 'creator_connection_action';
+      action?: string;
+      result?: Record<string, unknown>;
+      timestamp?: number;
     };
 
 /**
@@ -188,8 +194,15 @@ export default function BaleybotPage() {
   const [messages, setMessages] = useState<CreatorMessage[]>([]);
   const [streamingText, setStreamingText] = useState('');
   const streamingTextRef = useRef('');
+  const [streamingReasoning, setStreamingReasoning] = useState('');
+  const streamingReasoningRef = useRef('');
   const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [agentEvents, setAgentEvents] = useState<Array<{ event: Record<string, unknown>; entityName?: string; timestamp: number }>>([]);
+  const [connectionActions, setConnectionActions] = useState<Array<{
+    action: string;
+    result: Record<string, unknown>;
+    timestamp: number;
+  }>>([]);
   const [, setCreationProgress] = useState<CreationProgress | null>(null);
   const [creatorStreamingProgress, setCreatorStreamingProgress] =
     useState<{ phase: string; message: string; startedAt: number } | null>(null);
@@ -529,6 +542,7 @@ export default function BaleybotPage() {
 
     setCreatorGuidanceActions([]);
     setAgentEvents([]);
+    setConnectionActions([]);
     // Clear any stale throttle timer from a previous turn before resetting refs
     if (throttleRef.current) {
       clearTimeout(throttleRef.current);
@@ -536,6 +550,8 @@ export default function BaleybotPage() {
     }
     streamingTextRef.current = '';
     setStreamingText('');
+    streamingReasoningRef.current = '';
+    setStreamingReasoning('');
     setCreatorStreamingProgress({
       phase: 'discovery',
       message: 'Starting creator workflow...',
@@ -548,6 +564,13 @@ export default function BaleybotPage() {
         baleybotId: savedBaleybotId ?? undefined,
         message: args.message,
         conversationHistory: args.conversationHistory,
+        currentState: balCode ? {
+          balCode,
+          name,
+          description,
+          icon,
+          entities: entities.map(e => ({ name: e.name, purpose: e.purpose, tools: e.tools })),
+        } : undefined,
       },
       onEvent: (event) => {
         try {
@@ -567,15 +590,43 @@ export default function BaleybotPage() {
         // Agent activity events (for expandable activity panel)
         if (event.type === 'creator_agent_event') {
           if (event.event) {
+            const agentEvent = event.event as Record<string, unknown>;
+
+            // Capture top-level reasoning from creator_bot
+            if (agentEvent.type === 'reasoning' && agentEvent.content) {
+              streamingReasoningRef.current += String(agentEvent.content);
+              // Throttle reasoning updates with the same timer as text
+              if (!throttleRef.current) {
+                throttleRef.current = setTimeout(() => {
+                  setStreamingReasoning(streamingReasoningRef.current);
+                  setStreamingText(streamingTextRef.current);
+                  throttleRef.current = null;
+                }, 200);
+              }
+            }
+
             setAgentEvents((prev) => [
               ...prev,
               {
-                event: event.event as Record<string, unknown>,
+                event: agentEvent,
                 entityName: event.entityName,
                 timestamp: event.timestamp ?? Date.now(),
               },
             ]);
           }
+          return;
+        }
+
+        // Connection action events → visual action cards
+        if (event.type === 'creator_connection_action') {
+          if (event.result) {
+            setConnectionActions(prev => [...prev, {
+              action: event.action ?? 'unknown',
+              result: event.result!,
+              timestamp: event.timestamp ?? Date.now(),
+            }]);
+          }
+          utils.connections.list.invalidate();
           return;
         }
 
@@ -678,6 +729,8 @@ export default function BaleybotPage() {
     // Reset streaming state atomically — ref first, then UI state
     streamingTextRef.current = '';
     setStreamingText('');
+    streamingReasoningRef.current = '';
+    setStreamingReasoning('');
 
     if (!finalResult) {
       // Stream completed but produced neither a creator_complete event nor streamed text.
@@ -849,6 +902,25 @@ export default function BaleybotPage() {
         metadata,
       };
       setMessages((prev) => [...prev, assistantMessage]);
+    }
+
+    // Build notification — "here's what I built" moment
+    {
+      const entityCount = visualEntities.length;
+      const toolCount = new Set(visualEntities.flatMap(e => e.tools ?? [])).size;
+      setMessages((prev) => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'system' as const,
+        content: `Built "${truncateName(result.name)}" \u2014 ${entityCount} step${entityCount !== 1 ? 's' : ''}, ${toolCount} tool${toolCount !== 1 ? 's' : ''}.`,
+        timestamp: new Date(),
+        metadata: {
+          diagnostic: {
+            level: 'success',
+            title: 'BaleyBot Created',
+            details: 'Review in the visual editor or code tab.',
+          },
+        },
+      }]);
     }
 
     setIsStreaming(false);
@@ -1818,6 +1890,8 @@ export default function BaleybotPage() {
                 quickPromptContextLabel={quickPromptContextLabel}
                 agentEvents={agentEvents}
                 streamingText={streamingText}
+                connectionActions={connectionActions}
+                streamingReasoning={streamingReasoning}
               />
             </div>
 

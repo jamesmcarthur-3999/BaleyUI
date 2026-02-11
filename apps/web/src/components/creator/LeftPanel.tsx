@@ -9,6 +9,7 @@ import type {
   CreatorMessage,
   CreationStatus,
 } from '@/lib/baleybot/creator-types';
+import type { ConnectionAction } from './ConnectionActionCard';
 
 interface Execution {
   id: string;
@@ -44,6 +45,10 @@ interface LeftPanelProps {
   agentEvents?: AgentActivityEvent[];
   /** Real-time streaming text from creator_bot conversation */
   streamingText?: string;
+  /** Connection actions performed during streaming */
+  connectionActions?: ConnectionAction[];
+  /** Real-time streaming reasoning from creator_bot */
+  streamingReasoning?: string;
 }
 
 /**
@@ -64,6 +69,8 @@ export function LeftPanel({
   quickPromptContextLabel,
   agentEvents,
   streamingText,
+  connectionActions,
+  streamingReasoning,
 }: LeftPanelProps) {
   return (
     <div className="flex flex-col h-full">
@@ -76,6 +83,8 @@ export function LeftPanel({
         onOptionSelect={onOptionSelect}
         agentEvents={agentEvents}
         streamingText={streamingText}
+        connectionActions={connectionActions}
+        streamingReasoning={streamingReasoning}
       />
 
       {executions && executions.length > 0 && (

@@ -1,6 +1,6 @@
 ---
 id: consultative_curiosity
-version: 2
+version: 3
 appliesTo: creator_bot
 section: reasoning
 ---
@@ -22,6 +22,8 @@ When to build without asking:
 - The user explicitly says "just build it" or signals they want speed over consultation
 - This is a follow-up turn where the user already answered your questions
 - The user is refining or iterating on an existing design
+- You're ready to build? Spawn your specialist team while explaining your design to the user.
+- Always provide your own response text alongside spawns so the user sees immediate feedback.
 
 When you need to ask the user something, write it in your response. They will see your text streamed in real-time and reply in their next message.
 

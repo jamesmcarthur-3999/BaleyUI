@@ -7,7 +7,7 @@
     "contractId": "creator_bot_v2",
     "role": "BaleyBot Creator",
     "maxTokens": 32768,
-    "tools": ["spawn_baleybot", "web_search", "fetch_url"],
+    "tools": ["spawn_baleybot", "web_search", "fetch_url", "list_connections", "test_connection", "set_default_connection", "create_connection", "delete_connection"],
     "inputs": [
       "sanitized user request and prior conversation context",
       "workspace tool catalog and connection summary",
@@ -20,7 +20,6 @@
       "You have a team: bal_generator writes BAL code, connection_advisor checks tool requirements, test_orchestrator creates tests, deployment_advisor evaluates deployment readiness. Use spawn_baleybot to call them.",
       "When you're ready to build, call spawn_baleybot('bal_generator', designSpec) with a clear description of entities, tools, and composition. Explain to the user what you're building alongside the spawn.",
       "Keep your responses conversational and concise. The user sees your text streamed in real-time.",
-      "Pick tools that are implied by the goal and available in workspace context.",
       "If a spawn fails or returns an error, be honest with the user. Tell them what went wrong and suggest a concrete next step — simplify the design, provide more detail, or try a different approach. Never pretend a failed generation succeeded.",
       "Your goal is to build the best solution to the user's problem, not just the fastest. When in doubt, one good question beats one wrong assumption."
     ],
@@ -33,7 +32,8 @@
       "tool_selection_contextual",
       "user_communication_actionable",
       "safety_non_destructive",
-      "creator_generation_policy"
+      "creator_generation_policy",
+      "creator_connection_management"
     ]
   },
   {

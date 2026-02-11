@@ -2,7 +2,7 @@
 
 import { useRef } from 'react';
 import { useReviewExecution } from './ReviewExecutionContext';
-import { RenderMarkdown } from '@/components/shared/RenderMarkdown';
+import { StreamdownMarkdown } from '@/components/shared/StreamdownMarkdown';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -157,7 +157,7 @@ export function ResultView({ className }: ResultViewProps) {
         </Button>
       </div>
       <div ref={printRef} className="p-3 text-sm print:p-8">
-        <RenderMarkdown text={output} />
+        <StreamdownMarkdown text={output} />
       </div>
     </div>
   );

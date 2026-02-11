@@ -3,9 +3,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { User, Bot, Brain } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { RenderMarkdown } from '@/components/shared/RenderMarkdown';
+import { StreamdownMarkdown } from '@/components/shared/StreamdownMarkdown';
 import type { CreatorMessage } from '@/lib/baleybot/creator-types';
 import { AgentActivityPanel } from './AgentActivityPanel';
+import { InlineAgentIndicators } from './InlineAgentIndicator';
+import { ConnectionActionCard } from './ConnectionActionCard';
+import type { ConnectionAction } from './ConnectionActionCard';
 
 export interface StreamingProgress {
   phase: string;
@@ -38,6 +41,10 @@ interface ConversationThreadProps {
   agentEvents?: AgentActivityEvent[];
   /** Real-time streaming text from creator_bot (shown as a live message bubble) */
   streamingText?: string;
+  /** Connection actions performed during streaming */
+  connectionActions?: ConnectionAction[];
+  /** Real-time streaming reasoning from creator_bot */
+  streamingReasoning?: string;
 }
 
 /**
@@ -55,6 +62,8 @@ export function ConversationThread({
   onOptionSelect: _onOptionSelect,
   agentEvents,
   streamingText,
+  connectionActions,
+  streamingReasoning,
 }: ConversationThreadProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastMessageCountRef = useRef(messages.length);
@@ -85,7 +94,7 @@ export function ConversationThread({
   }
 
   const streamingBubble = streamingText ? (
-    <StreamingMessage text={streamingText} agentEvents={agentEvents} />
+    <StreamingMessage text={streamingText} agentEvents={agentEvents} connectionActions={connectionActions} reasoning={streamingReasoning} />
   ) : isBuilding ? (
     <BuildingIndicator progress={streamingProgress} agentEvents={agentEvents} />
   ) : null;
@@ -116,7 +125,7 @@ export function ConversationThread({
     <div className={cn('flex-1 overflow-hidden flex flex-col', className)}>
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 py-3 space-y-4"
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-5"
       >
         {messageList}
       </div>
@@ -148,10 +157,10 @@ function UserMessage({
       >
         <User className="h-4 w-4" />
       </div>
-      <div className="max-w-[90%] rounded-2xl rounded-tr-md bg-primary px-4 py-3 text-[15px] leading-7 text-primary-foreground shadow-[0_12px_30px_-24px_hsl(var(--primary)/0.9)]">
+      <div className="max-w-[90%] rounded-2xl rounded-tr-md bg-primary px-4 py-3 text-[0.9375rem] leading-relaxed text-primary-foreground shadow-[0_12px_30px_-24px_hsl(var(--primary)/0.9)]">
         <p className="whitespace-pre-wrap break-words">{message.content}</p>
         <time
-          className="mt-1.5 block text-[11px] text-primary-foreground/70"
+          className="mt-1.5 block text-xs text-primary-foreground/60"
           dateTime={message.timestamp.toISOString()}
         >
           {formatTime(message.timestamp)}
@@ -186,15 +195,13 @@ function AssistantMessage({
               : 'border-border/60 bg-card/70'
           )}
         >
-          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground mb-2">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground/80 mb-2">
             <Bot className="h-3.5 w-3.5" />
             BaleyBot
           </span>
 
           {/* Message text with markdown */}
-          <div className="text-[15px] text-foreground/95 leading-7">
-            <RenderMarkdown text={message.content} />
-          </div>
+          <StreamdownMarkdown text={message.content} />
         </div>
 
         {/* Thinking/reasoning expandable */}
@@ -217,7 +224,7 @@ function AssistantMessage({
 
         {/* Timestamp */}
         <time
-          className="block text-[11px] text-muted-foreground"
+          className="block text-xs text-muted-foreground/60"
           dateTime={message.timestamp.toISOString()}
         >
           {formatTime(message.timestamp)}
@@ -240,18 +247,25 @@ function SystemMessage({
 }) {
   const isError = message.metadata?.isError;
   const options = message.metadata?.options;
+  const diagnostic = message.metadata?.diagnostic as { level?: string; details?: string } | undefined;
+  const isSuccess = diagnostic?.level === 'success';
 
   return (
     <div className="flex justify-center animate-fade-in">
       <div
         className={cn(
-          'max-w-[85%] rounded-xl px-4 py-2.5 text-center text-[13px] leading-relaxed',
+          'max-w-[85%] rounded-xl px-4 py-2.5 text-center text-sm leading-relaxed',
           isError
             ? 'bg-red-500/8 text-red-400 border border-red-500/20'
-            : 'bg-muted/50 text-muted-foreground'
+            : isSuccess
+              ? 'bg-emerald-500/8 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+              : 'bg-muted/50 text-muted-foreground'
         )}
       >
         <p>{message.content}</p>
+        {diagnostic?.details && (
+          <p className="mt-1 text-xs opacity-70">{diagnostic.details}</p>
+        )}
         {options && options.length > 0 && onOptionSelect && (
           <div className="flex justify-center gap-2 mt-2">
             {options.map((opt) => (
@@ -274,30 +288,77 @@ function SystemMessage({
 // STREAMING MESSAGE (live text from creator_bot)
 // ============================================================================
 
-function StreamingMessage({ text, agentEvents }: { text: string; agentEvents?: AgentActivityEvent[] }) {
+function StreamingMessage({
+  text,
+  agentEvents,
+  connectionActions,
+  reasoning,
+}: {
+  text: string;
+  agentEvents?: AgentActivityEvent[];
+  connectionActions?: ConnectionAction[];
+  reasoning?: string;
+}) {
+  const isThinking = !text && !!reasoning;
+
   return (
     <div className="animate-fade-in">
       <div className="rounded-[1.1rem] border border-border/60 bg-card/70 p-4 shadow-[0_12px_35px_-28px_rgba(0,0,0,0.8)]">
-        <div className="flex items-center gap-1 mb-2">
-          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground">
-            <Bot className="h-3.5 w-3.5" />
-            BaleyBot
-          </span>
-          <span className="inline-flex gap-[3px] ml-1.5">
-            <span className="w-[4px] h-[4px] rounded-full bg-primary/70 animate-loading-dot" style={{ animationDelay: '0ms' }} />
-            <span className="w-[4px] h-[4px] rounded-full bg-primary/70 animate-loading-dot" style={{ animationDelay: '200ms' }} />
-            <span className="w-[4px] h-[4px] rounded-full bg-primary/70 animate-loading-dot" style={{ animationDelay: '400ms' }} />
-          </span>
-        </div>
-        <div className="text-[15px] text-foreground/95 leading-7">
-          <RenderMarkdown text={text} />
-        </div>
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground/80 mb-2">
+          <Bot className="h-3.5 w-3.5" />
+          BaleyBot
+        </span>
 
-        {/* Agent activity panel — shows when spawned bots are active */}
+        {/* Thinking indicator — shown while reasoning before text starts */}
+        {reasoning && (
+          <ThinkingIndicator reasoning={reasoning} isActive={isThinking} />
+        )}
+
+        <StreamdownMarkdown text={text} isStreaming />
+
+        {/* Inline agent indicators — subtle dividers for specialist bot activity */}
         {agentEvents && agentEvents.length > 0 && (
-          <AgentActivityPanel events={agentEvents} className="mt-3" />
+          <InlineAgentIndicators events={agentEvents} />
+        )}
+
+        {/* Connection action cards — inline visual feedback for connection operations */}
+        {connectionActions && connectionActions.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {connectionActions.map((ca, i) => (
+              <ConnectionActionCard key={`${ca.action}-${ca.timestamp}-${i}`} action={ca} />
+            ))}
+          </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// THINKING INDICATOR
+// ============================================================================
+
+function ThinkingIndicator({ reasoning, isActive }: { reasoning: string; isActive: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="mb-2">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-muted-foreground/70 transition-colors"
+      >
+        <Brain className="h-3 w-3" />
+        {isActive ? (
+          <span className="animate-pulse-soft">Thinking...</span>
+        ) : (
+          <span>Thought for {Math.ceil(reasoning.length / 100)}s</span>
+        )}
+      </button>
+      {expanded && (
+        <div className="mt-1 pl-3 border-l-2 border-muted-foreground/15 text-xs text-muted-foreground/60 whitespace-pre-wrap max-h-40 overflow-y-auto">
+          {reasoning}
+        </div>
+      )}
     </div>
   );
 }
@@ -326,7 +387,7 @@ function ElapsedTimer({ startedAt }: { startedAt: number }) {
 
   if (elapsed < 3) return null;
   return (
-    <span className="text-[11px] text-muted-foreground/50 tabular-nums">
+    <span className="text-xs text-muted-foreground/50 tabular-nums">
       {elapsed}s
     </span>
   );
@@ -344,7 +405,7 @@ function BuildingIndicator({ progress, agentEvents }: { progress?: StreamingProg
       <div className="rounded-[1.1rem] border border-border/60 bg-card/70 p-4 shadow-[0_12px_35px_-28px_rgba(0,0,0,0.8)]">
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
-          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground/80">
             <Bot className="h-3.5 w-3.5" />
             BaleyBot
           </span>
@@ -358,7 +419,7 @@ function BuildingIndicator({ progress, agentEvents }: { progress?: StreamingProg
             <span className="w-[5px] h-[5px] rounded-full bg-primary/70 animate-loading-dot" style={{ animationDelay: '200ms' }} />
             <span className="w-[5px] h-[5px] rounded-full bg-primary/70 animate-loading-dot" style={{ animationDelay: '400ms' }} />
           </span>
-          <span className="text-[14px] text-foreground/80">
+          <span className="text-sm text-foreground/80">
             {displayMessage}
           </span>
         </div>

@@ -18,6 +18,8 @@ import type { GeneratorContext } from './types';
 import type { BaleybotStreamEvent } from '@baleybots/core';
 import { createLogger } from '@/lib/logger';
 import { normalizeOutputCandidate } from './internal-bb/runner';
+import { buildConnectionTools } from './tools/companion/connections';
+import type { CompanionToolContext } from './tools/companion';
 
 
 const logger = createLogger('creator-pipeline-adapter');
@@ -49,13 +51,19 @@ export interface SpecialistFindings {
   deployment: unknown | null;
 }
 
+const CONNECTION_TOOL_NAMES = new Set([
+  'list_connections', 'test_connection', 'set_default_connection',
+  'create_connection', 'delete_connection',
+]);
+
 export type CreatorSSEEvent =
   | { type: 'creator_stream_started'; timestamp: number }
   | { type: 'creator_text_delta'; content: string; timestamp: number }
   | { type: 'creator_progress'; phase: string; message: string; timestamp: number }
   | { type: 'creator_complete'; result: CreatorOutput; summary: string; specialist: SpecialistFindings; timestamp: number }
   | { type: 'creator_error'; message: string; timestamp: number }
-  | { type: 'creator_agent_event'; event: AgentEvent; entityName?: string; timestamp: number };
+  | { type: 'creator_agent_event'; event: AgentEvent; entityName?: string; timestamp: number }
+  | { type: 'creator_connection_action'; action: string; result: Record<string, unknown>; timestamp: number };
 
 // ============================================================================
 // CONTEXT BUILDER
@@ -65,6 +73,13 @@ function buildPipelineInput(args: {
   message: string;
   context: GeneratorContext;
   conversationHistory: CreatorMessage[];
+  currentState?: {
+    balCode: string;
+    name?: string;
+    description?: string;
+    icon?: string;
+    entities?: Array<{ name: string; purpose?: string; tools?: string[] }>;
+  };
 }): string {
   const parts: string[] = [];
 
@@ -76,7 +91,7 @@ function buildPipelineInput(args: {
 
   if (args.context.connections.length > 0) {
     const connSummary = args.context.connections
-      .map((c) => `${c.name} (${c.type}: ${c.status})`)
+      .map((c) => `${c.name} [id:${c.id}] (${c.type}: ${c.status})`)
       .join(', ');
     parts.push(`Connections: ${connSummary}`);
   }
@@ -87,6 +102,17 @@ function buildPipelineInput(args: {
       .map((b) => `${b.name}: ${b.description ?? 'no description'}`)
       .join('; ');
     parts.push(`Existing bots: ${bbSummary}`);
+  }
+
+  // Current builder state (for edit iterations)
+  if (args.currentState?.balCode) {
+    const s = args.currentState;
+    const stateLines = [`Current BaleyBot: ${s.name ?? 'Unnamed'}`];
+    if (s.entities?.length) {
+      stateLines.push(`Entities: ${s.entities.map(e => e.name).join(', ')}`);
+    }
+    stateLines.push(`Current BAL code:\n\`\`\`\n${s.balCode}\n\`\`\``);
+    parts.push(stateLines.join('\n'));
   }
 
   // Conversation history (last 16 messages, truncated)
@@ -349,10 +375,18 @@ function compactSummary(output: CreatorOutput): string {
 
 export interface CreatorPipelineArgs {
   workspaceId: string;
+  userId: string;
   baleybotId?: string;
   message: string;
   context: GeneratorContext;
   conversationHistory: CreatorMessage[];
+  currentState?: {
+    balCode: string;
+    name?: string;
+    description?: string;
+    icon?: string;
+    entities?: Array<{ name: string; purpose?: string; tools?: string[] }>;
+  };
   signal?: AbortSignal;
   executionId: string;
   onEvent: (event: CreatorSSEEvent) => void;
@@ -364,9 +398,21 @@ export async function executeCreatorPipeline(
   const { workspaceId, context, conversationHistory, onEvent } = args;
 
   // Build the input string for creator_bot
-  const input = buildPipelineInput({ message: args.message, context, conversationHistory });
+  const input = buildPipelineInput({
+    message: args.message,
+    context,
+    conversationHistory,
+    currentState: args.currentState,
+  });
 
   onEvent({ type: 'creator_stream_started', timestamp: Date.now() });
+
+  // Build connection tools for injection
+  const connectionToolCtx: CompanionToolContext = {
+    workspaceId: args.workspaceId,
+    userId: args.userId,
+  };
+  const connectionTools = buildConnectionTools(connectionToolCtx);
 
   try {
     // Accumulate conversational text and spawn results
@@ -380,6 +426,7 @@ export async function executeCreatorPipeline(
       input,
       {
         userWorkspaceId: workspaceId,
+        injectedTools: connectionTools,
         signal: args.signal,
         onSegment: (event: BaleybotStreamEvent) => {
           // Accumulate conversational text
@@ -411,7 +458,9 @@ export async function executeCreatorPipeline(
           // Capture spawn results using tool call ID → bot name mapping
           if (event.type === 'tool_execution_output') {
             const e = event as Record<string, unknown>;
-            if (e.toolName === 'spawn_baleybot' && e.result) {
+            const toolName = String(e.toolName ?? '');
+
+            if (toolName === 'spawn_baleybot' && e.result) {
               const toolCallId = String(e.id ?? '');
               const botName = pendingSpawnNames.get(toolCallId);
               if (botName) {
@@ -421,6 +470,16 @@ export async function executeCreatorPipeline(
                 }
                 pendingSpawnNames.delete(toolCallId);
               }
+            }
+
+            // Connection tool events → emit as visual action cards
+            if (CONNECTION_TOOL_NAMES.has(toolName)) {
+              onEvent({
+                type: 'creator_connection_action',
+                action: toolName,
+                result: (e.result ?? {}) as Record<string, unknown>,
+                timestamp: Date.now(),
+              });
             }
           }
 

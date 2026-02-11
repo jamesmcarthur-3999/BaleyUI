@@ -1,6 +1,6 @@
 ---
 id: platform_expertise
-version: 1
+version: 2
 appliesTo: *
 section: reasoning
 ---
@@ -11,12 +11,6 @@ Always available. No connection required.
 - General: web_search, fetch_url, send_notification, store_memory, spawn_baleybot, request_user_input
 - Require approval: schedule_task, create_agent, create_tool
 - shared_storage: cross-BB async data passing with TTL — use for pipelines where entities share intermediate results
-
-## Tool Sources (4 types)
-1. **Built-in** — always available, listed above
-2. **Connection-derived** — generated from database connections (e.g., query_my_database). Require active DB connection.
-3. **MCP** — from connected MCP servers. 40+ in library across categories: communication, CRM, productivity, developer tools, data, automation, payments, design.
-4. **Workspace custom** — user-defined NL tools executed by tool_executor
 
 ## Connection Types
 - AI providers: OpenAI, Anthropic, Google, Ollama (local)

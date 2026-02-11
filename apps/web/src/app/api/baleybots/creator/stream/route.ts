@@ -40,6 +40,17 @@ const creatorStreamBodySchema = z
       )
       .max(100)
       .optional(),
+    currentState: z.object({
+      balCode: z.string().max(50000),
+      name: z.string().max(200).optional(),
+      description: z.string().max(2000).optional(),
+      icon: z.string().max(10).optional(),
+      entities: z.array(z.object({
+        name: z.string(),
+        purpose: z.string().optional(),
+        tools: z.array(z.string()).optional(),
+      })).max(50).optional(),
+    }).optional(),
   })
   .strict();
 
@@ -148,10 +159,12 @@ export async function POST(req: NextRequest) {
         try {
           await executeCreatorPipeline({
             workspaceId: workspace.id,
+            userId,
             baleybotId: input.baleybotId,
             message: creatorContext.sanitizedMessage,
             context: creatorContext.context,
             conversationHistory: creatorContext.conversationHistory,
+            currentState: input.currentState,
             signal: req.signal,
             executionId,
             onEvent: (event: CreatorSSEEvent) => {

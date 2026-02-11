@@ -13,6 +13,8 @@ export { NetworkStatus, useNetworkStatus } from './LoadingStates';
 export { SaveConflictDialog, isSaveConflictError } from './SaveConflictDialog';
 export type { ConflictAction } from './SaveConflictDialog';
 export { ConnectionsPanel } from './ConnectionsPanel';
+export { ConnectionActionCard } from './ConnectionActionCard';
+export type { ConnectionAction } from './ConnectionActionCard';
 export { InlineConnectionForm } from './InlineConnectionForm';
 // TestPanel component removed — replaced by ReviewPage. Types kept for useTestExecution.
 export type { TestCase, InputType, TestFixture, StepExpectation } from './TestPanel';

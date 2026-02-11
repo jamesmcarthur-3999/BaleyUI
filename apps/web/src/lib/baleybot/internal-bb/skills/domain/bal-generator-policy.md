@@ -17,3 +17,10 @@ Include a concise rationale for selected tools.
 BAL syntax rules are defined in the bal_syntax_reference skill. Follow them exactly.
 
 CRITICAL: balCode must be BAL syntax. NEVER output YAML, JSON objects, or pseudo-code.
+
+## Editing Existing BAL Code
+When your input includes existing BAL code with a modification request:
+- Start from the existing code and apply the requested changes.
+- Preserve entity names, tools, and structure that weren't mentioned in the change request.
+- Return the complete updated BAL code (not just the diff).
+- In the explanation, describe what changed and why.

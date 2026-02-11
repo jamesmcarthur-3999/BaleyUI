@@ -187,6 +187,7 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   );
 }
 
+/** @deprecated Use StreamdownMarkdown instead */
 export function RenderMarkdown({ text }: { text: string }) {
   const blocks = parseMarkdownBlocks(text);
 

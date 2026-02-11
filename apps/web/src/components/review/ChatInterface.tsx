@@ -5,7 +5,7 @@ import { useReviewExecution } from './ReviewExecutionContext';
 import type { ReviewMessage, ReviewContentBlock } from './ReviewExecutionContext';
 import { ToolCallCard } from '@/components/streaming/ToolCallCard';
 import type { ToolCall } from '@/components/streaming/ToolCallCard';
-import { RenderMarkdown } from '@/components/shared/RenderMarkdown';
+import { StreamdownMarkdown } from '@/components/shared/StreamdownMarkdown';
 import { Button } from '@/components/ui/button';
 import { Send, Loader2, Bot, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -49,9 +49,9 @@ function UserBubble({ message }: { message: ReviewMessage }) {
       >
         <User className="h-4 w-4" />
       </div>
-      <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-primary px-4 py-3 text-[15px] leading-7 text-primary-foreground shadow-[0_12px_30px_-24px_hsl(var(--primary)/0.9)]">
+      <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-primary px-4 py-3 text-[0.9375rem] leading-relaxed text-primary-foreground shadow-[0_12px_30px_-24px_hsl(var(--primary)/0.9)]">
         <p className="whitespace-pre-wrap break-words">{message.content}</p>
-        <time className="mt-1.5 block text-[11px] text-primary-foreground/70">
+        <time className="mt-1.5 block text-xs text-primary-foreground/60">
           {formatTime(message.timestamp)}
         </time>
       </div>
@@ -67,12 +67,12 @@ function AssistantBubble({ message }: { message: ReviewMessage }) {
   return (
     <div className="animate-fade-in-up">
       <div className="rounded-[1.1rem] border border-border/60 bg-card/70 p-4 shadow-[0_12px_35px_-28px_rgba(0,0,0,0.8)]">
-        <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground mb-2">
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground/80 mb-2">
           <Bot className="h-3.5 w-3.5" />
           BaleyBot
         </span>
 
-        <div className="text-[15px] text-foreground/95 leading-7 space-y-2">
+        <div className="space-y-2">
           {message.blocks.map((block, i) => (
             <BlockRenderer
               key={i}
@@ -82,7 +82,7 @@ function AssistantBubble({ message }: { message: ReviewMessage }) {
           ))}
         </div>
 
-        <time className="mt-2 block text-[11px] text-muted-foreground">
+        <time className="mt-2 block text-xs text-muted-foreground/60">
           {formatTime(message.timestamp)}
         </time>
       </div>
@@ -102,7 +102,7 @@ function BlockRenderer({
   toolCallStates: Record<string, ToolCallState>;
 }) {
   if (block.type === 'text') {
-    return <RenderMarkdown text={block.content} />;
+    return <StreamdownMarkdown text={block.content} />;
   }
 
   // tool_call block
@@ -122,7 +122,7 @@ function StreamingPreview() {
   if (state.currentBlocks.length === 0) {
     return (
       <div className="rounded-[1.1rem] border border-border/60 bg-card/70 p-4 shadow-[0_12px_35px_-28px_rgba(0,0,0,0.8)]">
-        <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground mb-3">
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground/80 mb-3">
           <Bot className="h-3.5 w-3.5" />
           BaleyBot
         </span>
@@ -132,7 +132,7 @@ function StreamingPreview() {
             <span className="w-[5px] h-[5px] rounded-full bg-primary/70 animate-loading-dot" style={{ animationDelay: '200ms' }} />
             <span className="w-[5px] h-[5px] rounded-full bg-primary/70 animate-loading-dot" style={{ animationDelay: '400ms' }} />
           </span>
-          <span className="text-[14px] text-foreground/80">Thinking...</span>
+          <span className="text-sm text-foreground/80">Thinking...</span>
         </div>
         <div className="mt-3 h-[3px] rounded-full bg-muted-foreground/10 overflow-hidden">
           <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-transparent via-primary/60 to-transparent animate-progress-slide" />
@@ -143,22 +143,19 @@ function StreamingPreview() {
 
   return (
     <div className="rounded-[1.1rem] border border-border/60 bg-card/70 p-4 shadow-[0_12px_35px_-28px_rgba(0,0,0,0.8)]">
-      <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground mb-2">
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground/80 mb-2">
         <Bot className="h-3.5 w-3.5" />
         BaleyBot
       </span>
 
-      <div className="text-[15px] text-foreground/95 leading-7 space-y-2">
+      <div className="space-y-2">
         {state.currentBlocks.map((block, i) => {
           const isLast = i === state.currentBlocks.length - 1;
 
           if (block.type === 'text') {
             return (
               <div key={i}>
-                <RenderMarkdown text={block.content} />
-                {isLast && (
-                  <span className="inline-block w-[2px] h-[1em] bg-foreground/70 animate-pulse ml-0.5 align-middle" />
-                )}
+                <StreamdownMarkdown text={block.content} isStreaming={isLast} />
               </div>
             );
           }
