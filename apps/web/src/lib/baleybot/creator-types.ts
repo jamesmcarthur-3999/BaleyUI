@@ -89,15 +89,6 @@ export type BuilderPresentationMode = 'simple' | 'advanced';
  */
 export type TriggerSetupStep = 'start' | 'input' | 'review';
 
-/**
- * UI state snapshot for builder presentation and trigger setup flow.
- */
-export interface BuilderExperienceState {
-  mode: BuilderPresentationMode;
-  triggerStep: TriggerSetupStep;
-  showAdvancedTriggerTypes: boolean;
-}
-
 // ============================================================================
 // MESSAGE TYPES
 // ============================================================================
@@ -105,7 +96,12 @@ export interface BuilderExperienceState {
 /**
  * Role in the creation conversation
  */
-export type MessageRole = 'user' | 'assistant';
+export type MessageRole = 'user' | 'assistant' | 'system';
+
+/**
+ * Derived creation status for UI components
+ */
+export type CreationStatus = 'empty' | 'building' | 'ready' | 'error' | 'running';
 
 /**
  * Structured metadata attached to assistant messages for rich rendering
@@ -191,40 +187,8 @@ export interface MessageMetadata {
 
   /** Creator workflow stage and handoff guidance */
   creatorLifecycle?: {
-    stage: 'discovery' | 'design' | 'connections' | 'testing' | 'launch' | 'review';
+    stage?: string;
     whatIDid?: string;
-    nextStage?: string;
-    nextAction?: string;
-    iteration?: number;
-    blockerMode?: 'none' | 'soft' | 'hard';
-    runnableConfidence?: number;
-    assumptions?: Array<{
-      id: string;
-      label: string;
-      value: string;
-      confidence: 'low' | 'medium' | 'high';
-      requiresConfirmation?: boolean;
-    }>;
-    requiredQuestions?: Array<{
-      id: string;
-      label: string;
-      description: string;
-      requiredNow?: boolean;
-    }>;
-    optionalQuestions?: Array<{
-      id: string;
-      label: string;
-      description: string;
-      requiredNow?: boolean;
-    }>;
-    /** Adaptive discovery plan ledger for chat-first ideation */
-    planLedger?: CreatorPlanLedger;
-    /** Open decisions still needed before fully runnable execution */
-    openDecisions?: CreatorPlanDecision[];
-    /** Decisions already resolved from conversation */
-    resolvedDecisions?: CreatorPlanDecision[];
-    /** Next focused question the creator will ask */
-    nextQuestion?: CreatorPlanDecision | null;
   };
 
   /** User-submitted discovery intake summary for chat rendering/retry */
@@ -248,7 +212,7 @@ export interface MessageMetadata {
 }
 
 // ============================================================================
-// CREATOR GUIDANCE + PLAN LEDGER TYPES
+// CREATOR GUIDANCE TYPES
 // ============================================================================
 
 export interface CreatorGuidanceAction {
@@ -259,47 +223,6 @@ export interface CreatorGuidanceAction {
   priority?: number;
 }
 
-export interface CreatorPlanDecision {
-  id: string;
-  label: string;
-  description: string;
-  requiredNow?: boolean;
-}
-
-export interface CreatorPlanLedger {
-  goal?: string;
-  stage?: string;
-  resolvedDecisions: CreatorPlanDecision[];
-  openDecisions: CreatorPlanDecision[];
-  assumptions: Array<{
-    id: string;
-    label: string;
-    value: string;
-    confidence: 'low' | 'medium' | 'high';
-    requiresConfirmation?: boolean;
-  }>;
-  nextQuestion?: CreatorPlanDecision | null;
-  runnableConfidence?: number;
-  updatedAt: number;
-}
-
-export interface CreatorPlanDelta {
-  summary: string;
-  goal?: string;
-  stage?: string;
-  resolvedDecisions?: CreatorPlanDecision[];
-  openDecisions?: CreatorPlanDecision[];
-  assumptions?: CreatorPlanLedger['assumptions'];
-  nextQuestion?: CreatorPlanDecision | null;
-  runnableConfidence?: number;
-}
-
-export interface CreatorToolActivity {
-  name: string;
-  status: 'pending' | 'running' | 'success' | 'error';
-  message?: string;
-  timestamp: number;
-}
 
 /**
  * A message in the creation session chat history.
@@ -325,12 +248,6 @@ export interface CreatorMessage {
 // ============================================================================
 
 /**
- * Status of the creation session state machine.
- * Tracks the overall state of the bot being built.
- */
-export type CreationStatus = 'empty' | 'building' | 'ready' | 'running' | 'error';
-
-/**
  * State of the visual canvas.
  * Contains all entities, connections, and the generated BAL code.
  */
@@ -341,10 +258,6 @@ export interface CanvasState {
   connections: Connection[];
   /** Generated BAL code */
   balCode: string;
-  /** Current state of the creation */
-  status: CreationStatus;
-  /** Error message if status is 'error' */
-  error?: string;
 }
 
 // ============================================================================
@@ -379,21 +292,6 @@ export interface CreationSession {
 // ============================================================================
 // STREAMING TYPES
 // ============================================================================
-
-/**
- * A streaming chunk from the creator AI.
- * Used to progressively update the canvas as the AI builds the bot.
- * Discriminated union for type-safe streaming.
- */
-export type CreatorStreamChunk =
-  | { type: 'status'; data: { message: string } }
-  | { type: 'thinking'; data: { content: string } }
-  | { type: 'entity'; data: Omit<VisualEntity, 'position' | 'status'> }
-  | { type: 'entity_remove'; data: { id: string } }
-  | { type: 'connection'; data: Omit<Connection, 'status'> }
-  | { type: 'connection_remove'; data: { id: string } }
-  | { type: 'complete'; data: CreatorOutput }
-  | { type: 'error'; data: { message: string; code?: string } };
 
 /**
  * Real-time progress tracking during bot creation.
@@ -436,36 +334,11 @@ const creatorConnectionSchema = z.object({
   label: z.string().optional().catch(undefined),
 });
 
-const creatorDiscoveryQuestionSchema = z.object({
-  id: z.string().min(1).catch(() => crypto.randomUUID()),
-  label: z.string().min(1),
-  description: z.string().min(1),
-  icon: z.string().optional().catch(undefined),
-  /** True when this detail is required before generation can continue */
-  requiredNow: z.boolean().optional().catch(undefined),
-});
-
-const creatorAssumptionSchema = z.object({
-  id: z.string().min(1).catch(() => crypto.randomUUID()),
-  label: z.string().min(1).catch('Assumption'),
-  value: z.string().min(1).catch('Use safe defaults'),
-  confidence: z.enum(['low', 'medium', 'high']).optional().catch('medium'),
-  requiresConfirmation: z.boolean().optional().catch(undefined),
-});
-
 export const creatorOutputSchema = z.object({
   /** AI's thinking/reasoning (shown to user) */
   thinking: z.string().optional().catch(undefined),
   /** Primary assistant message to show in chat */
   message: z.string().optional().catch(undefined),
-  /** Follow-up questions when additional discovery is required */
-  questions: z.array(creatorDiscoveryQuestionSchema).max(8).optional().catch(undefined),
-  /** Assumptions made when proceeding with partial discovery context */
-  assumptions: z.array(creatorAssumptionSchema).max(8).optional().catch(undefined),
-  /** Estimated confidence that this design is runnable */
-  runnableConfidence: z.number().min(0).max(1).optional().catch(undefined),
-  /** Whether discovery still has hard blockers vs soft follow-ups */
-  blockMode: z.enum(['none', 'soft', 'hard']).optional().catch(undefined),
   /** Entities to create/update */
   entities: z.array(creatorEntitySchema).catch([]),
   /** Connections between entities — defaults to empty if missing/null */
@@ -479,7 +352,7 @@ export const creatorOutputSchema = z.object({
   /** Suggested icon (emoji) — catches invalid values */
   icon: z.string().catch('🤖'),
   /** Creation status — catches unexpected values like "complete" */
-  status: z.enum(['building', 'ready']).catch('ready'),
+  status: z.enum(['building', 'ready']).catch('building'),
 }).superRefine((data, ctx) => {
   if (data.status === 'ready') {
     if (data.entities.length === 0) {
@@ -508,13 +381,12 @@ export const creatorOutputSchema = z.object({
   if (data.status === 'building') {
     const hasDiscoveryPrompt =
       Boolean(data.message?.trim()) ||
-      Boolean(data.thinking?.trim()) ||
-      Boolean(data.questions && data.questions.length > 0);
+      Boolean(data.thinking?.trim());
 
     if (!hasDiscoveryPrompt) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Building responses must include a prompt, message, or follow-up questions',
+        message: 'Building responses must include a message or thinking',
         path: ['message'],
       });
     }
@@ -539,7 +411,6 @@ export function createInitialCanvasState(): CanvasState {
     entities: [],
     connections: [],
     balCode: '',
-    status: 'empty',
   };
 }
 
@@ -565,5 +436,5 @@ export function createSession(
 }
 
 // Re-export readiness types for convenience
-export type { ReadinessState, ReadinessDimension, DimensionStatus, AdaptiveTab, RecommendedAction } from './readiness';
+export type { ReadinessState, ReadinessDimension, DimensionStatus, AdaptiveTab, RecommendedAction, SpecialistSignals } from './readiness';
 export { computeReadiness, createInitialReadiness, countCompleted, getVisibleTabs, getRecommendedAction } from './readiness';

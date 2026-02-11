@@ -16,10 +16,7 @@ export {
   buildToolCatalog,
   categorizeToolName,
   formatToolCatalogForAI,
-  getToolAssignmentRationale,
   type ToolCatalog,
-  type ToolCategory,
-  type ToolCatalogContext,
 } from './tool-catalog';
 
 // Tool Catalog Service (new)
@@ -120,12 +117,12 @@ export {
 // Reviewer (to be implemented in Phase 7.1)
 // export { reviewExecution } from './reviewer';
 
-// Creator Bot - Conversational BaleyBot creation
+// Creator Pipeline - BAL-native conversational BaleyBot creation
 export {
-  processCreatorMessage,
-  streamCreatorMessage,
-  type CreatorBotOptions,
-} from './creator-bot';
+  executeCreatorPipeline,
+  type CreatorPipelineArgs,
+  type CreatorSSEEvent,
+} from './creator-pipeline-adapter';
 
 // Creator Types (selective exports to avoid conflicts with types.ts)
 export {
@@ -144,8 +141,6 @@ export {
   type CanvasState,
   // Session types
   type CreationSession,
-  // Streaming types
-  type CreatorStreamChunk,
   // AI output
   creatorOutputSchema,
   type CreatorOutput,

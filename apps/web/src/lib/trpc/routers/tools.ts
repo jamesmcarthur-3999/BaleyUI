@@ -4,9 +4,10 @@
  * Handles CRUD operations for custom tools that can be attached to BaleyBots.
  */
 import { z } from 'zod';
-import { router, protectedProcedure } from '../trpc';
+import { router, roleProcedure, editorProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
-import { tools, eq, and, notDeleted, softDelete, updateWithLock } from '@baleyui/db';
+import { tools, baleybots, eq, and, notDeleted, softDelete, updateWithLock } from '@baleyui/db';
+import { buildToolUsageMap } from '@/lib/baleybot/tool-usage-analyzer';
 
 /**
  * Zod schema validators for tool operations
@@ -17,7 +18,7 @@ export const toolsRouter = router({
   /**
    * List all tools for the workspace.
    */
-  list: protectedProcedure.query(async ({ ctx }) => {
+  list: roleProcedure.query(async ({ ctx }) => {
     return ctx.db.query.tools.findMany({
       where: and(
         eq(tools.workspaceId, ctx.workspace.id),
@@ -30,7 +31,7 @@ export const toolsRouter = router({
   /**
    * Get a single tool by ID.
    */
-  get: protectedProcedure
+  get: roleProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const tool = await ctx.db.query.tools.findFirst({
@@ -54,7 +55,7 @@ export const toolsRouter = router({
   /**
    * Create a new tool.
    */
-  create: protectedProcedure
+  create: editorProcedure
     .input(
       z.object({
         name: z.string().min(1).max(100),
@@ -105,7 +106,7 @@ export const toolsRouter = router({
   /**
    * Update an existing tool.
    */
-  update: protectedProcedure
+  update: editorProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -173,7 +174,7 @@ export const toolsRouter = router({
   /**
    * Delete a tool (soft delete).
    */
-  delete: protectedProcedure
+  delete: editorProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       // Verify tool exists and belongs to workspace
@@ -201,7 +202,7 @@ export const toolsRouter = router({
   /**
    * Duplicate a tool with a new name.
    */
-  duplicate: protectedProcedure
+  duplicate: editorProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -256,4 +257,16 @@ export const toolsRouter = router({
 
       return tool;
     }),
+
+  /**
+   * Get tool usage stats: which BaleyBots reference each tool.
+   */
+  getUsageStats: roleProcedure.query(async ({ ctx }) => {
+    const bots = await ctx.db.query.baleybots.findMany({
+      where: and(eq(baleybots.workspaceId, ctx.workspace.id), notDeleted(baleybots)),
+      columns: { id: true, name: true, balCode: true },
+    });
+
+    return buildToolUsageMap(bots);
+  }),
 });

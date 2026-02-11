@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, protectedProcedure } from '../trpc';
+import { router, roleProcedure, editorProcedure, adminProcedure } from '../trpc';
 import {
   workspacePolicies,
   approvalPatterns,
@@ -29,7 +29,7 @@ export const policiesRouter = router({
    * Get policies for the current workspace.
    * Creates default policies if none exist.
    */
-  get: protectedProcedure.query(async ({ ctx }) => {
+  get: roleProcedure.query(async ({ ctx }) => {
     let policies = await ctx.db.query.workspacePolicies.findFirst({
       where: eq(workspacePolicies.workspaceId, ctx.workspace.id),
     });
@@ -65,7 +65,7 @@ export const policiesRouter = router({
   /**
    * Update workspace policies.
    */
-  update: protectedProcedure
+  update: adminProcedure
     .input(
       z.object({
         version: z.number().int().min(0),
@@ -132,7 +132,7 @@ export const policiesRouter = router({
   /**
    * List all approval patterns for the workspace.
    */
-  listApprovalPatterns: protectedProcedure
+  listApprovalPatterns: roleProcedure
     .input(
       z.object({
         tool: z.string().optional(),
@@ -168,7 +168,7 @@ export const policiesRouter = router({
   /**
    * Get a single approval pattern by ID.
    */
-  getApprovalPattern: protectedProcedure
+  getApprovalPattern: roleProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const pattern = await ctx.db.query.approvalPatterns.findFirst({
@@ -191,7 +191,7 @@ export const policiesRouter = router({
   /**
    * Create a new approval pattern (typically from "Approve & Remember").
    */
-  createApprovalPattern: protectedProcedure
+  createApprovalPattern: editorProcedure
     .input(
       z.object({
         tool: z.string().min(1).max(255),
@@ -225,7 +225,7 @@ export const policiesRouter = router({
   /**
    * Update an approval pattern.
    */
-  updateApprovalPattern: protectedProcedure
+  updateApprovalPattern: editorProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -280,7 +280,7 @@ export const policiesRouter = router({
   /**
    * Revoke an approval pattern.
    */
-  revokeApprovalPattern: protectedProcedure
+  revokeApprovalPattern: adminProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -328,7 +328,7 @@ export const policiesRouter = router({
    * Record usage of an approval pattern.
    * Called by the executor when a pattern auto-approves a tool call.
    */
-  recordPatternUsage: protectedProcedure
+  recordPatternUsage: roleProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       // Verify pattern exists and belongs to workspace
@@ -373,7 +373,7 @@ export const policiesRouter = router({
    * Get approval patterns that match a tool call.
    * Used by the executor to check if a tool call can be auto-approved.
    */
-  findMatchingPatterns: protectedProcedure
+  findMatchingPatterns: roleProcedure
     .input(
       z.object({
         tool: z.string(),
@@ -417,7 +417,7 @@ export const policiesRouter = router({
   /**
    * Get statistics about approval patterns.
    */
-  getPatternStats: protectedProcedure.query(async ({ ctx }) => {
+  getPatternStats: roleProcedure.query(async ({ ctx }) => {
     const patterns = await ctx.db.query.approvalPatterns.findMany({
       where: eq(approvalPatterns.workspaceId, ctx.workspace.id),
     });

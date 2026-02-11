@@ -3,8 +3,7 @@
 /**
  * Readiness State Machine
  *
- * Tracks 5 dimensions of BaleyBot production-readiness.
- * Not sequential — users can tackle in any order.
+ * Tracks production-readiness dimensions for a BaleyBot.
  */
 
 export type ReadinessDimension = 'designed' | 'connected' | 'tested' | 'activated' | 'monitored';
@@ -51,6 +50,21 @@ export function computeApplicability(
   };
 }
 
+/**
+ * Specialist signals from creator_bot's autonomous team.
+ * When a specialist was invoked and returned output, the corresponding
+ * field will be truthy. This enriches the readiness computation with
+ * AI-driven assessments alongside manual/UI-driven checks.
+ */
+export interface SpecialistSignals {
+  /** connection_advisor returned output → enriches `connected` */
+  connectionAdvisorRan?: boolean;
+  /** test_orchestrator returned output → enriches `tested` */
+  testOrchestratorRan?: boolean;
+  /** deployment_advisor returned output → enriches `activated` */
+  deploymentAdvisorRan?: boolean;
+}
+
 export function computeReadiness(params: {
   hasBalCode: boolean;
   hasEntities: boolean;
@@ -61,19 +75,39 @@ export function computeReadiness(params: {
   hasTestRuns: number;
   hasTrigger: boolean;
   hasMonitoring: boolean;
+  specialist?: SpecialistSignals;
 }): ReadinessState {
   const applicability = computeApplicability(params.tools, params.hasConnections);
+  const specialist = params.specialist;
+
+  // connected: manual check OR specialist connection_advisor ran successfully
+  const connectedStatus: DimensionStatus = !applicability.connected
+    ? 'not-applicable'
+    : params.connectionsMet || specialist?.connectionAdvisorRan
+      ? 'complete'
+      : 'incomplete';
+
+  // tested: manual tests OR specialist test_orchestrator ran successfully
+  const testedStatus: DimensionStatus = params.testsPassed || specialist?.testOrchestratorRan
+    ? 'complete'
+    : params.hasTestRuns > 0
+      ? 'in-progress'
+      : 'incomplete';
+
+  // activated: trigger configured OR specialist deployment_advisor assessed
+  const activatedStatus: DimensionStatus = !applicability.activated
+    ? 'not-applicable'
+    : params.hasTrigger || specialist?.deploymentAdvisorRan
+      ? 'complete'
+      : specialist?.deploymentAdvisorRan === false
+        ? 'incomplete'
+        : 'incomplete';
+
   return {
     designed: params.hasBalCode && params.hasEntities ? 'complete' : params.hasBalCode ? 'in-progress' : 'incomplete',
-    connected: !applicability.connected
-      ? 'not-applicable'
-      : params.connectionsMet ? 'complete' : 'incomplete',
-    tested: params.testsPassed
-      ? 'complete'
-      : params.hasTestRuns > 0 ? 'in-progress' : 'incomplete',
-    activated: !applicability.activated
-      ? 'not-applicable'
-      : params.hasTrigger ? 'complete' : 'incomplete',
+    connected: connectedStatus,
+    tested: testedStatus,
+    activated: activatedStatus,
     monitored: !applicability.monitored
       ? 'not-applicable'
       : params.hasMonitoring ? 'complete' : 'incomplete',
@@ -97,16 +131,10 @@ export function countCompleted(state: ReadinessState): { completed: number; tota
   return { completed: completed.length, total: applicable.length };
 }
 
-export type AdaptiveTab =
-  | 'visual'
-  | 'code'
-  | 'connections'
-  | 'test'
-  | 'triggers'
-  | 'analytics'
-  | 'monitor'
-  | 'launch'
-  | 'runtime';
+/**
+ * Simplified tab set: Builder, Code, Try, Go Live
+ */
+export type AdaptiveTab = 'visual' | 'code' | 'review' | 'launch';
 
 export interface RecommendedAction {
   dimension: ReadinessDimension;
@@ -116,11 +144,6 @@ export interface RecommendedAction {
   optionId: string;
 }
 
-/**
- * Returns the next recommended action based on current readiness state.
- * Priority: designed → connected → tested → activated → monitored.
- * Returns null if all applicable dimensions are complete.
- */
 export function getRecommendedAction(state: ReadinessState): RecommendedAction | null {
   const actions: Array<{
     dimension: ReadinessDimension;
@@ -143,15 +166,15 @@ export function getRecommendedAction(state: ReadinessState): RecommendedAction |
       status: state.connected,
       label: 'Set Up Connections',
       description: 'Connect the AI provider and any services your tools need',
-      tabTarget: 'connections',
+      tabTarget: 'launch',
       optionId: 'setup-connections',
     },
     {
       dimension: 'tested',
       status: state.tested,
       label: 'Run Tests',
-      description: 'Generate test cases and run them to verify your bot works',
-      tabTarget: 'test',
+      description: 'Run tests to verify your bot works',
+      tabTarget: 'review',
       optionId: 'run-tests',
     },
     {
@@ -159,15 +182,15 @@ export function getRecommendedAction(state: ReadinessState): RecommendedAction |
       status: state.activated,
       label: 'Set Up Triggers',
       description: 'Configure when your bot should run automatically',
-      tabTarget: 'triggers',
+      tabTarget: 'launch',
       optionId: 'setup-triggers',
     },
     {
       dimension: 'monitored',
       status: state.monitored,
       label: 'Enable Monitoring',
-      description: 'Set up monitoring to track your bot\'s performance',
-      tabTarget: 'monitor',
+      description: 'Set up monitoring to track performance',
+      tabTarget: 'launch',
       optionId: 'enable-monitoring',
     },
   ];
@@ -190,25 +213,7 @@ export function getRecommendedAction(state: ReadinessState): RecommendedAction |
 export function getVisibleTabs(readiness: ReadinessState): AdaptiveTab[] {
   const tabs: AdaptiveTab[] = ['visual', 'code'];
   if (readiness.designed === 'complete' || readiness.designed === 'in-progress') {
-    if (readiness.connected !== 'not-applicable') {
-      tabs.push('connections');
-    }
-  }
-  if (readiness.designed === 'complete' || readiness.designed === 'in-progress') {
-    tabs.push('test');
-  }
-  if (readiness.connected === 'complete' || readiness.tested !== 'incomplete') {
-    if (readiness.activated !== 'not-applicable') {
-      tabs.push('triggers');
-    }
-  }
-  if (readiness.designed !== 'incomplete') {
-    tabs.push('analytics');
-  }
-  if (readiness.activated !== 'incomplete' || readiness.tested === 'complete') {
-    if (readiness.monitored !== 'not-applicable') {
-      tabs.push('monitor');
-    }
+    tabs.push('review');
   }
   return tabs;
 }

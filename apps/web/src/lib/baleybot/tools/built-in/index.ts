@@ -202,6 +202,9 @@ export const CREATE_TOOL_SCHEMA = {
   required: ['name', 'description', 'implementation'],
 } as const;
 
+import { REQUEST_USER_INPUT_SCHEMA } from './request-user-input';
+export { REQUEST_USER_INPUT_SCHEMA };
+
 export const SHARED_STORAGE_SCHEMA = {
   type: 'object',
   properties: {
@@ -233,6 +236,8 @@ export const SHARED_STORAGE_SCHEMA = {
 // TOOL METADATA
 // ============================================================================
 
+import type { ToolRequirement, ToolExample } from '../../types';
+
 export interface BuiltInToolMetadata {
   name: string;
   description: string;
@@ -241,6 +246,14 @@ export interface BuiltInToolMetadata {
   dangerLevel: 'safe' | 'moderate' | 'dangerous';
   approvalRequired: boolean;
   capabilities: string[];
+  /** SDK-aligned read/write/both classification */
+  capability: 'read' | 'write' | 'both';
+  /** What this tool needs to work */
+  requirements: ToolRequirement[];
+  /** Searchable tags */
+  tags: string[];
+  /** Usage examples for AI context */
+  examples: ToolExample[];
 }
 
 /**
@@ -250,12 +263,21 @@ export interface BuiltInToolMetadata {
 export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
   {
     name: 'web_search',
-    description: 'Search the web for information using a search query. Returns search results with titles, URLs, and snippets.',
+    description: 'Search the web for information using Tavily search API. Requires a Tavily API key (TAVILY_API_KEY). Returns search results with titles, URLs, and snippets. If no API key is configured, this tool will not return results — use fetch_url as an alternative.',
     inputSchema: WEB_SEARCH_SCHEMA,
     category: 'information',
     dangerLevel: 'safe',
     approvalRequired: false,
     capabilities: ['read'],
+    capability: 'read',
+    requirements: [
+      { type: 'api_key', description: 'Tavily API key (TAVILY_API_KEY) — required. Get a free key at https://tavily.com' },
+    ],
+    tags: ['search', 'web', 'information', 'research'],
+    examples: [
+      { input: { query: 'latest AI news' }, description: 'Search for recent AI news articles' },
+      { input: { query: 'React hooks tutorial', num_results: 3 }, description: 'Find React tutorials with limited results' },
+    ],
   },
   {
     name: 'fetch_url',
@@ -265,6 +287,13 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
     dangerLevel: 'safe',
     approvalRequired: false,
     capabilities: ['read'],
+    capability: 'read',
+    requirements: [],
+    tags: ['web', 'http', 'api', 'scraping', 'read'],
+    examples: [
+      { input: { url: 'https://api.example.com/data', format: 'json' }, description: 'Fetch JSON data from an API endpoint' },
+      { input: { url: 'https://example.com/page', format: 'text' }, description: 'Extract text content from a web page' },
+    ],
   },
   {
     name: 'spawn_baleybot',
@@ -274,6 +303,12 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
     dangerLevel: 'safe',
     approvalRequired: false,
     capabilities: ['execute'],
+    capability: 'both',
+    requirements: [],
+    tags: ['orchestration', 'delegation', 'chain', 'multi-bot'],
+    examples: [
+      { input: { baleybot: 'data_analyzer', input: 'Summarize Q4 sales data' }, description: 'Delegate data analysis to a specialized bot' },
+    ],
   },
   {
     name: 'send_notification',
@@ -283,6 +318,12 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
     dangerLevel: 'safe',
     approvalRequired: false,
     capabilities: ['write'],
+    capability: 'write',
+    requirements: [],
+    tags: ['notification', 'alert', 'communication', 'user'],
+    examples: [
+      { input: { title: 'Task Complete', message: 'Data export finished', priority: 'normal' }, description: 'Notify user of completed task' },
+    ],
   },
   {
     name: 'schedule_task',
@@ -292,6 +333,14 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
     dangerLevel: 'moderate',
     approvalRequired: true,
     capabilities: ['write', 'execute'],
+    capability: 'write',
+    requirements: [
+      { type: 'permission', description: 'Schedule tasks approval' },
+    ],
+    tags: ['scheduling', 'cron', 'automation', 'recurring'],
+    examples: [
+      { input: { run_at: '0 9 * * 1', input: 'Generate weekly report' }, description: 'Schedule a weekly report every Monday at 9am' },
+    ],
   },
   {
     name: 'store_memory',
@@ -301,6 +350,13 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
     dangerLevel: 'safe',
     approvalRequired: false,
     capabilities: ['read', 'write', 'delete'],
+    capability: 'both',
+    requirements: [],
+    tags: ['storage', 'memory', 'state', 'persistence', 'cache'],
+    examples: [
+      { input: { action: 'set', key: 'last_run', value: '2026-01-15' }, description: 'Store a timestamp for later use' },
+      { input: { action: 'get', key: 'user_preferences' }, description: 'Retrieve stored user preferences' },
+    ],
   },
   {
     name: 'create_agent',
@@ -310,6 +366,14 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
     dangerLevel: 'moderate',
     approvalRequired: true,
     capabilities: ['execute'],
+    capability: 'write',
+    requirements: [
+      { type: 'permission', description: 'Create agent approval' },
+    ],
+    tags: ['agent', 'ephemeral', 'dynamic', 'orchestration'],
+    examples: [
+      { input: { name: 'code_reviewer', goal: 'Review pull request for security issues', tools: ['fetch_url'] }, description: 'Create a code review agent' },
+    ],
   },
   {
     name: 'create_tool',
@@ -319,6 +383,14 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
     dangerLevel: 'moderate',
     approvalRequired: true,
     capabilities: ['execute'],
+    capability: 'write',
+    requirements: [
+      { type: 'permission', description: 'Create tool approval' },
+    ],
+    tags: ['tool', 'ephemeral', 'dynamic', 'custom'],
+    examples: [
+      { input: { name: 'format_csv', description: 'Convert JSON to CSV', implementation: 'Take JSON input and output comma-separated values' }, description: 'Create a CSV formatter tool' },
+    ],
   },
   {
     name: 'shared_storage',
@@ -328,6 +400,28 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
     dangerLevel: 'safe',
     approvalRequired: false,
     capabilities: ['read', 'write', 'delete'],
+    capability: 'both',
+    requirements: [],
+    tags: ['storage', 'shared', 'cross-bot', 'communication', 'async'],
+    examples: [
+      { input: { action: 'write', key: 'pipeline_result', value: { status: 'done' } }, description: 'Share results across bots' },
+      { input: { action: 'list', prefix: 'cache_' }, description: 'List all cached items' },
+    ],
+  },
+  {
+    name: 'request_user_input',
+    description: 'Ask the user a question and wait for their response. Use this to gather information mid-execution when you need clarification or a decision from the user.',
+    inputSchema: REQUEST_USER_INPUT_SCHEMA as Record<string, unknown>,
+    category: 'interaction',
+    dangerLevel: 'safe',
+    approvalRequired: false,
+    capabilities: ['read'],
+    capability: 'read',
+    requirements: [],
+    tags: ['interaction', 'user', 'input', 'question', 'clarification'],
+    examples: [
+      { input: { question: 'Which database should I query?', options: ['Production', 'Staging'] }, description: 'Ask user to choose a database' },
+    ],
   },
 ];
 
@@ -380,6 +474,8 @@ export interface CreateToolResult {
   tool_name: string;
 }
 
+export type { RequestUserInputResult } from './request-user-input';
+
 // ============================================================================
 // TOOL CONTEXT (passed to tool implementations)
 // ============================================================================
@@ -416,16 +512,10 @@ export type BuiltInToolFunction<TInput, TOutput> = (
 // ============================================================================
 
 /**
- * Convert built-in tool metadata to the ToolDefinition format used by tool-catalog.ts
+ * Convert built-in tool metadata to the enriched ToolDefinition format.
+ * Populates source, healthStatus, tags, requirements, examples, and capability.
  */
-export function getBuiltInToolDefinitions(): Array<{
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  category: string;
-  dangerLevel: 'safe' | 'moderate' | 'dangerous';
-  capabilities: string[];
-}> {
+export function getBuiltInToolDefinitions(): Array<import('../../types').ToolDefinition> {
   return BUILT_IN_TOOLS_METADATA.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -433,6 +523,13 @@ export function getBuiltInToolDefinitions(): Array<{
     category: tool.category,
     dangerLevel: tool.dangerLevel,
     capabilities: tool.capabilities,
+    // Enrichment fields
+    capability: tool.capability,
+    requirements: tool.requirements,
+    tags: tool.tags,
+    examples: tool.examples,
+    source: { kind: 'built-in' as const },
+    healthStatus: tool.requirements.length === 0 ? ('ready' as const) : ('unknown' as const),
   }));
 }
 

@@ -9,6 +9,12 @@ const dslDir = path.join(toolsPkgDir, 'dist', 'esm', 'baleybots-dsl-v2');
 const workspaceRoot = path.join(process.cwd(), '../..');
 
 const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: 'img.clerk.com' },
+      { protocol: 'https', hostname: '*.clerk.accounts.dev' },
+    ],
+  },
   experimental: {
     reactCompiler: true,
   },

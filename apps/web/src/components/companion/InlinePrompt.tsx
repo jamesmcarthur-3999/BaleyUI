@@ -104,7 +104,7 @@ function SuggestionChip({
       className={cn(
         'inline-flex items-center gap-1.5 px-2.5 py-1.5',
         'text-xs font-medium rounded-full',
-        'bg-muted hover:bg-muted/80 transition-colors',
+        'bg-foreground/[0.04] hover:bg-foreground/[0.06] transition-colors',
         'disabled:opacity-50 disabled:pointer-events-none'
       )}
     >
@@ -133,7 +133,7 @@ function ResultPreview({
 }) {
   return (
     <div className="space-y-3">
-      <div className="rounded-lg border bg-muted/50 p-3 max-h-[200px] overflow-auto">
+      <div className="rounded-xl bg-foreground/[0.03] p-3 max-h-[200px] overflow-auto">
         <p className="text-sm whitespace-pre-wrap">{result.content}</p>
       </div>
 

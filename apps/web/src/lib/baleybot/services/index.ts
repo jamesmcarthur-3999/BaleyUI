@@ -119,6 +119,54 @@ export {
 } from '../cost/usage-tracker';
 
 // ============================================================================
+// TOOL SERVICE KEY RETRIEVAL
+// ============================================================================
+
+import { db, connections, eq, and, notDeleted } from '@baleyui/db';
+import { decrypt } from '@/lib/encryption';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('services');
+
+/**
+ * Get the Tavily API key for a workspace.
+ * Checks workspace connections table first, then falls back to env var.
+ */
+export async function getWorkspaceTavilyKey(workspaceId: string): Promise<string | undefined> {
+  // Check env var first (fastest)
+  if (process.env.TAVILY_API_KEY) {
+    return process.env.TAVILY_API_KEY;
+  }
+
+  // Check workspace connections table
+  try {
+    const tavilyConnection = await db.query.connections.findFirst({
+      where: and(
+        eq(connections.workspaceId, workspaceId),
+        eq(connections.type, 'tavily'),
+        notDeleted(connections)
+      ),
+      columns: { config: true, status: true },
+    });
+
+    if (tavilyConnection?.status === 'connected') {
+      const config = tavilyConnection.config as { apiKey?: string };
+      if (config.apiKey) {
+        try {
+          return decrypt(config.apiKey);
+        } catch {
+          log.warn('Failed to decrypt workspace Tavily key');
+        }
+      }
+    }
+  } catch (error) {
+    log.warn('Failed to fetch workspace Tavily key', { error });
+  }
+
+  return undefined;
+}
+
+// ============================================================================
 // SERVICE INITIALIZATION
 // ============================================================================
 

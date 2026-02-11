@@ -5,7 +5,7 @@
  * Tools are classified into categories that determine their approval requirements.
  */
 
-import type { WorkspacePolicies } from './types';
+import type { ToolDefinition, WorkspacePolicies } from './types';
 
 // ============================================================================
 // TYPES
@@ -16,17 +16,8 @@ import type { WorkspacePolicies } from './types';
  */
 export type ToolCategory = 'immediate' | 'requires_approval' | 'forbidden';
 
-/**
- * A tool definition with metadata
- */
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  category?: string; // semantic category (e.g., 'database', 'notification', 'payment')
-  dangerLevel?: 'safe' | 'moderate' | 'dangerous';
-  capabilities?: string[]; // what the tool can do (e.g., ['read', 'write', 'delete'])
-}
+// Re-export ToolDefinition for consumers that import from this module
+export type { ToolDefinition };
 
 /**
  * Tool catalog with categorized tools

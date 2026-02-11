@@ -6,7 +6,6 @@
  */
 
 import {
-  executeBAL,
   compileBAL,
   webSearchTool,
   sequentialThinkTool,
@@ -109,7 +108,7 @@ export interface BALCompileResult {
 // BUILT-IN TOOLS
 // ============================================================================
 
-function getAvailableTools(options: BALExecutionOptions): Record<string, ZodToolDefinition | ToolDefinition> {
+function getAvailableTools(options: BALExecutionOptions): Record<string, ZodToolDefinition | ToolDefinition> | undefined {
   const tools: Record<string, ZodToolDefinition | ToolDefinition> = {};
 
   // Web search tool (requires Tavily API key)
@@ -136,7 +135,9 @@ function getAvailableTools(options: BALExecutionOptions): Record<string, ZodTool
     }
   }
 
-  return tools;
+  // Return undefined when no tools are configured so the semantic checker
+  // skips tool validation (rather than rejecting all tools against an empty map)
+  return Object.keys(tools).length > 0 ? tools : undefined;
 }
 
 // ============================================================================
@@ -279,18 +280,45 @@ export async function executeBALCode(
     // Emit started event (show runtime input if provided, else runInput from BAL code)
     onEvent?.({ type: 'started', input: options.input || compiled.runInput });
 
-    // Execute
-    const result = await executeBAL(code, config);
+    // Compile to get executable with streaming support
+    const compiledRuntime = compileBAL(code, config);
+    const executable = compiledRuntime.executable;
+
+    if (!executable) {
+      cleanup();
+      const noExecResult = {
+        status: 'parsed',
+        message: 'No composition to execute',
+        entities: compiled.entities,
+      };
+      onEvent?.({ type: 'completed', result: noExecResult });
+      return {
+        status: 'success',
+        result: noExecResult,
+        entities: compiled.entities,
+        structure: compiled.structure,
+        duration: Date.now() - startTime,
+      };
+    }
+
+    // Execute with onToken callback for real-time streaming
+    const effectiveInput = options.input || compiledRuntime.runInput || 'Execute your task based on your goal.';
+    const result = await executable.process(effectiveInput, {
+      signal: abortController.signal,
+      onToken: (botName: string, event: BaleybotStreamEvent) => {
+        onEvent?.({ type: 'token', botName, event });
+      },
+    });
 
     // Cleanup
     cleanup();
 
     // Emit completed event
-    onEvent?.({ type: 'completed', result: result.result });
+    onEvent?.({ type: 'completed', result });
 
     return {
       status: 'success',
-      result: result.result,
+      result,
       entities: compiled.entities,
       structure: compiled.structure,
       duration: Date.now() - startTime,

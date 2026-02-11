@@ -1,7 +1,7 @@
 import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import type { WebhookEvent } from '@clerk/nextjs/server';
-import { db, workspaces } from '@baleyui/db';
+import { db, workspaces, users, eq } from '@baleyui/db';
 import { createLogger } from '@/lib/logger';
 import { requireEnv } from '@/lib/env';
 import { checkApiRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
@@ -80,11 +80,38 @@ export async function POST(req: Request) {
   const eventType = evt.type;
 
   if (eventType === 'user.created') {
-    const { id, email_addresses, first_name, last_name, username } = evt.data;
+    const { id, email_addresses, first_name, last_name, username, image_url } = evt.data;
+
+    const primaryEmail = email_addresses.find((e) => e.id === evt.data.primary_email_address_id);
+    const email = primaryEmail?.email_address || email_addresses[0]?.email_address || '';
+
+    // Upsert user into local users table
+    try {
+      const displayName = [first_name, last_name].filter(Boolean).join(' ') || username || null;
+      await db
+        .insert(users)
+        .values({
+          id,
+          email,
+          name: displayName,
+          avatarUrl: image_url || null,
+        })
+        .onConflictDoUpdate({
+          target: users.id,
+          set: {
+            email,
+            name: displayName,
+            avatarUrl: image_url || null,
+            updatedAt: new Date(),
+          },
+        });
+      log.info(`Upserted user ${id}`);
+    } catch (error) {
+      log.error('Error upserting user', error);
+    }
 
     // Generate a unique slug from email or username
-    const primaryEmail = email_addresses.find((e) => e.id === evt.data.primary_email_address_id);
-    const emailPart = primaryEmail?.email_address?.split('@')[0] || 'user';
+    const emailPart = email.split('@')[0] || 'user';
     const baseSlug = username || emailPart;
     const slug = `${baseSlug}-${id.slice(-6)}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
@@ -106,8 +133,29 @@ export async function POST(req: Request) {
       log.info(`Created workspace for user ${id}`);
     } catch (error) {
       log.error('Error creating workspace', error);
-      // Don't fail the webhook - Clerk might retry
-      // The workspace can be created lazily if needed
+    }
+  }
+
+  if (eventType === 'user.updated') {
+    const { id, email_addresses, first_name, last_name, username, image_url } = evt.data;
+
+    const primaryEmail = email_addresses.find((e) => e.id === evt.data.primary_email_address_id);
+    const email = primaryEmail?.email_address || email_addresses[0]?.email_address || '';
+    const displayName = [first_name, last_name].filter(Boolean).join(' ') || username || null;
+
+    try {
+      await db
+        .update(users)
+        .set({
+          email,
+          name: displayName,
+          avatarUrl: image_url || null,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, id));
+      log.info(`Updated user ${id}`);
+    } catch (error) {
+      log.error('Error updating user', error);
     }
   }
 

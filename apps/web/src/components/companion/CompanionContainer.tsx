@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   MessageCircle,
   Sparkles,
@@ -34,6 +33,8 @@ interface CompanionContainerProps {
   position?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
   children?: React.ReactNode;
   onModeChange?: (mode: CompanionMode) => void;
+  /** When true, the orb pulses to indicate workspace issues */
+  hasAlert?: boolean;
 }
 
 // ============================================================================
@@ -54,7 +55,7 @@ function ModeSwitcher({
   ];
 
   return (
-    <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
+    <div className="flex items-center gap-1 bg-foreground/[0.03] rounded-xl p-0.5">
       {modes.map(({ value, icon: Icon, label }) => (
         <Button
           key={value}
@@ -62,7 +63,7 @@ function ModeSwitcher({
           size="sm"
           className={cn(
             'h-7 px-2 gap-1.5',
-            mode === value && 'bg-background shadow-sm'
+            mode === value && 'bg-background/80 shadow-sm backdrop-blur-sm'
           )}
           onClick={() => onModeChange(value)}
         >
@@ -85,28 +86,19 @@ function StatusIndicator({
 }) {
   if (state.isThinking) {
     return (
-      <Badge variant="secondary" className="gap-1 animate-pulse">
-        <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-        Thinking...
-      </Badge>
+      <span className="text-xs text-muted-foreground/70">Thinking...</span>
     );
   }
 
   if (state.isListening) {
     return (
-      <Badge variant="secondary" className="gap-1">
-        <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-        Listening
-      </Badge>
+      <span className="text-xs text-muted-foreground/70">Listening</span>
     );
   }
 
   if (!state.isConnected) {
     return (
-      <Badge variant="outline" className="gap-1 text-muted-foreground">
-        <div className="h-2 w-2 rounded-full bg-muted-foreground" />
-        Offline
-      </Badge>
+      <span className="text-xs text-muted-foreground/70">Offline</span>
     );
   }
 
@@ -120,25 +112,34 @@ function StatusIndicator({
 function CompanionOrb({
   state,
   onClick,
+  hasAlert,
 }: {
   state: CompanionState;
   onClick: () => void;
+  hasAlert?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       className={cn(
         'relative h-14 w-14 rounded-full',
-        'bg-gradient-to-br from-primary to-primary/80',
-        'shadow-lg shadow-primary/25',
+        'bg-primary',
+        'shadow-md shadow-primary/15',
         'flex items-center justify-center',
         'transition-[transform,box-shadow] duration-300 ease-out',
-        'hover:scale-110 hover:shadow-xl hover:shadow-primary/30',
+        'hover:scale-105 hover:shadow-[0_0_20px_8px_hsl(var(--primary)/0.2)]',
         'focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2',
-        state.isThinking && 'animate-pulse'
+        state.isThinking && 'animate-orb-breathe'
       )}
     >
-      <Sparkles className="h-6 w-6 text-primary-foreground" />
+      <div className="h-6 w-6 rounded-full bg-primary-foreground/90" />
+
+      {/* Alert indicator */}
+      {hasAlert && !state.isListening && (
+        <div className="absolute -top-1 -right-1">
+          <div className="h-4 w-4 rounded-full bg-amber-500 border-2 border-background" />
+        </div>
+      )}
 
       {/* Listening indicator */}
       {state.isListening && (
@@ -149,11 +150,9 @@ function CompanionOrb({
         </div>
       )}
 
-      {/* Thinking animation */}
+      {/* Thinking animation - single expanding ring */}
       {state.isThinking && (
-        <div className="absolute inset-0 rounded-full">
-          <div className="absolute inset-0 rounded-full border-2 border-primary-foreground/30 animate-ping" />
-        </div>
+        <div className="absolute inset-0 rounded-full border-2 border-primary-foreground/20 animate-orb-ring-expand" />
       )}
     </button>
   );
@@ -169,6 +168,7 @@ export function CompanionContainer({
   position = 'bottom-right',
   children,
   onModeChange,
+  hasAlert,
 }: CompanionContainerProps) {
   const [mode, setMode] = useState<CompanionMode>(defaultMode);
   const [state, setState] = useState<CompanionState>({
@@ -208,6 +208,7 @@ export function CompanionContainer({
         <CompanionOrb
           state={state}
           onClick={() => handleModeChange('orb')}
+          hasAlert={hasAlert}
         />
       </div>
     );
@@ -225,7 +226,7 @@ export function CompanionContainer({
       >
         <div className="flex flex-col items-end gap-3">
           {/* Quick action buttons */}
-          <div className="flex items-center gap-2 bg-background rounded-full px-2 py-1 border shadow-lg">
+          <div className="flex items-center gap-2 glass-surface rounded-full px-2 py-1 elevation-2">
             <Button
               variant="ghost"
               size="icon"
@@ -268,6 +269,7 @@ export function CompanionContainer({
           <CompanionOrb
             state={state}
             onClick={() => handleModeChange('chat')}
+            hasAlert={hasAlert}
           />
         </div>
       </div>
@@ -285,21 +287,19 @@ export function CompanionContainer({
     >
       <div
         className={cn(
-          'w-96 bg-background',
-          'border rounded-xl shadow-2xl',
+          'w-96 glass-panel',
+          'rounded-2xl elevation-3',
           'flex flex-col',
           'max-h-[80vh]',
-          'animate-in slide-in-from-bottom-4 fade-in duration-200'
+          'animate-companion-panel-enter'
         )}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center">
-              <Sparkles className="h-4 w-4 text-primary-foreground" />
-            </div>
+        <div className="flex items-center justify-between p-3">
+          <div className="flex items-center gap-2.5">
+            <div className="h-2.5 w-2.5 rounded-full bg-primary" />
             <div>
-              <h3 className="text-sm font-medium">AI Companion</h3>
+              <h3 className="text-sm font-medium text-foreground/90">Baley</h3>
               <StatusIndicator state={state} />
             </div>
           </div>
@@ -308,36 +308,36 @@ export function CompanionContainer({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-7 w-7 rounded-full text-muted-foreground/60 hover:text-foreground"
               onClick={toggleListening}
             >
               {state.isListening ? (
-                <MicOff className="h-4 w-4 text-destructive" />
+                <MicOff className="h-3.5 w-3.5 text-destructive" />
               ) : (
-                <Mic className="h-4 w-4" />
+                <Mic className="h-3.5 w-3.5" />
               )}
             </Button>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-7 w-7 rounded-full text-muted-foreground/60 hover:text-foreground"
               onClick={() => handleModeChange('orb')}
             >
-              <Minimize2 className="h-4 w-4" />
+              <Minimize2 className="h-3.5 w-3.5" />
             </Button>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-7 w-7 rounded-full text-muted-foreground/60 hover:text-foreground"
               onClick={() => handleModeChange('collapsed')}
             >
-              <X className="h-4 w-4" />
+              <X className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
 
         {/* Mode Switcher */}
-        <div className="p-2 border-b">
+        <div className="px-3 pb-2">
           <ModeSwitcher mode={mode} onModeChange={handleModeChange} />
         </div>
 
@@ -372,7 +372,7 @@ export function CompanionContainer({
         </div>
 
         {/* Footer with settings */}
-        <div className="p-2 border-t flex items-center justify-end">
+        <div className="p-2 flex items-center justify-end opacity-0 hover:opacity-100 transition-opacity duration-200">
           <Button variant="ghost" size="sm" className="gap-1.5 text-xs">
             <Settings className="h-3.5 w-3.5" />
             Settings

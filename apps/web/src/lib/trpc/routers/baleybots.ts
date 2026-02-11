@@ -1,11 +1,14 @@
-// TODO: STYLE-002 - This file is over 600 lines (~1094 lines). Consider splitting into:
-// - baleybots-queries.ts (list, getById, getByName queries)
+// TODO: STYLE-002 - This file is ~2,600 lines. Consider splitting into:
+// - baleybots-queries.ts (list, getById queries)
 // - baleybots-mutations.ts (create, update, delete mutations)
 // - baleybots-execution.ts (execute, stream procedures)
+// - baleybots-creator.ts (creator pipeline, guidance)
+// - baleybots-testing.ts (test generation, validation, analysis)
+// - baleybots-launch.ts (readiness, launch kit, deploy)
 // - baleybots-schemas.ts (shared zod schemas)
 
 import { z } from 'zod';
-import { router, protectedProcedure } from '../trpc';
+import { router, roleProcedure, editorProcedure, operatorProcedure, adminProcedure } from '../trpc';
 import {
   baleybots,
   baleybotExecutions,
@@ -22,11 +25,13 @@ import {
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { sanitizeCreatorText } from '@/lib/baleybot/creator-sanitization';
+import { canExecute } from '@/lib/baleybot/executor';
 import { getPreferredProvider } from '@/lib/baleybot';
 import { buildCreatorRequestContext } from '@/lib/baleybot/creator-request-context';
-import { runCreatorOrchestrator } from '@/lib/baleybot/creator-orchestrator';
-import { getCreatorGuidance } from '@/lib/baleybot/creator-guidance-service';
-import { executeBALCode } from '@baleyui/sdk';
+import { executeInternalBaleybot } from '@/lib/baleybot/internal-baleybots';
+import { runCreatorActionAdvisor } from '@/lib/baleybot/internal-bb/runner';
+import { creatorOutputSchema } from '@/lib/baleybot/creator-types';
+import { executeBALCode, compileBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
 import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
 import { evaluateLaunchReadiness, buildLaunchKit, buildDefaultRuntimeInterface } from '@/lib/baleybot/launch-prep';
@@ -49,13 +54,14 @@ import {
   runTestResultsAnalyzer,
   runTestValidator,
 } from '@/lib/baleybot/internal-bb/runner';
-import { getWorkspaceAICredentials, initializeBuiltInToolServices } from '@/lib/baleybot/services';
+import { getWorkspaceAICredentials, initializeBuiltInToolServices, getWorkspaceTavilyKey } from '@/lib/baleybot/services';
 import { sharedStorageService } from '@/lib/baleybot/services/shared-storage-service';
 import { configureWebSearch } from '@/lib/baleybot/tools/built-in/implementations';
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
 import { loadExecutionTools } from '@/lib/baleybot/services/execution-tools-loader';
 import type { TriggerType } from '@/lib/baleybot/types';
 import { decrypt } from '@/lib/encryption';
+import { assertQuota } from '@/lib/billing/service';
 import { testConnection } from '@/lib/connections/test';
 import type { ConnectionConfig } from '@/lib/types';
 import {
@@ -212,11 +218,15 @@ function sanitizeConversationHistoryForStorage(
  * tRPC router for managing BaleyBots (BAL-first architecture).
  */
 export const baleybotsRouter = router({
+  // ========================================================================
+  // QUERIES
+  // ========================================================================
+
   /**
    * List all BaleyBots for the workspace.
    * API-004: Return only necessary fields for list view
    */
-  list: protectedProcedure
+  list: roleProcedure
     .input(
       z.object({
         status: baleybotStatusSchema.optional(),
@@ -278,7 +288,7 @@ export const baleybotsRouter = router({
   /**
    * Get a single BaleyBot by ID with recent executions.
    */
-  get: protectedProcedure
+  get: roleProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const baleybot = await ctx.db.query.baleybots.findFirst({
@@ -315,11 +325,15 @@ export const baleybotsRouter = router({
       return baleybot;
     }),
 
+  // ========================================================================
+  // MUTATIONS
+  // ========================================================================
+
   /**
    * Create a new BaleyBot from BAL code.
    * API-001: Stricter input validation
    */
-  create: protectedProcedure
+  create: editorProcedure
     .input(
       z.object({
         name: nameSchema,
@@ -383,7 +397,7 @@ export const baleybotsRouter = router({
    * Update a BaleyBot with optimistic locking.
    * API-001: Stricter input validation
    */
-  update: protectedProcedure
+  update: editorProcedure
     .input(
       z.object({
         id: uuidSchema,
@@ -399,6 +413,17 @@ export const baleybotsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Validate BAL syntax if balCode is being updated
+      if (input.balCode) {
+        const validation = canExecute(input.balCode);
+        if (!validation.valid) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Invalid BAL code: ${validation.errors.slice(0, 3).join('; ')}`,
+          });
+        }
+      }
+
       // Verify BaleyBot exists and belongs to workspace
       const existing = await ctx.db.query.baleybots.findFirst({
         where: and(
@@ -466,7 +491,7 @@ export const baleybotsRouter = router({
   /**
    * Delete a BaleyBot (soft delete).
    */
-  delete: protectedProcedure
+  delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       // Verify BaleyBot exists and belongs to workspace
@@ -494,7 +519,7 @@ export const baleybotsRouter = router({
   /**
    * Activate a BaleyBot (set status to active).
    */
-  activate: protectedProcedure
+  activate: editorProcedure
     .input(z.object({ id: z.string().uuid(), version: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.db.query.baleybots.findFirst({
@@ -524,7 +549,7 @@ export const baleybotsRouter = router({
   /**
    * Pause a BaleyBot (set status to paused).
    */
-  pause: protectedProcedure
+  pause: editorProcedure
     .input(z.object({ id: z.string().uuid(), version: z.number().int() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.db.query.baleybots.findFirst({
@@ -551,12 +576,16 @@ export const baleybotsRouter = router({
       return updated;
     }),
 
+  // ========================================================================
+  // EXECUTION
+  // ========================================================================
+
   /**
    * Execute a BaleyBot with input.
    * Uses a database transaction to prevent race conditions during execution.
    * The BAL execution runs inside the transaction so it will be rolled back on error.
    */
-  execute: protectedProcedure
+  execute: operatorProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -577,6 +606,9 @@ export const baleybotsRouter = router({
       );
 
       log.info('Executing baleybot', { baleybotId: input.id, triggeredBy: input.triggeredBy });
+
+      // Check billing quota before execution
+      await assertQuota(ctx.workspace.id);
 
       // Verify BaleyBot exists and belongs to workspace (outside transaction for early validation)
       const baleybot = await ctx.db.query.baleybots.findFirst({
@@ -659,9 +691,10 @@ export const baleybotsRouter = router({
           });
         }
 
-        // Configure web search if Tavily key is available
-        if (process.env.TAVILY_API_KEY) {
-          configureWebSearch(process.env.TAVILY_API_KEY);
+        // Configure web search if Tavily key is available (env or workspace DB)
+        const tavilyKey = await getWorkspaceTavilyKey(ctx.workspace.id);
+        if (tavilyKey) {
+          configureWebSearch(tavilyKey);
         }
 
         // Initialize built-in tool services (spawn, notify, schedule, memory)
@@ -778,7 +811,7 @@ export const baleybotsRouter = router({
    * List executions for a BaleyBot.
    * API-004: Return only necessary fields for list view
    */
-  listExecutions: protectedProcedure
+  listExecutions: roleProcedure
     .input(
       z.object({
         baleybotId: uuidSchema,
@@ -833,7 +866,7 @@ export const baleybotsRouter = router({
   /**
    * Get a single execution by ID.
    */
-  getExecution: protectedProcedure
+  getExecution: roleProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const execution = await ctx.db.query.baleybotExecutions.findFirst({
@@ -859,7 +892,7 @@ export const baleybotsRouter = router({
   /**
    * Get recent activity across all BaleyBots in the workspace.
    */
-  getRecentActivity: protectedProcedure
+  getRecentActivity: roleProcedure
     .input(
       z.object({
         limit: z.number().int().min(1).max(100).optional().default(20),
@@ -899,7 +932,7 @@ export const baleybotsRouter = router({
   /**
    * Get BaleyBots that depend on a specific BaleyBot.
    */
-  getDependents: protectedProcedure
+  getDependents: roleProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       // Use SQL JSONB contains operator to find BBs with this dependency
@@ -922,7 +955,7 @@ export const baleybotsRouter = router({
    * Handle approval decision for a pending tool call.
    * This is called when a user approves or denies a tool execution.
    */
-  handleApprovalDecision: protectedProcedure
+  handleApprovalDecision: operatorProcedure
     .input(
       z.object({
         executionId: z.string().uuid(),
@@ -976,13 +1009,15 @@ export const baleybotsRouter = router({
       };
     }),
 
-  // ===== Creator Bot Endpoints =====
+  // ========================================================================
+  // CREATOR
+  // ========================================================================
 
   /**
    * Send a message to the Creator Bot and get a response.
    * Used for conversational BaleyBot creation.
    */
-  sendCreatorMessage: protectedProcedure
+  sendCreatorMessage: editorProcedure
     .input(
       z.object({
         baleybotId: z.string().uuid().optional(),
@@ -1013,22 +1048,42 @@ export const baleybotsRouter = router({
         conversationHistory: input.conversationHistory,
       });
 
-      const orchestrated = await runCreatorOrchestrator(
-        {
-          workspaceId: ctx.workspace.id,
-          context: creatorContext.context,
-          conversationHistory: creatorContext.conversationHistory,
-          userMessage: creatorContext.sanitizedMessage,
-        },
+      // Build input for creator_bot (non-streaming path)
+      const contextParts: string[] = [];
+      if (creatorContext.context.availableTools.length > 0) {
+        contextParts.push(`Available tools: ${creatorContext.context.availableTools.map(t => t.name).join(', ')}`);
+      }
+      if (creatorContext.conversationHistory.length > 0) {
+        const history = creatorContext.conversationHistory.slice(-16)
+          .map(m => `${m.role}: ${m.content.slice(0, 900)}`)
+          .join('\n');
+        contextParts.push(`Conversation history:\n${history}`);
+      }
+      contextParts.push(`User message: ${creatorContext.sanitizedMessage}`);
+
+      const { output } = await executeInternalBaleybot(
+        'creator_bot',
+        contextParts.join('\n\n'),
+        { userWorkspaceId: ctx.workspace.id, triggeredBy: 'internal' }
       );
 
-      return orchestrated.result;
+      // Parse the concierge output through the creator output schema
+      const parsed = creatorOutputSchema.safeParse(output);
+      if (parsed.success) {
+        return parsed.data;
+      }
+
+      // Fallback: return a building response with the raw text
+      return creatorOutputSchema.parse({
+        message: typeof output === 'string' ? output : JSON.stringify(output),
+        status: 'building',
+      });
     }),
 
   /**
    * Context-aware creator guidance actions. Canonical source for next-action suggestions.
    */
-  getCreatorGuidance: protectedProcedure
+  getCreatorGuidance: editorProcedure
     .input(
       z.object({
         status: z.enum(['empty', 'building', 'ready', 'running', 'error']),
@@ -1051,20 +1106,22 @@ export const baleybotsRouter = router({
         RATE_LIMITS.creatorGuidance,
       );
 
-      const guidance = await getCreatorGuidance({
-        workspaceId: ctx.workspace.id,
-        status: input.status,
-        messages: input.messages,
+      const recentTranscript = input.messages
+        .slice(-10)
+        .map(m => `${m.role}: ${m.content.slice(0, 400)}`)
+        .join('\n');
+      const advisorInput = `Status: ${input.status}\nRecent conversation:\n${recentTranscript}`;
+      const result = await runCreatorActionAdvisor(advisorInput, {
+        userWorkspaceId: ctx.workspace.id,
       });
-
-      return { actions: guidance.actions };
+      return { actions: result?.actions ?? [] };
     }),
 
   /**
    * Generate context-aware next actions for the creator UI.
-   * Uses internal BB reasoning to suggest only high-value steps.
+   * Compatibility alias for getCreatorGuidance.
    */
-  getCreatorSuggestedActions: protectedProcedure
+  getCreatorSuggestedActions: editorProcedure
     .input(
       z.object({
         status: z.enum(['empty', 'building', 'ready', 'running', 'error']),
@@ -1078,7 +1135,6 @@ export const baleybotsRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      // Compatibility alias: legacy UI can keep calling this endpoint.
       if (input.status === 'running') {
         return { actions: [] };
       }
@@ -1086,19 +1142,22 @@ export const baleybotsRouter = router({
         `creatorActionsBackground:${ctx.workspace.id}:${ctx.userId}`,
         RATE_LIMITS.creatorGuidance,
       );
-      const guidance = await getCreatorGuidance({
-        workspaceId: ctx.workspace.id,
-        status: input.status,
-        messages: input.messages,
+      const recentTranscript = input.messages
+        .slice(-10)
+        .map(m => `${m.role}: ${m.content.slice(0, 400)}`)
+        .join('\n');
+      const advisorInput = `Status: ${input.status}\nRecent conversation:\n${recentTranscript}`;
+      const result = await runCreatorActionAdvisor(advisorInput, {
+        userWorkspaceId: ctx.workspace.id,
       });
-      return { actions: guidance.actions };
+      return { actions: result?.actions ?? [] };
     }),
 
   /**
    * Save a creation session as a BaleyBot.
    * Creates a new BaleyBot or updates an existing one.
    */
-  saveFromSession: protectedProcedure
+  saveFromSession: editorProcedure
     .input(
       z.object({
         baleybotId: z.string().uuid().optional(),
@@ -1120,9 +1179,20 @@ export const baleybotsRouter = router({
             })
           )
           .optional(),
+        // When true, re-fetches current version to bypass optimistic lock conflicts
+        forceOverwrite: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Validate BAL syntax before saving
+      const validation = canExecute(input.balCode);
+      if (!validation.valid) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Invalid BAL code: ${validation.errors.slice(0, 3).join('; ')}`,
+        });
+      }
+
       if (input.baleybotId) {
         // Capture the ID for use in closure (TypeScript narrowing)
         const baleybotId = input.baleybotId;
@@ -1143,13 +1213,23 @@ export const baleybotsRouter = router({
           });
         }
 
-        const balCodeChanged = input.balCode !== existing.balCode;
+        // When forceOverwrite, re-fetch current version to avoid lock conflict loop
+        const saveVersion = input.forceOverwrite
+          ? (await ctx.db.query.baleybots.findFirst({
+              where: eq(baleybots.id, baleybotId),
+              columns: { version: true },
+            }))?.version ?? existing.version
+          : existing.version;
+
+        // Normalize whitespace before comparing to ignore cosmetic BAL formatting changes
+        const normalizeWs = (s: string) => s.replace(/\s+/g, ' ').trim();
+        const balCodeChanged = normalizeWs(input.balCode) !== normalizeWs(existing.balCode);
 
         const truncatedHistory = sanitizeConversationHistoryForStorage(input.conversationHistory);
 
         // API-002: Use shared error handling helper
         return await withErrorHandling(
-          () => updateWithLock(baleybots, baleybotId, existing.version, {
+          () => updateWithLock(baleybots, baleybotId, saveVersion, {
             name: input.name,
             description: input.description,
             icon: input.icon,
@@ -1193,10 +1273,14 @@ export const baleybotsRouter = router({
       }
     }),
 
+  // ========================================================================
+  // TESTING
+  // ========================================================================
+
   /**
    * Save test cases as JSON on the baleybots row.
    */
-  saveTestCases: protectedProcedure
+  saveTestCases: editorProcedure
     .input(z.object({
       id: z.string().uuid(),
       testCases: z.array(z.object({
@@ -1249,7 +1333,7 @@ export const baleybotsRouter = router({
   /**
    * Pre-load test fixtures into shared storage before test execution.
    */
-  preloadTestFixtures: protectedProcedure
+  preloadTestFixtures: editorProcedure
     .input(z.object({
       fixtures: z.array(z.object({
         key: z.string(),
@@ -1269,10 +1353,14 @@ export const baleybotsRouter = router({
       return { success: true, fixturesLoaded: input.fixtures.length };
     }),
 
+  // ========================================================================
+  // TOOLS & VALIDATION
+  // ========================================================================
+
   /**
    * Save trigger configuration to the baleybots row and sync with baleybotTriggers table.
    */
-  saveTriggerConfig: protectedProcedure
+  saveTriggerConfig: editorProcedure
     .input(z.object({
       id: z.string().uuid(),
       triggerConfig: z.object({
@@ -1348,7 +1436,7 @@ export const baleybotsRouter = router({
   /**
    * Get trigger configuration for a BaleyBot.
    */
-  getTriggerConfig: protectedProcedure
+  getTriggerConfig: roleProcedure
     .input(z.object({ baleybotId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const triggers = await ctx.db
@@ -1376,7 +1464,7 @@ export const baleybotsRouter = router({
   /**
    * Generate test cases using the test_generator internal BB.
    */
-  generateTests: protectedProcedure
+  generateTests: editorProcedure
     .input(z.object({
       baleybotId: z.string().uuid(),
       balCode: z.string(),
@@ -1473,8 +1561,9 @@ export const baleybotsRouter = router({
 
   /**
    * Analyze connection requirements using the connection_advisor internal BB.
+   * // TODO: Wire to frontend — ConnectionsPanel lazy-check
    */
-  analyzeConnections: protectedProcedure
+  analyzeConnections: editorProcedure
     .input(z.object({
       baleybotId: z.string().uuid(),
       balCode: z.string(),
@@ -1526,10 +1615,113 @@ export const baleybotsRouter = router({
     }),
 
   /**
+   * Lazy validation for a BaleyBot. Runs requested checks on-demand
+   * so the user doesn't wait during creation — each tab fires its own check.
+   * // TODO: Wire to frontend — tab-level lazy validation
+   */
+  validateBaleybot: editorProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      checks: z.array(z.enum(['connections', 'syntax', 'tests'])),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const baleybot = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.id),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots)
+        ),
+      });
+
+      if (!baleybot) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+
+      await checkRateLimit(
+        `validate:${ctx.workspace.id}:${ctx.userId}`,
+        RATE_LIMITS.generate,
+      );
+
+      const results: Record<string, unknown> = {};
+
+      for (const check of input.checks) {
+        switch (check) {
+          case 'syntax': {
+            const compiled = compileBALCode(baleybot.balCode);
+            results.syntax = {
+              valid: !compiled.errors?.length,
+              errors: compiled.errors ?? [],
+              entities: compiled.entities,
+            };
+            break;
+          }
+          case 'connections': {
+            try {
+              const parsed = parseBalCode(baleybot.balCode);
+              const entitySummary = parsed.entities
+                .map(e => `${e.name} (${(e.config?.tools as string[] ?? []).join(', ')})`)
+                .join('; ');
+              const contextStr = [
+                `Bot: ${baleybot.name}`,
+                `Entities: ${entitySummary}`,
+                '',
+                'BAL Code:',
+                baleybot.balCode,
+              ].join('\n');
+
+              results.connections = await runConnectionAdvisor(
+                `Analyze connection requirements:\n${contextStr}`,
+                { userWorkspaceId: ctx.workspace.id, triggeredBy: 'internal' }
+              );
+            } catch (error) {
+              log.error('validateBaleybot connection check failed', {
+                baleybotId: input.id,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              results.connections = { recommendations: ['Connection analysis failed. Please try again.'], warnings: [] };
+            }
+            break;
+          }
+          case 'tests': {
+            try {
+              const parsed = parseBalCode(baleybot.balCode);
+              const entityCount = parsed.entities.length;
+              const hasChain = !!parsed.chain && parsed.chain.length > 1;
+              const topologyHint = entityCount <= 1 ? 'single' : hasChain ? 'chain' : 'multiple';
+
+              const contextStr = [
+                `Bot: ${baleybot.name}`,
+                `Topology: ${topologyHint} (${entityCount} entit${entityCount === 1 ? 'y' : 'ies'})`,
+                '',
+                'BAL Code:',
+                baleybot.balCode,
+              ].join('\n');
+
+              results.tests = await runTestGenerator(
+                `Generate comprehensive tests for this BaleyBot:\n${contextStr}`,
+                { userWorkspaceId: ctx.workspace.id, triggeredBy: 'internal' }
+              );
+            } catch (error) {
+              log.error('validateBaleybot test generation failed', {
+                baleybotId: input.id,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              results.tests = { tests: [], strategy: 'Test generation failed. Please try again.' };
+            }
+            break;
+          }
+        }
+      }
+
+      return results;
+    }),
+
+  /**
    * Verify a specific tool's operational readiness from the Connections panel.
    * Performs connection-level checks and safe runtime probes where applicable.
+   * // TODO: Wire to frontend — per-tool verify button
    */
-  verifyTool: protectedProcedure
+  verifyTool: editorProcedure
     .input(z.object({
       toolName: z.string().min(1),
       mappedConnectionId: z.string().uuid().optional(),
@@ -1720,8 +1912,9 @@ export const baleybotsRouter = router({
         };
       }
 
-      if (hasProcessEnvKey('TAVILY_API_KEY')) {
-        configureWebSearch(process.env.TAVILY_API_KEY!);
+      const tavilyKeyForVerify = await getWorkspaceTavilyKey(ctx.workspace.id);
+      if (tavilyKeyForVerify) {
+        configureWebSearch(tavilyKeyForVerify);
       }
       initializeBuiltInToolServices();
 
@@ -1816,7 +2009,7 @@ export const baleybotsRouter = router({
    * Validate a single test output using the test_validator internal BB.
    * Uses a cheap model (gpt-4o-mini) for fast semantic validation.
    */
-  validateTestOutput: protectedProcedure
+  validateTestOutput: editorProcedure
     .input(z.object({
       testName: z.string(),
       input: z.union([z.string(), z.record(z.string(), z.unknown())]),
@@ -1911,7 +2104,7 @@ export const baleybotsRouter = router({
    * Analyze test results using the test_results_analyzer internal BB.
    * Generates a rich summary with patterns and improvement suggestions.
    */
-  analyzeTestResults: protectedProcedure
+  analyzeTestResults: editorProcedure
     .input(z.object({
       botName: z.string(),
       botGoal: z.string().optional(),
@@ -1984,10 +2177,14 @@ export const baleybotsRouter = router({
       }
     }),
 
+  // ========================================================================
+  // LAUNCH & DEPLOY
+  // ========================================================================
+
   /**
    * Evaluate whether a BaleyBot is ready to enter Launch Prep.
    */
-  evaluateLaunchReadiness: protectedProcedure
+  evaluateLaunchReadiness: editorProcedure
     .input(z.object({
       baleybotId: z.string().uuid(),
       requiredPassRate: z.number().min(0).max(1).optional(),
@@ -2042,7 +2239,7 @@ export const baleybotsRouter = router({
   /**
    * Generate and persist LaunchKit + runtime interface spec.
    */
-  generateLaunchKit: protectedProcedure
+  generateLaunchKit: editorProcedure
     .input(z.object({
       baleybotId: z.string().uuid(),
       force: z.boolean().optional().default(false),
@@ -2155,7 +2352,7 @@ export const baleybotsRouter = router({
   /**
    * Approve the generated launch plan (remains in launch_prepared stage).
    */
-  approveLaunchPlan: protectedProcedure
+  approveLaunchPlan: editorProcedure
     .input(z.object({
       baleybotId: z.string().uuid(),
       launchKit: z.record(z.string(), z.unknown()).optional(),
@@ -2184,7 +2381,7 @@ export const baleybotsRouter = router({
   /**
    * Promote a launch-prepared BaleyBot to live mode.
    */
-  promoteToLive: protectedProcedure
+  promoteToLive: adminProcedure
     .input(z.object({ baleybotId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.db.query.baleybots.findFirst({
@@ -2216,7 +2413,7 @@ export const baleybotsRouter = router({
   /**
    * Pause a live BaleyBot while preserving runtime interface artifacts.
    */
-  pauseLiveBot: protectedProcedure
+  pauseLiveBot: adminProcedure
     .input(z.object({ baleybotId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.db.query.baleybots.findFirst({
@@ -2239,8 +2436,9 @@ export const baleybotsRouter = router({
 
   /**
    * Return the runtime interface spec for Live mode rendering.
+   * // TODO: Wire to frontend — Live mode runtime panel
    */
-  getRuntimeInterface: protectedProcedure
+  getRuntimeInterface: roleProcedure
     .input(z.object({ baleybotId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const existing = await ctx.db.query.baleybots.findFirst({
@@ -2263,8 +2461,9 @@ export const baleybotsRouter = router({
 
   /**
    * Analyze deployment requirements using the deployment_advisor internal BB.
+   * // TODO: Wire to frontend — Deploy panel deep analysis
    */
-  analyzeDeployment: protectedProcedure
+  analyzeDeployment: editorProcedure
     .input(z.object({
       baleybotId: z.string().uuid(),
       balCode: z.string(),
@@ -2297,5 +2496,143 @@ export const baleybotsRouter = router({
         });
         return { triggerRecommendations: [], readinessGaps: ['Deployment analysis returned unexpected format.'], productionChecklist: [] };
       }
+    }),
+
+  // ========================================================================
+  // EXPORT / IMPORT — one button each in the UI
+  // ========================================================================
+
+  /**
+   * Export a BaleyBot as a .baleybot.json bundle.
+   * Returns the bundle object for the client to download.
+   */
+  exportBaleybot: roleProcedure
+    .input(z.object({ id: uuidSchema }))
+    .query(async ({ ctx, input }) => {
+      const baleybot = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.id),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots)
+        ),
+      });
+
+      if (!baleybot) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+
+      // Extract required tools and providers from BAL code
+      let entityNames: string[] = baleybot.entityNames || [];
+      const requiredTools = new Set<string>();
+      const requiredProviders = new Set<string>();
+
+      try {
+        const compiled = compileBALCode(baleybot.balCode, {});
+        if (compiled.entities) {
+          entityNames = compiled.entities; // string[] of entity names
+        }
+        // Extract tools and providers from structure if available
+        const structure = compiled.structure as Record<string, unknown> | null;
+        if (structure?.entities && Array.isArray(structure.entities)) {
+          for (const entity of structure.entities as Array<Record<string, unknown>>) {
+            if (Array.isArray(entity.tools)) {
+              for (const t of entity.tools) {
+                if (typeof t === 'string') requiredTools.add(t);
+              }
+            }
+            if (typeof entity.model === 'string') {
+              const provider = entity.model.split(':')[0];
+              if (provider) requiredProviders.add(provider);
+            }
+          }
+        }
+      } catch {
+        // If parsing fails, use cached entity names
+        entityNames = baleybot.entityNames || [];
+      }
+
+      return {
+        version: 1 as const,
+        name: baleybot.name,
+        description: baleybot.description || '',
+        icon: baleybot.icon || '🤖',
+        balCode: baleybot.balCode,
+        entityNames,
+        requiredTools: [...requiredTools],
+        requiredProviders: [...requiredProviders],
+        testCases: baleybot.testCasesJson
+          ? (baleybot.testCasesJson as Array<{ name: string; input: string; expectedOutput?: string }>).map(tc => ({
+              name: tc.name || 'test',
+              input: tc.input || '',
+              expectedOutput: tc.expectedOutput,
+            }))
+          : [],
+        metadata: {
+          exportedAt: new Date().toISOString(),
+          sourceVersion: baleybot.version,
+        },
+      };
+    }),
+
+  /**
+   * Import a BaleyBot from a .baleybot.json bundle.
+   * Creates a new BaleyBot in draft status.
+   */
+  importBaleybot: editorProcedure
+    .input(z.object({
+      bundle: z.object({
+        version: z.literal(1),
+        name: z.string().min(1),
+        description: z.string(),
+        icon: z.string(),
+        balCode: z.string().min(1),
+        entityNames: z.array(z.string()),
+        requiredTools: z.array(z.string()),
+        requiredProviders: z.array(z.string()),
+        testCases: z.array(z.object({
+          name: z.string(),
+          input: z.string(),
+          expectedOutput: z.string().optional(),
+          matchStrategy: z.enum(['contains', 'exact', 'semantic']).optional(),
+        })).optional(),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+      }),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { bundle } = input;
+
+      // Compile BAL to validate it
+      const compiled = compileBALCode(bundle.balCode, {});
+      if (compiled.errors && compiled.errors.length > 0) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Invalid BAL code: ${compiled.errors[0]}`,
+        });
+      }
+
+      // Create the BaleyBot
+      const result = await ctx.db
+        .insert(baleybots)
+        .values({
+          workspaceId: ctx.workspace.id,
+          name: bundle.name,
+          description: bundle.description,
+          icon: bundle.icon,
+          balCode: bundle.balCode,
+          entityNames: bundle.entityNames,
+          status: 'draft',
+          lifecycleStage: 'draft',
+          testCasesJson: bundle.testCases || [],
+          structure: compiled.structure,
+          createdBy: ctx.userId,
+        })
+        .returning({ id: baleybots.id });
+
+      const created = result[0];
+      if (!created) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to create BaleyBot' });
+      }
+
+      return { id: created.id, name: bundle.name };
     }),
 });

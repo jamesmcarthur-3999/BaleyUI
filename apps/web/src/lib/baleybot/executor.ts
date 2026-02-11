@@ -139,7 +139,7 @@ export interface ExecutorContext {
   /** Workspace policies for tool governance */
   workspacePolicies: WorkspacePolicies | null;
   /** Trigger type for the execution */
-  triggeredBy: 'manual' | 'schedule' | 'webhook' | 'other_bb';
+  triggeredBy: 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'internal';
   /** Trigger source (e.g., BB ID if triggered by another BB) */
   triggerSource?: string;
 }
@@ -460,6 +460,11 @@ export async function executeBaleybot(
         : undefined,
       onEvent: (event: BALExecutionEvent) => {
         if (event.type === 'token' && event.event) {
+          // Tag the event with entity name for downstream consumers
+          const botName = event.botName as string | undefined;
+          if (botName) {
+            (event.event as Record<string, unknown>).__entityName = botName;
+          }
           segments.push(event.event);
           options?.onSegment?.(event.event);
         }

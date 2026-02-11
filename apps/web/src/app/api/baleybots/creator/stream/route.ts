@@ -1,3 +1,10 @@
+/**
+ * Creator Stream API Route
+ *
+ * SSE endpoint for the BAL-native creator pipeline.
+ * The concierge BB streams natural conversation text directly to the user.
+ */
+
 import { auth } from '@clerk/nextjs/server';
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
@@ -7,17 +14,13 @@ import { createLogger } from '@/lib/logger';
 import { apiErrors } from '@/lib/api/error-response';
 import { getAuthenticatedWorkspace } from '@/lib/auth/workspace-lookup';
 import {
-  type CreatorProgressEvent,
-} from '@/lib/baleybot/creator-bot';
-import {
-  runCreatorOrchestrator,
-  type CreatorOrchestratorEvent,
-} from '@/lib/baleybot/creator-orchestrator';
-import {
   buildCreatorRequestContext,
   type CreatorConversationHistoryInput,
 } from '@/lib/baleybot/creator-request-context';
-import type { CreatorOutput } from '@/lib/baleybot/creator-types';
+import {
+  executeCreatorPipeline,
+  type CreatorSSEEvent,
+} from '@/lib/baleybot/creator-pipeline-adapter';
 
 const log = createLogger('creator-stream-route');
 
@@ -30,42 +33,38 @@ const creatorStreamBodySchema = z
         z.object({
           id: z.string(),
           role: z.enum(['user', 'assistant']),
-          content: z.string(),
+          content: z.string().max(50000),
           timestamp: z.coerce.date(),
           metadata: z.record(z.string(), z.unknown()).optional(),
         })
       )
+      .max(100)
       .optional(),
   })
   .strict();
 
-function compactCreatorSummary(output: CreatorOutput): string {
-  if (output.status === 'building') {
-    return 'Collecting the final setup detail before generating your workflow.';
-  }
-
-  const entityCount = output.entities.length;
-  const toolCount = output.entities.reduce(
-    (sum, entity) => sum + entity.tools.length,
-    0
-  );
-  const parts = [
-    `Generated ${entityCount} ${entityCount === 1 ? 'entity' : 'entities'}`,
-  ];
-  if (toolCount > 0) {
-    parts.push(`mapped ${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}`);
-  }
-  return `${parts.join(', ')} and produced runnable BAL code.`;
-}
-
-function truncate(value: string, max = 220): string {
-  const compact = value.replace(/\s+/g, ' ').trim();
-  if (compact.length <= max) return compact;
-  return `${compact.slice(0, max - 1).trimEnd()}...`;
-}
-
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+/**
+ * Strip sensitive data from error messages before forwarding to the client.
+ * Removes DB connection strings, file paths, API keys, and internal details.
+ */
+function sanitizeStreamError(message: string): string {
+  return message
+    // DB connection strings
+    .replace(/postgres(ql)?:\/\/[^\s]+/gi, '[database-url]')
+    .replace(/mysql:\/\/[^\s]+/gi, '[database-url]')
+    // File paths
+    .replace(/\/(?:Users|home|var|tmp|app|src)\/[^\s:]+/g, '[path]')
+    // API keys and tokens
+    .replace(/(?:sk|pk|key|token|secret|password)[-_]?[a-zA-Z0-9]{20,}/gi, '[redacted]')
+    // Neon/Vercel-style connection strings
+    .replace(/ep-[a-z0-9-]+\.[\w.-]+neon\.tech/gi, '[database-host]')
+    // Generic long alphanumeric tokens (likely secrets)
+    .replace(/(?<=[\s:=])[A-Za-z0-9+/]{40,}={0,2}(?=[\s\n]|$)/g, '[redacted]')
+    .trim();
+}
 
 export async function POST(req: NextRequest) {
   const requestId = req.headers.get('x-request-id') ?? undefined;
@@ -102,12 +101,12 @@ export async function POST(req: NextRequest) {
         input.conversationHistory as CreatorConversationHistoryInput[] | undefined,
     });
 
+    const executionId = crypto.randomUUID();
     const encoder = new TextEncoder();
 
     const stream = new ReadableStream({
       async start(controller) {
         let lastEmitAt = Date.now();
-        const seenHighlights = new Set<string>();
 
         const sendEvent = (event: Record<string, unknown>) => {
           lastEmitAt = Date.now();
@@ -118,6 +117,7 @@ export async function POST(req: NextRequest) {
 
         sendEvent({
           type: 'creator_stream_started',
+          executionId,
           timestamp: Date.now(),
         });
 
@@ -125,8 +125,8 @@ export async function POST(req: NextRequest) {
           if (Date.now() - lastEmitAt < 4000) return;
           sendEvent({
             type: 'creator_progress',
-            phase: 'orchestration',
-            message: 'Still working through your request...',
+            phase: 'thinking',
+            message: 'Still working...',
             heartbeat: true,
             timestamp: Date.now(),
           });
@@ -145,106 +145,33 @@ export async function POST(req: NextRequest) {
           { once: true }
         );
 
-        const handleProgress = (event: CreatorProgressEvent) => {
-          sendEvent({
-            type: 'creator_progress',
-            phase: event.phase,
-            message: truncate(event.message, 140),
-            highlightType: event.highlightType ?? 'status',
-            toolName: event.toolName,
-            cycle: event.cycle,
-            timestamp: Date.now(),
-          });
-
-          if (!event.highlight) return;
-          const normalized = truncate(event.highlight).toLowerCase();
-          if (!normalized) return;
-          if (seenHighlights.has(normalized)) return;
-          seenHighlights.add(normalized);
-
-          if (seenHighlights.size > 40) {
-            const first = seenHighlights.values().next().value;
-            if (typeof first === 'string') {
-              seenHighlights.delete(first);
-            }
-          }
-
-          sendEvent({
-            type: 'creator_highlight',
-            phase: event.phase,
-            highlight: truncate(event.highlight),
-            highlightType: event.highlightType ?? 'status',
-            toolName: event.toolName,
-            cycle: event.cycle,
-            timestamp: Date.now(),
-          });
-        };
-
         try {
-          const orchestrated = await runCreatorOrchestrator(
-            {
-              workspaceId: workspace.id,
-              userMessage: creatorContext.sanitizedMessage,
-              context: creatorContext.context,
-              conversationHistory: creatorContext.conversationHistory,
-              signal: req.signal,
-              onEvent: (event: CreatorOrchestratorEvent) => {
-                if (event.type === 'creator_progress') {
-                  handleProgress(event.payload);
-                  return;
-                }
-
-                if (event.type === 'creator_tool_activity') {
-                  sendEvent({
-                    type: 'creator_tool_activity',
-                    activity: event.payload,
-                    timestamp: Date.now(),
-                  });
-                  return;
-                }
-
-                if (event.type === 'creator_plan_delta') {
-                  sendEvent({
-                    type: 'creator_plan_delta',
-                    delta: event.payload,
-                    timestamp: Date.now(),
-                  });
-                  return;
-                }
-
-                if (event.type === 'creator_action_suggestions') {
-                  sendEvent({
-                    type: 'creator_action_suggestions',
-                    actions: event.payload.actions,
-                    timestamp: Date.now(),
-                  });
-                }
-              },
+          await executeCreatorPipeline({
+            workspaceId: workspace.id,
+            baleybotId: input.baleybotId,
+            message: creatorContext.sanitizedMessage,
+            context: creatorContext.context,
+            conversationHistory: creatorContext.conversationHistory,
+            signal: req.signal,
+            executionId,
+            onEvent: (event: CreatorSSEEvent) => {
+              sendEvent(event as unknown as Record<string, unknown>);
             },
-          );
-          const result = orchestrated.result;
-
-          sendEvent({
-            type: 'creator_complete',
-            result,
-            summary: compactCreatorSummary(result),
-            planDelta: orchestrated.planDelta,
-            actions: orchestrated.guidanceActions,
-            timestamp: Date.now(),
           });
+
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           clearInterval(heartbeat);
           controller.close();
         } catch (error) {
-          const message =
+          const rawMessage =
             error instanceof Error ? error.message : 'Creator stream failed';
           log.error('creator stream processing failed', {
             workspaceId: workspace.id,
-            error: message,
+            error: rawMessage,
           });
           sendEvent({
             type: 'creator_error',
-            message,
+            message: sanitizeStreamError(rawMessage),
             timestamp: Date.now(),
           });
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));

@@ -4,14 +4,10 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { trpc } from '@/lib/trpc/client';
-import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ConnectionsPanel, TestPanel, MonitorPanel, StreamingProgressCard } from '@/components/creator';
+import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ConnectionsPanel, BaleybotHeader } from '@/components/creator';
 import type {
   TestCase,
-  StreamingHighlightType,
-  StreamingProgressSnapshot,
-  StreamingTool,
 } from '@/components/creator';
-import type { ChatQuickPrompt } from '@/components/creator/ChatInput';
 
 // Dynamic import to avoid bundling @baleybots/core server-only modules in client
 const VisualEditor = dynamic(
@@ -43,12 +39,6 @@ import type { ConflictAction } from '@/components/creator';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -58,7 +48,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, LayoutGrid, Code2, Zap, BarChart3, MessageSquare, PanelRight, Cable, FlaskConical, Activity, Rocket, CirclePlay, PauseCircle, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, LayoutGrid, Code2, MessageSquare, PanelRight, FlaskConical, Rocket } from 'lucide-react';
+import { DeployPanel } from '@/components/deploy';
+import { ReviewPage } from '@/components/review';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
 import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory, useTestExecution } from '@/hooks';
@@ -66,404 +58,73 @@ import { formatErrorWithAction, parseCreatorError } from '@/lib/errors/creator-e
 import { generateChangeSummary, formatChangeSummaryForChat } from '@/lib/baleybot/change-summary';
 import { safeParseDate } from '@/lib/utils/date';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/components/ui/use-toast';
 import type {
   VisualEntity,
   Connection,
   CreatorMessage,
   CreatorGuidanceAction,
-  CreationStatus,
   CreationProgress,
+  CreationStatus,
   AdaptiveTab,
   CreatorOutput,
-  CreatorPlanDelta,
   BuilderPresentationMode,
   TriggerSetupStep,
 } from '@/lib/baleybot/creator-types';
-import type { LaunchKit, RuntimeInterfaceSpec } from '@/lib/baleybot/types';
-import { computeReadiness, createInitialReadiness, getVisibleTabs, countCompleted, getRecommendedAction } from '@/lib/baleybot/readiness';
-import type { ReadinessDimension, ReadinessState } from '@/lib/baleybot/readiness';
-import {
-  getConnectionSummary,
-  parseConnectionTool,
-  connectionNameToSlug,
-} from '@/lib/baleybot/tools/requirements-scanner';
-import type { BalGraphSidecarMetadata } from '@/lib/baleybot/graph/types';
+import type { LaunchKit } from '@/lib/baleybot/types';
+import { computeReadiness, createInitialReadiness } from '@/lib/baleybot/readiness';
+import type { ReadinessState, SpecialistSignals } from '@/lib/baleybot/readiness';
+import type { ValidationStatus } from '@/lib/baleybot/creator-validation';
+import { getConnectionSummary } from '@/lib/baleybot/tools/requirements-scanner';
 import type { GraphRuntimeEvent } from '@/lib/streaming/types/events';
 import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
-import { detectBalSkills, summarizeBalSkills } from '@/lib/baleybot/bal-skills';
-import {
-  sanitizeCreatorConversationHistory,
-  sanitizeCreatorText,
-} from '@/lib/baleybot/creator-sanitization';
+import { sanitizeCreatorText } from '@/lib/baleybot/creator-sanitization';
 import { streamPostSSE } from '@/lib/streaming/client-post-sse';
+import {
+  isAdvancedEditorTab,
+  computeAvailableTabs,
+  truncateName,
+  extractSidecarFromStructure,
+  buildDerivedGraphSidecar,
+  appendGraphRuntimeEvent,
+  isSameReadiness,
+  escapeRegExp,
+  buildCreatorHistoryPayload,
+  buildGuidanceQuickPrompts,
+} from '@/lib/baleybot/creator-helpers';
+import { POST_DESIGN_TABS, EXAMPLE_PROMPTS } from '@/lib/baleybot/creator-constants';
 
-const ADVANCED_EDITOR_TABS: AdaptiveTab[] = ['code', 'analytics'];
-const POST_DESIGN_TABS: AdaptiveTab[] = ['connections', 'test', 'triggers', 'monitor', 'launch'];
+// Pure functions and constants extracted to:
+// - @/lib/baleybot/creator-helpers.ts
+// - @/lib/baleybot/creator-constants.ts
 
-function isAdvancedEditorTab(tab: AdaptiveTab): boolean {
-  return ADVANCED_EDITOR_TABS.includes(tab);
-}
-
-function computeAvailableTabs(args: {
-  readiness: ReadinessState;
-  savedBaleybotId: string | null;
-  lifecycleStage?: string;
-  hasRuntimeSpec: boolean;
-  showAdvancedUI: boolean;
-  isDesignReviewRequired: boolean;
-}): AdaptiveTab[] {
-  const tabs = [...getVisibleTabs(args.readiness)];
-
-  if (args.savedBaleybotId && !tabs.includes('launch')) {
-    tabs.push('launch');
-  }
-
-  if (
-    args.savedBaleybotId &&
-    (
-      args.lifecycleStage === 'live' ||
-      args.lifecycleStage === 'paused' ||
-      args.hasRuntimeSpec
-    ) &&
-    !tabs.includes('runtime')
-  ) {
-    tabs.push('runtime');
-  }
-
-  const tabsAfterDesignGate = args.isDesignReviewRequired
-    ? tabs.filter((tab) => !POST_DESIGN_TABS.includes(tab))
-    : tabs;
-
-  return args.showAdvancedUI
-    ? tabsAfterDesignGate
-    : tabsAfterDesignGate.filter((tab) => !isAdvancedEditorTab(tab));
-}
-
-/**
- * Example prompts shown on the /new welcome view
- */
-const EXAMPLE_PROMPTS = [
-  { label: 'Research & summarize', prompt: 'Create a bot that searches the web for a topic, fetches the top 3 results, and summarizes them into a concise report' },
-  { label: 'Data pipeline', prompt: 'Build a bot that reads data from a database, analyzes it, and sends me a notification with insights' },
-  { label: 'Multi-bot workflow', prompt: 'Create a team of bots: one that monitors websites for changes and another that summarizes the changes into a daily digest' },
-  { label: 'Simple assistant', prompt: 'Create a helpful assistant that can search the web and answer questions' },
-];
-
-/**
- * Maximum length for BaleyBot names (Phase 5.1)
- */
-const MAX_NAME_LENGTH = 100;
-
-/**
- * Truncate a string to a maximum length
- */
-function truncateName(name: string, maxLength: number = MAX_NAME_LENGTH): string {
-  if (name.length <= maxLength) return name;
-  return name.slice(0, maxLength).trim();
-}
-
-function formatExecutionOutput(output: unknown): string {
-  if (output == null) return '';
-  if (typeof output === 'string') return output;
-  try {
-    return JSON.stringify(output, null, 2);
-  } catch {
-    return String(output);
-  }
-}
-
-function tryParseJson(value: string): unknown | null {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
-
-function formatFriendlyRuntimeValue(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (value == null) return 'null';
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function getPrimaryRuntimeResponse(output: unknown): string {
-  if (typeof output === 'string') {
-    return output;
-  }
-
-  if (output && typeof output === 'object' && !Array.isArray(output)) {
-    const record = output as Record<string, unknown>;
-    const preferredKeys = ['message', 'summary', 'result', 'output', 'text', 'content'];
-
-    for (const key of preferredKeys) {
-      const value = record[key];
-      if (typeof value === 'string' && value.trim().length > 0) {
-        return value;
-      }
-    }
-  }
-
-  return formatExecutionOutput(output);
-}
-
-interface DataSourceSummaryItem {
-  id: string;
-  label: string;
-  status: 'connected' | 'needs_setup';
-  usedBy: string[];
-  kind: 'data' | 'storage' | 'upload';
-}
-
-function formatSlugLabel(slug: string): string {
-  return slug
-    .split('_')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-function extractSidecarFromStructure(structure: unknown): BalGraphSidecarMetadata | undefined {
-  if (!structure || typeof structure !== 'object') return undefined;
-  const record = structure as Record<string, unknown>;
-  const sidecar = record.sidecar;
-  if (!sidecar || typeof sidecar !== 'object') return undefined;
-  return sidecar as BalGraphSidecarMetadata;
-}
-
-function buildDerivedGraphSidecar(args: {
-  entities: VisualEntity[];
-  connections: Array<{ id: string; type: string; name: string; status: string }> | undefined;
-  existingSidecar?: BalGraphSidecarMetadata;
-}): BalGraphSidecarMetadata | undefined {
-  const base = args.existingSidecar;
-  const datasourceBindings = [...(base?.datasourceBindings ?? [])];
-
-  const existingBindingKey = new Set(
-    datasourceBindings.map(
-      (binding) => `${binding.entity}:${binding.connectionId}:${binding.tool}`
-    )
-  );
-
-  for (const entity of args.entities) {
-    for (const tool of entity.tools) {
-      const parsed = parseConnectionTool(tool);
-      if (!parsed.connectionType || !parsed.connectionSlug) continue;
-
-      const matchingConnection = args.connections?.find(
-        (connection) =>
-          connection.type === parsed.connectionType &&
-          connectionNameToSlug(connection.name) === parsed.connectionSlug
-      );
-
-      const connectionId = matchingConnection?.id ?? `${parsed.connectionType}:${parsed.connectionSlug}`;
-      const key = `${entity.name}:${connectionId}:${tool}`;
-      if (existingBindingKey.has(key)) continue;
-      existingBindingKey.add(key);
-
-      datasourceBindings.push({
-        entity: entity.name,
-        connectionId,
-        tool,
-        mode: 'read',
-        connectionLabel: matchingConnection?.name ?? formatSlugLabel(parsed.connectionSlug),
-        connectionType: parsed.connectionType,
-      });
-    }
-  }
-
-  const storageParticipants = args.entities
-    .filter((entity) => entity.tools.includes('shared_storage'))
-    .map((entity) => entity.name);
-
-  const sharedStorageLinks = [...(base?.sharedStorageLinks ?? [])];
-  const existingSharedKey = new Set(
-    sharedStorageLinks.map((link) => `${link.producer}:${link.consumer}:${link.keyPattern ?? '*'}`)
-  );
-
-  for (const producer of storageParticipants) {
-    for (const consumer of storageParticipants) {
-      if (producer === consumer) continue;
-      const key = `${producer}:${consumer}:*`;
-      if (existingSharedKey.has(key)) continue;
-      existingSharedKey.add(key);
-      sharedStorageLinks.push({
-        producer,
-        consumer,
-        keyPattern: '*',
-        required: false,
-      });
-    }
-  }
-
-  const hasAny =
-    datasourceBindings.length > 0 ||
-    sharedStorageLinks.length > 0 ||
-    (base?.spawnBindings?.length ?? 0) > 0;
-
-  if (!hasAny) return undefined;
-
-  return {
-    ...base,
-    datasourceBindings,
-    sharedStorageLinks,
-  };
-}
-
-function buildDataSourceSummary(args: {
-  entities: VisualEntity[];
-  connections: Array<{ id: string; type: string; name: string; status: string }> | undefined;
-  triggerConfig: TriggerConfigType | undefined;
-  graphSidecar?: BalGraphSidecarMetadata;
-}): DataSourceSummaryItem[] {
-  const map = new Map<string, DataSourceSummaryItem>();
-
-  for (const entity of args.entities) {
-    for (const tool of entity.tools) {
-      const parsed = parseConnectionTool(tool);
-      if (!parsed.connectionType || !parsed.connectionSlug) continue;
-
-      const matchingConnection = args.connections?.find(
-        (connection) =>
-          connection.type === parsed.connectionType &&
-          connectionNameToSlug(connection.name) === parsed.connectionSlug
-      );
-
-      const id = matchingConnection?.id ?? `${parsed.connectionType}:${parsed.connectionSlug}`;
-      const status = matchingConnection?.status === 'connected' ? 'connected' : 'needs_setup';
-      const label = matchingConnection?.name ?? formatSlugLabel(parsed.connectionSlug);
-
-      const existing = map.get(id);
-      if (existing) {
-        if (!existing.usedBy.includes(entity.name)) existing.usedBy.push(entity.name);
-        existing.status = existing.status === 'connected' && status === 'connected' ? 'connected' : 'needs_setup';
-      } else {
-        map.set(id, {
-          id,
-          label,
-          status,
-          usedBy: [entity.name],
-          kind: 'data',
-        });
-      }
-    }
-  }
-
-  for (const binding of args.graphSidecar?.datasourceBindings ?? []) {
-    const matchingConnection = args.connections?.find(
-      (connection) => connection.id === binding.connectionId
-    );
-    const id = binding.connectionId || `${binding.entity}:${binding.tool}`;
-    const label =
-      matchingConnection?.name ??
-      binding.connectionLabel ??
-      (binding.connectionType
-        ? `${formatSlugLabel(binding.connectionType)} source`
-        : 'Data source');
-    const status = matchingConnection?.status === 'connected' ? 'connected' : 'needs_setup';
-    const existing = map.get(id);
-    if (existing) {
-      if (!existing.usedBy.includes(binding.entity)) existing.usedBy.push(binding.entity);
-      if (existing.status !== 'connected' || status !== 'connected') {
-        existing.status = 'needs_setup';
-      }
-    } else {
-      map.set(id, {
-        id,
-        label,
-        status,
-        usedBy: [binding.entity],
-        kind: 'data',
-      });
-    }
-  }
-
-  const sharedStorageParticipants = new Set<string>();
-  for (const entity of args.entities) {
-    if (entity.tools.includes('shared_storage')) {
-      sharedStorageParticipants.add(entity.name);
-    }
-  }
-  for (const link of args.graphSidecar?.sharedStorageLinks ?? []) {
-    sharedStorageParticipants.add(link.producer);
-    sharedStorageParticipants.add(link.consumer);
-  }
-  if (sharedStorageParticipants.size > 0) {
-    map.set('shared_storage', {
-      id: 'shared_storage',
-      label: 'Shared workspace storage',
-      status: 'connected',
-      usedBy: Array.from(sharedStorageParticipants),
-      kind: 'storage',
-    });
-  }
-
-  if (args.triggerConfig?.type === 'file_upload') {
-    map.set('file_upload', {
-      id: 'file_upload',
-      label: 'File uploads',
-      status: 'connected',
-      usedBy: ['Trigger'],
-      kind: 'upload',
-    });
-  }
-
-  return Array.from(map.values());
-}
 
 type CreatorStreamEvent =
   | {
       type: 'creator_stream_started';
+      executionId?: string;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_text_delta';
+      content?: string;
       timestamp?: number;
     }
   | {
       type: 'creator_progress';
       phase?: string;
       message?: string;
-      highlightType?: StreamingHighlightType;
-      toolName?: string;
       heartbeat?: boolean;
-      cycle?: number;
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_highlight';
-      phase?: string;
-      highlight?: string;
-      highlightType?: StreamingHighlightType;
-      toolName?: string;
-      cycle?: number;
       timestamp?: number;
     }
   | {
       type: 'creator_complete';
       result?: CreatorOutput;
       summary?: string;
-      planDelta?: CreatorPlanDelta;
-      actions?: CreatorGuidanceAction[];
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_plan_delta';
-      delta?: CreatorPlanDelta;
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_action_suggestions';
-      actions?: CreatorGuidanceAction[];
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_tool_activity';
-      activity?: {
-        name?: string;
-        status?: StreamingTool['status'];
-        message?: string;
-        timestamp?: number;
+      specialist?: {
+        connections: unknown | null;
+        tests: unknown | null;
+        deployment: unknown | null;
       };
       timestamp?: number;
     }
@@ -471,360 +132,13 @@ type CreatorStreamEvent =
       type: 'creator_error';
       message?: string;
       timestamp?: number;
+    }
+  | {
+      type: 'creator_agent_event';
+      event?: Record<string, unknown>;
+      entityName?: string;
+      timestamp?: number;
     };
-
-interface RuntimeExecutionResult {
-  status: string;
-  output?: unknown;
-  error?: string;
-  durationMs?: number;
-  executionId?: string;
-}
-
-type RuntimeStreamEvent = {
-  type: string;
-  toolName?: string;
-  content?: string;
-  error?: unknown;
-  status?: string;
-  output?: unknown;
-  durationMs?: number;
-  executionId?: string;
-  graphEvent?: GraphRuntimeEvent;
-};
-
-function getStreamEventErrorMessage(error: unknown): string {
-  if (typeof error === 'string' && error.trim().length > 0) {
-    return error;
-  }
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-  if (error && typeof error === 'object') {
-    const record = error as Record<string, unknown>;
-    const message = record.message;
-    if (typeof message === 'string' && message.trim().length > 0) {
-      return message;
-    }
-  }
-  return 'Streaming request failed.';
-}
-
-function formatRuntimeNodeName(value: string | undefined): string {
-  if (!value) return 'This step';
-  return value
-    .split(/[_:-]/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-function summarizeRuntimeIssue(error: string | undefined): string {
-  const lower = error?.toLowerCase() ?? '';
-  if (!lower) return 'Review the node details and rerun this test.';
-  if (lower.includes('provider') || lower.includes('api key')) {
-    return 'Connect an AI provider before running again.';
-  }
-  if (lower.includes('rate limit') || lower.includes('429')) {
-    return 'Wait a moment, then retry this run.';
-  }
-  if (lower.includes('timeout')) {
-    return 'Try a smaller input or simplify this step to avoid timeouts.';
-  }
-  if (lower.includes('json') || lower.includes('parse')) {
-    return 'Check input formatting for this step before rerunning.';
-  }
-  return 'Open this step and review its prompt, tools, and input data.';
-}
-
-function getRuntimeFailureGuidance(events: GraphRuntimeEvent[]): string | null {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (!event || event.type !== 'node_failed') continue;
-    const nodeLabel = formatRuntimeNodeName(
-      event.nodeId ?? event.entityName ?? event.toNodeId ?? event.toEntityName
-    );
-    if (event.hint && event.hint.trim().length > 0) {
-      return `${nodeLabel}: ${event.hint}`;
-    }
-    return `${nodeLabel}: ${summarizeRuntimeIssue(event.error)}`;
-  }
-  return null;
-}
-
-function appendGraphRuntimeEvent(
-  events: GraphRuntimeEvent[],
-  event: GraphRuntimeEvent,
-  maxEvents = 300
-): GraphRuntimeEvent[] {
-  const next = [...events, event];
-  return next.slice(-maxEvents);
-}
-
-function normalizeHighlightType(value: string | undefined): StreamingHighlightType {
-  if (value === 'thinking' || value === 'tool' || value === 'loop' || value === 'status') {
-    return value;
-  }
-  return 'status';
-}
-
-function appendStreamingHighlight(
-  highlights: StreamingProgressSnapshot['highlights'],
-  entry: Omit<StreamingProgressSnapshot['highlights'][number], 'id'>,
-  maxEntries = 5
-): StreamingProgressSnapshot['highlights'] {
-  const text = entry.text.trim();
-  if (!text) return highlights;
-
-  const normalized = text.toLowerCase();
-  const existing = highlights.find(
-    (item) =>
-      item.type === entry.type &&
-      item.toolName === entry.toolName &&
-      item.text.trim().toLowerCase() === normalized
-  );
-  if (existing) {
-    return highlights;
-  }
-
-  const next = [
-    ...highlights,
-    {
-      ...entry,
-      id: `${entry.type}-${entry.timestamp}-${Math.random().toString(36).slice(2, 8)}`,
-    },
-  ];
-  return next.slice(-maxEntries);
-}
-
-function upsertStreamingTool(
-  tools: StreamingTool[],
-  name: string,
-  status: StreamingTool['status']
-): StreamingTool[] {
-  const normalizedName = name.trim();
-  if (!normalizedName) return tools;
-
-  const now = Date.now();
-  const existingIndex = tools.findIndex(
-    (tool) => tool.name.toLowerCase() === normalizedName.toLowerCase()
-  );
-
-  if (existingIndex === -1) {
-    return [...tools, { name: normalizedName, status, updatedAt: now }];
-  }
-
-  const current = tools[existingIndex];
-  if (!current) return tools;
-
-  const next = [...tools];
-  next[existingIndex] = {
-    ...current,
-    status,
-    updatedAt: now,
-  };
-  return next;
-}
-
-function inferToolStatusFromMessage(
-  message: string,
-  fallback: StreamingTool['status'] = 'running'
-): StreamingTool['status'] {
-  const lower = message.toLowerCase();
-  if (lower.includes('failed') || lower.includes('error')) return 'error';
-  if (lower.includes('complete') || lower.includes('done') || lower.includes('success')) {
-    return 'success';
-  }
-  if (lower.includes('preparing') || lower.includes('queue')) return 'pending';
-  if (lower.includes('running') || lower.includes('execut')) return 'running';
-  return fallback;
-}
-
-function mapCreatorPhaseToCreationProgress(
-  phase: string | undefined
-): CreationProgress['phase'] {
-  if (!phase) return 'understanding';
-  if (phase === 'discovery') return 'understanding';
-  if (phase === 'orchestration') return 'designing';
-  if (phase === 'generation') return 'generating';
-  if (phase === 'recovery') return 'connecting';
-  if (phase === 'complete') return 'complete';
-  return 'understanding';
-}
-
-function buildProgressSummary(
-  tools: StreamingTool[],
-  highlights: StreamingProgressSnapshot['highlights'],
-  fallback: string
-): string {
-  if (tools.length > 0) {
-    const successful = tools.filter((tool) => tool.status === 'success');
-    const errored = tools.filter((tool) => tool.status === 'error');
-
-    if (successful.length > 0 && errored.length === 0) {
-      return `Completed using ${successful.length} tool${successful.length === 1 ? '' : 's'} (${successful
-        .slice(0, 3)
-        .map((tool) => tool.name)
-        .join(', ')}).`;
-    }
-    if (errored.length > 0) {
-      return `Finished with ${errored.length} tool issue${errored.length === 1 ? '' : 's'} (${errored
-        .slice(0, 2)
-        .map((tool) => tool.name)
-        .join(', ')}).`;
-    }
-  }
-
-  if (highlights.length > 0) {
-    const last = highlights[highlights.length - 1];
-    if (last?.text) return last.text;
-  }
-
-  return fallback;
-}
-
-function isSameReadiness(a: ReadinessState, b: ReadinessState): boolean {
-  return (
-    a.designed === b.designed &&
-    a.connected === b.connected &&
-    a.tested === b.tested &&
-    a.activated === b.activated &&
-    a.monitored === b.monitored
-  );
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function buildCreatorHistoryPayload(messages: CreatorMessage[]) {
-  return sanitizeCreatorConversationHistory(messages).map((message) => ({
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    timestamp: message.timestamp,
-    metadata: message.metadata as Record<string, unknown> | undefined,
-  }));
-}
-
-type CreatorLifecycleSummary = NonNullable<
-  NonNullable<CreatorMessage['metadata']>['creatorLifecycle']
->;
-
-interface DiscoveryQuestionSummary {
-  id: string;
-  label: string;
-  description: string;
-  requiredNow: boolean;
-}
-
-function getLatestCreatorLifecycle(messages: CreatorMessage[]): CreatorLifecycleSummary | null {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message?.role === 'assistant' && message.metadata?.creatorLifecycle) {
-      return message.metadata.creatorLifecycle;
-    }
-  }
-  return null;
-}
-
-function getDiscoveryQuestionsFromLifecycle(
-  lifecycle: CreatorLifecycleSummary | null
-): DiscoveryQuestionSummary[] {
-  if (!lifecycle || lifecycle.stage !== 'discovery') return [];
-
-  const questions: DiscoveryQuestionSummary[] = [];
-  const seen = new Set<string>();
-  const append = (
-    entries:
-      | Array<{
-          id: string;
-          label: string;
-          description: string;
-          requiredNow?: boolean;
-        }>
-      | undefined,
-    requiredNowFallback: boolean
-  ) => {
-    if (!entries) return;
-    for (const entry of entries) {
-      const key = `${entry.id}::${entry.label}`.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      questions.push({
-        id: entry.id,
-        label: entry.label,
-        description: entry.description,
-        requiredNow: entry.requiredNow ?? requiredNowFallback,
-      });
-    }
-  };
-
-  append(lifecycle.requiredQuestions, true);
-  append(lifecycle.optionalQuestions, false);
-  return questions;
-}
-
-function getLatestDiscoveryAssistantMessage(
-  messages: CreatorMessage[]
-): CreatorMessage | null {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message?.role !== 'assistant') continue;
-    if (message.metadata?.creatorLifecycle?.stage === 'discovery') {
-      return message;
-    }
-  }
-  return null;
-}
-
-function normalizeDiscoveryLabel(label: string): string {
-  return label.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function compactDiscoveryText(value: string, max = 110): string {
-  const compact = value.replace(/\s+/g, ' ').trim();
-  if (compact.length <= max) return compact;
-  return `${compact.slice(0, max - 1).trimEnd()}...`;
-}
-
-function formatStreamingPhaseLabel(phase: string | undefined): string {
-  if (!phase) return 'Working';
-  const normalized = phase.replace(/[_-]+/g, ' ').trim();
-  if (!normalized) return 'Working';
-  return normalized
-    .split(' ')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-function buildDiscoveryQuickPrompts(
-  questions: DiscoveryQuestionSummary[]
-): ChatQuickPrompt[] {
-  if (questions.length === 0) return [];
-  const nextQuestion =
-    questions.find((question) => question.requiredNow) ?? questions[0];
-  if (!nextQuestion) return [];
-  return [
-    {
-      id: `discovery-next-${nextQuestion.id}`,
-      label: `Answer: ${nextQuestion.label}`,
-      prompt: `${nextQuestion.label}: `,
-      mode: 'insert',
-    },
-  ];
-}
-
-function buildGuidanceQuickPrompts(
-  actions: CreatorGuidanceAction[]
-): ChatQuickPrompt[] {
-  return actions.slice(0, 3).map((action, index) => ({
-    id: `guidance-${index}-${action.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-    label: action.label,
-    prompt: action.prompt,
-    mode: action.mode ?? 'send',
-  }));
-}
 
 /**
  * State snapshot for undo/redo history
@@ -835,13 +149,6 @@ interface HistoryState {
   balCode: string;
   name: string;
   icon: string;
-}
-
-interface RuntimeConversationMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
 }
 
 /**
@@ -867,188 +174,71 @@ export default function BaleybotPage() {
   // STATE
   // =====================================================================
 
-  // Creation state
-  const [status, setStatus] = useState<CreationStatus>(isNew ? 'empty' : 'building');
+  const { toast } = useToast();
+
+  // -- Core Design --
   const [entities, setEntities] = useState<VisualEntity[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [balCode, setBalCode] = useState<string>('');
   const [name, setName] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [icon, setIcon] = useState<string>('');
+
+  // -- Conversation --
   const [messages, setMessages] = useState<CreatorMessage[]>([]);
+  const [streamingText, setStreamingText] = useState('');
+  const streamingTextRef = useRef('');
+  const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [agentEvents, setAgentEvents] = useState<Array<{ event: Record<string, unknown>; entityName?: string; timestamp: number }>>([]);
+  const [, setCreationProgress] = useState<CreationProgress | null>(null);
+  const [creatorStreamingProgress, setCreatorStreamingProgress] =
+    useState<{ phase: string; message: string; startedAt: number } | null>(null);
+  const [creatorGuidanceActions, setCreatorGuidanceActions] = useState<CreatorGuidanceAction[]>([]);
+  const isStreamingRef = useRef(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const isSendingRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const initialPromptSentRef = useRef(false);
+
+  // -- Persistence --
   const [savedBaleybotId, setSavedBaleybotId] = useState<string | null>(isNew ? null : id);
-
-  // Run state
-  const [isRunLocked, setIsRunLocked] = useState(false);
-
-  // UI state
   const [isSaving, setIsSaving] = useState(false);
-  const [isEditingDescription, setIsEditingDescription] = useState(false);
-  const [showFullDescription, setShowFullDescription] = useState(false);
-
-  // View mode state (adaptive based on readiness)
-  const [viewMode, setViewMode] = useState<AdaptiveTab>('visual');
-  const [builderMode, setBuilderMode] = useState<BuilderPresentationMode>('simple');
-  const showAdvancedUI = builderMode === 'advanced';
-  const [isDesignConfirmed, setIsDesignConfirmed] = useState(!isNew);
-  const [triggerSetupStep, setTriggerSetupStep] = useState<TriggerSetupStep>('start');
-
-  // Runtime/live interaction state
-  const [runtimeInput, setRuntimeInput] = useState('');
-  const [runtimeInputMode, setRuntimeInputMode] = useState<'message' | 'structured'>('message');
-  const [runtimeOutput, setRuntimeOutput] = useState<string>('');
-  const [runtimeError, setRuntimeError] = useState<string | null>(null);
-  const [runtimeDurationMs, setRuntimeDurationMs] = useState<number | null>(null);
-  const [showRuntimeRawOutput, setShowRuntimeRawOutput] = useState(false);
-  const [showRuntimeDiagnostics, setShowRuntimeDiagnostics] = useState(false);
-  const [runtimeConversation, setRuntimeConversation] = useState<RuntimeConversationMessage[]>([]);
-  const [runtimeStreamingProgress, setRuntimeStreamingProgress] =
-    useState<StreamingProgressSnapshot | null>(null);
-  const [runtimeLastProgressSummary, setRuntimeLastProgressSummary] = useState<string | null>(null);
-  const [runtimeGraphEvents, setRuntimeGraphEvents] = useState<GraphRuntimeEvent[]>([]);
-
-  // Mobile view toggle (chat vs editor)
-  type MobileView = 'editor' | 'chat';
-  const [mobileView, setMobileView] = useState<MobileView>('editor');
-
-  // Trigger config state
-  const [triggerConfig, setTriggerConfig] = useState<TriggerConfigType | undefined>(undefined);
-
-  // Readiness state
-  const [readiness, setReadiness] = useState(createInitialReadiness());
-  // Seed initial readiness for new sessions so first completion can trigger guidance.
-  const prevReadinessRef = useRef<ReadinessState | null>(isNew ? createInitialReadiness() : null);
-
-  // Save conflict state (Phase 5.4)
   const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [isResolvingConflict, setIsResolvingConflict] = useState(false);
 
-  // Real-time creation progress (replaces fake phase cycling)
-  const [creationProgress, setCreationProgress] = useState<CreationProgress | null>(null);
-  const [creatorStreamingProgress, setCreatorStreamingProgress] =
-    useState<StreamingProgressSnapshot | null>(null);
-  const [creatorPlanDelta, setCreatorPlanDelta] = useState<CreatorPlanDelta | null>(null);
-  const [creatorGuidanceActions, setCreatorGuidanceActions] = useState<CreatorGuidanceAction[]>([]);
+  // -- Navigation --
+  const [viewMode, setViewMode] = useState<AdaptiveTab>('visual');
+  const [builderMode, setBuilderMode] = useState<BuilderPresentationMode>('simple');
+  const showAdvancedUI = builderMode === 'advanced';
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [showFullDescription, setShowFullDescription] = useState(false);
+  type MobileView = 'editor' | 'chat';
+  const [mobileView, setMobileView] = useState<MobileView>('editor');
+  const [runtimeGraphEvents, setRuntimeGraphEvents] = useState<GraphRuntimeEvent[]>([]);
 
-  // Ref to track if initial prompt was sent (avoids effect dependency issues)
-  const initialPromptSentRef = useRef(false);
+  // -- Launch --
+  const [triggerConfig, setTriggerConfig] = useState<TriggerConfigType | undefined>(undefined);
+  const [triggerSetupStep, setTriggerSetupStep] = useState<TriggerSetupStep>('start');
+
+  // -- Readiness --
+  const validationStatus: ValidationStatus = 'idle'; // Validation now handled by specialist team
+  const [readiness, setReadiness] = useState(createInitialReadiness());
+  const prevReadinessRef = useRef<ReadinessState | null>(isNew ? createInitialReadiness() : null);
+  const [specialistSignals, setSpecialistSignals] = useState<SpecialistSignals>({});
+  const [isDesignConfirmed, setIsDesignConfirmed] = useState(!isNew);
   const designGateReminderShownRef = useRef(false);
-  const latestCreatorLifecycle = useMemo(
-    () => getLatestCreatorLifecycle(messages),
-    [messages]
-  );
-  const latestDiscoveryQuestions = useMemo(
-    () => getDiscoveryQuestionsFromLifecycle(latestCreatorLifecycle),
-    [latestCreatorLifecycle]
-  );
-  const historicalRequiredDiscoveryMax = useMemo(() => {
-    let max = 0;
-    for (const message of messages) {
-      if (message.role !== 'assistant') continue;
-      const lifecycle = message.metadata?.creatorLifecycle;
-      if (!lifecycle || lifecycle.stage !== 'discovery') continue;
-      const count = lifecycle.requiredQuestions?.length ?? 0;
-      if (count > max) max = count;
-    }
-    return max;
-  }, [messages]);
-  const requiredDiscoveryQuestionCount = latestDiscoveryQuestions.filter((question) => question.requiredNow).length;
-  const resolvedRequiredDiscoveryQuestionCount = Math.max(
-    0,
-    historicalRequiredDiscoveryMax - requiredDiscoveryQuestionCount
-  );
-  const ideationProgress = historicalRequiredDiscoveryMax > 0
-    ? resolvedRequiredDiscoveryQuestionCount / historicalRequiredDiscoveryMax
-    : requiredDiscoveryQuestionCount === 0
-      ? 1
-      : 0;
-  const nextDiscoveryQuestion =
-    creatorPlanDelta?.nextQuestion ??
-    latestDiscoveryQuestions.find((question) => question.requiredNow) ??
-    latestDiscoveryQuestions.find((question) => !question.requiredNow);
-  const isDiscoveryWorkspaceActive =
-    isNew &&
-    viewMode === 'visual' &&
-    entities.length === 0 &&
-    !balCode.trim() &&
-    messages.length > 0 &&
-    (
-      latestCreatorLifecycle?.stage === 'discovery' ||
-      status === 'building' ||
-      requiredDiscoveryQuestionCount > 0
-    );
-  const leftPanelWidthClass = isDiscoveryWorkspaceActive
-    ? 'md:w-1/2 lg:w-1/2 xl:w-1/2'
-    : 'md:w-[380px] lg:w-[420px] xl:w-[460px]';
-  const ideationPercent = Math.max(0, Math.min(100, Math.round(ideationProgress * 100)));
-  const latestDiscoveryAssistantMessage = useMemo(
-    () => getLatestDiscoveryAssistantMessage(messages),
-    [messages]
-  );
-  const latestDiscoverySummary = latestDiscoveryAssistantMessage?.metadata?.streamSummary?.trim();
-  const unresolvedDiscoveryLabels = useMemo(
-    () => {
-      const openDecisions = creatorPlanDelta?.openDecisions ?? [];
-      if (openDecisions.length > 0) {
-        return openDecisions.map((question) => question.label);
-      }
-      return latestDiscoveryQuestions
-        .filter((question) => question.requiredNow)
-        .map((question) => question.label);
-    },
-    [creatorPlanDelta, latestDiscoveryQuestions]
-  );
-  const resolvedDiscoveryLabels = useMemo(() => {
-    const resolvedDecisions = creatorPlanDelta?.resolvedDecisions ?? [];
-    if (resolvedDecisions.length > 0) {
-      return resolvedDecisions.map((question) => question.label);
-    }
-    const askedRequired = new Map<string, string>();
-    for (const message of messages) {
-      if (message.role !== 'assistant') continue;
-      const lifecycle = message.metadata?.creatorLifecycle;
-      if (!lifecycle || lifecycle.stage !== 'discovery') continue;
-      for (const question of lifecycle.requiredQuestions ?? []) {
-        const normalized = normalizeDiscoveryLabel(question.label);
-        if (!askedRequired.has(normalized)) {
-          askedRequired.set(normalized, question.label);
-        }
-      }
-    }
 
-    const unresolved = new Set(unresolvedDiscoveryLabels.map((label) => normalizeDiscoveryLabel(label)));
-    return [...askedRequired.entries()]
-      .filter(([normalized]) => !unresolved.has(normalized))
-      .map(([, label]) => label);
-  }, [creatorPlanDelta, messages, unresolvedDiscoveryLabels]);
-  const discoveryAssumptionNotes = useMemo(
-    () =>
-      (latestCreatorLifecycle?.assumptions ?? []).map(
-        (assumption) => `${assumption.label}: ${compactDiscoveryText(assumption.value, 80)}`
-      ),
-    [latestCreatorLifecycle]
-  );
-  const discoveryLiveHighlights = useMemo(
-    () => creatorStreamingProgress?.highlights.slice(-4).reverse() ?? [],
-    [creatorStreamingProgress]
-  );
-  const discoveryBoardHeading = nextDiscoveryQuestion
-    ? `Working through ${nextDiscoveryQuestion.label}`
-    : requiredDiscoveryQuestionCount > 0
-      ? 'Shaping the first draft'
-      : status === 'building'
-        ? 'Generating your first draft'
-        : 'Discovery complete';
-  const discoveryBoardSubheading =
-    creatorPlanDelta?.summary ||
-    creatorStreamingProgress?.message ||
-    latestCreatorLifecycle?.whatIDid ||
-    latestDiscoverySummary ||
-    'Share details naturally. The creator will ask only what it still needs.';
-  const discoveryContextChips = [
-    ...resolvedDiscoveryLabels.map((label) => `Resolved: ${label}`),
-    ...discoveryAssumptionNotes.map((item) => `Assumption: ${item}`),
-  ].slice(0, 6);
+  // Cleanup throttle timer on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (throttleRef.current) {
+        clearTimeout(throttleRef.current);
+        throttleRef.current = null;
+      }
+    };
+  }, []);
+  const leftPanelWidthClass = 'md:w-[380px] lg:w-[420px] xl:w-[460px]';
 
   // =====================================================================
   // UNDO/REDO HISTORY (Phase 3.5)
@@ -1090,6 +280,20 @@ export default function BaleybotPage() {
   const { isOffline, isReconnecting } = useNetworkStatus();
 
   // =====================================================================
+  // DERIVED STATE (replaces status state machine)
+  // =====================================================================
+
+  const hasContent = entities.length > 0 || balCode.length > 0;
+  const canSave = hasContent && !!balCode && !!name && !isSaving && !isStreaming;
+  const isInputDisabled = isStreaming || isSaving;
+
+  // Backward-compatible derived status for component props and query inputs
+  const status: CreationStatus = isStreaming ? 'building'
+    : lastError ? 'error'
+    : (hasContent || messages.length > 0) ? 'ready'
+    : 'empty';
+
+  // =====================================================================
   // DIRTY STATE TRACKING (Phase 1.1)
   // =====================================================================
 
@@ -1125,7 +329,7 @@ export default function BaleybotPage() {
 
   // Fetch available BBs for trigger config source selector
   const { data: availableBaleybots } = trpc.baleybots.list.useQuery(undefined, {
-    enabled: viewMode === 'triggers',
+    enabled: viewMode === 'launch',
   });
 
   // Fetch workspace connections (for connections panel AND readiness computation)
@@ -1134,18 +338,12 @@ export default function BaleybotPage() {
   );
 
   // Fetch per-bot analytics (for readiness computation and Monitor tab)
-  const { data: analyticsData, isLoading: isLoadingAnalytics } = trpc.analytics.getBaleybotAnalytics.useQuery(
+  const { data: analyticsData } = trpc.analytics.getBaleybotAnalytics.useQuery(
     { baleybotId: savedBaleybotId! },
     { enabled: !!savedBaleybotId },
   );
 
-  // Fetch workspace-level overview (for Analytics tab — workspace aggregate view)
-  // Use isFetching instead of isLoading to avoid stuck loading state when query transitions from disabled to enabled
-  const { data: dashboardOverview, isFetching: isFetchingOverview } = trpc.analytics.getDashboardOverview.useQuery(
-    { days: 30 },
-    { enabled: viewMode === 'analytics' },
-  );
-  const isLoadingOverview = isFetchingOverview && !dashboardOverview;
+  // Workspace-level overview query removed (analytics tab removed)
 
   // Fetch trigger config from baleybotTriggers table
   const { data: savedTriggerConfig } = trpc.baleybots.getTriggerConfig.useQuery(
@@ -1163,31 +361,6 @@ export default function BaleybotPage() {
     { enabled: !!savedBaleybotId && viewMode === 'launch' },
   );
 
-  const {
-    data: runtimeInterfaceData,
-    isFetching: isFetchingRuntimeInterface,
-  } = trpc.baleybots.getRuntimeInterface.useQuery(
-    { baleybotId: savedBaleybotId! },
-    {
-      enabled:
-        !!savedBaleybotId &&
-        (viewMode === 'runtime' || existingBaleybot?.lifecycleStage === 'live' || existingBaleybot?.lifecycleStage === 'paused'),
-    },
-  );
-
-  useEffect(() => {
-    const runtimeMode =
-      (runtimeInterfaceData as RuntimeInterfaceSpec | null | undefined)?.mode ??
-      ((existingBaleybot?.runtimeInterfaceSpec as RuntimeInterfaceSpec | null | undefined)?.mode);
-    if (runtimeMode === 'form' && runtimeInputMode !== 'structured') {
-      setRuntimeInputMode('structured');
-      return;
-    }
-    if (runtimeMode === 'chat' && runtimeInputMode !== 'message') {
-      setRuntimeInputMode('message');
-    }
-  }, [runtimeInterfaceData, existingBaleybot?.runtimeInterfaceSpec, runtimeInputMode]);
-
   // Load trigger config when query completes
   useEffect(() => {
     if (savedTriggerConfig && !triggerConfig) {
@@ -1198,9 +371,7 @@ export default function BaleybotPage() {
   // Mutations
   const creatorMutation = trpc.baleybots.sendCreatorMessage.useMutation();
   const saveMutation = trpc.baleybots.saveFromSession.useMutation();
-  const executeMutation = trpc.baleybots.execute.useMutation();
   const generateLaunchKitMutation = trpc.baleybots.generateLaunchKit.useMutation();
-  const approveLaunchPlanMutation = trpc.baleybots.approveLaunchPlan.useMutation();
   const promoteToLiveMutation = trpc.baleybots.promoteToLive.useMutation();
   const pauseLiveBotMutation = trpc.baleybots.pauseLiveBot.useMutation();
 
@@ -1240,48 +411,36 @@ export default function BaleybotPage() {
       }),
     [entities, normalizedConnections, savedStructureSidecar]
   );
-  const dataSourceSummary = useMemo(
-    () =>
-      buildDataSourceSummary({
-        entities,
-        connections: normalizedConnections,
-        triggerConfig,
-        graphSidecar,
-      }),
-    [entities, normalizedConnections, triggerConfig, graphSidecar]
-  );
-  const runtimeFailureGuidance = useMemo(
-    () => getRuntimeFailureGuidance(runtimeGraphEvents),
-    [runtimeGraphEvents]
-  );
   const creatorGuidanceInput = useMemo(
     () => ({
       status,
-      messages: messages.slice(-30).map((message) => {
-        const metadata: Record<string, unknown> = {};
-        if (message.metadata?.creatorLifecycle) {
-          metadata.creatorLifecycle = message.metadata.creatorLifecycle;
-        }
-        if (message.metadata?.diagnostic) {
-          metadata.diagnostic = message.metadata.diagnostic;
-        }
-        if (message.metadata?.streamSummary) {
-          metadata.streamSummary = message.metadata.streamSummary;
-        }
-        return {
-          role: message.role,
-          content: message.content.slice(0, 4000),
-          metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-        };
-      }),
+      messages: messages
+        .filter((m) => m.role !== 'system')
+        .slice(-30)
+        .map((message) => {
+          const metadata: Record<string, unknown> = {};
+          if (message.metadata?.creatorLifecycle) {
+            metadata.creatorLifecycle = message.metadata.creatorLifecycle;
+          }
+          if (message.metadata?.diagnostic) {
+            metadata.diagnostic = message.metadata.diagnostic;
+          }
+          if (message.metadata?.streamSummary) {
+            metadata.streamSummary = message.metadata.streamSummary;
+          }
+          return {
+            role: message.role as 'user' | 'assistant',
+            content: message.content.slice(0, 4000),
+            metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+          };
+        }),
     }),
     [messages, status]
   );
   const {
     data: creatorGuidanceData,
-    isFetching: isCreatorGuidanceFetching,
   } = trpc.baleybots.getCreatorGuidance.useQuery(creatorGuidanceInput, {
-    enabled: messages.length > 0 && status !== 'running' && status !== 'building',
+    enabled: messages.length > 0 && status !== 'building',
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: false,
@@ -1289,23 +448,19 @@ export default function BaleybotPage() {
 
   useEffect(() => {
     if (!creatorGuidanceData?.actions) return;
-    if (status === 'building') return;
+    if (isStreaming) return;
     setCreatorGuidanceActions(creatorGuidanceData.actions);
-  }, [creatorGuidanceData, status]);
+  }, [creatorGuidanceData, isStreaming]);
 
-  const discoveryPending = latestCreatorLifecycle?.stage === 'discovery' || requiredDiscoveryQuestionCount > 0;
-  const quickPrompts = useMemo(() => {
-    if (discoveryPending) {
-      return buildDiscoveryQuickPrompts(latestDiscoveryQuestions);
-    }
-    return buildGuidanceQuickPrompts(creatorGuidanceActions);
-  }, [discoveryPending, latestDiscoveryQuestions, creatorGuidanceActions]);
+  const quickPrompts = useMemo(
+    () => buildGuidanceQuickPrompts(creatorGuidanceActions),
+    [creatorGuidanceActions]
+  );
 
   const quickPromptContextLabel = useMemo(() => {
-    if (discoveryPending) return 'Helpful starters';
     if (quickPrompts.length > 0) return 'Suggested next action';
     return undefined;
-  }, [discoveryPending, quickPrompts.length]);
+  }, [quickPrompts.length]);
 
   // =====================================================================
   // TEST EXECUTION HOOK
@@ -1320,38 +475,16 @@ export default function BaleybotPage() {
   const requiresDesignReviewForTab = (tab: AdaptiveTab) =>
     isDesignReviewRequired && POST_DESIGN_TABS.includes(tab);
 
-  const promptDesignReview = () => {
-    if (designGateReminderShownRef.current) return;
-    designGateReminderShownRef.current = true;
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `msg-${Date.now()}-design-gate`,
-        role: 'assistant',
-        content:
-          'Before setup, review the Visual layout and confirm it looks right. Then continue to connections or testing.',
-        timestamp: new Date(),
-        metadata: {
-          options: [
-            {
-              id: 'confirm-design',
-              label: 'Confirm Design',
-              description: 'Lock this design and continue to setup',
-              icon: '✅',
-            },
-          ],
-        },
-      },
-    ]);
-  };
-
   const navigateToTab = (tab: AdaptiveTab, options?: { bypassDesignGate?: boolean }) => {
     if (!options?.bypassDesignGate && requiresDesignReviewForTab(tab)) {
-      setViewMode('visual');
-      setMobileView('editor');
-      promptDesignReview();
-      return false;
+      // Soft reminder via toast — don't block navigation
+      if (!designGateReminderShownRef.current) {
+        designGateReminderShownRef.current = true;
+        toast({
+          title: 'Review your design',
+          description: 'Consider confirming the visual layout before proceeding to setup.',
+        });
+      }
     }
 
     setViewMode(tab);
@@ -1362,19 +495,6 @@ export default function BaleybotPage() {
   const {
     testCases,
     setTestCases,
-    isGeneratingTests,
-    isRunningAll,
-    isSelfHealing,
-    runAllProgress,
-    lastRunSummary,
-    handleGenerateTests,
-    handleRunTest,
-    handleRunAllTests,
-    handleRunAllWithSelfHealing,
-    handleAddTest,
-    handleUpdateTest,
-    handleDeleteTest,
-    handleAcceptActual,
   } = useTestExecution({
     savedBaleybotId,
     balCode,
@@ -1401,23 +521,24 @@ export default function BaleybotPage() {
   }): Promise<{
     result: CreatorOutput;
     summary?: string;
-    planDelta?: CreatorPlanDelta;
-    actions?: CreatorGuidanceAction[];
   }> => {
     const startedAt = Date.now();
     let finalResult: CreatorOutput | null = null;
     let finalSummary: string | undefined;
-    let finalPlanDelta: CreatorPlanDelta | undefined;
-    let finalActions: CreatorGuidanceAction[] | undefined;
-    let latestTools: StreamingTool[] = [];
-    let latestHighlights: StreamingProgressSnapshot['highlights'] = [];
+    // Creator streaming progress is tracked via setCreatorStreamingProgress state
 
     setCreatorGuidanceActions([]);
+    setAgentEvents([]);
+    // Clear any stale throttle timer from a previous turn before resetting refs
+    if (throttleRef.current) {
+      clearTimeout(throttleRef.current);
+      throttleRef.current = null;
+    }
+    streamingTextRef.current = '';
+    setStreamingText('');
     setCreatorStreamingProgress({
       phase: 'discovery',
       message: 'Starting creator workflow...',
-      highlights: [],
-      tools: [],
       startedAt,
     });
 
@@ -1429,6 +550,7 @@ export default function BaleybotPage() {
         conversationHistory: args.conversationHistory,
       },
       onEvent: (event) => {
+        try {
         if (event.type === 'creator_stream_started') {
           setCreatorStreamingProgress((previous) =>
             previous
@@ -1442,88 +564,50 @@ export default function BaleybotPage() {
           return;
         }
 
-        if (event.type === 'creator_progress') {
-          const phase = event.phase ?? 'orchestration';
-          const progressMessage = event.message?.trim() || 'Continuing creator workflow...';
-          setCreationProgress({
-            phase: mapCreatorPhaseToCreationProgress(phase),
-            message: progressMessage,
-          });
-
-          setCreatorStreamingProgress((previous) => {
-            const base: StreamingProgressSnapshot =
-              previous ?? {
-                phase,
-                message: progressMessage,
-                highlights: [],
-                tools: [],
-                startedAt,
-              };
-
-            let nextTools = base.tools;
-            if (event.toolName) {
-              nextTools = upsertStreamingTool(
-                nextTools,
-                event.toolName,
-                inferToolStatusFromMessage(progressMessage)
-              );
-            }
-
-            const next: StreamingProgressSnapshot = {
-              ...base,
-              phase,
-              message: progressMessage,
-              tools: nextTools,
-            };
-            latestTools = next.tools;
-            latestHighlights = next.highlights;
-            return next;
-          });
+        // Agent activity events (for expandable activity panel)
+        if (event.type === 'creator_agent_event') {
+          if (event.event) {
+            setAgentEvents((prev) => [
+              ...prev,
+              {
+                event: event.event as Record<string, unknown>,
+                entityName: event.entityName,
+                timestamp: event.timestamp ?? Date.now(),
+              },
+            ]);
+          }
           return;
         }
 
-        if (event.type === 'creator_highlight') {
-          const text = event.highlight?.trim();
-          if (!text) return;
-          const phase = event.phase ?? 'orchestration';
-          const highlightType = normalizeHighlightType(event.highlightType);
-          const timestamp = event.timestamp ?? Date.now();
+        // Show streaming text in chat (creator_bot is conversational now)
+        if (event.type === 'creator_text_delta') {
+          const content = event.content ?? '';
+          if (content) {
+            streamingTextRef.current += content;
+            // Throttle state updates to ~5fps (200ms)
+            if (!throttleRef.current) {
+              throttleRef.current = setTimeout(() => {
+                setStreamingText(streamingTextRef.current);
+                throttleRef.current = null;
+              }, 200);
+            }
+          }
+          return;
+        }
 
-          setCreatorStreamingProgress((previous) => {
-            const base: StreamingProgressSnapshot =
-              previous ?? {
-                phase,
-                message: 'Working...',
-                highlights: [],
-                tools: [],
-                startedAt,
-              };
-
-            const nextTools = event.toolName
-              ? upsertStreamingTool(
-                  base.tools,
-                  event.toolName,
-                  highlightType === 'tool' ? 'running' : 'pending'
-                )
-              : base.tools;
-
-            const nextHighlights = appendStreamingHighlight(base.highlights, {
-              text,
-              type: highlightType,
-              toolName: event.toolName,
-              timestamp,
-            });
-
-            const next: StreamingProgressSnapshot = {
-              ...base,
-              phase,
-              highlights: nextHighlights,
-              tools: nextTools,
-            };
-            latestTools = next.tools;
-            latestHighlights = next.highlights;
-            return next;
+        if (event.type === 'creator_progress') {
+          const phase = event.phase ?? 'building';
+          const progressMessage = event.message?.trim() || 'Building...';
+          setCreationProgress({
+            phase: 'generating',
+            message: progressMessage,
           });
+
+          setCreatorStreamingProgress((previous) => ({
+            phase,
+            message: progressMessage,
+            startedAt: previous?.startedAt ?? startedAt,
+          }));
           return;
         }
 
@@ -1531,21 +615,20 @@ export default function BaleybotPage() {
           if (event.result) {
             finalResult = event.result;
           }
-          finalPlanDelta = event.planDelta;
-          finalActions = event.actions;
-          if (event.planDelta) {
-            setCreatorPlanDelta(event.planDelta);
-          }
-          if (event.actions) {
-            setCreatorGuidanceActions(event.actions);
-          }
           finalSummary =
             event.summary?.trim() ||
-            buildProgressSummary(
-              latestTools,
-              latestHighlights,
-              'Creator completed the response.'
-            );
+            'Creator completed the response.';
+
+          // Capture specialist findings for readiness enrichment
+          if (event.specialist) {
+            setSpecialistSignals((prev) => ({
+              ...prev,
+              connectionAdvisorRan: prev.connectionAdvisorRan || event.specialist!.connections != null,
+              testOrchestratorRan: prev.testOrchestratorRan || event.specialist!.tests != null,
+              deploymentAdvisorRan: prev.deploymentAdvisorRan || event.specialist!.deployment != null,
+            }));
+          }
+
           setCreationProgress({ phase: 'complete', message: 'Ready!' });
           setCreatorStreamingProgress((previous) =>
             previous
@@ -1559,91 +642,61 @@ export default function BaleybotPage() {
           return;
         }
 
-        if (event.type === 'creator_plan_delta') {
-          const delta = event.delta;
-          if (delta) {
-            finalPlanDelta = delta;
-            setCreatorPlanDelta(delta);
-            if (delta.summary) {
-              setCreatorStreamingProgress((previous) => {
-                const base: StreamingProgressSnapshot =
-                  previous ?? {
-                    phase: 'discovery',
-                    message: 'Updating plan...',
-                    highlights: [],
-                    tools: [],
-                    startedAt,
-                  };
-                const nextHighlights = appendStreamingHighlight(base.highlights, {
-                  text: delta.summary,
-                  type: 'status',
-                  timestamp: event.timestamp ?? Date.now(),
-                });
-                const next: StreamingProgressSnapshot = {
-                  ...base,
-                  highlights: nextHighlights,
-                  message: delta.summary,
-                };
-                latestTools = next.tools;
-                latestHighlights = next.highlights;
-                return next;
-              });
-            }
-          }
-          return;
-        }
-
-        if (event.type === 'creator_action_suggestions') {
-          if (event.actions) {
-            setCreatorGuidanceActions(event.actions);
-            finalActions = event.actions;
-          }
-          return;
-        }
-
-        if (event.type === 'creator_tool_activity') {
-          const activity = event.activity;
-          const toolName = activity?.name?.trim();
-          if (!toolName) return;
-          setCreatorStreamingProgress((previous) => {
-            const base: StreamingProgressSnapshot =
-              previous ?? {
-                phase: 'orchestration',
-                message: 'Updating progress...',
-                highlights: [],
-                tools: [],
-                startedAt,
-              };
-            const next: StreamingProgressSnapshot = {
-              ...base,
-              tools: upsertStreamingTool(
-                base.tools,
-                toolName,
-                activity?.status ?? 'running'
-              ),
-            };
-            latestTools = next.tools;
-            latestHighlights = next.highlights;
-            return next;
-          });
-          return;
-        }
-
         if (event.type === 'creator_error') {
           throw new Error(event.message || 'Creator stream failed');
+        }
+        } catch (eventError) {
+          // Don't let a single malformed event kill the entire stream
+          if (event.type === 'creator_error') throw eventError;
+          console.warn('Error processing creator stream event:', event.type, eventError);
         }
       },
     });
 
+    // Flush any remaining streaming text — clear timer first to prevent stale writes
+    if (throttleRef.current) {
+      clearTimeout(throttleRef.current);
+      throttleRef.current = null;
+    }
+
+    // If the concierge streamed text but no structured result (conversation-only turn),
+    // build a synthetic building response from the streamed text
+    const finalStreamedText = streamingTextRef.current.trim();
+    if (!finalResult && finalStreamedText) {
+      finalResult = {
+        status: 'building' as const,
+        message: finalStreamedText,
+        entities: [],
+        connections: [],
+        balCode: '',
+        name: 'Unnamed BaleyBot',
+        description: '',
+        icon: '🤖',
+      };
+    }
+
+    // Reset streaming state atomically — ref first, then UI state
+    streamingTextRef.current = '';
+    setStreamingText('');
+
     if (!finalResult) {
-      throw new Error('Creator stream completed without a final result.');
+      // Stream completed but produced neither a creator_complete event nor streamed text.
+      // Pass empty message so applyCreatorResult surfaces a system notice.
+      finalResult = {
+        status: 'building' as const,
+        message: '',
+        entities: [],
+        connections: [],
+        balCode: '',
+        name: 'Unnamed BaleyBot',
+        description: '',
+        icon: '🤖',
+      };
     }
 
     return {
       result: finalResult,
       summary: finalSummary,
-      planDelta: finalPlanDelta,
-      actions: finalActions,
     };
   };
 
@@ -1654,150 +707,52 @@ export default function BaleybotPage() {
       prevConnections: Connection[];
       prevName: string;
       streamSummary?: string;
-      planDelta?: CreatorPlanDelta;
-      actions?: CreatorGuidanceAction[];
     }
   ) => {
-    const { prevEntities, prevConnections, prevName, streamSummary, planDelta, actions } = args;
+    const { prevEntities, prevConnections, prevName, streamSummary } = args;
 
     if (result.status === 'building') {
-      const lifecycleBlockMode =
-        result.blockMode ??
-        ((result.questions ?? []).some((question) => question.requiredNow !== false)
-          ? 'hard'
-          : (result.questions ?? []).length > 0
-            ? 'soft'
-            : 'none');
-      const discoveryAssumptions = result.assumptions ?? [];
-      const runnableConfidence =
-        typeof result.runnableConfidence === 'number'
-          ? Math.max(0, Math.min(1, result.runnableConfidence))
-          : undefined;
-      const requiredQuestions = (result.questions ?? []).filter(
-        (question) => question.requiredNow !== false
-      );
-      const optionalQuestions = (result.questions ?? []).filter(
-        (question) => question.requiredNow === false
-      );
-      const previousDiscoveryIteration = [...messages]
-        .reverse()
-        .find(
-          (msg) =>
-            msg.role === 'assistant' &&
-            msg.metadata?.creatorLifecycle?.stage === 'discovery'
-        )?.metadata?.creatorLifecycle?.iteration ?? 0;
-      const discoveryIteration = previousDiscoveryIteration + 1;
-      const nextRequiredQuestion = requiredQuestions[0];
-      const nextOptionalQuestion = optionalQuestions[0];
-
-      const baseMessage = (result.message?.trim() || result.thinking?.trim() || '').replace(
+      // Conversational turn — creator_bot streamed text directly to the user.
+      // The message is the full conversation from this turn.
+      const responseContent = (result.message?.trim() || result.thinking?.trim() || '').replace(
         /\n{3,}/g,
         '\n\n'
       );
-      const looksChecklist =
-        /\[(required|later|assumption|confidence)\]/i.test(baseMessage) ||
-        (/(?:^|\n)\s*(?:[-*]|\d+\.)\s+/m.test(baseMessage) &&
-          baseMessage.split('\n').length > 8);
-      const shouldUseBaseMessage =
-        baseMessage.length > 0 &&
-        baseMessage.length <= 900 &&
-        !looksChecklist;
-      const fallbackMessage = nextRequiredQuestion
-        ? `To keep this moving, I need one detail: **${nextRequiredQuestion.label}**\n\n${nextRequiredQuestion.description}`
-        : nextOptionalQuestion
-          ? `I can build now. Helpful next detail: **${nextOptionalQuestion.label}**\n\n${nextOptionalQuestion.description}`
-          : 'Share any final detail and I will continue.';
-      const responseContent = shouldUseBaseMessage
-        ? baseMessage
-        : fallbackMessage;
 
-      if (!name && result.name) {
+      if (!name && result.name && result.name !== 'Unnamed BaleyBot') {
         setName(truncateName(result.name));
       }
-      if (!icon && result.icon) {
+      if (!icon && result.icon && result.icon !== '🤖') {
         setIcon(result.icon);
       }
       if (!description && result.description) {
         setDescription(result.description);
       }
 
-      const assistantMessage: CreatorMessage = {
-        id: `msg-${Date.now()}-assistant-discovery`,
-        role: 'assistant',
-        content: responseContent.trim(),
-        timestamp: new Date(),
-        thinking: result.thinking || undefined,
-        metadata: {
-          streamSummary,
-          creatorLifecycle: {
-            stage: 'discovery',
-            iteration: discoveryIteration,
-            blockerMode: lifecycleBlockMode,
-            runnableConfidence,
-            assumptions: discoveryAssumptions.map((assumption) => ({
-              id: assumption.id,
-              label: assumption.label,
-              value: assumption.value,
-              confidence: assumption.confidence ?? 'medium',
-              requiresConfirmation: assumption.requiresConfirmation,
-            })),
-            whatIDid:
-              discoveryIteration > 1
-                ? lifecycleBlockMode === 'soft'
-                  ? 'Re-evaluated your latest response, resolved hard blockers, and prepared safe defaults for remaining setup details.'
-                  : 'Re-evaluated your latest response and checked which required details are still missing.'
-                : 'Reviewed your request and identified the minimum details needed for a runnable first version.',
-            nextStage: 'Design Generation',
-            nextAction:
-              requiredQuestions.length > 0
-                ? 'Answer this question so generation can continue.'
-                : lifecycleBlockMode === 'soft'
-                  ? 'Generation can proceed now. Review assumptions in Connections after build output.'
-                  : 'Generation can proceed now.',
-            requiredQuestions: requiredQuestions.map((q) => ({
-              id: q.id,
-              label: q.label,
-              description: q.description,
-              requiredNow: true,
-            })),
-            optionalQuestions: optionalQuestions.map((q) => ({
-              id: q.id,
-              label: q.label,
-              description: q.description,
-              requiredNow: false,
-            })),
-            planLedger: {
-              goal: planDelta?.goal ?? (name || undefined),
-              stage: planDelta?.stage ?? 'discovery',
-              resolvedDecisions: planDelta?.resolvedDecisions ?? [],
-              openDecisions: planDelta?.openDecisions ?? [
-                ...requiredQuestions,
-                ...optionalQuestions,
-              ],
-              assumptions:
-                planDelta?.assumptions ??
-                discoveryAssumptions.map((assumption) => ({
-                  id: assumption.id,
-                  label: assumption.label,
-                  value: assumption.value,
-                  confidence: assumption.confidence ?? 'medium',
-                  requiresConfirmation: assumption.requiresConfirmation,
-                })),
-              nextQuestion: planDelta?.nextQuestion ?? nextRequiredQuestion ?? nextOptionalQuestion ?? null,
-              runnableConfidence: planDelta?.runnableConfidence ?? runnableConfidence,
-              updatedAt: Date.now(),
-            },
-            openDecisions: planDelta?.openDecisions,
-            resolvedDecisions: planDelta?.resolvedDecisions,
-            nextQuestion: planDelta?.nextQuestion ?? nextRequiredQuestion ?? nextOptionalQuestion ?? null,
+      if (responseContent) {
+        const assistantMessage: CreatorMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: responseContent,
+          timestamp: new Date(),
+          thinking: result.thinking || undefined,
+          metadata: {
+            streamSummary,
           },
-        },
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-      if (actions) {
-        setCreatorGuidanceActions(actions);
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+      } else {
+        // Model produced nothing — surface as system notice
+        setMessages((prev) => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'system' as const,
+          content: 'No response received. Try rephrasing or simplifying your request.',
+          timestamp: new Date(),
+          metadata: { isError: true },
+        }]);
       }
-      setStatus('ready');
+      setIsStreaming(false);
+      isStreamingRef.current = false;
       setCreationProgress(null);
       setCreatorStreamingProgress(null);
       return;
@@ -1821,9 +776,6 @@ export default function BaleybotPage() {
       label: conn.label,
       status: 'stable' as const,
     }));
-    const detectedBalSkills = detectBalSkills(result.balCode);
-    const balSkillSummary = summarizeBalSkills(detectedBalSkills);
-
     if (visualConnections.length > 0) {
       setCreationProgress({
         phase: 'connecting',
@@ -1869,19 +821,9 @@ export default function BaleybotPage() {
 
     const isInitialCreation = prevEntities.length === 0;
     const modelNarrative = result.message?.trim();
-    let responseContent = '';
-    if (modelNarrative) {
-      responseContent = modelNarrative;
-    } else if (isInitialCreation) {
-      const totalTools = visualEntities.reduce((sum, entity) => sum + entity.tools.length, 0);
-      responseContent = `I've created **${result.name}** with ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}`;
-      if (totalTools > 0) {
-        responseContent += ` and ${totalTools} ${totalTools === 1 ? 'tool' : 'tools'}`;
-      }
-      responseContent += '.';
-    } else {
-      responseContent = summaryText || `Updated **${result.name}**.`;
-    }
+
+    // Use model's text if provided; otherwise generate a concise summary
+    const responseContent = modelNarrative || summaryText || '';
 
     const prevEntityIds = new Set(prevEntities.map((entity) => entity.id));
     const entityMetadata = visualEntities.map((entity) => ({
@@ -1895,149 +837,23 @@ export default function BaleybotPage() {
     const metadata: CreatorMessage['metadata'] = {
       entities: entityMetadata,
       isInitialCreation,
-      balSkills: detectedBalSkills,
-      streamSummary,
-    };
-    const wsConns = workspaceConnections ?? [];
-
-    const toolSummary = getConnectionSummary(visualEntities.flatMap((entity) => entity.tools));
-    if (toolSummary.required.length > 0) {
-      metadata.connectionStatus = {
-        connections: [
-          {
-            name: 'AI Provider',
-            type: 'ai',
-            status: wsConns.some((conn) => ['openai', 'anthropic', 'ollama'].includes(conn.type) && conn.status === 'connected')
-              ? 'connected' : 'missing',
-          },
-          ...toolSummary.required.map((req) => ({
-            name: req.connectionType,
-            type: req.connectionType,
-            status: wsConns.some((conn) => conn.type === req.connectionType && conn.status === 'connected')
-              ? 'connected' as const : 'missing' as const,
-            requiredBy: req.tools,
-          })),
-        ],
-      };
-    }
-
-    const hasAiProviderConnected = wsConns.some(
-      (connection) =>
-        ['openai', 'anthropic', 'ollama'].includes(connection.type) &&
-        connection.status === 'connected'
-    );
-    const missingRequiredConnectionTypes = toolSummary.required
-      .filter((req) => !wsConns.some((connection) => connection.type === req.connectionType && connection.status === 'connected'))
-      .map((req) => req.connectionType);
-    const needsConnectionStage = !hasAiProviderConnected || missingRequiredConnectionTypes.length > 0;
-    const nextLifecycleAction = isInitialCreation
-      ? 'Review the visual design and confirm it before moving into setup.'
-      : needsConnectionStage
-        ? missingRequiredConnectionTypes.length > 0
-          ? `Connect required services (${[...new Set(missingRequiredConnectionTypes)].join(', ')}) and verify tools.`
-          : 'Connect an AI provider and verify tool requirements.'
-        : 'Run generated tests and confirm expected outputs.';
-    const totalEntityTools = visualEntities.reduce((sum, entity) => sum + entity.tools.length, 0);
-    metadata.creatorLifecycle = {
-      stage: 'design',
-      blockerMode: result.blockMode ?? 'none',
-      runnableConfidence:
-        typeof result.runnableConfidence === 'number'
-          ? Math.max(0, Math.min(1, result.runnableConfidence))
-          : undefined,
-      assumptions: (result.assumptions ?? []).map((assumption) => ({
-        id: assumption.id,
-        label: assumption.label,
-        value: assumption.value,
-        confidence: assumption.confidence ?? 'medium',
-        requiresConfirmation: assumption.requiresConfirmation,
-      })),
-      whatIDid: `Designed ${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'}, mapped ${totalEntityTools} ${totalEntityTools === 1 ? 'tool' : 'tools'}, generated BAL code, and applied ${balSkillSummary}.`,
-      nextStage: isInitialCreation
-        ? 'Visual Review'
-        : needsConnectionStage
-          ? 'Connections'
-          : 'Testing',
-      nextAction: nextLifecycleAction,
-      planLedger: {
-        goal: planDelta?.goal ?? result.name,
-        stage: planDelta?.stage ?? 'design',
-        resolvedDecisions: planDelta?.resolvedDecisions ?? [],
-        openDecisions: planDelta?.openDecisions ?? [],
-        assumptions:
-          planDelta?.assumptions ??
-          (result.assumptions ?? []).map((assumption) => ({
-            id: assumption.id,
-            label: assumption.label,
-            value: assumption.value,
-            confidence: assumption.confidence ?? 'medium',
-            requiresConfirmation: assumption.requiresConfirmation,
-          })),
-        nextQuestion: planDelta?.nextQuestion ?? null,
-        runnableConfidence:
-          planDelta?.runnableConfidence ??
-          (typeof result.runnableConfidence === 'number'
-            ? Math.max(0, Math.min(1, result.runnableConfidence))
-            : undefined),
-        updatedAt: Date.now(),
-      },
-      openDecisions: planDelta?.openDecisions,
-      resolvedDecisions: planDelta?.resolvedDecisions,
-      nextQuestion: planDelta?.nextQuestion ?? null,
     };
 
-    if (isInitialCreation) {
-      metadata.diagnostic = {
-        level: 'success',
-        title: 'Bot Created',
-        details: `${visualEntities.length} ${visualEntities.length === 1 ? 'entity' : 'entities'} designed and ready.`,
-        suggestions: [],
+    if (responseContent) {
+      const assistantMessage: CreatorMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: responseContent.trim(),
+        timestamp: new Date(),
+        thinking: result.thinking || undefined,
+        metadata,
       };
-
-      metadata.options = [
-        {
-          id: 'review-design',
-          label: 'Review Design',
-          description: 'Inspect the visual layout and key tools',
-          icon: '👁️',
-        },
-        {
-          id: 'confirm-design',
-          label: 'Confirm Design',
-          description: 'Lock this design and continue to guided setup',
-          icon: '✅',
-        },
-      ];
+      setMessages((prev) => [...prev, assistantMessage]);
     }
 
-    if (isInitialCreation && result.balCode) {
-      metadata.codeBlock = {
-        language: 'bal',
-        code:
-          result.balCode.length > 500
-            ? `${result.balCode.slice(0, 500)}\n// ... (click Code tab for full code)`
-            : result.balCode,
-        filename: `${result.name ?? 'baleybot'}.bal`,
-      };
-    }
-
-    const assistantMessage: CreatorMessage = {
-      id: `msg-${Date.now()}-assistant`,
-      role: 'assistant',
-      content: responseContent.trim(),
-      timestamp: new Date(),
-      thinking: result.thinking || undefined,
-      metadata,
-    };
-    setMessages((prev) => [...prev, assistantMessage]);
-    if (actions) {
-      setCreatorGuidanceActions(actions);
-    }
-    if (planDelta) {
-      setCreatorPlanDelta(planDelta);
-    }
-
-    setStatus('ready');
+    setIsStreaming(false);
+    isStreamingRef.current = false;
+    setLastError(null);
     if (isInitialCreation) {
       setIsDesignConfirmed(false);
       designGateReminderShownRef.current = false;
@@ -2051,16 +867,26 @@ export default function BaleybotPage() {
    * Handle sending a message to the Creator Bot
    */
   const handleSendMessage = async (message: string) => {
+    // Concurrency guard — prevent overlapping sends
+    if (isSendingRef.current) return;
+    isSendingRef.current = true;
+
+    // Cancel any in-flight stream
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
     const sanitizedMessage = sanitizeCreatorText(message);
 
-    // 0. Capture previous state for change summary (Phase 3.2)
+    // 0. Capture previous state for change summary
     const prevEntities = [...entities];
     const prevConnections = [...connections];
     const prevName = name;
 
-    // 1. Add user message to messages
+    // 1. Add user message
     const userMessage: CreatorMessage = {
-      id: `msg-${Date.now()}`,
+      id: crypto.randomUUID(),
       role: 'user',
       content: sanitizedMessage,
       timestamp: new Date(),
@@ -2068,9 +894,10 @@ export default function BaleybotPage() {
     setMessages((prev) => [...prev, userMessage]);
     const nextConversationHistory = buildCreatorHistoryPayload([...messages, userMessage]);
 
-    // 2. Set status to 'building'
-    setStatus('building');
-    setCreatorPlanDelta(null);
+    // 2. Enter streaming state
+    setIsStreaming(true);
+    isStreamingRef.current = true;
+    setLastError(null);
     setCreationProgress({ phase: 'understanding', message: 'Understanding your request...' });
 
     try {
@@ -2078,8 +905,6 @@ export default function BaleybotPage() {
         | {
             result: CreatorOutput;
             summary?: string;
-            planDelta?: CreatorPlanDelta;
-            actions?: CreatorGuidanceAction[];
           }
         | null = null;
       try {
@@ -2105,41 +930,32 @@ export default function BaleybotPage() {
         prevConnections,
         prevName,
         streamSummary: streamResult?.summary,
-        planDelta: streamResult?.planDelta,
-        actions: streamResult?.actions,
       });
     } catch (error) {
       console.error('Creator message failed:', error);
-      setStatus('error');
+      setIsStreaming(false);
+      isStreamingRef.current = false;
+      setLastError(error instanceof Error ? error.message : 'Unknown error');
       setCreationProgress(null);
       setCreatorStreamingProgress(null);
 
-      // Add user-friendly error message with recovery options
+      // Pipeline error → system message (not from the model)
       const parsed = parseCreatorError(error);
       const errorMessage: CreatorMessage = {
-        id: `msg-${Date.now()}-error`,
-        role: 'assistant',
+        id: crypto.randomUUID(),
+        role: 'system',
         content: `${parsed.title}: ${parsed.message}${parsed.action ? ` ${parsed.action}` : ''}`,
         timestamp: new Date(),
         metadata: {
           isError: true,
-          diagnostic: {
-            level: 'error',
-            title: parsed.title,
-            details: parsed.message,
-            suggestions: [
-              'Try simplifying your request',
-              'Check your AI provider connection in Settings',
-              'Try one of the example prompts below',
-            ],
-          },
           options: [
             { id: 'retry', label: 'Retry', description: 'Send the same message again', icon: '🔄' },
-            { id: 'simplify', label: 'Start Simple', description: 'Try with a basic bot first', icon: '✨' },
           ],
         },
       };
       setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      isSendingRef.current = false;
     }
   };
 
@@ -2163,23 +979,10 @@ export default function BaleybotPage() {
 
     handleCodeChange(updatedCode);
 
-    const summary = applied
-      .map((item) => `- \`${item.fromTool}\` -> \`${item.toTool}\``)
-      .join('\n');
-    const assistantMessage: CreatorMessage = {
-      id: `msg-${Date.now()}-tool-remap`,
-      role: 'assistant',
-      content: `Updated tool mapping in BAL:\n${summary}`,
-      timestamp: new Date(),
-      metadata: {
-        diagnostic: {
-          level: 'success',
-          title: 'Tool Mapping Updated',
-          details: 'The selected source mapping has been written to BAL code.',
-        },
-      },
-    };
-    setMessages((prev) => [...prev, assistantMessage]);
+    toast({
+      title: 'Tool Mapping Updated',
+      description: `Remapped ${applied.length} tool${applied.length === 1 ? '' : 's'} in BAL code.`,
+    });
   };
 
   /**
@@ -2227,17 +1030,9 @@ export default function BaleybotPage() {
         return null;
       }
 
-      // Add user-friendly error message to conversation
       const errorContent = formatErrorWithAction(error);
-      const errorMessage: CreatorMessage = {
-        id: `msg-${Date.now()}-save-error`,
-        role: 'assistant',
-        content: `Save failed: ${errorContent}`,
-        timestamp: new Date(),
-        metadata: { isError: true },
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-      setStatus('error');
+      toast({ title: 'Save failed', description: errorContent, variant: 'destructive' });
+      setLastError(errorContent);
 
       return null;
     } finally {
@@ -2288,447 +1083,6 @@ export default function BaleybotPage() {
     500
   );
 
-  /**
-   * Handle running the BaleyBot with execution lock (Phase 1.6)
-   */
-  const handleRun = async (input: string) => {
-    // Prevent concurrent runs
-    if (isRunLocked) return;
-    setIsRunLocked(true);
-
-    let baleybotIdToRun = savedBaleybotId;
-
-    try {
-      // 1. Auto-save if not saved yet
-      if (!baleybotIdToRun) {
-        const newId = await handleSave();
-        if (!newId) return;
-        baleybotIdToRun = newId;
-      }
-
-      // 2. Set status to 'running'
-      setStatus('running');
-
-      // 3. Execute the bot
-      await executeMutation.mutateAsync({
-        id: baleybotIdToRun!,
-        input: input || undefined,
-        triggeredBy: 'manual',
-      });
-
-      // 4. Set status to 'ready'
-      setStatus('ready');
-    } catch (error) {
-      console.error('Execution failed:', error);
-      setStatus('error');
-    } finally {
-      setIsRunLocked(false);
-    }
-  };
-
-  const startRuntimeStream = async (
-    baleybotIdToRun: string,
-    payload: unknown
-  ): Promise<RuntimeExecutionResult & { summary?: string }> => {
-    const startedAt = Date.now();
-    const finalResultRef: { current: RuntimeExecutionResult | null } = { current: null };
-    let latestTools: StreamingTool[] = [];
-    let latestHighlights: StreamingProgressSnapshot['highlights'] = [];
-
-    setRuntimeStreamingProgress({
-      phase: 'execution',
-      message: 'Running your bot...',
-      highlights: [],
-      tools: [],
-      startedAt,
-    });
-
-    await streamPostSSE<RuntimeStreamEvent>({
-      url: `/api/baleybots/${baleybotIdToRun}/execute-stream`,
-      body: {
-        input: payload,
-        triggeredBy: 'manual',
-      },
-      onEvent: (event) => {
-        const now = Date.now();
-        const type = event.type;
-
-        if (type === 'graph_event' && event.graphEvent) {
-          setRuntimeGraphEvents((previous) =>
-            appendGraphRuntimeEvent(previous, event.graphEvent as GraphRuntimeEvent)
-          );
-          return;
-        }
-
-        if (type === 'execution_started') {
-          setRuntimeStreamingProgress((previous) =>
-            previous
-              ? {
-                  ...previous,
-                  phase: 'execution',
-                  message: 'Execution started...',
-                }
-              : previous
-          );
-          return;
-        }
-
-        if (type === 'reasoning' && typeof event.content === 'string' && event.content.trim()) {
-          const reasoningContent = event.content;
-          setRuntimeStreamingProgress((previous) => {
-            const base =
-              previous ??
-              ({
-                phase: 'thinking',
-                message: 'Thinking...',
-                highlights: [],
-                tools: [],
-                startedAt,
-              } satisfies StreamingProgressSnapshot);
-            const nextHighlights = appendStreamingHighlight(base.highlights, {
-              text: reasoningContent,
-              type: 'thinking',
-              timestamp: now,
-            });
-            const next: StreamingProgressSnapshot = {
-              ...base,
-              phase: 'thinking',
-              message: 'Planning response...',
-              highlights: nextHighlights,
-            };
-            latestTools = next.tools;
-            latestHighlights = next.highlights;
-            return next;
-          });
-          return;
-        }
-
-        if (type === 'tool_call_stream_start' && event.toolName) {
-          const toolName = event.toolName;
-          setRuntimeStreamingProgress((previous) => {
-            const base =
-              previous ??
-              ({
-                phase: 'tools',
-                message: `Preparing ${toolName}`,
-                highlights: [],
-                tools: [],
-                startedAt,
-              } satisfies StreamingProgressSnapshot);
-            const nextTools = upsertStreamingTool(base.tools, toolName, 'pending');
-            const nextHighlights = appendStreamingHighlight(base.highlights, {
-              text: `Preparing ${toolName}`,
-              type: 'tool',
-              toolName,
-              timestamp: now,
-            });
-            const next: StreamingProgressSnapshot = {
-              ...base,
-              phase: 'tools',
-              message: `Preparing ${toolName}`,
-              tools: nextTools,
-              highlights: nextHighlights,
-            };
-            latestTools = next.tools;
-            latestHighlights = next.highlights;
-            return next;
-          });
-          return;
-        }
-
-        if (type === 'tool_execution_start' && event.toolName) {
-          const toolName = event.toolName;
-          setRuntimeStreamingProgress((previous) => {
-            const base =
-              previous ??
-              ({
-                phase: 'tools',
-                message: `Running ${toolName}`,
-                highlights: [],
-                tools: [],
-                startedAt,
-              } satisfies StreamingProgressSnapshot);
-            const nextTools = upsertStreamingTool(base.tools, toolName, 'running');
-            const nextHighlights = appendStreamingHighlight(base.highlights, {
-              text: `Running ${toolName}`,
-              type: 'tool',
-              toolName,
-              timestamp: now,
-            });
-            const next: StreamingProgressSnapshot = {
-              ...base,
-              phase: 'tools',
-              message: `Running ${toolName}`,
-              tools: nextTools,
-              highlights: nextHighlights,
-            };
-            latestTools = next.tools;
-            latestHighlights = next.highlights;
-            return next;
-          });
-          return;
-        }
-
-        if (type === 'tool_execution_output' && event.toolName) {
-          const toolName = event.toolName;
-          const errorMessage = getStreamEventErrorMessage(event.error);
-          const isError =
-            typeof event.error === 'string'
-              ? event.error.trim().length > 0
-              : Boolean(event.error);
-          setRuntimeStreamingProgress((previous) => {
-            const base =
-              previous ??
-              ({
-                phase: 'tools',
-                message: isError
-                  ? `${toolName} failed`
-                  : `${toolName} complete`,
-                highlights: [],
-                tools: [],
-                startedAt,
-              } satisfies StreamingProgressSnapshot);
-            const nextTools = upsertStreamingTool(
-              base.tools,
-              toolName,
-              isError ? 'error' : 'success'
-            );
-            const nextHighlights = appendStreamingHighlight(base.highlights, {
-              text: isError ? errorMessage : `Completed ${toolName}`,
-              type: 'tool',
-              toolName,
-              timestamp: now,
-            });
-            const next: StreamingProgressSnapshot = {
-              ...base,
-              phase: 'tools',
-              message: isError
-                ? `${toolName} failed`
-                : `${toolName} complete`,
-              tools: nextTools,
-              highlights: nextHighlights,
-            };
-            latestTools = next.tools;
-            latestHighlights = next.highlights;
-            return next;
-          });
-          return;
-        }
-
-        if (type.includes('loop')) {
-          setRuntimeStreamingProgress((previous) => {
-            const base =
-              previous ??
-              ({
-                phase: 'loop',
-                message: 'Running loop cycle...',
-                highlights: [],
-                tools: [],
-                startedAt,
-              } satisfies StreamingProgressSnapshot);
-            const nextHighlights = appendStreamingHighlight(base.highlights, {
-              text: `Loop update: ${type.replace(/_/g, ' ')}`,
-              type: 'loop',
-              timestamp: now,
-            });
-            const next: StreamingProgressSnapshot = {
-              ...base,
-              phase: 'loop',
-              message: 'Running loop cycle...',
-              highlights: nextHighlights,
-            };
-            latestTools = next.tools;
-            latestHighlights = next.highlights;
-            return next;
-          });
-          return;
-        }
-
-        if (type === 'error') {
-          const errorMessage = getStreamEventErrorMessage(event.error);
-          setRuntimeStreamingProgress((previous) => {
-            const base =
-              previous ??
-              ({
-                phase: 'error',
-                message: 'Execution hit an error',
-                highlights: [],
-                tools: [],
-                startedAt,
-              } satisfies StreamingProgressSnapshot);
-            const nextHighlights = appendStreamingHighlight(base.highlights, {
-              text: errorMessage,
-              type: 'status',
-              timestamp: now,
-            });
-            const next: StreamingProgressSnapshot = {
-              ...base,
-              phase: 'error',
-              message: 'Execution hit an error',
-              highlights: nextHighlights,
-            };
-            latestTools = next.tools;
-            latestHighlights = next.highlights;
-            return next;
-          });
-          return;
-        }
-
-        if (type === 'execution_result') {
-          finalResultRef.current = {
-            status: event.status ?? 'failed',
-            output: event.output,
-            error:
-              typeof event.error === 'string' && event.error.length > 0
-                ? event.error
-                : undefined,
-            durationMs:
-              typeof event.durationMs === 'number'
-                ? event.durationMs
-                : undefined,
-            executionId:
-              typeof event.executionId === 'string'
-                ? event.executionId
-                : undefined,
-          };
-          setRuntimeStreamingProgress((previous) =>
-            previous
-              ? {
-                  ...previous,
-                  phase: 'complete',
-                  message:
-                    finalResultRef.current?.status === 'completed'
-                      ? 'Execution complete'
-                      : 'Execution finished with issues',
-                }
-              : previous
-          );
-        }
-      },
-    });
-
-    const completedResult = finalResultRef.current;
-    if (!completedResult) {
-      throw new Error('Runtime stream completed without execution result.');
-    }
-
-    return {
-      ...completedResult,
-      summary: buildProgressSummary(
-        latestTools,
-        latestHighlights,
-        completedResult.status === 'completed'
-          ? 'Execution completed successfully.'
-          : 'Execution finished with issues.'
-      ),
-    };
-  };
-
-  /**
-   * Runtime-mode execution entrypoint (live mini-app usage).
-   */
-  const handleRuntimeRun = async () => {
-    if (isRunLocked) return;
-    setIsRunLocked(true);
-    setRuntimeError(null);
-    setRuntimeLastProgressSummary(null);
-    setRuntimeGraphEvents([]);
-
-    let baleybotIdToRun = savedBaleybotId;
-    try {
-      if (!baleybotIdToRun) {
-        const newId = await handleSave();
-        if (!newId) return;
-        baleybotIdToRun = newId;
-      }
-
-      const trimmed = runtimeInput.trim();
-      let payload: unknown = trimmed;
-
-      if (runtimeInputMode === 'message') {
-        if (!trimmed) {
-          setRuntimeError('Please enter a message before running.');
-          return;
-        }
-      } else if (runtimeInputMode === 'structured') {
-        if (!trimmed) {
-          setRuntimeError('Please provide a JSON payload before running.');
-          return;
-        }
-        const parsed = tryParseJson(trimmed);
-        if (parsed == null) {
-          setRuntimeError('Structured input must be valid JSON.');
-          return;
-        }
-        payload = parsed;
-      }
-
-      if (runtimeInputMode === 'message') {
-        setRuntimeConversation((prev) => [
-          ...prev,
-          {
-            id: `runtime-user-${Date.now()}`,
-            role: 'user',
-            content: trimmed,
-            timestamp: new Date(),
-          },
-        ]);
-      }
-
-      let execution: {
-        status: string;
-        output?: unknown;
-        error?: string | null;
-        durationMs?: number | null;
-        summary?: string;
-      };
-
-      try {
-        execution = await startRuntimeStream(baleybotIdToRun, payload);
-      } catch (streamError) {
-        console.warn('Runtime stream failed, falling back to mutation:', streamError);
-        setRuntimeStreamingProgress(null);
-        execution = await executeMutation.mutateAsync({
-          id: baleybotIdToRun,
-          input: payload,
-          triggeredBy: 'manual',
-        });
-      }
-
-      if ('summary' in execution && typeof execution.summary === 'string') {
-        setRuntimeLastProgressSummary(execution.summary);
-      }
-
-      if (execution.status === 'completed' || execution.status === 'success') {
-        setRuntimeOutput(formatExecutionOutput(execution.output));
-        setShowRuntimeRawOutput(false);
-        setRuntimeDurationMs(execution.durationMs ?? null);
-        if (runtimeInputMode === 'message') {
-          setRuntimeConversation((prev) => [
-            ...prev,
-            {
-              id: `runtime-assistant-${Date.now()}`,
-              role: 'assistant',
-              content: getPrimaryRuntimeResponse(execution.output),
-              timestamp: new Date(),
-            },
-          ]);
-          setRuntimeInput('');
-        }
-      } else {
-        setRuntimeError(execution.error ?? 'Execution did not complete successfully.');
-      }
-
-      await utils.baleybots.get.invalidate({ id: baleybotIdToRun });
-      await utils.analytics.getBaleybotAnalytics.invalidate({ baleybotId: baleybotIdToRun });
-    } catch (error) {
-      setRuntimeError(error instanceof Error ? error.message : 'Runtime execution failed');
-    } finally {
-      setRuntimeStreamingProgress(null);
-      setIsRunLocked(false);
-    }
-  };
-
   const handleGenerateLaunchKit = async () => {
     if (!savedBaleybotId) return;
     try {
@@ -2736,32 +1090,11 @@ export default function BaleybotPage() {
       await utils.baleybots.get.invalidate({ id: savedBaleybotId });
       await refetchLaunchReadiness();
     } catch (error) {
-      const message: CreatorMessage = {
-        id: `msg-${Date.now()}-launchkit-error`,
-        role: 'assistant',
-        content: `Launch kit generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        timestamp: new Date(),
-        metadata: { isError: true },
-      };
-      setMessages((prev) => [...prev, message]);
-    }
-  };
-
-  const handleApproveLaunchPlan = async () => {
-    if (!savedBaleybotId) return;
-    try {
-      await approveLaunchPlanMutation.mutateAsync({ baleybotId: savedBaleybotId });
-      await utils.baleybots.get.invalidate({ id: savedBaleybotId });
-      await refetchLaunchReadiness();
-    } catch (error) {
-      const message: CreatorMessage = {
-        id: `msg-${Date.now()}-launch-approve-error`,
-        role: 'assistant',
-        content: `Launch plan approval failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        timestamp: new Date(),
-        metadata: { isError: true },
-      };
-      setMessages((prev) => [...prev, message]);
+      toast({
+        title: 'Launch kit generation failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -2771,16 +1104,13 @@ export default function BaleybotPage() {
       await promoteToLiveMutation.mutateAsync({ baleybotId: savedBaleybotId });
       await utils.baleybots.get.invalidate({ id: savedBaleybotId });
       await utils.analytics.getBaleybotAnalytics.invalidate({ baleybotId: savedBaleybotId });
-      setViewMode('runtime');
+      setViewMode('launch');
     } catch (error) {
-      const message: CreatorMessage = {
-        id: `msg-${Date.now()}-promote-live-error`,
-        role: 'assistant',
-        content: `Could not promote to live: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        timestamp: new Date(),
-        metadata: { isError: true },
-      };
-      setMessages((prev) => [...prev, message]);
+      toast({
+        title: 'Could not promote to live',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -2796,14 +1126,11 @@ export default function BaleybotPage() {
       await utils.baleybots.get.invalidate({ id: savedBaleybotId });
       await utils.analytics.getBaleybotAnalytics.invalidate({ baleybotId: savedBaleybotId });
     } catch (error) {
-      const message: CreatorMessage = {
-        id: `msg-${Date.now()}-pause-live-error`,
-        role: 'assistant',
-        content: `Live state update failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        timestamp: new Date(),
-        metadata: { isError: true },
-      };
-      setMessages((prev) => [...prev, message]);
+      toast({
+        title: 'Live state update failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -2891,6 +1218,89 @@ export default function BaleybotPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty]);
 
+  // =====================================================================
+  // SESSION RECOVERY (persists conversation + canvas state to sessionStorage)
+  // =====================================================================
+
+  const sessionKey = `creator-session:${id}`;
+
+  // Save state to sessionStorage after each meaningful change
+  // Stop persisting once the BB has been saved (savedBaleybotId is set)
+  useEffect(() => {
+    if (!isNew || messages.length === 0 || savedBaleybotId) return;
+    try {
+      const snapshot = {
+        ts: Date.now(),
+        messages: messages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
+          metadata: m.metadata,
+        })),
+        entities,
+        balCode,
+        name,
+        description,
+        icon,
+      };
+      sessionStorage.setItem(sessionKey, JSON.stringify(snapshot));
+    } catch {
+      // sessionStorage full or unavailable — non-critical
+    }
+  }, [isNew, messages, entities, balCode, name, description, icon, sessionKey, savedBaleybotId]);
+
+  // Restore session on mount (new BBs only, < 24h old)
+  useEffect(() => {
+    if (!isNew) return;
+    try {
+      const raw = sessionStorage.getItem(sessionKey);
+      if (!raw) return;
+      const snapshot = JSON.parse(raw) as {
+        ts: number;
+        messages: Array<{ id: string; role: string; content: string; timestamp: string; metadata?: Record<string, unknown> }>;
+        entities: VisualEntity[];
+        balCode: string;
+        name: string;
+        description: string;
+        icon: string;
+      };
+      // Only restore if < 24 hours old
+      if (Date.now() - snapshot.ts > 24 * 60 * 60 * 1000) {
+        sessionStorage.removeItem(sessionKey);
+        return;
+      }
+      if (snapshot.messages.length > 0) {
+        setMessages(
+          snapshot.messages.map((m) => ({
+            ...m,
+            role: m.role as 'user' | 'assistant' | 'system',
+            timestamp: new Date(m.timestamp),
+          }))
+        );
+      }
+      if (snapshot.entities.length > 0) setEntities(snapshot.entities);
+      if (snapshot.balCode) setBalCode(snapshot.balCode);
+      if (snapshot.name) setName(snapshot.name);
+      if (snapshot.description) setDescription(snapshot.description);
+      if (snapshot.icon) setIcon(snapshot.icon);
+    } catch {
+      // Corrupted session data — ignore
+    }
+    // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Clear session storage after successful save
+  // Note: isNew (from params.id) stays 'new' after replaceState, so we cannot
+  // rely on !isNew. Instead, clear whenever savedBaleybotId is set — the session
+  // persist effect above already guards against re-writing after save.
+  useEffect(() => {
+    if (savedBaleybotId) {
+      try { sessionStorage.removeItem(`creator-session:new`); } catch { /* noop */ }
+    }
+  }, [savedBaleybotId]);
+
   // Compute readiness whenever relevant state changes
   useEffect(() => {
     const allTools = entities.flatMap(e => e.tools);
@@ -2915,74 +1325,10 @@ export default function BaleybotPage() {
       hasTestRuns: testCases.filter(t => t.status !== 'pending').length,
       hasTrigger: !!triggerConfig,
       hasMonitoring: (analyticsData?.total ?? 0) >= 1,
+      specialist: specialistSignals,
     });
     setReadiness((prev) => (isSameReadiness(prev, newReadiness) ? prev : newReadiness));
 
-    // Detect dimension completions and inject follow-up guidance messages
-    if (prevReadinessRef.current && status === 'ready') {
-      const prev = prevReadinessRef.current;
-      const dimensionLabels: Record<ReadinessDimension, string> = {
-        designed: 'Design', connected: 'Connections', tested: 'Testing',
-        activated: 'Triggers', monitored: 'Monitoring',
-      };
-      const dims: ReadinessDimension[] = ['designed', 'connected', 'tested', 'activated', 'monitored'];
-
-      for (const dim of dims) {
-        if (prev[dim] !== 'complete' && newReadiness[dim] === 'complete') {
-          const { completed: c, total: t } = countCompleted(newReadiness);
-          const nextAction =
-            dim === 'designed' && !isDesignConfirmed
-              ? {
-                  dimension: 'designed' as const,
-                  label: 'Confirm Design',
-                  description: 'Review visual layout, then confirm before setup',
-                  tabTarget: 'visual' as const,
-                  optionId: 'confirm-design',
-                }
-              : getRecommendedAction(newReadiness);
-          const autoAdvanceTargets: Partial<Record<ReadinessDimension, AdaptiveTab>> = {
-            connected: 'test',
-            tested: 'triggers',
-            activated: 'monitor',
-          };
-          const targetTab = autoAdvanceTargets[dim];
-          const canAutoAdvance =
-            !!targetTab &&
-            getVisibleTabs(newReadiness).includes(targetTab);
-
-          let content = `**${dimensionLabels[dim]}** is complete! (${c}/${t})`;
-          if (nextAction) {
-            content += ` Next up: ${nextAction.label.toLowerCase()}.`;
-            if (canAutoAdvance) {
-              content += ` I moved you to the ${nextAction.label.toLowerCase()} step to keep momentum.`;
-            }
-          } else if (c === t) {
-            content += ' Your bot is fully production-ready!';
-          }
-
-          const followUpMessage: CreatorMessage = {
-            id: `msg-${Date.now()}-readiness-${dim}`,
-            role: 'assistant',
-            content,
-            timestamp: new Date(),
-            metadata: nextAction ? {
-              options: [{
-                id: nextAction.optionId,
-                label: nextAction.label,
-                description: nextAction.description,
-              }],
-            } : undefined,
-          };
-          setMessages(prev => [...prev, followUpMessage]);
-
-          if (canAutoAdvance && targetTab) {
-            setViewMode(targetTab);
-            setMobileView('editor');
-          }
-          break; // Only one follow-up per render cycle
-        }
-      }
-    }
     prevReadinessRef.current = newReadiness;
   }, [
     balCode,
@@ -2991,8 +1337,8 @@ export default function BaleybotPage() {
     triggerConfig,
     workspaceConnections,
     analyticsData,
-    status,
     isDesignConfirmed,
+    specialistSignals,
   ]);
 
   // Once user has progressed past design, don't block stage tabs again.
@@ -3014,8 +1360,6 @@ export default function BaleybotPage() {
     const visibleTabs = computeAvailableTabs({
       readiness,
       savedBaleybotId,
-      lifecycleStage: existingBaleybot?.lifecycleStage,
-      hasRuntimeSpec: Boolean(existingBaleybot?.runtimeInterfaceSpec),
       showAdvancedUI,
       isDesignReviewRequired,
     });
@@ -3095,97 +1439,34 @@ export default function BaleybotPage() {
   }, [triggerConfig, savedBaleybotId]);
 
   const handleOptionSelect = (optionId: string) => {
-    // Test-specific dynamic option IDs
-    const acceptMatch = optionId.match(/^accept-actual-(.+)$/);
-    if (acceptMatch) {
-      handleAcceptActual(acceptMatch[1]!);
-      return;
-    }
-    const editMatch = optionId.match(/^edit-test-(.+)$/);
-    if (editMatch) {
-      navigateToTab('test');
-      return;
-    }
-    const retryMatch = optionId.match(/^retry-test-(.+)$/);
-    if (retryMatch) {
-      handleRunTest(retryMatch[1]!);
-      return;
-    }
-    if (optionId === 'retry-all-tests') {
-      handleRunAllWithSelfHealing();
-      return;
-    }
-    if (optionId === 'review-mismatches') {
-      navigateToTab('test');
-      return;
-    }
-
     if (optionId === 'confirm-design') {
       setIsDesignConfirmed(true);
       designGateReminderShownRef.current = false;
-      const postConfirmTarget: AdaptiveTab =
-        readiness.connected === 'not-applicable' ? 'test' : 'connections';
-      navigateToTab(postConfirmTarget, { bypassDesignGate: true });
-      const followUpMessage: CreatorMessage = {
-        id: `msg-${Date.now()}-design-confirmed`,
-        role: 'assistant',
-        content:
-          postConfirmTarget === 'connections'
-            ? 'Design confirmed. Next, connect runtime and data sources, then verify tools.'
-            : 'Design confirmed. Next, run your tests to validate behavior.',
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, followUpMessage]);
+      navigateToTab('review', { bypassDesignGate: true });
       return;
     }
 
-    // Readiness-guided option cards → navigate to tab + add guide message
+    // Readiness-guided option cards → navigate to tab
     const optionToTab: Record<string, AdaptiveTab> = {
       'review-design': 'visual',
-      'setup-connections': 'connections',
-      'run-tests': 'test',
-      'setup-triggers': 'triggers',
-      'enable-monitoring': 'monitor',
+      'setup-connections': 'launch',
+      'run-tests': 'review',
+      'setup-triggers': 'launch',
+      'enable-monitoring': 'launch',
     };
 
     const tabTarget = optionToTab[optionId];
     if (tabTarget) {
-      const navigated = navigateToTab(tabTarget);
-      if (!navigated) {
-        return;
-      }
-
-      const guideMessages: Record<string, string> = {
-        'review-design': 'Take a look at the visual layout. Confirm the design when it looks right, then continue to guided setup.',
-        'setup-connections': 'Check which connections your bot needs. Make sure an **AI provider** is connected, and set up any tool-specific connections.',
-        'run-tests': 'Click **Auto-generate** to create test cases from your bot\'s configuration, then run them to verify everything works.',
-        'setup-triggers': 'Choose how your bot should be triggered — on a schedule, via webhook, or when another bot completes.',
-        'enable-monitoring': 'Once your bot has run at least once, monitoring data will appear here.',
-      };
-
-      const guideText = guideMessages[optionId];
-      if (guideText) {
-        const guideMessage: CreatorMessage = {
-          id: `msg-${Date.now()}-guide`,
-          role: 'assistant',
-          content: guideText,
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, guideMessage]);
-      }
+      navigateToTab(tabTarget);
       return;
     }
 
-    // Existing option handling
+    // Retry last user message
     if (optionId === 'retry') {
       const lastUserMsg = messages.filter(m => m.role === 'user').pop();
       if (lastUserMsg) {
         handleSendMessage(lastUserMsg.content);
       }
-      return;
-    }
-    if (optionId === 'simplify') {
-      handleSendMessage('Create a simple assistant that helps answer questions');
       return;
     }
     handleSendMessage(`I'd like to go with: ${optionId}`);
@@ -3202,11 +1483,10 @@ export default function BaleybotPage() {
       setDescription(existingBaleybot.description || '');
       setIcon(existingBaleybot.icon || '');
       setBalCode(existingBaleybot.balCode);
-      setStatus('ready');
       setIsDesignConfirmed(true);
       designGateReminderShownRef.current = false;
       if (existingBaleybot.lifecycleStage === 'live' || existingBaleybot.lifecycleStage === 'paused') {
-        setViewMode('runtime');
+        setViewMode('launch');
       }
 
       // Parse BAL code to extract entity details (tools, goal, model)
@@ -3358,40 +1638,17 @@ export default function BaleybotPage() {
 
   const displayName = name || 'New BaleyBot';
   const displayIcon = icon || '✨';
-  const canSave = status === 'ready' && balCode && name && !isSaving && !isSavePending;
   const lifecycleStage = existingBaleybot?.lifecycleStage ?? 'draft';
   const launchKit = (existingBaleybot?.launchKit as LaunchKit | null) ?? null;
-  const runtimeSpec = (
-    runtimeInterfaceData ??
-    existingBaleybot?.runtimeInterfaceSpec ??
-    null
-  ) as RuntimeInterfaceSpec | null;
   const launchReadiness = launchReadinessData?.readiness;
-  const parsedRuntimeOutput = runtimeOutput ? tryParseJson(runtimeOutput) : null;
-  const runtimeOutputRecord =
-    parsedRuntimeOutput && typeof parsedRuntimeOutput === 'object' && !Array.isArray(parsedRuntimeOutput)
-      ? (parsedRuntimeOutput as Record<string, unknown>)
-      : null;
-  const runtimeOutputEntries = runtimeOutputRecord
-    ? Object.entries(runtimeOutputRecord).slice(0, 8)
-    : [];
-  const runtimeOutputHasMoreEntries = runtimeOutputRecord
-    ? Object.keys(runtimeOutputRecord).length > runtimeOutputEntries.length
-    : false;
-  const runtimeMode = runtimeSpec?.mode ?? 'chat';
-  const canUseMessageMode = runtimeMode !== 'form';
-  const isMessageRuntime = runtimeInputMode === 'message' && canUseMessageMode;
   const launchBusy =
     isFetchingLaunchReadiness ||
     generateLaunchKitMutation.isPending ||
-    approveLaunchPlanMutation.isPending ||
     promoteToLiveMutation.isPending ||
     pauseLiveBotMutation.isPending;
   const availableTabs = computeAvailableTabs({
     readiness,
     savedBaleybotId,
-    lifecycleStage: existingBaleybot?.lifecycleStage,
-    hasRuntimeSpec: Boolean(existingBaleybot?.runtimeInterfaceSpec),
     showAdvancedUI,
     isDesignReviewRequired,
   });
@@ -3437,188 +1694,31 @@ export default function BaleybotPage() {
         baleybotName={name || undefined}
       />
 
-      {/* Header - Adaptive layout (Phase 4.6) */}
-      <header className="animate-fade-slide-down border-b border-border/60 bg-background/85 backdrop-blur-md">
-        {/* Main header row - responsive padding (Phase 4.6) */}
-        <div className="flex items-center gap-2 sm:gap-3 w-full px-2 sm:px-4 py-2 sm:py-3">
-          {/* Back button */}
-          <Button variant="ghost" size="icon" onClick={handleBack} className="shrink-0 min-h-10 min-w-10 sm:min-h-11 sm:min-w-11" aria-label="Go back to BaleyBots list">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          </Button>
-
-          {/* Icon and name (Phase 5.1: Handle long names) */}
-          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
-            <span className="text-xl sm:text-2xl shrink-0">{displayIcon}</span>
-            <h1
-              className="text-base sm:text-lg font-semibold truncate max-w-[120px] sm:max-w-[200px] md:max-w-[300px] lg:max-w-[400px]"
-              title={displayName.length > 15 ? displayName : undefined}
-            >
-              {displayName}
-            </h1>
-            {/* Unsaved indicator - shorter text on mobile (Phase 4.6) */}
-            {isDirty && (
-              <span className="text-amber-500 text-xs font-medium shrink-0" title="Unsaved changes">
-                <span className="hidden sm:inline">(unsaved)</span>
-                <span className="sm:hidden">•</span>
-              </span>
-            )}
-            {!isNew && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-primary/10 text-primary shrink-0 uppercase tracking-wide">
-                {lifecycleStage.replace('_', ' ')}
-              </span>
-            )}
-          </div>
-
-          {/* Undo/Redo buttons - hidden on mobile (Phase 4.6) */}
-          <div className="hidden sm:flex items-center gap-1">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleUndo}
-                    disabled={!canUndo}
-                    className="min-h-11 min-w-11 h-11 w-11"
-                    aria-label="Undo"
-                  >
-                    <Undo2 className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Undo (Cmd+Z)</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleRedo}
-                    disabled={!canRedo}
-                    className="min-h-11 min-w-11 h-11 w-11"
-                    aria-label="Redo"
-                  >
-                    <Redo2 className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Redo (Cmd+Shift+Z)</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <div className="w-px h-4 bg-border mx-1" />
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShortcutsOpen(true)}
-                    className="min-h-11 min-w-11 h-11 w-11"
-                    aria-label="Keyboard shortcuts"
-                  >
-                    <Keyboard className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Keyboard shortcuts (?)</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-
-          {/* Save button with tooltip (Phase 1.8) - compact on mobile (Phase 4.6) */}
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span tabIndex={saveDisabledReason ? 0 : undefined}>
-                  <Button
-                    onClick={() => debouncedSave()}
-                    disabled={!canSave || !!saveDisabledReason}
-                    size="sm"
-                    className="shrink-0 min-h-10 sm:min-h-9"
-                  >
-                    {isSaving || isSavePending ? (
-                      <>
-                        <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" />
-                        <span className="hidden sm:inline">Saving...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Save className="h-4 w-4 sm:mr-2" />
-                        <span className="hidden sm:inline">Save</span>
-                      </>
-                    )}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {saveDisabledReason && (
-                <TooltipContent>
-                  <p>{saveDisabledReason}</p>
-                </TooltipContent>
-              )}
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-
-        {/* Description row (Phase 2.8) - hidden on mobile (Phase 4.6) */}
-        {(description || isEditingDescription) && (
-          <div className="hidden sm:block w-full px-4 pb-3 pl-14">
-            {isEditingDescription ? (
-              <div className="flex gap-2">
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Add a description..."
-                  className="flex-1 text-sm text-muted-foreground bg-muted/50 border rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  rows={2}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setIsEditingDescription(false);
-                    }
-                  }}
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setIsEditingDescription(false)}
-                >
-                  Done
-                </Button>
-              </div>
-            ) : (
-              <div className="group flex items-start gap-2">
-                <p
-                  className={`text-sm text-muted-foreground flex-1 ${
-                    !showFullDescription && description.length > 100 ? 'line-clamp-1' : ''
-                  }`}
-                >
-                  {description}
-                </p>
-                {description.length > 100 && (
-                  <button
-                    onClick={() => setShowFullDescription(!showFullDescription)}
-                    className="text-xs text-primary hover:underline shrink-0"
-                  >
-                    {showFullDescription ? 'Show less' : 'Show more'}
-                  </button>
-                )}
-                <button
-                  onClick={() => setIsEditingDescription(true)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted"
-                  title="Edit description"
-                >
-                  <Pencil className="h-3 w-3 text-muted-foreground" />
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </header>
+      <BaleybotHeader
+        displayName={displayName}
+        displayIcon={displayIcon}
+        description={description}
+        isNew={isNew}
+        isDirty={isDirty}
+        lifecycleStage={lifecycleStage}
+        validationStatus={validationStatus}
+        canSave={canSave}
+        isSaving={isSaving}
+        isSavePending={isSavePending}
+        saveDisabledReason={saveDisabledReason}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        isEditingDescription={isEditingDescription}
+        showFullDescription={showFullDescription}
+        onBack={handleBack}
+        onSave={() => debouncedSave()}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
+        onDescriptionChange={setDescription}
+        onEditDescriptionToggle={setIsEditingDescription}
+        onToggleFullDescription={() => setShowFullDescription(!showFullDescription)}
+      />
 
       {status === 'empty' ? (
         /* Welcome / creation view for new bots — full width centered */
@@ -3680,7 +1780,7 @@ export default function BaleybotPage() {
               <MessageSquare className="h-3.5 w-3.5" />
               Chat
               {/* Mobile building indicator — pulsing dot when AI is working and user is on editor tab */}
-              {status === 'building' && mobileView === 'editor' && (
+              {isStreaming && mobileView === 'editor' && (
                 <span className="absolute top-1.5 right-[calc(50%-24px)] w-2 h-2 rounded-full bg-primary animate-pulse" />
               )}
             </button>
@@ -3709,23 +1809,15 @@ export default function BaleybotPage() {
                 messages={messages}
                 status={status}
                 onSendMessage={handleSendMessage}
-                isCreatorDisabled={status === 'building' || isSaving}
+                isCreatorDisabled={isInputDisabled}
                 executions={!isNew && existingBaleybot?.executions ? existingBaleybot.executions : undefined}
                 onExecutionClick={(executionId) => router.push(ROUTES.activity.execution(executionId))}
-                onViewAction={(action) => {
-                  if (action === 'visual') { navigateToTab('visual', { bypassDesignGate: true }); }
-                  else if (action === 'code') {
-                    setBuilderMode('advanced');
-                    navigateToTab('code', { bypassDesignGate: true });
-                  }
-                  else if (action === 'run') { handleRun(''); }
-                }}
                 onOptionSelect={handleOptionSelect}
-                creationProgress={creationProgress}
                 streamingProgress={creatorStreamingProgress}
                 quickPrompts={quickPrompts}
                 quickPromptContextLabel={quickPromptContextLabel}
-                discoveryPending={discoveryPending}
+                agentEvents={agentEvents}
+                streamingText={streamingText}
               />
             </div>
 
@@ -3736,63 +1828,39 @@ export default function BaleybotPage() {
             )}>
               {/* Adaptive Tab bar */}
               <div className="flex items-center px-4 py-2 border-b border-border/30">
-                {isDiscoveryWorkspaceActive ? (
-                  <div className="flex w-full items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">{discoveryBoardHeading}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        Details lock in here first, then the visual editor unlocks automatically.
-                      </p>
-                    </div>
-                    <span className="text-[11px] text-muted-foreground">
-                      {formatStreamingPhaseLabel(
-                        creatorStreamingProgress?.phase ??
-                        latestCreatorLifecycle?.stage
-                      )}
-                    </span>
-                  </div>
-                ) : (
-                  <>
-                    <Tabs value={viewMode} onValueChange={(v) => navigateToTab(v as AdaptiveTab)} className="w-auto">
-                      <TabsList className="h-9 bg-muted/50">
-                        {availableTabs.map((tab) => {
-                          const tabConfig: Record<AdaptiveTab, { icon: React.ReactNode; label: string }> = {
-                            visual: { icon: <LayoutGrid className="h-3.5 w-3.5" />, label: 'Builder' },
-                            code: { icon: <Code2 className="h-3.5 w-3.5" />, label: 'Code' },
-                            connections: { icon: <Cable className="h-3.5 w-3.5" />, label: 'Data' },
-                            test: { icon: <FlaskConical className="h-3.5 w-3.5" />, label: 'Try' },
-                            triggers: { icon: <Zap className="h-3.5 w-3.5" />, label: 'Start & Input' },
-                            analytics: { icon: <BarChart3 className="h-3.5 w-3.5" />, label: 'Insights' },
-                            monitor: { icon: <Activity className="h-3.5 w-3.5" />, label: 'Health' },
-                            launch: { icon: <Rocket className="h-3.5 w-3.5" />, label: 'Go Live' },
-                            runtime: { icon: <CirclePlay className="h-3.5 w-3.5" />, label: 'Run' },
-                          };
-                          const config = tabConfig[tab];
-                          return (
-                            <TabsTrigger key={tab} value={tab} className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
-                              {config.icon}
-                              <span className="hidden sm:inline">{config.label}</span>
-                            </TabsTrigger>
-                          );
-                        })}
-                      </TabsList>
-                    </Tabs>
-                    <div className="ml-auto">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 text-xs"
-                        onClick={() =>
-                          setBuilderMode((previous) =>
-                            previous === 'simple' ? 'advanced' : 'simple'
-                          )
-                        }
-                      >
-                        {builderMode === 'simple' ? 'Advanced Mode' : 'Simple Mode'}
-                      </Button>
-                    </div>
-                  </>
-                )}
+                <Tabs value={viewMode} onValueChange={(v) => navigateToTab(v as AdaptiveTab)} className="w-auto">
+                  <TabsList className="h-9 bg-muted/50">
+                    {availableTabs.map((tab) => {
+                      const tabConfig: Record<AdaptiveTab, { icon: React.ReactNode; label: string }> = {
+                        visual: { icon: <LayoutGrid className="h-3.5 w-3.5" />, label: 'Builder' },
+                        code: { icon: <Code2 className="h-3.5 w-3.5" />, label: 'Code' },
+                        review: { icon: <FlaskConical className="h-3.5 w-3.5" />, label: 'Review' },
+                        launch: { icon: <Rocket className="h-3.5 w-3.5" />, label: 'Go Live' },
+                      };
+                      const config = tabConfig[tab];
+                      return (
+                        <TabsTrigger key={tab} value={tab} className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
+                          {config.icon}
+                          <span className="hidden sm:inline">{config.label}</span>
+                        </TabsTrigger>
+                      );
+                    })}
+                  </TabsList>
+                </Tabs>
+                <div className="ml-auto">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    onClick={() =>
+                      setBuilderMode((previous) =>
+                        previous === 'simple' ? 'advanced' : 'simple'
+                      )
+                    }
+                  >
+                    {builderMode === 'simple' ? 'Advanced Mode' : 'Simple Mode'}
+                  </Button>
+                </div>
               </div>
 
               {/* Editor content */}
@@ -3806,202 +1874,20 @@ export default function BaleybotPage() {
                 >
                   {/* Visual Editor View */}
                   {viewMode === 'visual' && (
-                    isDiscoveryWorkspaceActive ? (
-                      <div className="h-full overflow-auto">
-                        <div className="mx-auto max-w-4xl h-full flex flex-col justify-center py-3">
-                          <div className="rounded-2xl border border-primary/20 bg-gradient-to-b from-primary/10 via-background/95 to-background p-6 space-y-5">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div>
-                                <p className="text-[11px] uppercase tracking-wide text-primary font-semibold">
-                                  Adaptive Discovery
-                                </p>
-                                <p className="text-xl font-semibold mt-1">{discoveryBoardHeading}</p>
-                                <p className="text-sm text-muted-foreground mt-1">
-                                  {discoveryBoardSubheading}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-[11px] text-muted-foreground">
-                                  {formatStreamingPhaseLabel(
-                                    creatorStreamingProgress?.phase ??
-                                    latestCreatorLifecycle?.stage
-                                  )}
-                                </p>
-                                <p className="text-2xl font-semibold leading-none">{ideationPercent}%</p>
-                                <p className="text-[11px] text-muted-foreground mt-1">
-                                  {resolvedRequiredDiscoveryQuestionCount} resolved
-                                  {historicalRequiredDiscoveryMax > 0
-                                    ? ` / ${historicalRequiredDiscoveryMax} required`
-                                    : ''}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="h-2 rounded-full bg-muted/40 overflow-hidden">
-                              <div
-                                className="h-full rounded-full bg-primary transition-all duration-500"
-                                style={{ width: `${Math.max(6, ideationPercent)}%` }}
-                              />
-                            </div>
-
-                            {status === 'building' && (
-                              <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
-                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                                <p className="text-xs text-muted-foreground">
-                                  {creatorStreamingProgress
-                                    ? 'Locking in details and updating the plan...'
-                                    : 'Thinking through the next best question...'}
-                                </p>
-                              </div>
-                            )}
-
-                            <div className="grid gap-3 lg:grid-cols-2">
-                              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-4 py-3">
-                                <p className="text-[11px] uppercase tracking-wide text-emerald-300 font-medium">
-                                  Locked In
-                                </p>
-                                {resolvedDiscoveryLabels.length > 0 ? (
-                                  <ul className="mt-1.5 space-y-1.5">
-                                    {resolvedDiscoveryLabels.slice(0, 4).map((label) => (
-                                      <li key={label} className="text-sm text-foreground/90 flex items-center gap-2">
-                                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300 shrink-0" />
-                                        <span>{label}</span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <p className="mt-1.5 text-sm text-muted-foreground">
-                                    No locked details yet. The first answer will appear here.
-                                  </p>
-                                )}
-                              </div>
-
-                              <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3">
-                                <p className="text-[11px] uppercase tracking-wide text-amber-300 font-medium">
-                                  Still Needed
-                                </p>
-                                {unresolvedDiscoveryLabels.length > 0 ? (
-                                  <ul className="mt-1.5 space-y-1.5">
-                                    {unresolvedDiscoveryLabels.slice(0, 4).map((label) => (
-                                      <li key={label} className="text-sm text-foreground/90">
-                                        {label}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <p className="mt-1.5 text-sm text-muted-foreground">
-                                    Required discovery is complete. Next step is generation.
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-
-                            {nextDiscoveryQuestion && (
-                              <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
-                                <p className="text-[11px] uppercase tracking-wide text-primary font-medium">
-                                  Current Question
-                                </p>
-                                <p className="text-lg font-semibold mt-1">
-                                  {nextDiscoveryQuestion.label}
-                                </p>
-                                <p className="text-sm text-foreground/90 mt-1.5">
-                                  {nextDiscoveryQuestion.description}
-                                </p>
-                              </div>
-                            )}
-
-                            {(creatorStreamingProgress || latestDiscoverySummary) && (
-                              <div className="rounded-xl border border-primary/25 bg-background/60 px-4 py-3 space-y-2">
-                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
-                                  Live Planner Feed
-                                </p>
-                                {discoveryLiveHighlights.length > 0 ? (
-                                  <ul className="space-y-1.5">
-                                    {discoveryLiveHighlights.map((highlight) => (
-                                      <li key={highlight.id} className="text-sm text-foreground/90">
-                                        {highlight.text}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <p className="text-sm text-muted-foreground">
-                                    {latestDiscoverySummary ?? 'Waiting for the next planning update...'}
-                                  </p>
-                                )}
-                              </div>
-                            )}
-
-                            {discoveryContextChips.length > 0 && (
-                              <div className="rounded-xl border border-border/50 bg-background/60 px-4 py-3">
-                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
-                                  Plan Memory
-                                </p>
-                                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                  {discoveryContextChips.slice(0, 4).map((chip) => (
-                                    <span
-                                      key={chip}
-                                      className="text-[11px] rounded-full border border-border/60 bg-muted/20 px-2 py-0.5 text-muted-foreground"
-                                    >
-                                      {chip}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {(quickPrompts.length > 0 || isCreatorGuidanceFetching) && (
-                              <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <p className="text-[11px] uppercase tracking-wide text-primary font-medium">
-                                    Suggested Next Step
-                                  </p>
-                                  {isCreatorGuidanceFetching && (
-                                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                      updating
-                                    </span>
-                                  )}
-                                </div>
-                                {quickPrompts.length > 0 ? (
-                                  <div className="mt-2 flex flex-wrap gap-1.5">
-                                    {quickPrompts.slice(0, 2).map((prompt) => (
-                                      <button
-                                        key={prompt.id}
-                                        type="button"
-                                        onClick={() => handleSendMessage(prompt.prompt)}
-                                        disabled={status === 'building'}
-                                        className="rounded-full border border-border/60 bg-background/80 px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
-                                      >
-                                        {prompt.label}
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="mt-2 text-sm text-muted-foreground">
-                                    Guidance will appear when there is a clear high-impact next move.
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="h-full flex flex-col gap-3">
-                        <VisualEditor
-                          balCode={balCode}
-                          onChange={handleCodeChange}
-                          readOnly={status === 'building' || status === 'running'}
-                          className="flex-1 min-h-0"
-                          hideToolbar
-                          toolSuggestions={connectionToolSuggestions}
-                          triggerConfig={triggerConfig}
-                          graphSidecar={graphSidecar}
-                          runtimeEvents={runtimeGraphEvents}
-                          presentationMode={builderMode}
-                        />
-                      </div>
-                    )
+                    <div className="h-full flex flex-col gap-3">
+                      <VisualEditor
+                        balCode={balCode}
+                        onChange={handleCodeChange}
+                        readOnly={isStreaming}
+                        className="flex-1 min-h-0"
+                        hideToolbar
+                        toolSuggestions={connectionToolSuggestions}
+                        triggerConfig={triggerConfig}
+                        graphSidecar={graphSidecar}
+                        runtimeEvents={runtimeGraphEvents}
+                        presentationMode={builderMode}
+                      />
+                    </div>
                   )}
 
                   {/* Code Editor View */}
@@ -4012,902 +1898,136 @@ export default function BaleybotPage() {
                         onChange={handleCodeChange}
                         height="100%"
                         className="h-full"
-                        readOnly={status === 'building' || status === 'running'}
+                        readOnly={isStreaming}
                       />
                     </div>
                   )}
 
-                  {/* Triggers View */}
-                  {viewMode === 'triggers' && (
-                    <div className="h-full min-h-0 flex flex-col gap-3">
-                      <div className="shrink-0 rounded-xl border border-border/50 bg-background/80 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium">Start and Inputs</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            Pick what starts this bot, then confirm its data sources.
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => navigateToTab('connections', { bypassDesignGate: true })}
-                            className="h-8 text-xs"
-                          >
-                            Configure Data Sources
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => navigateToTab('test', { bypassDesignGate: true })}
-                            className="h-8 text-xs"
-                          >
-                            Run Tests
-                          </Button>
-                        </div>
-                      </div>
 
-                      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[430px_1fr] gap-4">
-                        <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                          <TriggerConfig
-                            value={triggerConfig}
-                            onChange={setTriggerConfig}
-                            workspaceId={existingBaleybot?.workspaceId}
-                            baleybotId={savedBaleybotId ?? undefined}
-                            presentationMode={builderMode}
-                            setupStep={triggerSetupStep}
-                            onSetupStepChange={setTriggerSetupStep}
-                            availableBaleybots={
-                              availableBaleybots
-                                ?.filter((bb) => bb.id !== savedBaleybotId)
-                                .map((bb) => ({ id: bb.id, name: bb.name })) ?? []
-                            }
-                            availableConnections={
-                              (workspaceConnections ?? []).map((conn) => ({
-                                id: conn.id,
-                                name: conn.name,
-                                type: conn.type,
-                                status: conn.status ?? undefined,
-                              }))
-                            }
-                          />
 
-                          <div className="mt-5 rounded-xl border border-border/60 bg-muted/20 p-3.5 space-y-2.5">
-                            <p className="text-sm font-medium">Configured data sources</p>
-                            {dataSourceSummary.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">
-                                No external data source detected yet. Add one in Connections, or use a simple manual flow.
-                              </p>
-                            ) : (
-                              <div className="space-y-2">
-                                {dataSourceSummary.map((source) => (
-                                  <div key={source.id} className="rounded-lg border border-border/50 bg-background px-2.5 py-2">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="text-sm font-medium">{source.label}</p>
-                                      <span
-                                        className={cn(
-                                          'text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wide',
-                                          source.status === 'connected'
-                                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                                            : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                                        )}
-                                      >
-                                        {source.status === 'connected' ? 'ready' : 'needs setup'}
-                                      </span>
-                                    </div>
-                                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                                      {source.kind === 'storage'
-                                        ? 'Shared storage'
-                                        : source.kind === 'upload'
-                                          ? 'Upload input'
-                                          : 'Data source'}
-                                    </p>
-                                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                                      Used by: {source.usedBy.join(', ')}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="h-full min-h-0 bg-background rounded-lg border overflow-hidden flex flex-col">
-                          <div className="px-4 py-2 border-b border-border/40 bg-muted/20">
-                            <p className="text-sm font-medium">Trigger and data flow map</p>
-                          </div>
-                          <div className="h-[calc(100%-3.5rem)] min-h-0">
-                            <VisualEditor
-                              balCode={balCode}
-                              onChange={handleCodeChange}
-                              readOnly={status === 'building' || status === 'running'}
-                              className="h-full"
-                              hideToolbar
-                              toolSuggestions={connectionToolSuggestions}
-                              triggerConfig={triggerConfig}
-                              graphSidecar={graphSidecar}
-                              runtimeEvents={runtimeGraphEvents}
-                              presentationMode={builderMode}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                  {/* Review View */}
+                  {viewMode === 'review' && savedBaleybotId && (
+                    <ReviewPage
+                      baleybotId={savedBaleybotId}
+                      balCode={balCode}
+                      entities={entities}
+                      triggerConfig={triggerConfig}
+                      topology={
+                        entities.length <= 1
+                          ? 'single'
+                          : connections.length > 0
+                            ? 'chain'
+                            : 'parallel'
+                      }
+                      validationStatus={validationStatus}
+                      botName={name}
+                      botIcon={icon}
+                    />
                   )}
 
-                  {/* Analytics View — workspace-level overview */}
-                  {viewMode === 'analytics' && (
-                    <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                      {isLoadingOverview ? (
-                        <div className="space-y-4">
-                          <Skeleton className="h-20 w-full" />
-                          <div className="grid grid-cols-3 gap-3">
-                            <Skeleton className="h-16" />
-                            <Skeleton className="h-16" />
-                            <Skeleton className="h-16" />
-                          </div>
-                          <Skeleton className="h-28 w-full" />
-                        </div>
-                      ) : !dashboardOverview || dashboardOverview.totalExecutions === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-full text-center py-12">
-                          <BarChart3 className="h-10 w-10 text-muted-foreground/40 mb-4" />
-                          <h3 className="text-lg font-medium mb-2">No workspace activity</h3>
-                          <p className="text-sm text-muted-foreground max-w-md">
-                            Run some BaleyBots to see aggregate workspace analytics here.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="space-y-6">
-                          {/* Workspace-level stats */}
-                          <div>
-                            <h3 className="text-sm font-medium mb-3">Workspace Overview (30 days)</h3>
-                            <div className="grid grid-cols-3 gap-3">
-                              <div className="rounded-lg border p-3 text-center">
-                                <p className="text-xl font-bold">{dashboardOverview.totalExecutions}</p>
-                                <p className="text-[10px] text-muted-foreground">Total Runs</p>
-                              </div>
-                              <div className="rounded-lg border p-3 text-center">
-                                <p className="text-xl font-bold">{(dashboardOverview.successRate * 100).toFixed(1)}%</p>
-                                <p className="text-[10px] text-muted-foreground">Success Rate</p>
-                              </div>
-                              <div className="rounded-lg border p-3 text-center">
-                                <p className="text-xl font-bold">
-                                  {dashboardOverview.avgDurationMs > 1000
-                                    ? `${(dashboardOverview.avgDurationMs / 1000).toFixed(1)}s`
-                                    : `${dashboardOverview.avgDurationMs}ms`}
-                                </p>
-                                <p className="text-[10px] text-muted-foreground">Avg Duration</p>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Daily trend */}
-                          {dashboardOverview.dailyTrend.length > 0 && (
-                            <div>
-                              <h3 className="text-sm font-medium mb-2">Daily Activity</h3>
-                              <div className="flex items-end gap-1 h-20 px-1">
-                                {dashboardOverview.dailyTrend.map((day) => {
-                                  const maxCount = Math.max(...dashboardOverview.dailyTrend.map(d => d.count));
-                                  const height = maxCount > 0 ? (day.count / maxCount) * 100 : 0;
-                                  return (
-                                    <div key={day.date} className="flex-1 min-w-0">
-                                      <div
-                                        className="bg-primary hover:bg-primary/80 rounded-t transition-colors w-full"
-                                        style={{ height: `${Math.max(height, 4)}%` }}
-                                        title={`${day.date}: ${day.count} executions`}
-                                      />
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                              <div className="flex justify-between mt-1 px-1">
-                                <span className="text-[10px] text-muted-foreground">{dashboardOverview.dailyTrend[0]?.date}</span>
-                                <span className="text-[10px] text-muted-foreground">{dashboardOverview.dailyTrend[dashboardOverview.dailyTrend.length - 1]?.date}</span>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Top bots */}
-                          {dashboardOverview.topBots.length > 0 && (
-                            <div>
-                              <h3 className="text-sm font-medium mb-2">Most Active Bots</h3>
-                              <div className="space-y-1">
-                                {dashboardOverview.topBots.map((bot) => (
-                                  <div key={bot.baleybotId} className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border border-border/50">
-                                    {bot.icon && <span className="text-base shrink-0">{bot.icon}</span>}
-                                    <span className="truncate flex-1">{bot.name || bot.baleybotId.slice(0, 8)}</span>
-                                    <span className="text-xs text-muted-foreground shrink-0">{bot.count} runs</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* This bot's stats (if saved) */}
-                          {savedBaleybotId && analyticsData && analyticsData.total > 0 && (
-                            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
-                              <h3 className="text-sm font-medium mb-2">This Bot</h3>
-                              <div className="grid grid-cols-3 gap-3 text-center">
-                                <div>
-                                  <p className="text-lg font-bold">{analyticsData.total}</p>
-                                  <p className="text-[10px] text-muted-foreground">Runs</p>
-                                </div>
-                                <div>
-                                  <p className="text-lg font-bold">{(analyticsData.successRate * 100).toFixed(0)}%</p>
-                                  <p className="text-[10px] text-muted-foreground">Success</p>
-                                </div>
-                                <div>
-                                  <p className="text-lg font-bold">{analyticsData.totalTokens.toLocaleString()}</p>
-                                  <p className="text-[10px] text-muted-foreground">Tokens</p>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {/* Connections View */}
-                  {viewMode === 'connections' && (
-                    <div className="h-full min-h-0 flex flex-col gap-3">
-                      <div className="shrink-0 rounded-xl border border-border/50 bg-background/80 px-3.5 py-2.5 flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium">Connections</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            Confirm runtime, data sources, and tool checks before testing.
-                          </p>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => navigateToTab('visual', { bypassDesignGate: true })}
-                          className="h-8 text-xs"
-                        >
-                          View Canvas
-                        </Button>
-                      </div>
-                      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-4">
-                        <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                        <ConnectionsPanel
-                          tools={entities.flatMap(e => e.tools)}
-                          connections={normalizedConnections ?? []}
-                          baleybotId={savedBaleybotId ?? undefined}
-                          balCode={balCode}
-                          entitySummaries={entities.map((entity) => ({
-                            name: entity.name,
-                            tools: entity.tools,
-                          }))}
-                          isLoading={isLoadingConnections}
-                          onConnectionCreated={() => utils.connections.list.invalidate()}
-                          onApplyToolRemap={handleApplyToolRemap}
-                          onNavigateToTest={() => navigateToTab('test')}
-                        />
-                        </div>
-                        <div className="h-full min-h-0 bg-background rounded-lg border overflow-hidden">
-                          <div className="px-4 py-2 border-b border-border/40 bg-muted/20">
-                            <p className="text-sm font-medium">Live tool and source map</p>
-                          </div>
-                          <div className="h-[calc(100%-3.5rem)] min-h-0">
-                            <VisualEditor
-                              balCode={balCode}
-                              onChange={handleCodeChange}
-                              readOnly={status === 'building' || status === 'running'}
-                              className="h-full"
-                              hideToolbar
-                              toolSuggestions={connectionToolSuggestions}
-                              triggerConfig={triggerConfig}
-                              graphSidecar={graphSidecar}
-                              runtimeEvents={runtimeGraphEvents}
-                              presentationMode={builderMode}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Test View */}
-                  {viewMode === 'test' && (
-                    <div className="h-full min-h-0 flex flex-col gap-3">
-                      <div className="shrink-0 rounded-xl border border-border/50 bg-background/80 px-3.5 py-2.5 flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium">Testing</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            Validate outcomes before activation.
-                          </p>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => navigateToTab('connections', { bypassDesignGate: true })}
-                          className="h-8 text-xs"
-                        >
-                          Review Connections
-                        </Button>
-                      </div>
-                      <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[430px_1fr] gap-4">
-                        <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                          <TestPanel
-                            testCases={testCases}
-                            topology={lastRunSummary?.topology}
-                            onRunTest={handleRunTest}
-                            onRunAll={handleRunAllTests}
-                            onRunAllWithSelfHealing={handleRunAllWithSelfHealing}
-                            onAddTest={handleAddTest}
-                            onGenerateTests={handleGenerateTests}
-                            isGenerating={isGeneratingTests}
-                            isRunningAll={isRunningAll}
-                            isSelfHealing={isSelfHealing}
-                            runAllProgress={runAllProgress}
-                            lastRunSummary={lastRunSummary}
-                            onUpdateTest={handleUpdateTest}
-                            onDeleteTest={handleDeleteTest}
-                            onAcceptActual={handleAcceptActual}
-                          />
-                        </div>
-                        <div className="h-full min-h-0 bg-background rounded-lg border overflow-hidden">
-                          <div className="px-4 py-2 border-b border-border/40 bg-muted/20 flex items-center justify-between gap-2">
-                            <p className="text-sm font-medium">Live run map</p>
-                            {runtimeGraphEvents.length > 0 ? (
-                              <span className="text-[11px] text-muted-foreground">
-                                {runtimeGraphEvents.length} live events
-                              </span>
-                            ) : (
-                              <span className="text-[11px] text-muted-foreground">
-                                Start a test to watch this map animate
-                              </span>
-                            )}
-                          </div>
-                          {runtimeFailureGuidance && (
-                            <div className="mx-3 mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                              {runtimeFailureGuidance}
-                            </div>
-                          )}
-                          <div className="flex-1 min-h-0">
-                            <VisualEditor
-                              balCode={balCode}
-                              onChange={handleCodeChange}
-                              readOnly
-                              className="h-full"
-                              hideToolbar
-                              toolSuggestions={connectionToolSuggestions}
-                              triggerConfig={triggerConfig}
-                              graphSidecar={graphSidecar}
-                              runtimeEvents={runtimeGraphEvents}
-                              presentationMode={builderMode}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Launch Prep View */}
+                  {/* Go Live View */}
                   {viewMode === 'launch' && (
-                    <div className="h-full overflow-auto bg-background rounded-lg border p-4 space-y-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <h3 className="text-sm font-medium">Launch Prep</h3>
-                          <p className="text-xs text-muted-foreground">
-                            Verify readiness, generate launch artifacts, then promote this bot to live runtime mode.
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => refetchLaunchReadiness()}
-                            disabled={launchBusy}
-                          >
-                            {launchBusy ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
-                            Refresh
-                          </Button>
-                          {!launchKit && (
-                            <Button
-                              size="sm"
-                              onClick={handleGenerateLaunchKit}
-                              disabled={
-                                !savedBaleybotId ||
-                                launchBusy ||
-                                (launchReadiness ? !launchReadiness.readyForLaunchPrep : false)
+                    <DeployPanel
+                      lifecycleStage={lifecycleStage}
+                      launchKit={launchKit}
+                      launchBusy={launchBusy}
+                      savedBaleybotId={savedBaleybotId}
+                      baleybotName={existingBaleybot?.name ?? 'BaleyBot'}
+                      readiness={readiness}
+                      readinessItems={[
+                        {
+                          dimension: 'designed',
+                          label: 'Design',
+                          description: balCode && entities.length > 0
+                            ? `${entities.length} step${entities.length === 1 ? '' : 's'} configured`
+                            : 'Build your bot in the chat first',
+                        },
+                        {
+                          dimension: 'connected',
+                          label: 'Connections',
+                          description: (normalizedConnections ?? []).some(c => ['openai', 'anthropic', 'ollama'].includes(c.type) && c.status === 'connected')
+                            ? 'AI provider connected'
+                            : 'Connect an AI provider to power your bot',
+                        },
+                        {
+                          dimension: 'tested',
+                          label: 'Tests',
+                          description: launchReadiness?.testPassRate != null
+                            ? `${Math.round(launchReadiness.testPassRate * 100)}% pass rate`
+                            : 'Review your bot in the Review tab first',
+                          action: (launchReadiness?.testPassRate == null || launchReadiness.testPassRate < 0.8)
+                            ? { label: 'Run tests', onClick: () => navigateToTab('review') }
+                            : undefined,
+                        },
+                        {
+                          dimension: 'activated',
+                          label: 'Trigger',
+                          description: triggerConfig?.type
+                            ? `Starts via ${triggerConfig.type.replace(/_/g, ' ')}`
+                            : 'Choose how this bot gets triggered',
+                        },
+                      ]}
+                      blockingIssues={launchReadiness?.blockingIssues}
+                      readyForLaunchPrep={launchReadiness?.readyForLaunchPrep}
+                      entityCount={entities.length}
+                      toolCount={new Set(entities.flatMap(e => e.tools)).size}
+                      providerCount={(normalizedConnections ?? []).filter(c => ['openai', 'anthropic', 'ollama'].includes(c.type) && c.status === 'connected').length || 1}
+                      isGeneratingLaunchKit={generateLaunchKitMutation.isPending}
+                      isPromotingToLive={promoteToLiveMutation.isPending}
+                      onGenerateLaunchKit={handleGenerateLaunchKit}
+                      onPromoteToLive={handlePromoteToLive}
+                      onPauseOrResume={handlePauseOrResumeLive}
+                      onRefreshReadiness={() => refetchLaunchReadiness()}
+                      triggerSetupSlot={
+                        !triggerConfig?.type ? (
+                          <div className="rounded-xl border p-4 space-y-3">
+                            <p className="text-sm font-medium">How should this bot start?</p>
+                            <TriggerConfig
+                              value={triggerConfig}
+                              onChange={setTriggerConfig}
+                              workspaceId={existingBaleybot?.workspaceId}
+                              baleybotId={savedBaleybotId ?? undefined}
+                              presentationMode={builderMode}
+                              setupStep={triggerSetupStep}
+                              onSetupStepChange={setTriggerSetupStep}
+                              availableBaleybots={
+                                availableBaleybots
+                                  ?.filter((bb) => bb.id !== savedBaleybotId)
+                                  .map((bb) => ({ id: bb.id, name: bb.name })) ?? []
                               }
-                            >
-                              {generateLaunchKitMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5 mr-1.5" />}
-                              Generate Launch Kit
-                            </Button>
-                          )}
-                          {launchKit && lifecycleStage !== 'live' && lifecycleStage !== 'paused' && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={handleApproveLaunchPlan}
-                                disabled={!savedBaleybotId || launchBusy}
-                              >
-                                {approveLaunchPlanMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />}
-                                Approve
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={handlePromoteToLive}
-                                disabled={!savedBaleybotId || launchBusy}
-                              >
-                                {promoteToLiveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CirclePlay className="h-3.5 w-3.5 mr-1.5" />}
-                                Go Live
-                              </Button>
-                            </>
-                          )}
-                          {(lifecycleStage === 'live' || lifecycleStage === 'paused') && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={handlePauseOrResumeLive}
-                              disabled={launchBusy}
-                            >
-                              {launchBusy ? (
-                                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                              ) : lifecycleStage === 'live' ? (
-                                <PauseCircle className="h-3.5 w-3.5 mr-1.5" />
-                              ) : (
-                                <CirclePlay className="h-3.5 w-3.5 mr-1.5" />
-                              )}
-                              {lifecycleStage === 'live' ? 'Pause Live' : 'Resume Live'}
-                            </Button>
-                          )}
-                          {launchKit && (
-                            <Button size="sm" variant="outline" onClick={() => setViewMode('runtime')}>
-                              <CirclePlay className="h-3.5 w-3.5 mr-1.5" />
-                              Open Runtime
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      {launchReadiness && (
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                          <div className="rounded-lg border p-3">
-                            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">BAL</p>
-                            <p className={cn('text-sm font-medium mt-1', launchReadiness.balValid ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400')}>
-                              {launchReadiness.balValid ? 'Valid' : 'Invalid'}
-                            </p>
+                              availableConnections={
+                                (workspaceConnections ?? []).map((conn) => ({
+                                  id: conn.id,
+                                  name: conn.name,
+                                  type: conn.type,
+                                  status: conn.status ?? undefined,
+                                }))
+                              }
+                            />
                           </div>
-                          <div className="rounded-lg border p-3">
-                            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Connections</p>
-                            <p className={cn('text-sm font-medium mt-1', launchReadiness.connectionsReady ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400')}>
-                              {launchReadiness.connectionsReady ? 'Ready' : 'Needs setup'}
-                            </p>
-                          </div>
-                          <div className="rounded-lg border p-3">
-                            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Test Pass Rate</p>
-                            <p className={cn('text-sm font-medium mt-1', launchReadiness.testPassRate >= 0.8 ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400')}>
-                              {Math.round(launchReadiness.testPassRate * 100)}%
-                            </p>
-                          </div>
-                          <div className="rounded-lg border p-3">
-                            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                              {launchKit ? 'Launch Confidence' : 'Topology'}
-                            </p>
-                            <p className="text-sm font-medium mt-1">
-                              {launchKit
-                                ? `${Math.round(launchKit.confidenceScore * 100)}%`
-                                : launchReadiness.topology}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      {launchReadiness?.blockingIssues?.length ? (
-                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
-                          <p className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1">Blocking Issues</p>
-                          <ul className="space-y-1">
-                            {launchReadiness.blockingIssues.map((issue, idx) => (
-                              <li key={`${issue}-${idx}`} className="text-xs text-amber-800/90 dark:text-amber-200/90">
-                                {idx + 1}. {issue}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : launchReadiness ? (
-                        <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3 text-xs text-green-700 dark:text-green-300">
-                          Launch readiness checks passed.
-                        </div>
-                      ) : (
-                        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                          Save this bot and run test coverage to evaluate launch readiness.
-                        </div>
-                      )}
-
-                      {launchKit ? (
-                        <div className="space-y-3">
-                          <div className="rounded-lg border p-3">
-                            <p className="text-sm font-medium mb-2">Activation Plan</p>
-                            <p className="text-xs text-muted-foreground mb-2">
-                              Primary: <span className="font-medium text-foreground">{launchKit.activationPlan.recommendedPrimary}</span>
-                            </p>
-                            <div className="space-y-1.5">
-                              {launchKit.activationPlan.channels.map((channel, idx) => (
-                                <div key={`${channel.type}-${idx}`} className="text-xs rounded border border-border/50 px-2 py-1.5">
-                                  <span className="font-medium">{channel.type}</span>
-                                  <span className="text-muted-foreground"> — {channel.rationale}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="rounded-lg border p-3">
-                              <p className="text-sm font-medium mb-2">Monitoring Plan</p>
-                              <ul className="space-y-1">
-                                {launchKit.monitoringPlan.metrics.map((metric, idx) => (
-                                  <li key={`${metric}-${idx}`} className="text-xs">{idx + 1}. {metric}</li>
-                                ))}
-                              </ul>
-                            </div>
-                            <div className="rounded-lg border p-3">
-                              <p className="text-sm font-medium mb-2">Go-Live Checklist</p>
-                              <ul className="space-y-1">
-                                {launchKit.goLiveChecklist.map((item, idx) => (
-                                  <li key={`${item}-${idx}`} className="text-xs">{idx + 1}. {item}</li>
-                                ))}
-                              </ul>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                          Generate a Launch Kit after tests and connections are ready.
-                        </div>
-                      )}
-                    </div>
+                        ) : undefined
+                      }
+                      connectionSetupSlot={
+                        !(normalizedConnections ?? []).some(c => ['openai', 'anthropic', 'ollama'].includes(c.type) && c.status === 'connected') ? (
+                          <ConnectionsPanel
+                            tools={entities.flatMap(e => e.tools)}
+                            connections={normalizedConnections ?? []}
+                            baleybotId={savedBaleybotId ?? undefined}
+                            balCode={balCode}
+                            entitySummaries={entities.map((entity) => ({
+                              name: entity.name,
+                              tools: entity.tools,
+                            }))}
+                            isLoading={isLoadingConnections}
+                            onConnectionCreated={() => utils.connections.list.invalidate()}
+                            onApplyToolRemap={handleApplyToolRemap}
+                            onNavigateToTest={() => navigateToTab('review')}
+                          />
+                        ) : undefined
+                      }
+                    />
                   )}
 
-                  {/* Runtime View */}
-                  {viewMode === 'runtime' && (
-                    <div className="h-full overflow-auto bg-background rounded-lg border p-4 space-y-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-medium">Runtime Interface</h3>
-                            <span className={cn(
-                              'text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wide',
-                              lifecycleStage === 'live'
-                                ? 'bg-green-500/10 text-green-700 dark:text-green-300'
-                                : lifecycleStage === 'paused'
-                                  ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                                  : 'bg-muted text-muted-foreground'
-                            )}>
-                              {lifecycleStage}
-                            </span>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            Use this bot as a live mini-app. Runtime mode: {runtimeMode}.
-                          </p>
-                        </div>
-                        {(lifecycleStage === 'live' || lifecycleStage === 'paused') && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={handlePauseOrResumeLive}
-                            disabled={pauseLiveBotMutation.isPending || promoteToLiveMutation.isPending}
-                          >
-                            {pauseLiveBotMutation.isPending || promoteToLiveMutation.isPending ? (
-                              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                            ) : lifecycleStage === 'live' ? (
-                              <PauseCircle className="h-3.5 w-3.5 mr-1.5" />
-                            ) : (
-                              <CirclePlay className="h-3.5 w-3.5 mr-1.5" />
-                            )}
-                            {lifecycleStage === 'live' ? 'Pause Live' : 'Resume Live'}
-                          </Button>
-                        )}
-                      </div>
-
-                      {isFetchingRuntimeInterface && !runtimeSpec ? (
-                        <div className="rounded-lg border p-6 text-center text-sm text-muted-foreground">
-                          Loading runtime interface...
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                          <div className="xl:col-span-2 space-y-3">
-                            <div className="rounded-xl border p-4 space-y-3 bg-gradient-to-b from-background to-muted/10">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div>
-                                  <p className="text-sm font-medium">Interact</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    Choose a simple message or provide structured data.
-                                  </p>
-                                </div>
-                                <div className="inline-flex items-center rounded-lg border border-border/60 p-0.5 bg-muted/30">
-                                  <button
-                                    type="button"
-                                    onClick={() => setRuntimeInputMode('message')}
-                                    disabled={!canUseMessageMode}
-                                    className={cn(
-                                      'px-2.5 py-1 text-xs rounded-md transition-colors',
-                                      runtimeInputMode === 'message' && canUseMessageMode
-                                        ? 'bg-background text-foreground shadow-sm'
-                                        : 'text-muted-foreground hover:text-foreground',
-                                      !canUseMessageMode && 'opacity-50 cursor-not-allowed hover:text-muted-foreground'
-                                    )}
-                                  >
-                                    Message
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setRuntimeInputMode('structured')}
-                                    className={cn(
-                                      'px-2.5 py-1 text-xs rounded-md transition-colors',
-                                      runtimeInputMode === 'structured'
-                                        ? 'bg-background text-foreground shadow-sm'
-                                        : 'text-muted-foreground hover:text-foreground'
-                                    )}
-                                  >
-                                    Structured
-                                  </button>
-                                </div>
-                              </div>
-
-                              {!canUseMessageMode && (
-                                <p className="text-[11px] text-amber-700 dark:text-amber-300 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5">
-                                  This bot expects structured input. Message mode is disabled for this runtime.
-                                </p>
-                              )}
-
-                              <textarea
-                                value={runtimeInput}
-                                onChange={(e) => setRuntimeInput(e.target.value)}
-                                placeholder={
-                                  isMessageRuntime
-                                    ? 'Type what you want this bot to do...'
-                                    : runtimeInputMode === 'structured'
-                                    ? '{\n  "event": "new_signup",\n  "email": "new.user@example.com"\n}'
-                                    : 'Provide input...'
-                                }
-                                rows={6}
-                                className={cn(
-                                  'w-full text-sm bg-background border border-border/50 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20',
-                                  !isMessageRuntime && 'font-mono text-xs'
-                                )}
-                              />
-
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Button
-                                  size="sm"
-                                  onClick={handleRuntimeRun}
-                                  disabled={isRunLocked || executeMutation.isPending}
-                                >
-                                  {isRunLocked || executeMutation.isPending ? (
-                                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                                  ) : (
-                                    <CirclePlay className="h-3.5 w-3.5 mr-1.5" />
-                                  )}
-                                  {isMessageRuntime ? 'Send' : 'Run'}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setRuntimeInput('');
-                                    setRuntimeOutput('');
-                                    setRuntimeError(null);
-                                    setRuntimeDurationMs(null);
-                                    setShowRuntimeRawOutput(false);
-                                    setRuntimeConversation([]);
-                                    setRuntimeStreamingProgress(null);
-                                    setRuntimeLastProgressSummary(null);
-                                    setRuntimeGraphEvents([]);
-                                  }}
-                                  disabled={isRunLocked || executeMutation.isPending}
-                                >
-                                  Clear
-                                </Button>
-                                {runtimeDurationMs != null && (
-                                  <span className="text-xs text-muted-foreground">
-                                    Last run: {runtimeDurationMs > 1000 ? `${(runtimeDurationMs / 1000).toFixed(1)}s` : `${runtimeDurationMs}ms`}
-                                  </span>
-                                )}
-                                {runtimeLastProgressSummary && (
-                                  <span className="text-xs text-muted-foreground/80">
-                                    {runtimeLastProgressSummary}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="rounded-xl border p-4 space-y-3">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="text-sm font-medium">{isMessageRuntime ? 'Conversation' : 'Latest Result'}</p>
-                                {runtimeOutput && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 px-2 text-[11px]"
-                                    onClick={() => setShowRuntimeRawOutput((prev) => !prev)}
-                                  >
-                                    {showRuntimeRawOutput ? 'Hide raw output' : 'Show raw output'}
-                                  </Button>
-                                )}
-                              </div>
-
-                              {runtimeStreamingProgress &&
-                                (!isMessageRuntime || runtimeConversation.length === 0) && (
-                                <StreamingProgressCard progress={runtimeStreamingProgress} />
-                              )}
-
-                              {runtimeError ? (
-                                <div className="space-y-2">
-                                  <div className="text-sm whitespace-pre-wrap bg-red-500/5 border border-red-500/20 text-red-700 dark:text-red-300 rounded-lg p-3">
-                                    {runtimeError}
-                                  </div>
-                                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                                    Next step: {summarizeRuntimeIssue(runtimeError)}
-                                  </div>
-                                </div>
-                              ) : isMessageRuntime ? (
-                                <>
-                                  {runtimeConversation.length > 0 ? (
-                                    <div className="space-y-2 max-h-[320px] overflow-auto pr-1">
-                                      {runtimeConversation.map((message) => (
-                                        <div
-                                          key={message.id}
-                                          className={cn(
-                                            'max-w-[90%] rounded-lg px-3 py-2 text-sm border',
-                                            message.role === 'user'
-                                              ? 'ml-auto bg-primary/10 border-primary/20'
-                                              : 'mr-auto bg-muted/30 border-border/50'
-                                          )}
-                                        >
-                                          <p className="whitespace-pre-wrap break-words">{message.content}</p>
-                                          <p className="text-[10px] text-muted-foreground mt-1">
-                                            {message.timestamp.toLocaleTimeString([], {
-                                              hour: 'numeric',
-                                              minute: '2-digit',
-                                            })}
-                                          </p>
-                                        </div>
-                                      ))}
-                                      {runtimeStreamingProgress && (
-                                        <div className="mr-auto max-w-[95%]">
-                                          <StreamingProgressCard
-                                            progress={runtimeStreamingProgress}
-                                            className="p-3"
-                                            maxHighlights={3}
-                                          />
-                                        </div>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <p className="text-sm text-muted-foreground">
-                                      Send a message to start the conversation.
-                                    </p>
-                                  )}
-
-                                  {showRuntimeRawOutput && runtimeOutput && (
-                                    <pre className="text-xs whitespace-pre-wrap bg-muted/40 rounded-lg p-3 font-mono overflow-x-auto">
-                                      {runtimeOutput}
-                                    </pre>
-                                  )}
-                                </>
-                              ) : runtimeOutput ? (
-                                <>
-                                  {runtimeOutputEntries.length > 0 ? (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                      {runtimeOutputEntries.map(([key, value]) => (
-                                        <div key={key} className="rounded-lg border border-border/50 bg-muted/20 p-2.5">
-                                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                                            {key.replace(/_/g, ' ')}
-                                          </p>
-                                          <p className="text-sm mt-1 break-words">
-                                            {formatFriendlyRuntimeValue(value)}
-                                          </p>
-                                        </div>
-                                      ))}
-                                      {runtimeOutputHasMoreEntries && (
-                                        <div className="rounded-lg border border-dashed border-border/60 bg-muted/10 p-2.5">
-                                          <p className="text-xs text-muted-foreground">
-                                            Additional fields are available in raw output.
-                                          </p>
-                                        </div>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <div className="rounded-lg border border-border/50 bg-muted/20 p-3 text-sm whitespace-pre-wrap">
-                                      {runtimeOutput}
-                                    </div>
-                                  )}
-
-                                  {showRuntimeRawOutput && (
-                                    <pre className="text-xs whitespace-pre-wrap bg-muted/40 rounded-lg p-3 font-mono overflow-x-auto">
-                                      {runtimeOutput}
-                                    </pre>
-                                  )}
-                                </>
-                              ) : (
-                                <p className="text-sm text-muted-foreground">
-                                  Run the bot to view output.
-                                </p>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="space-y-3">
-                            <div className="rounded-lg border p-3 space-y-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="text-xs text-muted-foreground font-medium">Diagnostics</p>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 px-2 text-[11px]"
-                                  onClick={() => setShowRuntimeDiagnostics((prev) => !prev)}
-                                >
-                                  {showRuntimeDiagnostics ? 'Hide' : 'Show'}
-                                </Button>
-                              </div>
-                              <p className="text-[11px] text-muted-foreground">
-                                Runtime internals and component-level details for power users.
-                              </p>
-                              {showRuntimeDiagnostics && (
-                                <ul className="space-y-1">
-                                  {(runtimeSpec?.components ?? []).map((component) => (
-                                    <li key={component.id} className="text-xs rounded bg-muted/40 px-2 py-1">
-                                      <span className="font-medium">{component.type}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                            <div className="rounded-lg border p-3">
-                              <p className="text-xs text-muted-foreground font-medium mb-2">Live Metrics</p>
-                              {isLoadingAnalytics ? (
-                                <div className="space-y-2">
-                                  <Skeleton className="h-12 w-full" />
-                                  <Skeleton className="h-12 w-full" />
-                                </div>
-                              ) : analyticsData && analyticsData.total > 0 ? (
-                                <div className="space-y-2 text-xs">
-                                  <div className="rounded border border-border/50 px-2 py-1.5 flex items-center justify-between">
-                                    <span className="text-muted-foreground">Runs</span>
-                                    <span className="font-medium">{analyticsData.total}</span>
-                                  </div>
-                                  <div className="rounded border border-border/50 px-2 py-1.5 flex items-center justify-between">
-                                    <span className="text-muted-foreground">Success</span>
-                                    <span className="font-medium">{Math.round(analyticsData.successRate * 100)}%</span>
-                                  </div>
-                                  <div className="rounded border border-border/50 px-2 py-1.5 flex items-center justify-between">
-                                    <span className="text-muted-foreground">Avg Duration</span>
-                                    <span className="font-medium">
-                                      {analyticsData.avgDurationMs > 1000
-                                        ? `${(analyticsData.avgDurationMs / 1000).toFixed(1)}s`
-                                        : `${analyticsData.avgDurationMs}ms`}
-                                    </span>
-                                  </div>
-                                </div>
-                              ) : (
-                                <p className="text-xs text-muted-foreground">
-                                  No runtime metrics yet.
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Monitor View */}
-                  {viewMode === 'monitor' && (
-                    <div className="h-full overflow-auto bg-background rounded-lg border p-4">
-                      {!savedBaleybotId ? (
-                        <p className="text-muted-foreground text-sm">Save this BaleyBot first to see monitoring.</p>
-                      ) : (
-                        <MonitorPanel
-                          analyticsData={analyticsData ?? null}
-                          isLoading={isLoadingAnalytics}
-                          hasTrigger={!!triggerConfig}
-                        />
-                      )}
-                    </div>
-                  )}
                 </ErrorBoundary>
               </div>
             </div>

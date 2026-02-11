@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   Mic,
   MicOff,
@@ -114,8 +113,8 @@ function AudioVisualizer({
         <div
           key={i}
           className={cn(
-            'w-1 rounded-full transition-all duration-75',
-            isActive ? 'bg-primary' : 'bg-muted-foreground/30'
+            'w-0.5 rounded-full transition-all duration-75',
+            isActive ? 'bg-primary/80' : 'bg-foreground/[0.08]'
           )}
           style={{
             height: `${Math.max(4, level * 32)}px`,
@@ -144,11 +143,11 @@ function VoiceButton({
     VoiceState,
     { icon: typeof Mic; color: string; label: string }
   > = {
-    idle: { icon: Mic, color: 'bg-muted hover:bg-muted/80', label: 'Start listening' },
-    listening: { icon: MicOff, color: 'bg-red-500 hover:bg-red-600 text-white', label: 'Stop listening' },
-    processing: { icon: Loader2, color: 'bg-primary text-primary-foreground', label: 'Processing...' },
-    speaking: { icon: Volume2, color: 'bg-blue-500 hover:bg-blue-600 text-white', label: 'Speaking...' },
-    error: { icon: AlertCircle, color: 'bg-destructive text-destructive-foreground', label: 'Error' },
+    idle: { icon: Mic, color: 'bg-foreground/[0.05] hover:bg-foreground/[0.08] text-foreground', label: 'Start listening' },
+    listening: { icon: MicOff, color: 'bg-red-500/10 ring-2 ring-red-500/30 text-red-500 hover:bg-red-500/15', label: 'Stop listening' },
+    processing: { icon: Loader2, color: 'bg-primary/10 ring-2 ring-primary/30 text-primary', label: 'Processing...' },
+    speaking: { icon: Volume2, color: 'bg-blue-500/10 ring-2 ring-blue-500/30 text-blue-500 hover:bg-blue-500/15', label: 'Speaking...' },
+    error: { icon: AlertCircle, color: 'bg-destructive/10 ring-2 ring-destructive/30 text-destructive', label: 'Error' },
   };
 
   const { icon: Icon, color, label } = stateConfig[state];
@@ -189,8 +188,8 @@ function TranscriptDisplay({
   return (
     <div
       className={cn(
-        'px-4 py-3 rounded-lg text-center',
-        isInterim ? 'bg-muted/50 text-muted-foreground' : 'bg-muted'
+        'px-4 py-3 rounded-xl text-center',
+        isInterim ? 'bg-foreground/[0.03] text-muted-foreground' : 'bg-foreground/[0.05]'
       )}
     >
       <p className="text-sm">{transcript}</p>
@@ -455,13 +454,10 @@ export function VoiceMode({
 
   return (
     <div className={cn('flex flex-col items-center gap-4 p-4', className)}>
-      {/* Status badge */}
-      <Badge
-        variant={state === 'error' ? 'destructive' : 'secondary'}
-        className="capitalize"
-      >
+      {/* Status text */}
+      <span className="text-xs font-medium text-muted-foreground/60 capitalize">
         {state === 'idle' ? 'Ready' : state}
-      </Badge>
+      </span>
 
       {/* Audio visualizer */}
       <AudioVisualizer isActive={state === 'listening'} levels={audioLevels} />

@@ -1,57 +1,38 @@
 [
   {
-    "id": "creator_discovery",
-    "description": "Asks focused discovery questions before generation when requirements are underspecified",
-    "icon": "\ud83e\udded",
-    "model": "anthropic:powerful",
-    "contractId": "creator_discovery_v2",
-    "role": "BaleyBot Discovery Agent",
-    "inputs": [
-      "workspace context including tools and connected services",
-      "recent user turns and latest request"
-    ],
-    "decisionPolicy": [
-      "Decide whether a runnable first version can be generated now.",
-      "Use progressive disclosure: separate required-now blockers from optional-later details.",
-      "Avoid repeating already answered questions.",
-      "In chat message output, ask one focused next question at a time.",
-      "When the user is exploring options (not asking for immediate generation), provide guidance without hard-blocking."
-    ],
-    "uncertaintyPolicy": "If uncertain, ask one focused blocking question rather than many broad questions.",
-    "skills": [
-      "concise_reasoning",
-      "user_communication_actionable",
-      "contract_json_v1",
-      "creator_discovery_policy"
-    ]
-  },
-  {
     "id": "creator_bot",
     "description": "Creates new BaleyBots from user descriptions through conversation",
     "icon": "\ud83e\udd16",
     "model": "anthropic:powerful",
-    "contractId": "creator_bot_v1",
+    "contractId": "creator_bot_v2",
     "role": "BaleyBot Creator",
+    "maxTokens": 16384,
+    "tools": ["spawn_baleybot", "web_search", "fetch_url"],
     "inputs": [
       "sanitized user request and prior conversation context",
       "workspace tool catalog and connection summary",
       "discovery context notes"
     ],
     "decisionPolicy": [
-      "Design entities and connections that satisfy the user outcome.",
-      "When 2+ entities exist, include an explicit composition block in balCode.",
-      "Use only supported BAL entity properties: goal, model, tools, output, history, maxTokens.",
+      "You are a conversational architect. Your job is to understand what the user wants to build, then delegate the actual BAL code generation to your specialist team via spawn_baleybot.",
+      "NEVER generate BAL code yourself. Always use spawn_baleybot('bal_generator', designSpec) to produce BAL.",
+      "A good creation session flows like a conversation: understand the user's actual problem and what success looks like, then design the best solution and hand off to specialists while narrating what's happening.",
+      "You have a team: bal_generator writes BAL code, connection_advisor checks tool requirements, test_orchestrator creates tests, deployment_advisor evaluates deployment readiness. Use spawn_baleybot to call them.",
+      "When you're ready to build, call spawn_baleybot('bal_generator', designSpec) with a clear description of entities, tools, and composition. Explain to the user what you're building alongside the spawn.",
+      "Keep your responses conversational and concise. The user sees your text streamed in real-time.",
       "Pick tools that are implied by the goal and available in workspace context.",
-      "If the user asks process or clarification questions, respond conversationally (status=building) before generating.",
-      "Keep discovery interactions conversational and progressive, never as a rigid form checklist."
+      "If a spawn fails or returns an error, be honest with the user. Tell them what went wrong and suggest a concrete next step — simplify the design, provide more detail, or try a different approach. Never pretend a failed generation succeeded.",
+      "Your goal is to build the best solution to the user's problem, not just the fastest. When in doubt, one good question beats one wrong assumption."
     ],
-    "uncertaintyPolicy": "If essential details are missing, return status=building with targeted follow-up questions.",
+    "uncertaintyPolicy": "When unsure, ask in your response. One good question beats one wrong solution.",
     "skills": [
       "concise_reasoning",
+      "platform_expertise",
+      "consultative_curiosity",
+      "research_driven_creation",
       "tool_selection_contextual",
       "user_communication_actionable",
       "safety_non_destructive",
-      "contract_json_v1",
       "creator_generation_policy"
     ]
   },
@@ -74,6 +55,7 @@
     "uncertaintyPolicy": "If no meaningful action exists, return an empty actions array.",
     "skills": [
       "concise_reasoning",
+      "platform_expertise",
       "user_communication_actionable",
       "contract_json_v1",
       "creator_action_advisor_policy"
@@ -84,6 +66,7 @@
     "description": "Converts natural language descriptions into BAL code",
     "icon": "\ud83d\udcdd",
     "model": "anthropic:powerful",
+    "maxTokens": 8192,
     "contractId": "bal_generator_v1",
     "role": "BAL Code Generator",
     "inputs": [
@@ -98,8 +81,10 @@
     "uncertaintyPolicy": "If details are ambiguous, choose a conservative default and explain assumptions.",
     "skills": [
       "concise_reasoning",
+      "platform_expertise",
       "tool_selection_contextual",
       "contract_json_v1",
+      "bal_syntax_reference",
       "bal_generator_policy"
     ]
   },
@@ -122,6 +107,7 @@
     "uncertaintyPolicy": "When uncertain, mark higher risk and recommend manual approval.",
     "skills": [
       "concise_reasoning",
+      "platform_expertise",
       "safety_non_destructive",
       "contract_json_v1",
       "pattern_learner_policy"
@@ -145,6 +131,7 @@
     "uncertaintyPolicy": "If evidence is weak, lower confidence and request additional execution context.",
     "skills": [
       "concise_reasoning",
+      "platform_expertise",
       "user_communication_actionable",
       "contract_json_v1",
       "execution_reviewer_policy"
@@ -236,6 +223,7 @@
     ],
     "uncertaintyPolicy": "If evidence is partial, state assumptions and keep recommendations reversible.",
     "skills": [
+      "platform_expertise",
       "tool_selection_contextual",
       "user_communication_actionable",
       "contract_json_v1",
@@ -304,6 +292,7 @@
     ],
     "uncertaintyPolicy": "If launch confidence is low, emphasize manual trigger with explicit readiness gaps.",
     "skills": [
+      "platform_expertise",
       "user_communication_actionable",
       "contract_json_v1",
       "deployment_advisor_policy"
@@ -375,6 +364,7 @@
     ],
     "uncertaintyPolicy": "If external requirements are unclear, provide a minimal safe baseline integration path.",
     "skills": [
+      "platform_expertise",
       "user_communication_actionable",
       "contract_json_v1",
       "integration_builder_policy"

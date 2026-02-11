@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, adminProcedure } from '../trpc';
+import { router, systemAdminProcedure } from '../trpc';
 import {
   baleybots,
   eq,
@@ -27,12 +27,12 @@ export const adminRouter = router({
   /**
    * Check if the current user is an admin.
    */
-  isAdmin: adminProcedure.query(() => true),
+  isAdmin: systemAdminProcedure.query(() => true),
 
   /**
    * List all internal BaleyBots in the system workspace.
    */
-  listInternalBaleybots: adminProcedure.query(async ({ ctx }) => {
+  listInternalBaleybots: systemAdminProcedure.query(async ({ ctx }) => {
     const results = await ctx.db.query.baleybots.findMany({
       where: and(
         eq(baleybots.workspaceId, ctx.workspace.id),
@@ -53,7 +53,7 @@ export const adminRouter = router({
   /**
    * Get a single internal BaleyBot by ID, including recent executions.
    */
-  getInternalBaleybot: adminProcedure
+  getInternalBaleybot: systemAdminProcedure
     .input(z.object({ id: uuidSchema }))
     .query(async ({ ctx, input }) => {
       const bb = await ctx.db.query.baleybots.findFirst({
@@ -102,7 +102,7 @@ export const adminRouter = router({
    * Update an internal BaleyBot's BAL code, name, description, or icon.
    * Sets adminEdited = true.
    */
-  updateInternalBaleybot: adminProcedure
+  updateInternalBaleybot: systemAdminProcedure
     .input(
       z.object({
         id: uuidSchema,
@@ -149,7 +149,7 @@ export const adminRouter = router({
    * Reset an internal BaleyBot to its default code definition.
    * Sets adminEdited = false.
    */
-  resetToDefault: adminProcedure
+  resetToDefault: systemAdminProcedure
     .input(
       z.object({
         id: uuidSchema,

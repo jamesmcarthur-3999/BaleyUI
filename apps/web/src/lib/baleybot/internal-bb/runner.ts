@@ -4,7 +4,6 @@ import {
   type InternalExecutionOptions,
 } from '../internal-baleybots';
 import { createLogger } from '@/lib/logger';
-import { creatorOutputSchema } from '../creator-types';
 
 const log = createLogger('internal-bb-runner');
 
@@ -16,10 +15,6 @@ export interface InternalBBRunOptions<T> extends InternalExecutionOptions {
   repairAttempts?: number;
 }
 
-const DEFAULT_DISCOVERY_SUMMARY = 'Discovery state updated.';
-const DEFAULT_DISCOVERY_QUESTION_LABEL = 'Need one more setup detail';
-const DEFAULT_DISCOVERY_QUESTION_DESCRIPTION =
-  'Share one detail so I can keep building this bot.';
 
 function summarizeOutput(output: unknown): string {
   if (typeof output === 'string') {
@@ -106,7 +101,7 @@ function extractBalancedJsonSegment(raw: string): string | undefined {
   return undefined;
 }
 
-function normalizeOutputCandidate(output: unknown): unknown {
+export function normalizeOutputCandidate(output: unknown): unknown {
   if (output && typeof output === 'object' && !Array.isArray(output)) {
     return output;
   }
@@ -164,128 +159,6 @@ function parseAgainstSchema<T>(
   };
 }
 
-function createDiscoveryQuestionId(): string {
-  try {
-    return `discovery-question-${crypto.randomUUID()}`;
-  } catch {
-    return `discovery-question-${Math.random().toString(36).slice(2, 10)}`;
-  }
-}
-
-function toTrimmedString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function extractStringishField(
-  record: Record<string, unknown>,
-  keys: string[]
-): string {
-  for (const key of keys) {
-    const candidate = toTrimmedString(record[key]);
-    if (candidate.length > 0) return candidate;
-  }
-  return '';
-}
-
-function coerceOptionalBoolean(value: unknown): boolean | undefined {
-  if (typeof value === 'boolean') return value;
-  if (typeof value !== 'string') return undefined;
-  const lower = value.trim().toLowerCase();
-  if (lower === 'true') return true;
-  if (lower === 'false') return false;
-  return undefined;
-}
-
-function coerceDiscoveryQuestion(
-  entry: unknown,
-  index: number
-): Record<string, unknown> | null {
-  if (typeof entry === 'string') {
-    const text = entry.trim();
-    if (!text) return null;
-    return {
-      id: createDiscoveryQuestionId(),
-      label: text.slice(0, 160),
-      description: text.slice(0, 600),
-      requiredNow: true,
-    };
-  }
-
-  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-    return null;
-  }
-
-  const record = entry as Record<string, unknown>;
-  const label = extractStringishField(record, ['label', 'title', 'question', 'prompt']);
-  const description = extractStringishField(record, [
-    'description',
-    'details',
-    'reason',
-    'message',
-  ]);
-  const fallback = label || description;
-
-  return {
-    id:
-      extractStringishField(record, ['id', 'key']) ||
-      `${createDiscoveryQuestionId()}-${index + 1}`,
-    label: label || fallback || DEFAULT_DISCOVERY_QUESTION_LABEL,
-    description:
-      description || fallback || DEFAULT_DISCOVERY_QUESTION_DESCRIPTION,
-    requiredNow:
-      coerceOptionalBoolean(record.requiredNow) ??
-      coerceOptionalBoolean(record.required),
-    icon: extractStringishField(record, ['icon']) || undefined,
-  };
-}
-
-function coerceDiscoveryQuestionArray(
-  value: unknown,
-  limit: number
-): unknown {
-  if (!Array.isArray(value)) {
-    return value;
-  }
-
-  return value
-    .map((entry, index) => coerceDiscoveryQuestion(entry, index))
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
-    .slice(0, limit);
-}
-
-function coerceStringList(value: unknown, limit: number): unknown {
-  if (!Array.isArray(value)) {
-    return value;
-  }
-
-  return value
-    .map((entry) => {
-      if (typeof entry === 'string') return entry.trim();
-      if (typeof entry === 'number' || typeof entry === 'boolean') {
-        return String(entry);
-      }
-      if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
-        const record = entry as Record<string, unknown>;
-        return extractStringishField(record, ['summary', 'message', 'label', 'text']);
-      }
-      return '';
-    })
-    .filter((entry) => entry.length > 0)
-    .slice(0, limit);
-}
-
-function coerceUnitInterval(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const parsed = Number(value.trim());
-    if (Number.isFinite(parsed)) return parsed;
-  }
-
-  return undefined;
-}
 
 function formatRepairPrompt(args: {
   botName: string;
@@ -397,159 +270,6 @@ async function runInternalBB<T>(args: {
     throw error;
   }
 }
-
-const discoveryQuestionSchema = z.object({
-  id: z
-    .preprocess(
-      (value) => (typeof value === 'string' ? value.trim() : value),
-      z.string().min(1).max(120).catch(() => createDiscoveryQuestionId())
-    ),
-  label: z
-    .preprocess(
-      (value) => (typeof value === 'string' ? value.trim() : value),
-      z
-        .string()
-        .min(1)
-        .max(160)
-        .catch(DEFAULT_DISCOVERY_QUESTION_LABEL)
-    ),
-  description: z
-    .preprocess(
-      (value) => (typeof value === 'string' ? value.trim() : value),
-      z
-        .string()
-        .min(1)
-        .max(600)
-        .catch(DEFAULT_DISCOVERY_QUESTION_DESCRIPTION)
-    ),
-  icon: z
-    .preprocess(
-      (value) => (typeof value === 'string' ? value.trim() : value),
-      z.string().min(1).max(40).optional().catch(undefined)
-    ),
-  requiredNow: z
-    .preprocess((value) => coerceOptionalBoolean(value), z.boolean().optional())
-    .optional(),
-});
-
-const discoveryAssumptionSchema = z.object({
-  id: z
-    .preprocess(
-      (value) => (typeof value === 'string' ? value.trim() : value),
-      z.string().min(1).max(120).optional().catch(undefined)
-    ),
-  label: z
-    .preprocess(
-      (value) => (typeof value === 'string' ? value.trim() : value),
-      z.string().min(1).max(140).catch('Assumption')
-    ),
-  value: z
-    .preprocess(
-      (value) => (typeof value === 'string' ? value.trim() : value),
-      z.string().min(1).max(1200).catch('Use safe defaults')
-    ),
-  confidence: z
-    .preprocess(
-      (value) => (typeof value === 'string' ? value.toLowerCase().trim() : value),
-      z.enum(['low', 'medium', 'high']).optional().catch(undefined)
-    ),
-  requiresConfirmation: z
-    .preprocess((value) => coerceOptionalBoolean(value), z.boolean().optional())
-    .optional(),
-});
-
-export const creatorDiscoveryOutputSchema = z.object({
-  needsMoreInfo: z.preprocess((value) => coerceOptionalBoolean(value), z.boolean().catch(false)),
-  message: z.preprocess(
-    (value) => (typeof value === 'string' ? value.trim() : undefined),
-    z.string().min(1).max(2000).optional()
-  ),
-  questions: z.preprocess(
-    (value) => coerceDiscoveryQuestionArray(value, 8),
-    z.array(discoveryQuestionSchema).max(8).default([])
-  ),
-  contextNotes: z.preprocess(
-    (value) => coerceStringList(value, 16),
-    z.array(z.string()).max(16).default([])
-  ),
-  delta: z
-    .preprocess((value) => {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return value;
-      }
-
-      const record = value as Record<string, unknown>;
-      const rawSummary =
-        typeof record.summary === 'string' ? record.summary.trim() : '';
-      const normalizedNextQuestion =
-        record.nextQuestion === null
-          ? null
-          : coerceDiscoveryQuestion(record.nextQuestion, 0);
-      const assumptions = Array.isArray(record.assumptions)
-        ? record.assumptions
-            .filter(
-              (entry): entry is Record<string, unknown> =>
-                Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry)
-            )
-            .slice(0, 10)
-        : undefined;
-
-      return {
-        ...record,
-        summary:
-          rawSummary.length > 0 ? rawSummary : DEFAULT_DISCOVERY_SUMMARY,
-        resolvedDecisions: coerceDiscoveryQuestionArray(
-          record.resolvedDecisions,
-          10
-        ),
-        openDecisions: coerceDiscoveryQuestionArray(record.openDecisions, 10),
-        assumptions,
-        nextQuestion: normalizedNextQuestion,
-      };
-    }, z.object({
-      summary: z
-        .preprocess(
-          (value) => (typeof value === 'string' ? value.trim() : value),
-          z.string().min(1).max(400).catch(DEFAULT_DISCOVERY_SUMMARY)
-        ),
-      goal: z
-        .preprocess(
-          (value) => (typeof value === 'string' ? value.trim() : undefined),
-          z.string().max(220).optional()
-        ),
-      stage: z
-        .preprocess(
-          (value) => (typeof value === 'string' ? value.trim() : undefined),
-          z.string().max(80).optional()
-        ),
-      resolvedDecisions: z.preprocess(
-        (value) => coerceDiscoveryQuestionArray(value, 10),
-        z.array(discoveryQuestionSchema).max(10).optional()
-      ),
-      openDecisions: z.preprocess(
-        (value) => coerceDiscoveryQuestionArray(value, 10),
-        z.array(discoveryQuestionSchema).max(10).optional()
-      ),
-      assumptions: z.preprocess((value) => {
-        if (!Array.isArray(value)) return value;
-        return value
-          .filter(
-            (entry): entry is Record<string, unknown> =>
-              Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry)
-          )
-          .slice(0, 10);
-      }, z.array(discoveryAssumptionSchema).max(10).optional()),
-      nextQuestion: z.preprocess(
-        (value) => (value === null ? null : coerceDiscoveryQuestion(value, 0)),
-        discoveryQuestionSchema.nullable().optional()
-      ),
-      runnableConfidence: z.preprocess(
-        (value) => coerceUnitInterval(value),
-        z.number().min(0).max(1).optional()
-      ),
-    }))
-    .optional(),
-});
 
 function normalizeCreatorActionLabel(prompt: string): string {
   const compact = prompt
@@ -888,39 +608,6 @@ export const nlToSqlOutputSchema = z.preprocess(
   })
 );
 
-const webSearchResultSchema = z
-  .object({
-    title: z.string().default(''),
-    url: z.string().default(''),
-    snippet: z.string().optional(),
-    content: z.string().optional(),
-  })
-  .transform((result) => ({
-    title: result.title,
-    url: result.url,
-    snippet: result.snippet ?? result.content ?? '',
-  }));
-
-export const webSearchFallbackOutputSchema = z.preprocess((value) => {
-  if (Array.isArray(value)) {
-    return { results: value };
-  }
-
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    if (!Array.isArray(record.results) && Array.isArray(record.searchResults)) {
-      return {
-        ...record,
-        results: record.searchResults,
-      };
-    }
-  }
-
-  return value;
-}, z.object({
-  results: z.array(webSearchResultSchema),
-}));
-
 export const toolExecutorOutputSchema = z.preprocess(
   (value) => (typeof value === 'string' ? { success: true, text: value } : value),
   z.object({
@@ -930,7 +617,6 @@ export const toolExecutorOutputSchema = z.preprocess(
   })
 );
 
-export type CreatorDiscoveryOutput = z.infer<typeof creatorDiscoveryOutputSchema>;
 export type CreatorActionAdvisorOutput = z.infer<typeof creatorActionAdvisorOutputSchema>;
 export type TestGeneratorOutput = z.infer<typeof testGeneratorOutputSchema>;
 export type ConnectionAdvisorOutput = z.infer<typeof connectionAdvisorOutputSchema>;
@@ -940,32 +626,7 @@ export type DeploymentAdvisorOutput = z.infer<typeof deploymentAdvisorOutputSche
 export type BalGeneratorOutput = z.infer<typeof balGeneratorOutputSchema>;
 export type PatternLearnerOutput = z.infer<typeof patternLearnerOutputSchema>;
 export type ExecutionReviewerOutput = z.infer<typeof executionReviewerOutputSchema>;
-export type WebSearchFallbackOutput = z.infer<typeof webSearchFallbackOutputSchema>;
 export type ToolExecutorOutput = z.infer<typeof toolExecutorOutputSchema>;
-
-export async function runCreatorDiscovery(
-  input: string,
-  options?: InternalBBRunOptions<CreatorDiscoveryOutput>
-): Promise<CreatorDiscoveryOutput> {
-  return runInternalBB({
-    botName: 'creator_discovery',
-    input,
-    schema: creatorDiscoveryOutputSchema,
-    options,
-  });
-}
-
-export async function runCreatorBot(
-  input: string,
-  options?: InternalBBRunOptions<z.infer<typeof creatorOutputSchema>>
-): Promise<z.infer<typeof creatorOutputSchema>> {
-  return runInternalBB({
-    botName: 'creator_bot',
-    input,
-    schema: creatorOutputSchema,
-    options,
-  });
-}
 
 export async function runCreatorActionAdvisor(
   input: string,
@@ -1096,18 +757,6 @@ export async function runNlToSql(
     botName: databaseType === 'mysql' ? 'nl_to_sql_mysql' : 'nl_to_sql_postgres',
     input,
     schema: nlToSqlOutputSchema,
-    options,
-  });
-}
-
-export async function runWebSearchFallback(
-  input: string,
-  options?: InternalBBRunOptions<WebSearchFallbackOutput>
-): Promise<WebSearchFallbackOutput> {
-  return runInternalBB({
-    botName: 'web_search_fallback',
-    input,
-    schema: webSearchFallbackOutputSchema,
     options,
   });
 }

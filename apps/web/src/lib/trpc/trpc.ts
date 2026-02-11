@@ -1,8 +1,10 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import { auth } from '@clerk/nextjs/server';
 import superjson from 'superjson';
-import { db, notDeleted } from '@baleyui/db';
+import { db, notDeleted, workspaceMembers, eq, and, isNull } from '@baleyui/db';
 import { validateApiKey } from '@/lib/api/validate-api-key';
+
+type WorkspaceRole = 'admin' | 'editor' | 'operator' | 'viewer';
 
 /**
  * Create tRPC context for each request.
@@ -128,10 +130,10 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
 });
 
 /**
- * Admin procedure - requires authentication and admin user ID.
+ * System admin procedure - requires authentication and admin user ID (from ADMIN_USER_IDS env).
  * Overrides workspace context with the system workspace.
  */
-export const adminProcedure = authenticatedProcedure.use(async ({ ctx, next }) => {
+export const systemAdminProcedure = authenticatedProcedure.use(async ({ ctx, next }) => {
   const adminUserIds = (process.env.ADMIN_USER_IDS || '').split(',').map((id) => id.trim()).filter(Boolean);
 
   if (!adminUserIds.includes(ctx.userId)) {
@@ -179,3 +181,72 @@ export const auditedProcedure = protectedProcedure.use(async (opts) => {
     type: opts.type,
   });
 });
+
+// ============================================================================
+// WORKSPACE ROLE-GATED PROCEDURES
+// ============================================================================
+
+/**
+ * Middleware that resolves the user's workspace role from workspaceMembers.
+ * Falls back to 'admin' for workspace owners without a membership record.
+ * API key auth gets 'operator' role by default.
+ */
+const withWorkspaceRole = t.middleware(async ({ ctx, next }) => {
+  // API key auth — treat as operator (can execute, not create/delete)
+  if (ctx.authMethod === 'api_key') {
+    return next({ ctx: { ...ctx, workspaceRole: 'operator' as WorkspaceRole } });
+  }
+
+  if (!ctx.userId || !('workspace' in ctx) || !ctx.workspace) {
+    throw new TRPCError({ code: 'UNAUTHORIZED' });
+  }
+
+  const workspace = ctx.workspace as { id: string; ownerId: string };
+
+  // Workspace owner is always admin
+  if (ctx.userId === workspace.ownerId) {
+    return next({ ctx: { ...ctx, workspaceRole: 'admin' as WorkspaceRole } });
+  }
+
+  const member = await ctx.db.query.workspaceMembers.findFirst({
+    where: and(
+      eq(workspaceMembers.workspaceId, workspace.id),
+      eq(workspaceMembers.userId, ctx.userId),
+      isNull(workspaceMembers.deletedAt)
+    ),
+    columns: { role: true },
+  });
+
+  if (!member?.role) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Not a workspace member' });
+  }
+
+  return next({ ctx: { ...ctx, workspaceRole: member.role as WorkspaceRole } });
+});
+
+/**
+ * Helper to create a role-checking middleware.
+ */
+const requireRole = (...roles: WorkspaceRole[]) =>
+  t.middleware(async ({ ctx, next }) => {
+    const role = (ctx as { workspaceRole?: WorkspaceRole }).workspaceRole;
+    if (!role || !roles.includes(role)) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: `Requires ${roles.join(' or ')} role`,
+      });
+    }
+    return next({ ctx });
+  });
+
+/** Requires workspace membership (any role). Adds workspaceRole to context. */
+export const roleProcedure = protectedProcedure.use(withWorkspaceRole);
+
+/** Requires editor or admin role. */
+export const editorProcedure = roleProcedure.use(requireRole('admin', 'editor'));
+
+/** Requires operator, editor, or admin role. */
+export const operatorProcedure = roleProcedure.use(requireRole('admin', 'editor', 'operator'));
+
+/** Requires workspace admin role. */
+export const adminProcedure = roleProcedure.use(requireRole('admin'));

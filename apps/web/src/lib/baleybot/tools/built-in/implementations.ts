@@ -14,8 +14,6 @@ import type {
   SendNotificationResult,
   ScheduleTaskResult,
   StoreMemoryResult,
-  CreateAgentResult,
-  CreateToolResult,
 } from './index';
 
 // Re-export BuiltInToolContext for use by catalog-service
@@ -30,9 +28,13 @@ import {
   CREATE_AGENT_SCHEMA,
   CREATE_TOOL_SCHEMA,
   SHARED_STORAGE_SCHEMA,
+  REQUEST_USER_INPUT_SCHEMA,
   BUILT_IN_TOOLS_METADATA,
 } from './index';
+import type { RequestUserInputResult } from './request-user-input';
 import { createSharedStorageToolImpl } from '../../services/shared-storage-service';
+import { createSpawnBaleybotExecutor } from '../../services/spawn-executor';
+import type { BaleybotStreamEvent } from '@baleybots/core';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('built-in-tools');
@@ -49,6 +51,7 @@ import {
   type EphemeralToolConfig,
 } from '../../services/ephemeral-tool-service';
 import { promoteToolToWorkspace } from '../../services/promotion-service';
+import { validateUrl } from './url-validator';
 
 // ============================================================================
 // WEB SEARCH
@@ -110,6 +113,9 @@ async function fetchUrlImpl(
   _ctx: BuiltInToolContext
 ): Promise<FetchUrlResult> {
   const format = args.format ?? 'text';
+
+  // SSRF protection: validate URL before fetching
+  validateUrl(args.url);
 
   try {
     const response = await fetch(args.url, {
@@ -361,31 +367,6 @@ interface CreateAgentArgs {
   input?: unknown;
 }
 
-// Store for parent tools, set when getBuiltInRuntimeTools is called
-let parentToolsStore: Map<string, RuntimeToolDefinition> | null = null;
-
-async function createAgentImpl(
-  args: CreateAgentArgs,
-  _ctx: BuiltInToolContext
-): Promise<CreateAgentResult> {
-  logger.info('Creating ephemeral agent', { name: args.name, goal: args.goal });
-
-  // Extract input from args if provided
-  const { name, goal, model, tools, input } = args;
-  const agentConfig: EphemeralAgentConfig = { name, goal, model, tools };
-
-  // Get parent tools - we need to pass the tools available in this execution context
-  // so the ephemeral agent can use them
-  const parentTools = parentToolsStore ?? new Map<string, RuntimeToolDefinition>();
-
-  // Execute the ephemeral agent
-  return ephemeralAgentService.createAndExecute(
-    agentConfig,
-    input ?? '',
-    parentTools
-  );
-}
-
 // ============================================================================
 // CREATE TOOL
 // ============================================================================
@@ -397,43 +378,38 @@ interface CreateToolArgs {
   implementation: string;
 }
 
-async function createToolImpl(
-  args: CreateToolArgs,
+// ============================================================================
+// REQUEST USER INPUT
+// ============================================================================
+
+interface RequestUserInputArgs {
+  question: string;
+}
+
+/**
+ * Injected request_user_input handler.
+ * The creator pipeline adapter injects this so the concierge can pause
+ * and wait for user responses mid-execution.
+ */
+type RequestUserInputHandler = (
+  args: RequestUserInputArgs,
   ctx: BuiltInToolContext
-): Promise<CreateToolResult> {
-  logger.info('Creating ephemeral tool', { name: args.name });
+) => Promise<RequestUserInputResult>;
 
-  // Convert args to ephemeral tool config
-  const config: EphemeralToolConfig = {
-    name: args.name,
-    description: args.description,
-    inputSchema: args.input_schema,
-    implementation: args.implementation,
-  };
+let requestUserInputHandler: RequestUserInputHandler | null = null;
 
-  // Create the ephemeral tool
-  const result = await ephemeralToolService.create(config, ctx);
+export function setRequestUserInputHandler(handler: RequestUserInputHandler | null): void {
+  requestUserInputHandler = handler;
+}
 
-  // If tool was created successfully, add it to the parent tools store
-  // so it can be used in subsequent tool calls in this execution
-  if (result.created && parentToolsStore) {
-    const tool = ephemeralToolService.getTool(args.name);
-    if (tool) {
-      parentToolsStore.set(args.name, tool);
-    }
+async function requestUserInputImpl(
+  args: RequestUserInputArgs,
+  _ctx: BuiltInToolContext
+): Promise<RequestUserInputResult> {
+  if (!requestUserInputHandler) {
+    throw new Error('request_user_input handler not configured');
   }
-
-  // Auto-promote to workspace so tool persists across executions
-  if (result.created) {
-    promoteToolToWorkspace(ctx.workspaceId, config).catch((err) => {
-      logger.warn('Failed to auto-promote ephemeral tool', {
-        name: args.name,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-  }
-
-  return result;
+  return requestUserInputHandler(args, _ctx);
 }
 
 // ============================================================================
@@ -467,7 +443,10 @@ function createRuntimeTool(
 /**
  * Get all built-in tools as RuntimeToolDefinitions, bound to the provided context.
  */
-export function getBuiltInRuntimeTools(ctx: BuiltInToolContext): Map<string, RuntimeToolDefinition> {
+export function getBuiltInRuntimeTools(
+  ctx: BuiltInToolContext,
+  options?: { onChildSegment?: (event: BaleybotStreamEvent) => void }
+): Map<string, RuntimeToolDefinition> {
   const tools = new Map<string, RuntimeToolDefinition>();
 
   // Helper to wrap typed implementations as generic tool functions
@@ -491,13 +470,29 @@ export function getBuiltInRuntimeTools(ctx: BuiltInToolContext): Map<string, Run
     ctx
   ));
 
-  tools.set('spawn_baleybot', createRuntimeTool(
-    'spawn_baleybot',
-    'Execute another BaleyBot and return its result',
-    SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>,
-    wrapImpl<SpawnBaleybotArgs>(spawnBaleybotImpl),
-    ctx
-  ));
+  // If onChildSegment is provided, create a streaming-aware spawn executor.
+  // Otherwise fall back to the globally-configured executor.
+  if (options?.onChildSegment) {
+    const streamingSpawnExecutor = createSpawnBaleybotExecutor({
+      onChildSegment: options.onChildSegment,
+    });
+    tools.set('spawn_baleybot', createRuntimeTool(
+      'spawn_baleybot',
+      'Execute another BaleyBot and return its result',
+      SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>,
+      async (args: Record<string, unknown>, toolCtx: BuiltInToolContext) =>
+        streamingSpawnExecutor(String(args.baleybot), args.input, toolCtx),
+      ctx
+    ));
+  } else {
+    tools.set('spawn_baleybot', createRuntimeTool(
+      'spawn_baleybot',
+      'Execute another BaleyBot and return its result',
+      SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>,
+      wrapImpl<SpawnBaleybotArgs>(spawnBaleybotImpl),
+      ctx
+    ));
+  }
 
   tools.set('send_notification', createRuntimeTool(
     'send_notification',
@@ -523,11 +518,20 @@ export function getBuiltInRuntimeTools(ctx: BuiltInToolContext): Map<string, Run
     ctx
   ));
 
+  // Create agent needs access to available tools via closure (not module state)
   tools.set('create_agent', createRuntimeTool(
     'create_agent',
     'Create a temporary specialized AI agent',
     CREATE_AGENT_SCHEMA as Record<string, unknown>,
-    wrapImpl<CreateAgentArgs>(createAgentImpl),
+    async (args: Record<string, unknown>, _toolCtx: BuiltInToolContext) => {
+      const { name, goal, model, tools: agentTools, input } = args as unknown as CreateAgentArgs;
+      const agentConfig: EphemeralAgentConfig = { name, goal, model, tools: agentTools };
+      return ephemeralAgentService.createAndExecute(
+        agentConfig,
+        input ?? '',
+        tools // captured from getBuiltInRuntimeTools closure
+      );
+    },
     ctx
   ));
 
@@ -535,7 +539,30 @@ export function getBuiltInRuntimeTools(ctx: BuiltInToolContext): Map<string, Run
     'create_tool',
     'Define a custom tool for the current execution',
     CREATE_TOOL_SCHEMA as Record<string, unknown>,
-    wrapImpl<CreateToolArgs>(createToolImpl),
+    async (args: Record<string, unknown>, toolCtx: BuiltInToolContext) => {
+      const typedArgs = args as unknown as CreateToolArgs;
+      logger.info('Creating ephemeral tool', { name: typedArgs.name });
+      const config: EphemeralToolConfig = {
+        name: typedArgs.name,
+        description: typedArgs.description,
+        inputSchema: typedArgs.input_schema,
+        implementation: typedArgs.implementation,
+      };
+      const result = await ephemeralToolService.create(config, toolCtx);
+      if (result.created) {
+        const tool = ephemeralToolService.getTool(typedArgs.name);
+        if (tool) {
+          tools.set(typedArgs.name, tool);
+        }
+        promoteToolToWorkspace(toolCtx.workspaceId, config).catch((err) => {
+          logger.warn('Failed to auto-promote ephemeral tool', {
+            name: typedArgs.name,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+      return result;
+    },
     ctx
   ));
 
@@ -554,9 +581,13 @@ export function getBuiltInRuntimeTools(ctx: BuiltInToolContext): Map<string, Run
     ctx
   ));
 
-  // Store tools so create_agent can pass them to ephemeral agents
-  // This allows ephemeral agents to use the same tools as the parent BB
-  parentToolsStore = tools;
+  tools.set('request_user_input', createRuntimeTool(
+    'request_user_input',
+    'Ask the user a question and wait for their response',
+    REQUEST_USER_INPUT_SCHEMA as Record<string, unknown>,
+    wrapImpl<RequestUserInputArgs>(requestUserInputImpl),
+    ctx
+  ));
 
   return tools;
 }

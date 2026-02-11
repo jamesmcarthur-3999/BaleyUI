@@ -22,14 +22,11 @@ export const ROUTES = {
     execution: (id: string) => `/dashboard/activity/executions/${id}`,
   },
 
-  // Connections (AI providers & databases)
-  connections: {
-    list: '/dashboard/connections',
-  },
-
-  // Tools (tool catalog)
-  tools: {
-    list: '/dashboard/tools',
+  // Capabilities (tools, connections, API keys)
+  capabilities: {
+    tools: '/dashboard/capabilities/tools',
+    connections: '/dashboard/capabilities/connections',
+    apiKeys: '/dashboard/capabilities/api-keys',
   },
 
   // Analytics
@@ -40,10 +37,10 @@ export const ROUTES = {
   // Settings
   settings: {
     root: '/dashboard/settings',
-    workspace: '/dashboard/settings/workspace',
-    apiKeys: '/dashboard/settings/api-keys',
-    // Alias: connections page is at /dashboard/connections, not under settings
-    connections: '/dashboard/connections',
+    general: '/dashboard/settings/general',
+    profile: '/dashboard/settings/profile',
+    team: '/dashboard/settings/team',
+    approvals: '/dashboard/settings/approvals',
   },
 
   // Admin (internal BaleyBots management)
