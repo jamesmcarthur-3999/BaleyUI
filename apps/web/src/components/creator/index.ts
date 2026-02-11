@@ -17,3 +17,5 @@ export { InlineConnectionForm } from './InlineConnectionForm';
 // TestPanel component removed — replaced by ReviewPage. Types kept for useTestExecution.
 export type { TestCase, InputType, TestFixture, StepExpectation } from './TestPanel';
 export { MonitorPanel } from './MonitorPanel';
+export { BaleybotHeader } from './BaleybotHeader';
+export type { BaleybotHeaderProps } from './BaleybotHeader';

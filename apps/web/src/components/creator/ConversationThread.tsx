@@ -49,7 +49,7 @@ interface ConversationThreadProps {
 export function ConversationThread({
   messages,
   className,
-  embedded = false,
+  embedded: _embedded = false,
   isBuilding = false,
   streamingProgress,
   onOptionSelect: _onOptionSelect,
@@ -92,21 +92,22 @@ export function ConversationThread({
 
   const messageList = (
     <>
-      {messages.map((message, index) =>
-        message.role === 'user' ? (
-          <UserMessage
-            key={message.id}
-            message={message}
-            isLatest={index === messages.length - 1 && !streamingBubble}
-          />
-        ) : (
-          <AssistantMessage
-            key={message.id}
-            message={message}
-            isLatest={index === messages.length - 1 && !streamingBubble}
-          />
-        )
-      )}
+      {messages.map((message, index) => {
+        const isLatest = index === messages.length - 1 && !streamingBubble;
+        if (message.role === 'user') {
+          return <UserMessage key={message.id} message={message} isLatest={isLatest} />;
+        }
+        if (message.role === 'system') {
+          return (
+            <SystemMessage
+              key={message.id}
+              message={message}
+              onOptionSelect={_onOptionSelect}
+            />
+          );
+        }
+        return <AssistantMessage key={message.id} message={message} isLatest={isLatest} />;
+      })}
       {streamingBubble}
     </>
   );
@@ -221,6 +222,49 @@ function AssistantMessage({
         >
           {formatTime(message.timestamp)}
         </time>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// SYSTEM MESSAGE (catastrophic AI failure, not from the model)
+// ============================================================================
+
+function SystemMessage({
+  message,
+  onOptionSelect,
+}: {
+  message: CreatorMessage;
+  onOptionSelect?: (optionId: string) => void;
+}) {
+  const isError = message.metadata?.isError;
+  const options = message.metadata?.options;
+
+  return (
+    <div className="flex justify-center animate-fade-in">
+      <div
+        className={cn(
+          'max-w-[85%] rounded-xl px-4 py-2.5 text-center text-[13px] leading-relaxed',
+          isError
+            ? 'bg-red-500/8 text-red-400 border border-red-500/20'
+            : 'bg-muted/50 text-muted-foreground'
+        )}
+      >
+        <p>{message.content}</p>
+        {options && options.length > 0 && onOptionSelect && (
+          <div className="flex justify-center gap-2 mt-2">
+            {options.map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => onOptionSelect(opt.id)}
+                className="text-xs px-3 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

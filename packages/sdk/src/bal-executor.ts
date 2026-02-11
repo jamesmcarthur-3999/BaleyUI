@@ -108,7 +108,7 @@ export interface BALCompileResult {
 // BUILT-IN TOOLS
 // ============================================================================
 
-function getAvailableTools(options: BALExecutionOptions): Record<string, ZodToolDefinition | ToolDefinition> {
+function getAvailableTools(options: BALExecutionOptions): Record<string, ZodToolDefinition | ToolDefinition> | undefined {
   const tools: Record<string, ZodToolDefinition | ToolDefinition> = {};
 
   // Web search tool (requires Tavily API key)
@@ -135,7 +135,9 @@ function getAvailableTools(options: BALExecutionOptions): Record<string, ZodTool
     }
   }
 
-  return tools;
+  // Return undefined when no tools are configured so the semantic checker
+  // skips tool validation (rather than rejecting all tools against an empty map)
+  return Object.keys(tools).length > 0 ? tools : undefined;
 }
 
 // ============================================================================

@@ -1,7 +1,10 @@
-// TODO: STYLE-002 - This file is over 600 lines (~1094 lines). Consider splitting into:
-// - baleybots-queries.ts (list, getById, getByName queries)
+// TODO: STYLE-002 - This file is ~2,600 lines. Consider splitting into:
+// - baleybots-queries.ts (list, getById queries)
 // - baleybots-mutations.ts (create, update, delete mutations)
 // - baleybots-execution.ts (execute, stream procedures)
+// - baleybots-creator.ts (creator pipeline, guidance)
+// - baleybots-testing.ts (test generation, validation, analysis)
+// - baleybots-launch.ts (readiness, launch kit, deploy)
 // - baleybots-schemas.ts (shared zod schemas)
 
 import { z } from 'zod';
@@ -22,6 +25,7 @@ import {
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { sanitizeCreatorText } from '@/lib/baleybot/creator-sanitization';
+import { canExecute } from '@/lib/baleybot/executor';
 import { getPreferredProvider } from '@/lib/baleybot';
 import { buildCreatorRequestContext } from '@/lib/baleybot/creator-request-context';
 import { executeInternalBaleybot } from '@/lib/baleybot/internal-baleybots';
@@ -214,6 +218,10 @@ function sanitizeConversationHistoryForStorage(
  * tRPC router for managing BaleyBots (BAL-first architecture).
  */
 export const baleybotsRouter = router({
+  // ========================================================================
+  // QUERIES
+  // ========================================================================
+
   /**
    * List all BaleyBots for the workspace.
    * API-004: Return only necessary fields for list view
@@ -317,6 +325,10 @@ export const baleybotsRouter = router({
       return baleybot;
     }),
 
+  // ========================================================================
+  // MUTATIONS
+  // ========================================================================
+
   /**
    * Create a new BaleyBot from BAL code.
    * API-001: Stricter input validation
@@ -401,6 +413,17 @@ export const baleybotsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Validate BAL syntax if balCode is being updated
+      if (input.balCode) {
+        const validation = canExecute(input.balCode);
+        if (!validation.valid) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `Invalid BAL code: ${validation.errors.slice(0, 3).join('; ')}`,
+          });
+        }
+      }
+
       // Verify BaleyBot exists and belongs to workspace
       const existing = await ctx.db.query.baleybots.findFirst({
         where: and(
@@ -552,6 +575,10 @@ export const baleybotsRouter = router({
 
       return updated;
     }),
+
+  // ========================================================================
+  // EXECUTION
+  // ========================================================================
 
   /**
    * Execute a BaleyBot with input.
@@ -982,7 +1009,9 @@ export const baleybotsRouter = router({
       };
     }),
 
-  // ===== Creator Bot Endpoints =====
+  // ========================================================================
+  // CREATOR
+  // ========================================================================
 
   /**
    * Send a message to the Creator Bot and get a response.
@@ -1150,9 +1179,20 @@ export const baleybotsRouter = router({
             })
           )
           .optional(),
+        // When true, re-fetches current version to bypass optimistic lock conflicts
+        forceOverwrite: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Validate BAL syntax before saving
+      const validation = canExecute(input.balCode);
+      if (!validation.valid) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Invalid BAL code: ${validation.errors.slice(0, 3).join('; ')}`,
+        });
+      }
+
       if (input.baleybotId) {
         // Capture the ID for use in closure (TypeScript narrowing)
         const baleybotId = input.baleybotId;
@@ -1173,13 +1213,23 @@ export const baleybotsRouter = router({
           });
         }
 
-        const balCodeChanged = input.balCode !== existing.balCode;
+        // When forceOverwrite, re-fetch current version to avoid lock conflict loop
+        const saveVersion = input.forceOverwrite
+          ? (await ctx.db.query.baleybots.findFirst({
+              where: eq(baleybots.id, baleybotId),
+              columns: { version: true },
+            }))?.version ?? existing.version
+          : existing.version;
+
+        // Normalize whitespace before comparing to ignore cosmetic BAL formatting changes
+        const normalizeWs = (s: string) => s.replace(/\s+/g, ' ').trim();
+        const balCodeChanged = normalizeWs(input.balCode) !== normalizeWs(existing.balCode);
 
         const truncatedHistory = sanitizeConversationHistoryForStorage(input.conversationHistory);
 
         // API-002: Use shared error handling helper
         return await withErrorHandling(
-          () => updateWithLock(baleybots, baleybotId, existing.version, {
+          () => updateWithLock(baleybots, baleybotId, saveVersion, {
             name: input.name,
             description: input.description,
             icon: input.icon,
@@ -1222,6 +1272,10 @@ export const baleybotsRouter = router({
         return baleybot;
       }
     }),
+
+  // ========================================================================
+  // TESTING
+  // ========================================================================
 
   /**
    * Save test cases as JSON on the baleybots row.
@@ -1298,6 +1352,10 @@ export const baleybotsRouter = router({
       }
       return { success: true, fixturesLoaded: input.fixtures.length };
     }),
+
+  // ========================================================================
+  // TOOLS & VALIDATION
+  // ========================================================================
 
   /**
    * Save trigger configuration to the baleybots row and sync with baleybotTriggers table.
@@ -1503,6 +1561,7 @@ export const baleybotsRouter = router({
 
   /**
    * Analyze connection requirements using the connection_advisor internal BB.
+   * // TODO: Wire to frontend — ConnectionsPanel lazy-check
    */
   analyzeConnections: editorProcedure
     .input(z.object({
@@ -1558,6 +1617,7 @@ export const baleybotsRouter = router({
   /**
    * Lazy validation for a BaleyBot. Runs requested checks on-demand
    * so the user doesn't wait during creation — each tab fires its own check.
+   * // TODO: Wire to frontend — tab-level lazy validation
    */
   validateBaleybot: editorProcedure
     .input(z.object({
@@ -1659,6 +1719,7 @@ export const baleybotsRouter = router({
   /**
    * Verify a specific tool's operational readiness from the Connections panel.
    * Performs connection-level checks and safe runtime probes where applicable.
+   * // TODO: Wire to frontend — per-tool verify button
    */
   verifyTool: editorProcedure
     .input(z.object({
@@ -2116,6 +2177,10 @@ export const baleybotsRouter = router({
       }
     }),
 
+  // ========================================================================
+  // LAUNCH & DEPLOY
+  // ========================================================================
+
   /**
    * Evaluate whether a BaleyBot is ready to enter Launch Prep.
    */
@@ -2371,6 +2436,7 @@ export const baleybotsRouter = router({
 
   /**
    * Return the runtime interface spec for Live mode rendering.
+   * // TODO: Wire to frontend — Live mode runtime panel
    */
   getRuntimeInterface: roleProcedure
     .input(z.object({ baleybotId: z.string().uuid() }))
@@ -2395,6 +2461,7 @@ export const baleybotsRouter = router({
 
   /**
    * Analyze deployment requirements using the deployment_advisor internal BB.
+   * // TODO: Wire to frontend — Deploy panel deep analysis
    */
   analyzeDeployment: editorProcedure
     .input(z.object({

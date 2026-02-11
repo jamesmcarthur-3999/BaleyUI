@@ -215,6 +215,17 @@ describe('internal-baleybots', () => {
       expect(balCode).not.toContain('"output"');
       expect(balCode).toContain('Communication Contract: creator_bot_v2');
     });
+
+    it('creator_bot BAL contains maxTokens', () => {
+      const balCode = INTERNAL_BALEYBOTS.creator_bot!.balCode;
+      expect(balCode).toContain('"maxTokens": 16384');
+    });
+
+    it('creator_bot goal emphasizes spawn delegation over direct BAL generation', () => {
+      const balCode = INTERNAL_BALEYBOTS.creator_bot!.balCode;
+      expect(balCode).toContain('NEVER generate BAL code yourself');
+      expect(balCode).toContain("spawn_baleybot('bal_generator'");
+    });
   });
 
   describe('getInternalBaleybot', () => {

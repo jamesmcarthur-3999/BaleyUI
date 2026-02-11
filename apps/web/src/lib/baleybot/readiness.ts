@@ -50,6 +50,21 @@ export function computeApplicability(
   };
 }
 
+/**
+ * Specialist signals from creator_bot's autonomous team.
+ * When a specialist was invoked and returned output, the corresponding
+ * field will be truthy. This enriches the readiness computation with
+ * AI-driven assessments alongside manual/UI-driven checks.
+ */
+export interface SpecialistSignals {
+  /** connection_advisor returned output → enriches `connected` */
+  connectionAdvisorRan?: boolean;
+  /** test_orchestrator returned output → enriches `tested` */
+  testOrchestratorRan?: boolean;
+  /** deployment_advisor returned output → enriches `activated` */
+  deploymentAdvisorRan?: boolean;
+}
+
 export function computeReadiness(params: {
   hasBalCode: boolean;
   hasEntities: boolean;
@@ -60,19 +75,39 @@ export function computeReadiness(params: {
   hasTestRuns: number;
   hasTrigger: boolean;
   hasMonitoring: boolean;
+  specialist?: SpecialistSignals;
 }): ReadinessState {
   const applicability = computeApplicability(params.tools, params.hasConnections);
+  const specialist = params.specialist;
+
+  // connected: manual check OR specialist connection_advisor ran successfully
+  const connectedStatus: DimensionStatus = !applicability.connected
+    ? 'not-applicable'
+    : params.connectionsMet || specialist?.connectionAdvisorRan
+      ? 'complete'
+      : 'incomplete';
+
+  // tested: manual tests OR specialist test_orchestrator ran successfully
+  const testedStatus: DimensionStatus = params.testsPassed || specialist?.testOrchestratorRan
+    ? 'complete'
+    : params.hasTestRuns > 0
+      ? 'in-progress'
+      : 'incomplete';
+
+  // activated: trigger configured OR specialist deployment_advisor assessed
+  const activatedStatus: DimensionStatus = !applicability.activated
+    ? 'not-applicable'
+    : params.hasTrigger || specialist?.deploymentAdvisorRan
+      ? 'complete'
+      : specialist?.deploymentAdvisorRan === false
+        ? 'incomplete'
+        : 'incomplete';
+
   return {
     designed: params.hasBalCode && params.hasEntities ? 'complete' : params.hasBalCode ? 'in-progress' : 'incomplete',
-    connected: !applicability.connected
-      ? 'not-applicable'
-      : params.connectionsMet ? 'complete' : 'incomplete',
-    tested: params.testsPassed
-      ? 'complete'
-      : params.hasTestRuns > 0 ? 'in-progress' : 'incomplete',
-    activated: !applicability.activated
-      ? 'not-applicable'
-      : params.hasTrigger ? 'complete' : 'incomplete',
+    connected: connectedStatus,
+    tested: testedStatus,
+    activated: activatedStatus,
     monitored: !applicability.monitored
       ? 'not-applicable'
       : params.hasMonitoring ? 'complete' : 'incomplete',

@@ -139,7 +139,7 @@ export interface ExecutorContext {
   /** Workspace policies for tool governance */
   workspacePolicies: WorkspacePolicies | null;
   /** Trigger type for the execution */
-  triggeredBy: 'manual' | 'schedule' | 'webhook' | 'other_bb';
+  triggeredBy: 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'internal';
   /** Trigger source (e.g., BB ID if triggered by another BB) */
   triggerSource?: string;
 }

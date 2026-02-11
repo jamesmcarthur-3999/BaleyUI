@@ -43,6 +43,11 @@ vi.mock('@baleyui/db', () => ({
   notDeleted: vi.fn(),
 }));
 
+// Mock the system workspace
+vi.mock('@/lib/system-workspace', () => ({
+  getOrCreateSystemWorkspace: vi.fn().mockResolvedValue('system-ws-id'),
+}));
+
 // Mock the executor
 vi.mock('../../executor', () => ({
   executeBaleybot: vi.fn().mockResolvedValue({

@@ -18,7 +18,7 @@ import type { GeneratorContext } from './types';
 import type { BaleybotStreamEvent } from '@baleybots/core';
 import { createLogger } from '@/lib/logger';
 import { normalizeOutputCandidate } from './internal-bb/runner';
-import { runQuickValidation } from './creator-validation';
+
 
 const logger = createLogger('creator-pipeline-adapter');
 
@@ -39,15 +39,22 @@ export type AgentEvent =
 // SSE EVENT TYPES
 // ============================================================================
 
+/**
+ * Specialist findings extracted from spawn results.
+ * Each field is the normalized output from the respective specialist BB, or null if not invoked.
+ */
+export interface SpecialistFindings {
+  connections: unknown | null;
+  tests: unknown | null;
+  deployment: unknown | null;
+}
+
 export type CreatorSSEEvent =
   | { type: 'creator_stream_started'; timestamp: number }
   | { type: 'creator_text_delta'; content: string; timestamp: number }
   | { type: 'creator_progress'; phase: string; message: string; timestamp: number }
-  | { type: 'creator_complete'; result: CreatorOutput; summary: string; timestamp: number }
+  | { type: 'creator_complete'; result: CreatorOutput; summary: string; specialist: SpecialistFindings; timestamp: number }
   | { type: 'creator_error'; message: string; timestamp: number }
-  | { type: 'creator_validation_started'; timestamp: number }
-  | { type: 'creator_validation_progress'; testIndex: number; totalTests: number; testName: string; timestamp: number }
-  | { type: 'creator_validation_result'; status: 'passed' | 'failed'; passRate: number; failedTests: string[]; timestamp: number }
   | { type: 'creator_agent_event'; event: AgentEvent; entityName?: string; timestamp: number };
 
 // ============================================================================
@@ -152,6 +159,25 @@ function simplifyEvent(event: BaleybotStreamEvent): AgentEvent | null {
       return null;
     }
 
+    case 'tool_execution_start':
+      return { type: 'tool_start', toolName: String(e.toolName ?? ''), id: String(e.id ?? '') };
+
+    case 'tool_call_stream_output':
+      return { type: 'tool_output', toolName: String(e.id ?? ''), result: e.output };
+
+    case 'tool_call_stream_error':
+      return { type: 'tool_output', toolName: String(e.id ?? ''), result: `Error: ${String((e.error as Record<string, unknown>)?.message ?? 'Unknown error')}` };
+
+    case 'structured_output_delta':
+      return { type: 'text_delta', content: String(e.content ?? '') };
+
+    case 'tool_validation_error':
+      return { type: 'tool_output', toolName: String(e.toolName ?? ''), result: `Validation error: ${String(e.validationErrors ?? '')}` };
+
+    case 'tool_call_arguments_delta':
+    case 'tool_call_stream_delta':
+      return null; // Incremental arg chunks — too noisy
+
     case 'done':
       return { type: 'done', reason: String(e.reason ?? 'unknown') };
 
@@ -220,11 +246,29 @@ function mapEntity(raw: Record<string, unknown>): {
  * If bal_generator was spawned and produced output, we construct a 'ready' result.
  * Otherwise it's a conversation-only turn ('building').
  */
+/**
+ * Find generator result by name, falling back to shape-based detection
+ * (any result with a `balCode` field) if name lookup misses.
+ */
+function findGeneratorResult(spawnResults: Map<string, unknown>): unknown | null {
+  const byName = spawnResults.get('bal_generator');
+  if (byName) return byName;
+
+  // Fallback: search by output shape (has `balCode` field)
+  for (const result of spawnResults.values()) {
+    const normalized = normalizeOutputCandidate(result);
+    if (normalized && typeof normalized === 'object' && 'balCode' in normalized) {
+      return result;
+    }
+  }
+  return null;
+}
+
 function buildCreatorOutput(
   text: string,
   spawnResults: Map<string, unknown>,
 ): CreatorOutput {
-  const balGenResult = spawnResults.get('bal_generator');
+  const balGenResult = findGeneratorResult(spawnResults);
 
   if (balGenResult && typeof balGenResult === 'object') {
     const gen = (normalizeOutputCandidate(balGenResult) ?? {}) as Record<string, unknown>;
@@ -248,19 +292,29 @@ function buildCreatorOutput(
       return parsed.data;
     }
 
-    logger.warn('buildCreatorOutput validation failed, using raw candidate', {
+    logger.warn('buildCreatorOutput validation failed, falling back to building', {
       issues: parsed.error.issues.slice(0, 3),
     });
 
-    // Return the candidate anyway — the schema uses .catch() so this shouldn't happen,
-    // but just in case
-    return candidate as unknown as CreatorOutput;
+    // Spawn was attempted but output failed adapter-side validation.
+    // Pass through the model's conversational text as-is — creator_bot handles
+    // failure communication naturally when it sees the spawn result.
+    return {
+      status: 'building' as const,
+      message: text,
+      entities: [],
+      connections: [],
+      balCode: '',
+      name: String(gen.suggestedName ?? gen.name ?? 'Unnamed BaleyBot'),
+      description: '',
+      icon: '🤖',
+    };
   }
 
   // Conversation-only turn (no spawn)
   return {
     status: 'building',
-    message: text || 'Let me know more about what you need.',
+    message: text,
     entities: [],
     connections: [],
     balCode: '',
@@ -318,39 +372,54 @@ export async function executeCreatorPipeline(
     // Accumulate conversational text and spawn results
     let accumulatedText = '';
     const spawnResults = new Map<string, unknown>();
-    let lastSpawnBotName: string | undefined;
+    // Map tool call IDs to spawned bot names so concurrent spawns are tracked correctly
+    const pendingSpawnNames = new Map<string, string>();
 
     await executeInternalBaleybot(
       'creator_bot',
       input,
       {
         userWorkspaceId: workspaceId,
+        signal: args.signal,
         onSegment: (event: BaleybotStreamEvent) => {
           // Accumulate conversational text
           if (event.type === 'text_delta') {
             accumulatedText += String((event as { content: string }).content ?? '');
           }
 
-          // Track which bot is being spawned
+          // Track which bot is being spawned, keyed by tool call ID
           if (event.type === 'tool_call_stream_complete') {
             const e = event as Record<string, unknown>;
             if (e.toolName === 'spawn_baleybot') {
-              const rawArgs = e.arguments as Record<string, unknown> | undefined;
-              if (rawArgs) {
-                lastSpawnBotName = String(
+              const toolCallId = String(e.id ?? '');
+              // Arguments may arrive as a JSON string or parsed object
+              let rawArgs = e.arguments as Record<string, unknown> | string | undefined;
+              if (typeof rawArgs === 'string') {
+                try { rawArgs = JSON.parse(rawArgs) as Record<string, unknown>; } catch { rawArgs = undefined; }
+              }
+              if (rawArgs && typeof rawArgs === 'object' && toolCallId) {
+                const botName = String(
                   rawArgs.baleybot ?? rawArgs.baleybotIdOrName ?? rawArgs.name ?? ''
                 );
+                if (botName) {
+                  pendingSpawnNames.set(toolCallId, botName);
+                }
               }
             }
           }
 
-          // Capture spawn results
+          // Capture spawn results using tool call ID → bot name mapping
           if (event.type === 'tool_execution_output') {
             const e = event as Record<string, unknown>;
-            if (e.toolName === 'spawn_baleybot' && e.result && lastSpawnBotName) {
-              const result = e.result as { output?: unknown };
-              if (result.output) {
-                spawnResults.set(lastSpawnBotName, result.output);
+            if (e.toolName === 'spawn_baleybot' && e.result) {
+              const toolCallId = String(e.id ?? '');
+              const botName = pendingSpawnNames.get(toolCallId);
+              if (botName) {
+                const result = e.result as { output?: unknown };
+                if (result.output) {
+                  spawnResults.set(botName, result.output);
+                }
+                pendingSpawnNames.delete(toolCallId);
               }
             }
           }
@@ -364,48 +433,20 @@ export async function executeCreatorPipeline(
     // Build CreatorOutput from text + spawn results
     const creatorOutput = buildCreatorOutput(accumulatedText, spawnResults);
 
+    // Extract specialist findings from spawn results
+    const specialistFindings: SpecialistFindings = {
+      connections: normalizeOutputCandidate(spawnResults.get('connection_advisor')) ?? null,
+      tests: normalizeOutputCandidate(spawnResults.get('test_orchestrator')) ?? null,
+      deployment: normalizeOutputCandidate(spawnResults.get('deployment_advisor')) ?? null,
+    };
+
     onEvent({
       type: 'creator_complete',
       result: creatorOutput,
       summary: compactSummary(creatorOutput),
+      specialist: specialistFindings,
       timestamp: Date.now(),
     });
-
-    // Background validation (non-blocking — creator_complete already sent)
-    if (creatorOutput.status === 'ready' && args.baleybotId && creatorOutput.entities.length > 0) {
-      try {
-        onEvent({ type: 'creator_validation_started', timestamp: Date.now() });
-        const result = await runQuickValidation({
-          workspaceId,
-          baleybotId: args.baleybotId,
-          balCode: creatorOutput.balCode,
-          entities: creatorOutput.entities.map((e) => ({
-            name: e.name,
-            tools: e.tools,
-            purpose: e.purpose,
-          })),
-          onProgress: (testIndex, totalTests, testName) =>
-            onEvent({
-              type: 'creator_validation_progress',
-              testIndex,
-              totalTests,
-              testName,
-              timestamp: Date.now(),
-            }),
-          signal: args.signal,
-        });
-        onEvent({
-          type: 'creator_validation_result',
-          status: result.passRate === 1 ? 'passed' : 'failed',
-          passRate: result.passRate,
-          failedTests: result.failedTests.map((t) => t.name),
-          timestamp: Date.now(),
-        });
-      } catch {
-        // Validation failure must never break the main flow
-        logger.warn('Background validation failed silently');
-      }
-    }
 
     return creatorOutput;
   } catch (error: unknown) {

@@ -80,7 +80,7 @@ class WebSearchServiceImpl implements WebSearchService {
   async search(
     query: string,
     numResults: number = 5,
-    options?: { workspaceId?: string }
+    _options?: { workspaceId?: string }
   ): Promise<SearchResult[]> {
     if (!query?.trim()) {
       throw new Error('Search query cannot be empty');

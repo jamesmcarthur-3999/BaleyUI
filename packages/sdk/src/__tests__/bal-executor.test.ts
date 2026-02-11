@@ -86,7 +86,7 @@ describe('compileBALCode', () => {
     expect(mockedCompileBAL).toHaveBeenCalledWith(
       '@entity Test',
       expect.objectContaining({
-        availableTools: {},
+        availableTools: undefined,
       })
     );
   });

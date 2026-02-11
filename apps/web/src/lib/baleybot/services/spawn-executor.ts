@@ -17,6 +17,7 @@ import { executeBaleybot, type ExecutorContext, type RuntimeToolDefinition } fro
 import { getBuiltInRuntimeTools } from '../tools/built-in/implementations';
 import type { WorkspacePolicies as FullWorkspacePolicies } from '../types';
 import type { BaleybotStreamEvent } from '@baleybots/core';
+import { getOrCreateSystemWorkspace } from '@/lib/system-workspace';
 import { createLogger } from '@/lib/logger';
 
 // ============================================================================
@@ -40,17 +41,26 @@ export interface WorkspacePolicies {
 type PolicyProvider = (workspaceId: string) => Promise<WorkspacePolicies | null>;
 
 /**
- * Extract tool names from BAL code
+ * Extract tool names from BAL code.
+ * Supports both brace syntax (canonical BAL) and bracket syntax (legacy/test).
  */
 export function extractToolsFromBAL(balCode: string): string[] {
-  const toolsMatch = balCode.match(/"tools"\s*:\s*\[(.*?)\]/s);
-  if (!toolsMatch) return [];
+  const allTools: string[] = [];
 
-  const toolsStr = toolsMatch[1];
-  if (!toolsStr) return [];
+  // Brace syntax (canonical BAL): "tools": { "web_search", "fetch_url" }
+  for (const match of balCode.matchAll(/"tools"\s*:\s*\{(.*?)\}/gs)) {
+    const toolNames = match[1]?.match(/"([^"]+)"/g) || [];
+    allTools.push(...toolNames.map(t => t.replace(/"/g, '')));
+  }
 
-  const tools = toolsStr.match(/"([^"]+)"/g) || [];
-  return tools.map(t => t.replace(/"/g, ''));
+  // Bracket syntax (legacy/test): "tools": ["web_search"]
+  for (const match of balCode.matchAll(/"tools"\s*:\s*\[(.*?)\]/gs)) {
+    const toolNames = match[1]?.match(/"([^"]+)"/g) || [];
+    allTools.push(...toolNames.map(t => t.replace(/"/g, '')));
+  }
+
+  // Deduplicate
+  return [...new Set(allTools)];
 }
 
 /**
@@ -144,41 +154,66 @@ const log = createLogger('spawn-executor');
 // ============================================================================
 
 /**
- * Look up a BaleyBot by ID or name within the workspace
+ * Look up a BaleyBot by ID or name.
+ * Searches the user workspace first, then falls back to the system workspace
+ * so internal BBs (e.g. bal_generator) can be found when spawned from user BBs.
+ *
+ * When `options.preferSystem` is true, the system workspace is searched FIRST
+ * to prevent user-created BBs from shadowing internal ones (e.g. a user creating
+ * a BB named `bal_generator` that overrides the canonical internal version).
  */
 async function lookupBaleybot(
   idOrName: string,
-  workspaceId: string
+  workspaceId: string,
+  options?: { preferSystem?: boolean }
 ): Promise<{ id: string; name: string; balCode: string } | null> {
-  // Try to find by ID first (if it looks like a UUID)
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     idOrName
   );
 
-  if (isUuid) {
-    const byId = await db.query.baleybots.findFirst({
+  // Helper: search a single workspace by ID or name
+  const searchWorkspace = async (wsId: string) => {
+    if (isUuid) {
+      const byId = await db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, idOrName),
+          eq(baleybots.workspaceId, wsId),
+          notDeleted(baleybots)
+        ),
+        columns: { id: true, name: true, balCode: true },
+      });
+      if (byId) return byId;
+    }
+
+    return db.query.baleybots.findFirst({
       where: and(
-        eq(baleybots.id, idOrName),
-        eq(baleybots.workspaceId, workspaceId),
+        eq(baleybots.name, idOrName),
+        eq(baleybots.workspaceId, wsId),
         notDeleted(baleybots)
       ),
       columns: { id: true, name: true, balCode: true },
     });
+  };
 
-    if (byId) return byId;
+  const systemWorkspaceId = await getOrCreateSystemWorkspace();
+  const isSystemWorkspace = systemWorkspaceId === workspaceId;
+
+  if (options?.preferSystem && !isSystemWorkspace) {
+    // System-first: internal BB spawns should find the canonical system version
+    const systemResult = await searchWorkspace(systemWorkspaceId);
+    if (systemResult) return systemResult;
+    return (await searchWorkspace(workspaceId)) ?? null;
   }
 
-  // Try to find by name
-  const byName = await db.query.baleybots.findFirst({
-    where: and(
-      eq(baleybots.name, idOrName),
-      eq(baleybots.workspaceId, workspaceId),
-      notDeleted(baleybots)
-    ),
-    columns: { id: true, name: true, balCode: true },
-  });
+  // Default: user workspace first, system fallback
+  const userResult = await searchWorkspace(workspaceId);
+  if (userResult) return userResult;
 
-  return byName ?? null;
+  if (!isSystemWorkspace) {
+    return (await searchWorkspace(systemWorkspaceId)) ?? null;
+  }
+
+  return null;
 }
 
 /**
@@ -267,8 +302,13 @@ export function createSpawnBaleybotExecutor(options?: {
       );
     }
 
-    // Look up the target BaleyBot
-    const targetBB = await lookupBaleybot(baleybotIdOrName, ctx.workspaceId);
+    // When spawning from the system workspace (internal BBs), prefer system versions
+    // to prevent user-created BBs from shadowing internal ones
+    const systemWorkspaceId = await getOrCreateSystemWorkspace();
+    const isSystemContext = ctx.workspaceId === systemWorkspaceId;
+    const targetBB = await lookupBaleybot(baleybotIdOrName, ctx.workspaceId, {
+      preferSystem: isSystemContext,
+    });
 
     if (!targetBB) {
       throw new Error(

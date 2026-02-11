@@ -33,17 +33,38 @@ const creatorStreamBodySchema = z
         z.object({
           id: z.string(),
           role: z.enum(['user', 'assistant']),
-          content: z.string(),
+          content: z.string().max(50000),
           timestamp: z.coerce.date(),
           metadata: z.record(z.string(), z.unknown()).optional(),
         })
       )
+      .max(100)
       .optional(),
   })
   .strict();
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+/**
+ * Strip sensitive data from error messages before forwarding to the client.
+ * Removes DB connection strings, file paths, API keys, and internal details.
+ */
+function sanitizeStreamError(message: string): string {
+  return message
+    // DB connection strings
+    .replace(/postgres(ql)?:\/\/[^\s]+/gi, '[database-url]')
+    .replace(/mysql:\/\/[^\s]+/gi, '[database-url]')
+    // File paths
+    .replace(/\/(?:Users|home|var|tmp|app|src)\/[^\s:]+/g, '[path]')
+    // API keys and tokens
+    .replace(/(?:sk|pk|key|token|secret|password)[-_]?[a-zA-Z0-9]{20,}/gi, '[redacted]')
+    // Neon/Vercel-style connection strings
+    .replace(/ep-[a-z0-9-]+\.[\w.-]+neon\.tech/gi, '[database-host]')
+    // Generic long alphanumeric tokens (likely secrets)
+    .replace(/(?<=[\s:=])[A-Za-z0-9+/]{40,}={0,2}(?=[\s\n]|$)/g, '[redacted]')
+    .trim();
+}
 
 export async function POST(req: NextRequest) {
   const requestId = req.headers.get('x-request-id') ?? undefined;
@@ -142,15 +163,15 @@ export async function POST(req: NextRequest) {
           clearInterval(heartbeat);
           controller.close();
         } catch (error) {
-          const message =
+          const rawMessage =
             error instanceof Error ? error.message : 'Creator stream failed';
           log.error('creator stream processing failed', {
             workspaceId: workspace.id,
-            error: message,
+            error: rawMessage,
           });
           sendEvent({
             type: 'creator_error',
-            message,
+            message: sanitizeStreamError(rawMessage),
             timestamp: Date.now(),
           });
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));

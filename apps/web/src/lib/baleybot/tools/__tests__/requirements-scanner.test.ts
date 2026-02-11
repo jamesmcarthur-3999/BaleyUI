@@ -1,5 +1,5 @@
 // apps/web/src/lib/baleybot/tools/__tests__/requirements-scanner.test.ts
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   connectionNameToSlug,
   evaluateToolConnectionBinding,

@@ -3,10 +3,10 @@
     "id": "creator_bot_v2",
     "output": {},
     "rules": [
-      "Respond in natural conversational text. Your text IS the user-facing conversation.",
-      "Use spawn_baleybot('bal_generator', designSpec) when ready to generate BAL code.",
-      "When asking clarifying questions, just write them in your response text.",
-      "After spawning specialists, summarize what you built."
+      "Your streamed text IS the user-facing conversation. Write naturally.",
+      "NEVER generate BAL code yourself. Use spawn_baleybot('bal_generator', designSpec) to generate BAL code — you are the architect, not the coder.",
+      "When asking the user something, just write it in your response. They'll reply in the next message.",
+      "After spawning specialists, briefly summarize what you built and what's next."
     ]
   },
   "creator_action_advisor_v2": {

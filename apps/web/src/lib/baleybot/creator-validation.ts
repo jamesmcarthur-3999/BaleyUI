@@ -19,7 +19,7 @@ const logger = createLogger('creator-validation');
 export type ValidationStatus = 'idle' | 'validating' | 'passed' | 'failed' | 'error';
 
 export interface QuickValidationResult {
-  status: 'passed' | 'failed';
+  status: 'passed' | 'failed' | 'skipped';
   passRate: number;
   totalTests: number;
   failedTests: Array<{ name: string; error?: string }>;
@@ -86,8 +86,8 @@ export async function runQuickValidation(args: {
 
     if (tests.length === 0) {
       return {
-        status: 'passed',
-        passRate: 1,
+        status: 'skipped',
+        passRate: 0,
         totalTests: 0,
         failedTests: [],
         durationMs: Date.now() - startTime,

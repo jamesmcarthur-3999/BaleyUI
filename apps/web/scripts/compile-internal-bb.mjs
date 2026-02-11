@@ -270,16 +270,22 @@ function buildBalCode(spec, goal, contract, modelPolicy) {
     toolsBlock = `,\n  "tools": { ${toolsList} }`;
   }
 
+  // Build optional maxTokens block
+  let maxTokensBlock = '';
+  if (spec.maxTokens) {
+    maxTokensBlock = `,\n  "maxTokens": ${spec.maxTokens}`;
+  }
+
   const hasOutput = contract.output && Object.keys(contract.output).length > 0;
   if (hasOutput) {
     const outputEntries = Object.entries(contract.output)
       .map(([key, value]) => `    ${JSON.stringify(key)}: ${JSON.stringify(value)}`)
       .join(',\n');
-    return `${spec.id} {\n  \"goal\": ${JSON.stringify(goal)},\n  \"model\": ${JSON.stringify(resolvedModel)}${toolsBlock},\n  \"output\": {\n${outputEntries}\n  }\n}\n`;
+    return `${spec.id} {\n  \"goal\": ${JSON.stringify(goal)},\n  \"model\": ${JSON.stringify(resolvedModel)}${toolsBlock}${maxTokensBlock},\n  \"output\": {\n${outputEntries}\n  }\n}\n`;
   }
 
   // No output block → free-form text mode
-  return `${spec.id} {\n  \"goal\": ${JSON.stringify(goal)},\n  \"model\": ${JSON.stringify(resolvedModel)}${toolsBlock}\n}\n`;
+  return `${spec.id} {\n  \"goal\": ${JSON.stringify(goal)},\n  \"model\": ${JSON.stringify(resolvedModel)}${toolsBlock}${maxTokensBlock}\n}\n`;
 }
 
 function generateDefinitions(specs, contracts, skills, modelPolicy) {

@@ -14,8 +14,6 @@ import type {
   SendNotificationResult,
   ScheduleTaskResult,
   StoreMemoryResult,
-  CreateAgentResult,
-  CreateToolResult,
 } from './index';
 
 // Re-export BuiltInToolContext for use by catalog-service
@@ -53,6 +51,7 @@ import {
   type EphemeralToolConfig,
 } from '../../services/ephemeral-tool-service';
 import { promoteToolToWorkspace } from '../../services/promotion-service';
+import { validateUrl } from './url-validator';
 
 // ============================================================================
 // WEB SEARCH
@@ -114,6 +113,9 @@ async function fetchUrlImpl(
   _ctx: BuiltInToolContext
 ): Promise<FetchUrlResult> {
   const format = args.format ?? 'text';
+
+  // SSRF protection: validate URL before fetching
+  validateUrl(args.url);
 
   try {
     const response = await fetch(args.url, {
@@ -365,31 +367,6 @@ interface CreateAgentArgs {
   input?: unknown;
 }
 
-// Store for parent tools, set when getBuiltInRuntimeTools is called
-let parentToolsStore: Map<string, RuntimeToolDefinition> | null = null;
-
-async function createAgentImpl(
-  args: CreateAgentArgs,
-  _ctx: BuiltInToolContext
-): Promise<CreateAgentResult> {
-  logger.info('Creating ephemeral agent', { name: args.name, goal: args.goal });
-
-  // Extract input from args if provided
-  const { name, goal, model, tools, input } = args;
-  const agentConfig: EphemeralAgentConfig = { name, goal, model, tools };
-
-  // Get parent tools - we need to pass the tools available in this execution context
-  // so the ephemeral agent can use them
-  const parentTools = parentToolsStore ?? new Map<string, RuntimeToolDefinition>();
-
-  // Execute the ephemeral agent
-  return ephemeralAgentService.createAndExecute(
-    agentConfig,
-    input ?? '',
-    parentTools
-  );
-}
-
 // ============================================================================
 // CREATE TOOL
 // ============================================================================
@@ -399,45 +376,6 @@ interface CreateToolArgs {
   description: string;
   input_schema?: Record<string, unknown>;
   implementation: string;
-}
-
-async function createToolImpl(
-  args: CreateToolArgs,
-  ctx: BuiltInToolContext
-): Promise<CreateToolResult> {
-  logger.info('Creating ephemeral tool', { name: args.name });
-
-  // Convert args to ephemeral tool config
-  const config: EphemeralToolConfig = {
-    name: args.name,
-    description: args.description,
-    inputSchema: args.input_schema,
-    implementation: args.implementation,
-  };
-
-  // Create the ephemeral tool
-  const result = await ephemeralToolService.create(config, ctx);
-
-  // If tool was created successfully, add it to the parent tools store
-  // so it can be used in subsequent tool calls in this execution
-  if (result.created && parentToolsStore) {
-    const tool = ephemeralToolService.getTool(args.name);
-    if (tool) {
-      parentToolsStore.set(args.name, tool);
-    }
-  }
-
-  // Auto-promote to workspace so tool persists across executions
-  if (result.created) {
-    promoteToolToWorkspace(ctx.workspaceId, config).catch((err) => {
-      logger.warn('Failed to auto-promote ephemeral tool', {
-        name: args.name,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-  }
-
-  return result;
 }
 
 // ============================================================================
@@ -580,11 +518,20 @@ export function getBuiltInRuntimeTools(
     ctx
   ));
 
+  // Create agent needs access to available tools via closure (not module state)
   tools.set('create_agent', createRuntimeTool(
     'create_agent',
     'Create a temporary specialized AI agent',
     CREATE_AGENT_SCHEMA as Record<string, unknown>,
-    wrapImpl<CreateAgentArgs>(createAgentImpl),
+    async (args: Record<string, unknown>, _toolCtx: BuiltInToolContext) => {
+      const { name, goal, model, tools: agentTools, input } = args as unknown as CreateAgentArgs;
+      const agentConfig: EphemeralAgentConfig = { name, goal, model, tools: agentTools };
+      return ephemeralAgentService.createAndExecute(
+        agentConfig,
+        input ?? '',
+        tools // captured from getBuiltInRuntimeTools closure
+      );
+    },
     ctx
   ));
 
@@ -592,7 +539,30 @@ export function getBuiltInRuntimeTools(
     'create_tool',
     'Define a custom tool for the current execution',
     CREATE_TOOL_SCHEMA as Record<string, unknown>,
-    wrapImpl<CreateToolArgs>(createToolImpl),
+    async (args: Record<string, unknown>, toolCtx: BuiltInToolContext) => {
+      const typedArgs = args as unknown as CreateToolArgs;
+      logger.info('Creating ephemeral tool', { name: typedArgs.name });
+      const config: EphemeralToolConfig = {
+        name: typedArgs.name,
+        description: typedArgs.description,
+        inputSchema: typedArgs.input_schema,
+        implementation: typedArgs.implementation,
+      };
+      const result = await ephemeralToolService.create(config, toolCtx);
+      if (result.created) {
+        const tool = ephemeralToolService.getTool(typedArgs.name);
+        if (tool) {
+          tools.set(typedArgs.name, tool);
+        }
+        promoteToolToWorkspace(toolCtx.workspaceId, config).catch((err) => {
+          logger.warn('Failed to auto-promote ephemeral tool', {
+            name: typedArgs.name,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+      return result;
+    },
     ctx
   ));
 
@@ -618,10 +588,6 @@ export function getBuiltInRuntimeTools(
     wrapImpl<RequestUserInputArgs>(requestUserInputImpl),
     ctx
   ));
-
-  // Store tools so create_agent can pass them to ephemeral agents
-  // This allows ephemeral agents to use the same tools as the parent BB
-  parentToolsStore = tools;
 
   return tools;
 }

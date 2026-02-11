@@ -14,7 +14,6 @@ import {
   GENERATED_INTERNAL_BALEYBOTS,
   type GeneratedInternalBaleybotDef,
 } from './internal-bb/generated-definitions';
-import { getBuiltInRuntimeTools } from './tools/built-in/implementations';
 import { initializeBuiltInToolServices } from './services';
 
 const logger = createLogger('internal-baleybots');
@@ -154,32 +153,51 @@ export async function getInternalBaleybot(
     };
   }
 
-  // Create if not exists (auto-seed)
-  const [created] = await db
-    .insert(baleybots)
-    .values({
-      workspaceId: systemWorkspaceId,
-      name: def.name,
-      description: def.description,
-      icon: def.icon,
-      balCode: def.balCode.trim(),
-      status: 'active',
-      isInternal: true,
-    })
-    .returning();
+  // Create if not exists (auto-seed). Use try-catch to handle concurrent
+  // insertions from parallel startup requests without a unique index.
+  try {
+    const [created] = await db
+      .insert(baleybots)
+      .values({
+        workspaceId: systemWorkspaceId,
+        name: def.name,
+        description: def.description,
+        icon: def.icon,
+        balCode: def.balCode.trim(),
+        status: 'active',
+        isInternal: true,
+      })
+      .returning();
 
-  if (!created) {
-    logger.error('Failed to create internal BaleyBot', { name });
-    return null;
+    if (!created) {
+      logger.error('Failed to create internal BaleyBot', { name });
+      return null;
+    }
+
+    logger.info('Created internal BaleyBot', { name, id: created.id });
+
+    return {
+      id: created.id,
+      name: created.name,
+      balCode: created.balCode,
+    };
+  } catch (insertError) {
+    // Concurrent insert race — re-query for the winning row
+    logger.warn('Concurrent insert for internal BaleyBot, re-querying', { name });
+    const raceWinner = await db.query.baleybots.findFirst({
+      where: (bb, { and: whereAnd }) =>
+        whereAnd(
+          eq(bb.workspaceId, systemWorkspaceId),
+          eq(bb.name, name),
+          eq(bb.isInternal, true),
+          notDeleted(bb)
+        ),
+    });
+    if (raceWinner) {
+      return { id: raceWinner.id, name: raceWinner.name, balCode: raceWinner.balCode };
+    }
+    throw insertError;
   }
-
-  logger.info('Created internal BaleyBot', { name, id: created.id });
-
-  return {
-    id: created.id,
-    name: created.name,
-    balCode: created.balCode,
-  };
 }
 
 /**
@@ -213,6 +231,8 @@ export interface InternalExecutionOptions {
   triggeredBy?: 'manual' | 'schedule' | 'webhook' | 'other_bb' | 'internal';
   /** Injected runtime tools (e.g. request_user_input for the concierge) */
   injectedTools?: Map<string, RuntimeToolDefinition>;
+  /** Abort signal — when aborted, execution should terminate */
+  signal?: AbortSignal;
 }
 
 const INTERNAL_DEFAULT_MODEL: Record<'openai' | 'anthropic' | 'ollama', string> = {
@@ -348,17 +368,35 @@ export async function executeInternalBaleybot(
       tavilyApiKey: process.env.TAVILY_API_KEY,
     });
 
-    // Load built-in tools and merge with any injected tools
     const toolCtx = {
       workspaceId,
       baleybotId: internalBB.id,
       executionId: execution.id,
       userId: 'system',
     };
-    const builtInTools = getBuiltInRuntimeTools(toolCtx, {
-      onChildSegment: options.onSegment,
-    });
-    const allTools = new Map<string, RuntimeToolDefinition>(builtInTools);
+
+    // Load ALL tool categories (built-in + DB + MCP + workspace) for full parity
+    const { loadExecutionTools } = await import('./services/execution-tools-loader');
+    const { runtimeTools } = await loadExecutionTools({ workspaceId, toolCtx });
+
+    // If streaming, replace the default spawn_baleybot with a streaming-aware version
+    if (options.onSegment) {
+      const { createSpawnBaleybotExecutor } = await import('./services/spawn-executor');
+      const { SPAWN_BALEYBOT_SCHEMA } = await import('./tools/built-in');
+      const streamingSpawnExecutor = createSpawnBaleybotExecutor({
+        onChildSegment: options.onSegment,
+        getTools: () => runtimeTools,
+      });
+      runtimeTools.set('spawn_baleybot', {
+        name: 'spawn_baleybot',
+        description: 'Execute another BaleyBot and return its result',
+        inputSchema: SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>,
+        function: async (args: Record<string, unknown>) =>
+          streamingSpawnExecutor(String(args.baleybot), args.input, toolCtx),
+      });
+    }
+
+    const allTools = runtimeTools;
 
     // Injected tools override built-in tools of the same name
     if (options.injectedTools) {
@@ -372,7 +410,7 @@ export async function executeInternalBaleybot(
       workspaceId,
       availableTools: allTools,
       workspacePolicies: null,
-      triggeredBy: (options.triggeredBy as 'manual' | 'schedule' | 'webhook' | 'other_bb') || 'manual',
+      triggeredBy: options.triggeredBy || 'internal',
       triggerSource: options.userWorkspaceId,
     };
 
@@ -385,8 +423,14 @@ export async function executeInternalBaleybot(
       aiProviders
     );
 
+    // Check signal before execution
+    if (options.signal?.aborted) {
+      throw new Error('Execution aborted');
+    }
+
     const result = await executeBaleybot(runtimeBalCode, fullInput, ctx, {
       onSegment: options.onSegment,
+      signal: options.signal,
     });
 
     // Update execution record

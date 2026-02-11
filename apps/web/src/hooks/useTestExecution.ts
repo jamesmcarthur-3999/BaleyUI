@@ -333,7 +333,6 @@ export function useTestExecution({
   const [isSelfHealing, setIsSelfHealing] = useState(false);
   const [runAllProgress, setRunAllProgress] = useState<RunAllProgress | null>(null);
   const [lastRunSummary, setLastRunSummary] = useState<TestRunSummary | null>(null);
-  const prevStatusesRef = useRef<Map<string, TestCase['status']>>(new Map());
   const testCasesRef = useRef<TestCase[]>([]);
 
   const generateTestsMutation = trpc.baleybots.generateTests.useMutation();
@@ -419,10 +418,8 @@ export function useTestExecution({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testCases, savedBaleybotId]);
 
-  // Track status transitions for auto-expand (used by TestPanel)
+  // Keep ref in sync for sequential test runner
   useEffect(() => {
-    const newStatuses = new Map(testCases.map(t => [t.id, t.status]));
-    prevStatusesRef.current = newStatuses;
     testCasesRef.current = testCases;
   }, [testCases]);
 
