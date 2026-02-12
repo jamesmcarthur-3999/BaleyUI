@@ -1252,6 +1252,34 @@ export default function BaleybotPage() {
     500
   );
 
+  // Auto-save: triggers after first BAL generation and on subsequent changes
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // Only auto-save when: dirty, has content, not mid-stream, not already saving
+    if (!isDirty || !balCode || !name || isStreaming || isSaving) {
+      return;
+    }
+
+    // Clear any existing auto-save timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    // Delay auto-save by 2s to batch rapid state changes
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      handleSave();
+    }, 2000);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty, balCode, name, isStreaming, isSaving]);
+
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- available for explicit launch prep panel
   const handleGenerateLaunchKit = async () => {
     if (!savedBaleybotId) return;
