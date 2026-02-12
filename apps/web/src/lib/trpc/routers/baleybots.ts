@@ -21,6 +21,7 @@ import { canExecute, executeBaleybot, type ExecutorContext } from '@/lib/baleybo
 import { buildCreatorRequestContext } from '@/lib/baleybot/creator-request-context';
 import { executeInternalBaleybot } from '@/lib/baleybot/internal-baleybots';
 import { runCreatorActionAdvisor } from '@/lib/baleybot/internal-bb/runner';
+import { buildConnectionTools } from '@/lib/baleybot/tools/companion/connections';
 import { creatorOutputSchema } from '@/lib/baleybot/creator-types';
 import { compileBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
@@ -1051,10 +1052,20 @@ export const baleybotsRouter = router({
       }
       contextParts.push(`User message: ${creatorContext.sanitizedMessage}`);
 
+      // Inject companion tools so creator_bot's BAL passes semantic validation
+      const connectionTools = buildConnectionTools({
+        workspaceId: ctx.workspace.id,
+        userId: ctx.userId!,
+      });
+
       const { output } = await executeInternalBaleybot(
         'creator_bot',
         contextParts.join('\n\n'),
-        { userWorkspaceId: ctx.workspace.id, triggeredBy: 'internal' }
+        {
+          userWorkspaceId: ctx.workspace.id,
+          triggeredBy: 'internal',
+          injectedTools: connectionTools,
+        }
       );
 
       // Parse the concierge output through the creator output schema
