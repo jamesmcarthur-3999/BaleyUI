@@ -7,24 +7,21 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Bot, Play, Clock, Shield, Pencil } from 'lucide-react';
+import { PageShell } from '@/components/layout/page-shell';
 
 export default function AdminBaleybotsPage() {
   const { data: baleybots, isLoading } = trpc.admin.listInternalBaleybots.useQuery();
 
   return (
-    <div className="container py-10">
-      <div className="flex flex-col gap-8">
-        {/* Header */}
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <Shield className="h-6 w-6 text-primary" />
-            <h1 className="text-3xl font-bold tracking-tight">Internal BaleyBots</h1>
-          </div>
-          <p className="text-muted-foreground">
-            System-managed BaleyBots that power the platform. Edit BAL code, test execution, and manage customizations.
-          </p>
-        </div>
-
+    <PageShell
+      title={
+        <span className="flex items-center gap-3">
+          <Shield className="h-6 w-6 text-primary" />
+          Internal BaleyBots
+        </span>
+      }
+      description="System-managed BaleyBots that power the platform. Edit BAL code, test execution, and manage customizations."
+    >
         {/* Grid */}
         {isLoading ? (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -108,7 +105,6 @@ export default function AdminBaleybotsPage() {
             </p>
           </div>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

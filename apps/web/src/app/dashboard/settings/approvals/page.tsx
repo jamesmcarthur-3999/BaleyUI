@@ -34,6 +34,7 @@ import {
   Search,
   ChevronRight,
 } from 'lucide-react';
+import { PageShell } from '@/components/layout/page-shell';
 
 function summarizePattern(pattern: Record<string, unknown>): string {
   const entries = Object.entries(pattern);
@@ -134,16 +135,13 @@ export default function ApprovalsSettingsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-medium">Approval Patterns</h3>
-        <p className="text-sm text-muted-foreground">
-          Manage auto-approval rules for BaleyBot tool usage. Patterns allow
-          specific tool actions to be automatically approved based on trust
-          levels.
-        </p>
-      </div>
-
+    <PageShell
+      title="Approval Patterns"
+      titleSize="2xl"
+      description="Manage auto-approval rules for BaleyBot tool usage. Patterns allow specific tool actions to be automatically approved based on trust levels."
+      container="none"
+      className="space-y-6"
+    >
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-4">
@@ -360,6 +358,6 @@ export default function ApprovalsSettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </PageShell>
   );
 }

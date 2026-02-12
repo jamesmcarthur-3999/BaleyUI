@@ -24,6 +24,7 @@ import {
   Loader2,
   Search,
 } from 'lucide-react';
+import { PageShell } from '@/components/layout/page-shell';
 
 interface ExecutionItem {
   id: string;
@@ -85,16 +86,10 @@ export default function ActivityPage() {
   };
 
   return (
-    <div className="container py-10">
-      <div className="flex flex-col gap-8">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Activity</h1>
-          <p className="text-muted-foreground">
-            View all BaleyBot executions and their results
-          </p>
-        </div>
-
+    <PageShell
+      title="Activity"
+      description="View all BaleyBot executions and their results"
+    >
         {/* Filters */}
         <div className="flex items-center gap-3">
           <div className="relative flex-1 max-w-sm">
@@ -213,7 +208,6 @@ export default function ActivityPage() {
             )}
           </CardContent>
         </Card>
-      </div>
-    </div>
+    </PageShell>
   );
 }

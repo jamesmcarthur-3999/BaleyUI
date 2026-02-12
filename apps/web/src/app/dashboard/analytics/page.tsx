@@ -11,6 +11,7 @@ import { trpc } from '@/lib/trpc/client';
 import { DollarSign, Zap, Activity } from 'lucide-react';
 import { formatCost, formatDuration } from '@/lib/format';
 import { usePersistedDateRange } from '@/hooks';
+import { PageShell } from '@/components/layout/page-shell';
 
 export default function AnalyticsPage() {
   const [activeTab, setActiveTab] = useState('usage');
@@ -42,18 +43,11 @@ export default function AnalyticsPage() {
     costSummary && totalExecutions > 0 ? costSummary.totalCost / totalExecutions : 0;
 
   return (
-    <div className="container py-10">
-      <div className="flex flex-col gap-8">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Analytics</h1>
-            <p className="text-muted-foreground">
-              Monitor costs, performance, and usage across your BaleyBots
-            </p>
-          </div>
-        </div>
-
+    <PageShell
+      title="Analytics"
+      titleSize="2xl"
+      description="Monitor costs, performance, and usage across your BaleyBots"
+    >
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center justify-between gap-4">
             <TabsList>
@@ -216,7 +210,6 @@ export default function AnalyticsPage() {
             <BillingTab />
           </TabsContent>
         </Tabs>
-      </div>
-    </div>
+    </PageShell>
   );
 }
