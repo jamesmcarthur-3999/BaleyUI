@@ -34,22 +34,19 @@ import {
 import {
   AlertTriangle,
   Bot,
-  CheckCircle2,
-  Clock3,
   ExternalLink,
   LayoutGrid,
   List,
-  Loader2,
   PanelRightOpen,
   Pause,
   Search,
   Trash2,
-  XCircle,
   Zap,
 } from 'lucide-react';
 import { useGridNavigation } from '@/hooks/useGridNavigation';
 import { cn } from '@/lib/utils';
 import { formatTimeAgo } from '@/lib/format';
+import { UnifiedStatusBadge } from '@/components/ui/unified-status-badge';
 
 type BaleybotStatus = 'draft' | 'active' | 'paused' | 'error';
 type SmartView =
@@ -60,8 +57,6 @@ type SmartView =
   | 'never_run';
 type ViewMode = 'cards' | 'list';
 type SortMode = 'recent' | 'name' | 'runs' | 'last_executed';
-type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-
 const SMART_VIEW_COPY: Record<
   SmartView,
   { label: string; description: string }
@@ -98,59 +93,6 @@ function formatDateTime(value: string | Date | null | undefined): string {
   const date = asDate(value);
   if (!date) return 'Not available';
   return date.toLocaleString();
-}
-
-function getStatusTone(status: BaleybotStatus): string {
-  switch (status) {
-    case 'active':
-      return 'badge-success';
-    case 'paused':
-      return 'badge-warning';
-    case 'error':
-      return 'badge-error';
-    default:
-      return 'badge-playful';
-  }
-}
-
-function getExecutionStatusBadge(status: ExecutionStatus) {
-  switch (status) {
-    case 'completed':
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-          <CheckCircle2 className="h-3 w-3" />
-          Completed
-        </span>
-      );
-    case 'failed':
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400">
-          <XCircle className="h-3 w-3" />
-          Failed
-        </span>
-      );
-    case 'running':
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          Running
-        </span>
-      );
-    case 'cancelled':
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
-          <XCircle className="h-3 w-3" />
-          Cancelled
-        </span>
-      );
-    default:
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-          <Clock3 className="h-3 w-3" />
-          Pending
-        </span>
-      );
-  }
 }
 
 export default function BaleybotsListPage() {
@@ -737,9 +679,7 @@ export default function BaleybotsListPage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <span className={cn(getStatusTone(bb.status as BaleybotStatus), 'shrink-0')}>
-                              {(bb.status as string).charAt(0).toUpperCase() + (bb.status as string).slice(1)}
-                            </span>
+                            <UnifiedStatusBadge status={bb.status as any} domain="lifecycle" size="sm" />
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {formatTimeAgo(bb.lastExecutedAt)}
@@ -749,7 +689,7 @@ export default function BaleybotsListPage() {
                           </TableCell>
                           <TableCell>
                             {bb.lastExecution?.status ? (
-                              getExecutionStatusBadge(bb.lastExecution.status as ExecutionStatus)
+                              <UnifiedStatusBadge status={bb.lastExecution.status as any} domain="execution" size="sm" />
                             ) : (
                               <span className="text-xs text-muted-foreground">No runs</span>
                             )}
@@ -874,10 +814,7 @@ export default function BaleybotsListPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold">{inspectedBotSummary.name}</span>
-                  <span className={getStatusTone(inspectedBotSummary.status as BaleybotStatus)}>
-                    {(inspectedBotSummary.status as string).charAt(0).toUpperCase() +
-                      (inspectedBotSummary.status as string).slice(1)}
-                  </span>
+                  <UnifiedStatusBadge status={inspectedBotSummary.status as any} domain="lifecycle" size="sm" />
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Updated {formatTimeAgo(inspectedBotSummary.updatedAt)}
@@ -923,7 +860,7 @@ export default function BaleybotsListPage() {
                             {formatDateTime(execution.startedAt)}
                           </p>
                         </div>
-                        {getExecutionStatusBadge(execution.status as ExecutionStatus)}
+                        <UnifiedStatusBadge status={execution.status as any} domain="execution" size="sm" />
                       </div>
 
                       {execution.durationMs != null && (

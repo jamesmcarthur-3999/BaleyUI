@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronUp, ChevronDown, Clock, CheckCircle, XCircle, Loader2, Ban } from 'lucide-react';
+import { ChevronUp, ChevronDown, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { UnifiedStatusBadge } from '@/components/ui/unified-status-badge';
 import { formatDuration } from '@/lib/format';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -27,38 +28,6 @@ interface ExecutionHistoryProps {
   onExecutionClick?: (executionId: string) => void;
 }
 
-const statusConfig = {
-  pending: {
-    icon: Clock,
-    label: 'Pending',
-    className: 'text-yellow-500',
-    bgClassName: 'bg-yellow-50 dark:bg-yellow-950/30',
-  },
-  running: {
-    icon: Loader2,
-    label: 'Running',
-    className: 'text-blue-500 animate-spin',
-    bgClassName: 'bg-blue-50 dark:bg-blue-950/30',
-  },
-  completed: {
-    icon: CheckCircle,
-    label: 'Completed',
-    className: 'text-green-500',
-    bgClassName: 'bg-green-50 dark:bg-green-950/30',
-  },
-  failed: {
-    icon: XCircle,
-    label: 'Failed',
-    className: 'text-red-500',
-    bgClassName: 'bg-red-50 dark:bg-red-950/30',
-  },
-  cancelled: {
-    icon: Ban,
-    label: 'Cancelled',
-    className: 'text-gray-500',
-    bgClassName: 'bg-gray-50 dark:bg-gray-950/30',
-  },
-} as const;
 
 /**
  * ExecutionHistory displays recent executions for a BaleyBot.
@@ -140,9 +109,6 @@ interface ExecutionRowProps {
 }
 
 function ExecutionRow({ execution, onClick }: ExecutionRowProps) {
-  const status = statusConfig[execution.status as keyof typeof statusConfig] || statusConfig.pending;
-  const StatusIcon = status.icon;
-
   const createdAt = typeof execution.createdAt === 'string'
     ? new Date(execution.createdAt)
     : execution.createdAt;
@@ -160,18 +126,12 @@ function ExecutionRow({ execution, onClick }: ExecutionRowProps) {
       )}
       disabled={!onClick}
     >
-      {/* Status icon */}
-      <div
-        className={cn('p-1.5 rounded-lg', status.bgClassName)}
-        title={status.label}
-      >
-        <StatusIcon className={cn('h-4 w-4', status.className)} aria-hidden="true" />
-      </div>
+      {/* Status badge */}
+      <UnifiedStatusBadge status={execution.status as any} domain="execution" size="sm" />
 
       {/* Details */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">{status.label}</span>
           {execution.durationMs != null && (
             <span className="text-xs text-muted-foreground">
               {formatDuration(execution.durationMs)}

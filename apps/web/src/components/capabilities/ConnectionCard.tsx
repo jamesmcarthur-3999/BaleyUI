@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { Wifi, WifiOff, Trash2, RefreshCw, Star, Database, Bot, Pencil, Plug, Wrench } from 'lucide-react';
+import { UnifiedStatusBadge } from '@/components/ui/unified-status-badge';
 import { PROVIDERS } from '@/lib/connections/providers';
 import type { ProviderType } from '@/lib/connections/providers';
 
@@ -19,16 +20,6 @@ function typeBadgeVariant(type: string): 'openai' | 'anthropic' | 'ollama' | 'se
     case 'ollama': return 'ollama';
     default: return 'secondary';
   }
-}
-
-function StatusDot({ status }: { status: string }) {
-  let colorClass: string;
-  switch (status) {
-    case 'connected': colorClass = 'bg-green-500'; break;
-    case 'error': colorClass = 'bg-red-500'; break;
-    default: colorClass = 'bg-gray-400'; break;
-  }
-  return <span className={cn('inline-block h-2.5 w-2.5 rounded-full shrink-0', colorClass)} />;
 }
 
 function isDbType(type: string): boolean {
@@ -96,7 +87,7 @@ export function ConnectionCard({
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <StatusDot status={connection.status ?? 'unconfigured'} />
+            <UnifiedStatusBadge status={(connection.status ?? 'unconfigured') as any} domain="connection" variant="dot" />
             <CategoryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
             <CardTitle className="truncate text-base">
               {connection.name}

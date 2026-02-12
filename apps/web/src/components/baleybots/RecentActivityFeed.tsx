@@ -6,13 +6,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ROUTES } from '@/lib/routes';
 import { formatTimeAgo, formatDuration } from '@/lib/format';
 import {
-  CheckCircle2,
-  XCircle,
-  Clock,
   ArrowRight,
   Activity,
-  Zap,
 } from 'lucide-react';
+import { UnifiedStatusBadge } from '@/components/ui/unified-status-badge';
 
 interface Execution {
   id: string;
@@ -36,21 +33,6 @@ export function RecentActivityFeed({
   isLoading,
   className,
 }: RecentActivityFeedProps) {
-  const StatusIcon = ({ status }: { status: Execution['status'] }) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
-      case 'failed':
-        return <XCircle className="h-4 w-4 text-red-500" />;
-      case 'running':
-        return <Zap className="h-4 w-4 text-primary animate-pulse" />;
-      case 'cancelled':
-        return <XCircle className="h-4 w-4 text-muted-foreground" />;
-      default:
-        return <Clock className="h-4 w-4 text-muted-foreground" />;
-    }
-  };
-
   return (
     <div className={`card-playful rounded-2xl overflow-hidden ${className}`}>
       <div className="p-6">
@@ -93,7 +75,7 @@ export function RecentActivityFeed({
                     <span className="font-medium text-sm">
                       {execution.baleybotName}
                     </span>
-                    <StatusIcon status={execution.status} />
+                    <UnifiedStatusBadge status={execution.status} domain="execution" variant="icon-only" />
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     {execution.startedAt && (

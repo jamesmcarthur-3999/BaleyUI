@@ -8,6 +8,7 @@ import { BotAnalyticsCards } from './BotAnalyticsCards';
 import { ConversationReview } from './ConversationReview';
 import { Loader2, ExternalLink, AlertTriangle, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { UnifiedStatusBadge } from '@/components/ui/unified-status-badge';
 import { useRouter } from 'next/navigation';
 
 interface BotMonitorPanelProps {
@@ -16,24 +17,6 @@ interface BotMonitorPanelProps {
   onPauseOrResume?: () => void;
   isPauseResumeBusy?: boolean;
   className?: string;
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    completed: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
-    failed: 'bg-red-500/10 text-red-700 dark:text-red-400',
-    running: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
-    pending: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
-    cancelled: 'bg-zinc-500/10 text-zinc-700 dark:text-zinc-400',
-  };
-  return (
-    <span className={cn(
-      'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
-      colors[status] ?? colors.pending,
-    )}>
-      {status}
-    </span>
-  );
 }
 
 export function BotMonitorPanel({ baleybotId, baleybotName, onPauseOrResume, isPauseResumeBusy, className }: BotMonitorPanelProps) {
@@ -140,7 +123,7 @@ export function BotMonitorPanel({ baleybotId, baleybotName, onPauseOrResume, isP
                 className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-muted/30 transition-colors"
                 onClick={() => router.push(ROUTES.activity.execution(exec.id))}
               >
-                <StatusBadge status={exec.status} />
+                <UnifiedStatusBadge status={exec.status as any} domain="execution" size="sm" />
                 <span className="text-xs text-muted-foreground truncate flex-1">
                   {exec.input
                     ? String(typeof exec.input === 'string' ? exec.input : JSON.stringify(exec.input)).slice(0, 60)

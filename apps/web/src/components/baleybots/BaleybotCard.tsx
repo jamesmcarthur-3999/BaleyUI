@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Play, Clock, Zap, AlertCircle, Pause, FileQuestion, MoreHorizontal, Trash2, Bot, Pencil, PanelRightOpen } from 'lucide-react';
+import { Play, Clock, Zap, Pause, MoreHorizontal, Trash2, Bot, Pencil, PanelRightOpen } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { formatTimeAgo } from '@/lib/format';
 
 import { Badge } from '@/components/ui/badge';
+import { UnifiedStatusBadge } from '@/components/ui/unified-status-badge';
 import { TriggerBadge } from './TriggerConfig';
 
 import type { TriggerConfig } from '@/lib/baleybot/types';
@@ -41,29 +42,6 @@ interface BaleybotCardProps {
   onInspect?: (id: string) => void;
 }
 
-const statusConfig = {
-  draft: {
-    label: 'Draft',
-    className: 'badge-playful',
-    Icon: FileQuestion,
-  },
-  active: {
-    label: 'Active',
-    className: 'badge-success',
-    Icon: Zap,
-  },
-  paused: {
-    label: 'Paused',
-    className: 'badge-warning',
-    Icon: Pause,
-  },
-  error: {
-    label: 'Error',
-    className: 'badge-error',
-    Icon: AlertCircle,
-  },
-};
-
 export function BaleybotCard({
   id,
   name,
@@ -84,9 +62,6 @@ export function BaleybotCard({
   onDelete,
   onInspect,
 }: BaleybotCardProps) {
-  const config = statusConfig[status];
-  const StatusIcon = config.Icon;
-
   return (
     <Link href={href ?? ROUTES.baleybots.detail(id)}>
       <div
@@ -175,10 +150,7 @@ export function BaleybotCard({
                 <h3 className="font-semibold text-base truncate transition-colors group-hover:text-primary">
                   {name}
                 </h3>
-                <span className={cn(config.className, 'shrink-0')}>
-                  <StatusIcon className="h-3 w-3" />
-                  {config.label}
-                </span>
+                <UnifiedStatusBadge status={status} domain="lifecycle" size="sm" />
                 {isInternal && (
                   <Badge variant="secondary" className="bg-violet-500/10 text-violet-600 border-violet-500/20 shrink-0">
                     <Bot className="h-3 w-3 mr-1" />
