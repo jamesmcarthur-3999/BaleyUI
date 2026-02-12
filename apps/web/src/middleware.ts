@@ -92,20 +92,7 @@ export default clerkMiddleware(async (auth, request) => {
   }
 
   if (!isPublicRoute(request)) {
-    // For API routes, return a clean JSON 401 instead of Clerk's HTML
-    // redirect/rewrite (which causes <!DOCTYPE errors in fetch clients).
-    const url = request.nextUrl.pathname;
-    if (url.startsWith('/api/')) {
-      const { userId } = await auth();
-      if (!userId) {
-        return NextResponse.json(
-          { error: 'Unauthorized', requestId },
-          { status: 401, headers: { 'x-request-id': requestId } }
-        );
-      }
-    } else {
-      await auth.protect();
-    }
+    await auth.protect();
   }
 
   // Propagate request ID to response headers
