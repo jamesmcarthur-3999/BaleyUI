@@ -222,6 +222,8 @@ export default function BaleybotPage() {
 
   // -- Navigation --
   const [viewMode, setViewMode] = useState<AdaptiveTab>('visual');
+  const viewModeRef = useRef<AdaptiveTab>(viewMode);
+  viewModeRef.current = viewMode;
   const [builderMode, setBuilderMode] = useState<BuilderPresentationMode>('simple');
   const showAdvancedUI = builderMode === 'advanced';
   const [isEditingDescription, setIsEditingDescription] = useState(false);
@@ -1417,17 +1419,18 @@ export default function BaleybotPage() {
       showAdvancedUI,
       isDesignReviewRequired,
     });
+    const currentView = viewModeRef.current;
 
-    if (!showAdvancedUI && isAdvancedEditorTab(viewMode)) {
+    if (!showAdvancedUI && isAdvancedEditorTab(currentView)) {
       setViewMode('visual');
       return;
     }
-    if (!visibleTabs.includes(viewMode)) {
+    if (!visibleTabs.includes(currentView)) {
       setViewMode('visual');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     readiness,
-    viewMode,
     showAdvancedUI,
     savedBaleybotId,
     existingBaleybot?.lifecycleStage,

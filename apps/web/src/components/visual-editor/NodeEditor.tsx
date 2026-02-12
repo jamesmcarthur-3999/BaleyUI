@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
-import { X, Cpu, Zap, Wrench, Braces, Plus, Target, ChevronDown } from 'lucide-react';
+import { useState } from 'react';
+import { X, Cpu, Zap, Wrench, Braces, Plus, Target } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
 import { cn } from '@/lib/utils';
 import type { VisualNode } from '@/lib/baleybot/visual/types';
 import type { NodeIntentResult } from '@/lib/baleybot/visual/visual-to-bal';
-import { getNodeEmoji, formatNodeName, MCP_PREFIXES } from './BaleybotNode';
+import type { BuilderPresentationMode } from '@/lib/baleybot/creator-types';
+import { getNodeEmoji, formatNodeName, MCP_PREFIXES, BUILTIN_TOOLS } from './BaleybotNode';
 
 interface NodeEditorProps {
   node: VisualNode;
@@ -15,7 +17,7 @@ interface NodeEditorProps {
   onClose: () => void;
   className?: string;
   toolSuggestions?: string[];
-  showAdvancedConfig?: boolean;
+  presentationMode?: BuilderPresentationMode;
 }
 
 const AVAILABLE_MODELS = [
@@ -25,17 +27,8 @@ const AVAILABLE_MODELS = [
   { value: 'anthropic:claude-3-5-haiku-20241022', label: 'Claude Haiku' },
 ];
 
-const DEFAULT_TOOL_SUGGESTIONS = [
-  'web_search',
-  'fetch_url',
-  'send_notification',
-  'schedule_task',
-  'store_memory',
-  'shared_storage',
-  'spawn_baleybot',
-  'create_agent',
-  'create_tool',
-];
+/** Tools that require user approval before executing */
+const APPROVAL_TOOLS = new Set(['schedule_task', 'create_agent', 'create_tool']);
 
 type ToolMode = 'tools' | 'canRequest';
 
@@ -46,13 +39,11 @@ type ToolMode = 'tools' | 'canRequest';
 function generateNodeSummary(data: VisualNode['data']): string {
   const parts: string[] = [];
 
-  // Start with the goal
   if (data.goal) {
     const goal = data.goal.endsWith('.') ? data.goal : `${data.goal}.`;
     parts.push(goal);
   }
 
-  // Mention tools
   const tools = data.tools ?? [];
   const mcpServices: string[] = [];
   const builtinNames: string[] = [];
@@ -86,64 +77,17 @@ function generateNodeSummary(data: VisualNode['data']): string {
     parts.push(`Queries ${dbNames.join(', ')}.`);
   }
 
-  // Approval tools
   const approvalTools = data.canRequest ?? [];
   if (approvalTools.length > 0) {
     parts.push(`Requires approval for ${approvalTools.map(t => t.replace(/_/g, ' ')).join(', ')}.`);
   }
 
-  // Output
   const outputFields = data.output ? Object.keys(data.output) : [];
   if (outputFields.length > 0) {
     parts.push(`Returns ${outputFields.join(', ')}.`);
   }
 
   return parts.join(' ') || 'No configuration yet.';
-}
-
-/* ------------------------------------------------------------------ */
-/*  Collapsible EditorSection                                          */
-/* ------------------------------------------------------------------ */
-
-function EditorSection({
-  icon,
-  title,
-  badge,
-  defaultOpen = true,
-  children,
-}: {
-  icon: ReactNode;
-  title: string;
-  badge?: ReactNode;
-  defaultOpen?: boolean;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-
-  return (
-    <div className="rounded-lg border border-border/60 overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 w-full px-3 py-2.5 text-left hover:bg-muted/30 transition-colors"
-      >
-        <span className="text-muted-foreground">{icon}</span>
-        <span className="text-xs font-medium flex-1">{title}</span>
-        {badge}
-        <ChevronDown
-          className={cn(
-            'h-3.5 w-3.5 text-muted-foreground transition-transform duration-200',
-            open && 'rotate-180'
-          )}
-        />
-      </button>
-      {open && (
-        <div className="px-3 pb-3 animate-slide-down">
-          {children}
-        </div>
-      )}
-    </div>
-  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -157,6 +101,7 @@ export function NodeEditor({
   onClose,
   className,
   toolSuggestions = [],
+  presentationMode = 'advanced',
 }: NodeEditorProps) {
   const [intentInput, setIntentInput] = useState('');
   const [intentFeedback, setIntentFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -164,10 +109,15 @@ export function NodeEditor({
   const [toolMode, setToolMode] = useState<ToolMode>('tools');
   const [toolFeedback, setToolFeedback] = useState<string | null>(null);
 
+  const isSimple = presentationMode === 'simple';
   const runtimeTools = node.data.tools ?? [];
   const approvalTools = node.data.canRequest ?? [];
   const outputSchema = node.data.output ?? {};
-  const allTools = [...new Set([...toolSuggestions, ...DEFAULT_TOOL_SUGGESTIONS])];
+
+  // Compute connected tools not in BUILTIN_TOOLS (MCP, DB, custom from suggestions)
+  const connectedTools = [...new Set(toolSuggestions)].filter(
+    (t) => !BUILTIN_TOOLS[t]
+  );
 
   const handleGoalChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onUpdate({ goal: e.target.value });
@@ -194,6 +144,32 @@ export function NodeEditor({
       mode === 'canRequest' ? approvalTools.filter((value) => value !== tool) : approvalTools;
     updateToolAssignments(nextTools, nextCanRequest);
     setToolFeedback(null);
+  };
+
+  const toggleBuiltinTool = (toolName: string) => {
+    // If it's an approval-required tool, toggle in canRequest
+    if (APPROVAL_TOOLS.has(toolName)) {
+      if (approvalTools.includes(toolName)) {
+        updateToolAssignments(runtimeTools, approvalTools.filter((t) => t !== toolName));
+      } else {
+        updateToolAssignments(runtimeTools, [...approvalTools, toolName]);
+      }
+      return;
+    }
+    // Otherwise toggle in runtime tools
+    if (runtimeTools.includes(toolName)) {
+      updateToolAssignments(runtimeTools.filter((t) => t !== toolName), approvalTools);
+    } else {
+      updateToolAssignments([...runtimeTools, toolName], approvalTools);
+    }
+  };
+
+  const toggleConnectedTool = (toolName: string) => {
+    if (runtimeTools.includes(toolName)) {
+      updateToolAssignments(runtimeTools.filter((t) => t !== toolName), approvalTools);
+    } else {
+      updateToolAssignments([...runtimeTools, toolName], approvalTools);
+    }
   };
 
   const addTool = (value: string, mode: ToolMode) => {
@@ -252,10 +228,13 @@ export function NodeEditor({
   const toolCount = runtimeTools.length + approvalTools.length;
   const outputFieldCount = Object.keys(outputSchema).length;
 
+  const isToolActive = (toolName: string) =>
+    runtimeTools.includes(toolName) || approvalTools.includes(toolName);
+
   return (
     <div
       className={cn(
-        'w-[28rem] bg-card border border-border rounded-2xl shadow-xl flex flex-col max-h-[calc(100vh-8rem)] relative overflow-hidden',
+        'w-[28rem] bg-card border border-border/40 rounded-2xl shadow-lg flex flex-col max-h-[calc(100vh-8rem)] relative overflow-hidden',
         className
       )}
     >
@@ -264,7 +243,7 @@ export function NodeEditor({
 
       {/* Header — shows node name */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0 relative z-10">
-        <h3 className="font-semibold text-sm">
+        <h3 className="font-semibold text-base">
           {getNodeEmoji(node.data.name)} {formatNodeName(node.data.name)}
         </h3>
         <button
@@ -282,93 +261,190 @@ export function NodeEditor({
         </p>
       </div>
 
-      {/* Content — scrollable */}
-      <div className="p-4 space-y-3 overflow-y-auto min-h-0 relative z-10">
-        {/* Purpose Section (was Identity) */}
-        <EditorSection
-          icon={<Target className="h-3.5 w-3.5" />}
-          title="Purpose"
-          defaultOpen={true}
-        >
-          <div className="pt-1">
-            <textarea
-              value={node.data.goal}
-              onChange={handleGoalChange}
-              rows={3}
-              className={cn(
-                'w-full px-3 py-2 text-sm rounded-lg',
-                'border border-border bg-background',
-                'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50',
-                'resize-none'
+      {/* Quick Edit — hero position, always visible */}
+      {onApplyIntent && (
+        <div className="px-4 pt-3 pb-2 relative z-10">
+          <div className="space-y-2">
+            <div className="relative">
+              <Zap className="absolute left-3 top-2.5 h-3.5 w-3.5 text-primary/60" />
+              <textarea
+                value={intentInput}
+                onChange={(e) => setIntentInput(e.target.value)}
+                rows={2}
+                className={cn(
+                  'w-full pl-8 pr-3 py-2 text-sm rounded-lg',
+                  'border border-border bg-background',
+                  'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50',
+                  'resize-none'
+                )}
+                placeholder="Tell me what to change — e.g. 'add web search' or 'rename to data_validator'"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              {intentFeedback ? (
+                <p
+                  className={cn(
+                    'text-xs flex-1',
+                    intentFeedback.type === 'success'
+                      ? 'text-green-600 dark:text-green-400'
+                      : 'text-red-600 dark:text-red-400'
+                  )}
+                >
+                  {intentFeedback.text}
+                </p>
+              ) : (
+                <span className="flex-1" />
               )}
-              placeholder="Describe what this entity should accomplish..."
-            />
+              <button
+                type="button"
+                onClick={handleApplyIntent}
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors shrink-0"
+              >
+                Apply
+              </button>
+            </div>
           </div>
-        </EditorSection>
+        </div>
+      )}
 
-        {/* Capabilities Section */}
-        <EditorSection
-          icon={<Wrench className="h-3.5 w-3.5" />}
-          title="Capabilities"
-          badge={
-            toolCount > 0 ? (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary">
-                {toolCount}
-              </span>
-            ) : undefined
-          }
-          defaultOpen={true}
-        >
-          <div className="space-y-3 pt-1">
-            {/* Model */}
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
-                <Cpu className="h-3 w-3" />
-                Model
-              </label>
-              <select
-                value={node.data.model || ''}
-                onChange={handleModelChange}
+      {/* Tabbed content — scrollable */}
+      <div className="flex-1 overflow-y-auto min-h-0 relative z-10">
+        <Tabs defaultValue="basics" className="px-4 pb-4">
+          <TabsList className="w-full">
+            <TabsTrigger value="basics" className="flex-1 gap-1.5">
+              <Target className="h-3.5 w-3.5" />
+              Basics
+            </TabsTrigger>
+            <TabsTrigger value="tools" className="flex-1 gap-1.5">
+              <Wrench className="h-3.5 w-3.5" />
+              Tools
+              {toolCount > 0 && (
+                <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary min-w-[1.25rem]">
+                  {toolCount}
+                </span>
+              )}
+            </TabsTrigger>
+            {!isSimple && (
+              <TabsTrigger value="output" className="flex-1 gap-1.5">
+                <Braces className="h-3.5 w-3.5" />
+                Output
+                {outputFieldCount > 0 && (
+                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary min-w-[1.25rem]">
+                    {outputFieldCount}
+                  </span>
+                )}
+              </TabsTrigger>
+            )}
+          </TabsList>
+
+          {/* Basics tab — goal + model */}
+          <TabsContent value="basics" className="space-y-3">
+            <div>
+              <textarea
+                value={node.data.goal}
+                onChange={handleGoalChange}
+                rows={3}
                 className={cn(
                   'w-full px-3 py-2 text-sm rounded-lg',
                   'border border-border bg-background',
-                  'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50'
+                  'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50',
+                  'resize-none'
                 )}
-              >
-                <option value="">Default (GPT-4o Mini)</option>
-                {AVAILABLE_MODELS.map((model) => (
-                  <option key={model.value} value={model.value}>
-                    {model.label}
-                  </option>
-                ))}
-              </select>
+                placeholder="What should this step do?"
+              />
             </div>
 
-            {/* Tools */}
-            <div className="rounded-lg border border-border/70 bg-muted/20 p-2.5 space-y-2.5">
-              <div className="space-y-1">
-                <p className="text-[11px] font-medium text-muted-foreground">Runtime tools</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {runtimeTools.length === 0 && (
-                    <span className="text-[11px] text-muted-foreground">No runtime tools yet.</span>
+            {!isSimple && (
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <Cpu className="h-3 w-3" />
+                  Model
+                </label>
+                <select
+                  value={node.data.model || ''}
+                  onChange={handleModelChange}
+                  className={cn(
+                    'w-full px-3 py-2 text-sm rounded-lg',
+                    'border border-border bg-background',
+                    'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50'
                   )}
-                  {runtimeTools.map((tool) => (
-                    <ToolPill
-                      key={`runtime-${tool}`}
-                      label={tool}
-                      tone="runtime"
-                      onRemove={() => handleRemoveTool(tool, 'tools')}
-                    />
+                >
+                  <option value="">Default (GPT-4o Mini)</option>
+                  {AVAILABLE_MODELS.map((model) => (
+                    <option key={model.value} value={model.value}>
+                      {model.label}
+                    </option>
                   ))}
+                </select>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Tools tab — visual grid + approval + custom input */}
+          <TabsContent value="tools" className="space-y-3">
+            {/* Built-in tools grid */}
+            <div className="grid grid-cols-3 gap-2">
+              {Object.entries(BUILTIN_TOOLS).map(([toolName, info]) => {
+                // In simple mode, skip approval-only tools
+                if (isSimple && APPROVAL_TOOLS.has(toolName)) return null;
+
+                const active = isToolActive(toolName);
+                const needsApproval = APPROVAL_TOOLS.has(toolName);
+
+                return (
+                  <button
+                    key={toolName}
+                    type="button"
+                    onClick={() => toggleBuiltinTool(toolName)}
+                    className={cn(
+                      'flex flex-col items-center gap-1 px-2 py-2.5 rounded-lg border text-center transition-all',
+                      active
+                        ? 'border-primary/50 bg-primary/10 text-foreground shadow-sm'
+                        : 'border-border/60 bg-background text-muted-foreground hover:border-primary/30 hover:bg-muted/30'
+                    )}
+                  >
+                    <span className="text-lg leading-none">{info.icon}</span>
+                    <span className="text-xs font-medium">{info.label}</span>
+                    <span className="text-[10px] leading-tight text-muted-foreground line-clamp-1">
+                      {needsApproval ? 'Needs your OK' : info.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Connected / MCP / custom tools from suggestions */}
+            {connectedTools.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">Connected</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {connectedTools.map((tool) => {
+                    const active = runtimeTools.includes(tool);
+                    return (
+                      <button
+                        key={tool}
+                        type="button"
+                        onClick={() => toggleConnectedTool(tool)}
+                        className={cn(
+                          'inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg border transition-colors',
+                          active
+                            ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300'
+                            : 'border-border/60 bg-background text-muted-foreground hover:border-indigo-500/30 hover:bg-indigo-500/5'
+                        )}
+                      >
+                        🔌 {tool.replace(/_/g, ' ')}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
+            )}
 
-              <div className="space-y-1">
-                <p className="text-[11px] font-medium text-muted-foreground">Approval required</p>
+            {/* Approval tools (advanced only) */}
+            {!isSimple && approvalTools.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">Needs your OK first</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {approvalTools.length === 0 && (
-                    <span className="text-[11px] text-muted-foreground">No approval-only tools yet.</span>
-                  )}
                   {approvalTools.map((tool) => (
                     <ToolPill
                       key={`approval-${tool}`}
@@ -379,24 +455,27 @@ export function NodeEditor({
                   ))}
                 </div>
               </div>
+            )}
 
-              <div className="grid grid-cols-[1fr_auto_auto] gap-2">
-                <input
-                  value={toolDraft}
-                  onChange={(e) => setToolDraft(e.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      handleAddTool();
-                    }
-                  }}
-                  placeholder="tool name (e.g. web_search)"
-                  className={cn(
-                    'px-2.5 py-1.5 text-xs rounded-md',
-                    'border border-border bg-background',
-                    'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50'
-                  )}
-                />
+            {/* Custom tool input */}
+            <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+              <input
+                value={toolDraft}
+                onChange={(e) => setToolDraft(e.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    handleAddTool();
+                  }
+                }}
+                placeholder="Add custom tool..."
+                className={cn(
+                  'px-2.5 py-1.5 text-xs rounded-md',
+                  'border border-border bg-background',
+                  'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50'
+                )}
+              />
+              {!isSimple && (
                 <select
                   value={toolMode}
                   onChange={(e) => setToolMode(e.target.value as ToolMode)}
@@ -409,122 +488,45 @@ export function NodeEditor({
                   <option value="tools">Runtime</option>
                   <option value="canRequest">Approval</option>
                 </select>
-                <button
-                  type="button"
-                  onClick={handleAddTool}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                >
-                  <Plus className="h-3 w-3" />
-                  Add
-                </button>
-              </div>
-
-              {allTools.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-[11px] text-muted-foreground">Suggestions</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {allTools.slice(0, 16).map((tool) => (
-                      <button
-                        key={tool}
-                        type="button"
-                        onClick={() => addTool(tool, toolMode)}
-                        className="px-2 py-0.5 text-[11px] rounded-full border border-border/60 bg-background hover:bg-muted transition-colors"
-                      >
-                        {tool}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               )}
-
-              {toolFeedback && <p className="text-[11px] text-amber-600 dark:text-amber-400">{toolFeedback}</p>}
-            </div>
-          </div>
-        </EditorSection>
-
-        {/* Output Section */}
-        <EditorSection
-          icon={<Braces className="h-3.5 w-3.5" />}
-          title="Output"
-          badge={
-            outputFieldCount > 0 ? (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary">
-                {outputFieldCount}
-              </span>
-            ) : undefined
-          }
-          defaultOpen={outputFieldCount > 0}
-        >
-          <div className="pt-1">
-            {Object.keys(outputSchema).length > 0 ? (
-              <SchemaBuilder
-                value={outputSchema}
-                onChange={handleSchemaChange}
-                className="text-sm"
-              />
-            ) : (
               <button
-                onClick={() => handleSchemaChange({ result: 'string' })}
-                className={cn(
-                  'w-full flex items-center justify-center gap-2 px-3 py-3 text-xs rounded-lg transition-all',
-                  'text-muted-foreground border border-dashed border-border/80',
-                  'hover:border-primary/40 hover:text-primary hover:bg-primary/5'
-                )}
+                type="button"
+                onClick={handleAddTool}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
               >
-                <Braces className="h-3.5 w-3.5" />
-                Add output schema
+                <Plus className="h-3 w-3" />
+                Add
               </button>
-            )}
-          </div>
-        </EditorSection>
+            </div>
 
-        {/* Quick Edit Section */}
-        {onApplyIntent && (
-          <EditorSection
-            icon={<Zap className="h-3.5 w-3.5" />}
-            title="Quick Edit"
-            defaultOpen={false}
-          >
-            <div className="space-y-2 pt-1">
-              <textarea
-                value={intentInput}
-                onChange={(e) => setIntentInput(e.target.value)}
-                rows={2}
-                className={cn(
-                  'w-full px-3 py-2 text-sm rounded-lg',
-                  'border border-border bg-background',
-                  'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50',
-                  'resize-none'
-                )}
-                placeholder='Example: add a bot here that verifies the output'
-              />
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[11px] text-muted-foreground">
-                  Add, delete, rename, or update tools/goals from plain language.
-                </p>
+            {toolFeedback && <p className="text-xs text-amber-600 dark:text-amber-400">{toolFeedback}</p>}
+          </TabsContent>
+
+          {/* Output tab (advanced only) */}
+          {!isSimple && (
+            <TabsContent value="output">
+              {Object.keys(outputSchema).length > 0 ? (
+                <SchemaBuilder
+                  value={outputSchema}
+                  onChange={handleSchemaChange}
+                  className="text-sm"
+                />
+              ) : (
                 <button
-                  type="button"
-                  onClick={handleApplyIntent}
-                  className="px-2.5 py-1.5 text-xs rounded-lg border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                >
-                  Apply
-                </button>
-              </div>
-              {intentFeedback && (
-                <p
+                  onClick={() => handleSchemaChange({ result: 'string' })}
                   className={cn(
-                    'text-[11px]',
-                    intentFeedback.type === 'success'
-                      ? 'text-green-600 dark:text-green-400'
-                      : 'text-red-600 dark:text-red-400'
+                    'w-full flex items-center justify-center gap-2 px-3 py-3 text-xs rounded-lg transition-all',
+                    'text-muted-foreground border border-dashed border-border/80',
+                    'hover:border-primary/40 hover:text-primary hover:bg-primary/5'
                   )}
                 >
-                  {intentFeedback.text}
-                </p>
+                  <Braces className="h-3.5 w-3.5" />
+                  Define what this step returns
+                </button>
               )}
-            </div>
-          </EditorSection>
-        )}
+            </TabsContent>
+          )}
+        </Tabs>
       </div>
     </div>
   );
@@ -542,7 +544,7 @@ function ToolPill({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full border',
+        'inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border',
         tone === 'runtime'
           ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
           : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30'

@@ -1,6 +1,7 @@
 'use client';
 
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { VisualNode } from '@/lib/baleybot/visual/types';
 
@@ -26,22 +27,22 @@ export const MCP_PREFIXES: Record<string, string> = {
 
 // --- Built-in tool display info ---
 
-const BUILTIN_TOOLS: Record<string, { icon: string; label: string }> = {
-  web_search: { icon: '🌐', label: 'Search' },
-  fetch_url: { icon: '📡', label: 'Fetch' },
-  spawn_baleybot: { icon: '🤖', label: 'Spawn' },
-  send_notification: { icon: '🔔', label: 'Notify' },
-  store_memory: { icon: '💾', label: 'Memory' },
-  shared_storage: { icon: '📦', label: 'Storage' },
-  schedule_task: { icon: '📅', label: 'Schedule' },
-  create_agent: { icon: '🧬', label: 'Agent' },
-  create_tool: { icon: '🔧', label: 'Tool' },
+export const BUILTIN_TOOLS: Record<string, { icon: string; label: string; description: string }> = {
+  web_search: { icon: '🌐', label: 'Search', description: 'Search the web' },
+  fetch_url: { icon: '📡', label: 'Fetch', description: 'Fetch URL content' },
+  spawn_baleybot: { icon: '🤖', label: 'Spawn', description: 'Run another bot' },
+  send_notification: { icon: '🔔', label: 'Notify', description: 'Send a notification' },
+  store_memory: { icon: '💾', label: 'Memory', description: 'Remember data' },
+  shared_storage: { icon: '📦', label: 'Storage', description: 'Shared key-value store' },
+  schedule_task: { icon: '📅', label: 'Schedule', description: 'Run later' },
+  create_agent: { icon: '🧬', label: 'Agent', description: 'Create ephemeral agent' },
+  create_tool: { icon: '🔧', label: 'Tool', description: 'Create ephemeral tool' },
 };
 
 // --- Tool categorization ---
 
 interface CategorizedTools {
-  builtin: Array<{ icon: string; label: string }>;
+  builtin: Array<{ icon: string; label: string; description: string }>;
   mcp: Array<{ name: string; toolCount: number }>;
   database: Array<{ type: string; name: string }>;
   custom: string[];
@@ -147,7 +148,7 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
 
       <div
         className={cn(
-          'w-[290px] rounded-xl border bg-card shadow-sm transition-all',
+          'w-[310px] rounded-2xl border bg-card elevation-1 transition-all',
           selected
             ? 'border-primary ring-2 ring-primary/20'
             : 'border-border hover:border-primary/50',
@@ -185,64 +186,70 @@ export function BaleybotNode({ data, selected }: NodeProps<BaleybotNodeType>) {
 
           {/* Tools section */}
           {hasTools && (
-            <div className="flex flex-wrap gap-1">
-              {/* Built-in tools */}
-              {categorized.builtin.map((t) => (
-                <span
-                  key={t.label}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground"
-                >
-                  {t.icon} {t.label}
-                </span>
-              ))}
+            <TooltipProvider delayDuration={300}>
+              <div className="flex flex-wrap gap-1">
+                {/* Built-in tools */}
+                {categorized.builtin.map((t) => (
+                  <span
+                    key={t.label}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground"
+                  >
+                    {t.icon} {t.label}
+                  </span>
+                ))}
 
-              {/* MCP connections */}
-              {categorized.mcp.map((m) => (
-                <span
-                  key={m.name}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-500/10 text-indigo-700 dark:text-indigo-300"
-                >
-                  🔌 {m.name}
-                </span>
-              ))}
+                {/* MCP connections — with tooltip showing full service name + tool count */}
+                {categorized.mcp.map((m) => (
+                  <Tooltip key={m.name}>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 cursor-default">
+                        🔌 {m.name}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {m.name} ({m.toolCount} tool{m.toolCount !== 1 ? 's' : ''})
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
 
-              {/* Database connections */}
-              {categorized.database.map((d) => (
-                <span
-                  key={`${d.type}-${d.name}`}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
-                >
-                  🗄️ {d.name}
-                </span>
-              ))}
+                {/* Database connections */}
+                {categorized.database.map((d) => (
+                  <span
+                    key={`${d.type}-${d.name}`}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
+                  >
+                    🗄️ {d.name}
+                  </span>
+                ))}
 
-              {/* Custom tools */}
-              {categorized.custom.map((t) => (
-                <span
-                  key={t}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground"
-                >
-                  ⚡ {t.replace(/_/g, ' ')}
-                </span>
-              ))}
+                {/* Custom tools */}
+                {categorized.custom.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground"
+                  >
+                    ⚡ {t.replace(/_/g, ' ')}
+                  </span>
+                ))}
 
-              {/* Approval tools */}
-              {categorized.approval.map((t) => (
-                <span
-                  key={`approval-${t}`}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300"
-                >
-                  🛡️ {t.replace(/_/g, ' ')}
-                </span>
-              ))}
-            </div>
+                {/* Approval tools */}
+                {categorized.approval.map((t) => (
+                  <span
+                    key={`approval-${t}`}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                  >
+                    🛡️ {t.replace(/_/g, ' ')}
+                  </span>
+                ))}
+              </div>
+            </TooltipProvider>
           )}
         </div>
 
         {/* Output field names — subtle footer */}
         {outputFields.length > 0 && (
-          <div className="px-4 py-2 bg-muted/30 border-t border-border/50 rounded-b-xl">
-            <p className="text-[10px] text-muted-foreground truncate">
+          <div className="px-4 py-2 bg-muted/30 border-t border-border/50 rounded-b-2xl">
+            <p className="text-xs text-muted-foreground truncate">
               → {outputFields.join(' · ')}
             </p>
           </div>

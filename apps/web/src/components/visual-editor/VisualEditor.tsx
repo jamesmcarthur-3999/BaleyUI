@@ -604,7 +604,7 @@ export function VisualEditor({
                   <Trash2 className="h-3.5 w-3.5" />
                   Remove Step
                 </button>
-                <span className="text-[11px] text-muted-foreground max-w-[22rem]">{builderHint}</span>
+                <span className="text-xs text-muted-foreground max-w-[22rem]">{builderHint}</span>
               </div>
             )}
 
@@ -616,6 +616,7 @@ export function VisualEditor({
                   onUpdate={handleNodeUpdate}
                   onApplyIntent={handleNodeIntent}
                   toolSuggestions={toolSuggestions}
+                  presentationMode={presentationMode}
                   onClose={() => setSelectedNodeId(null)}
                 />
               </div>
