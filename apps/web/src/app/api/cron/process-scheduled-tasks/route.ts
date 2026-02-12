@@ -91,6 +91,8 @@ export async function GET(request: Request): Promise<Response> {
       FROM scheduled_tasks
       WHERE status = 'pending'
         AND run_at <= NOW()
+        AND deleted_at IS NULL
+        AND baleybot_id IN (SELECT id FROM baleybots WHERE deleted_at IS NULL)
       ORDER BY run_at ASC
       LIMIT 50
       FOR UPDATE SKIP LOCKED

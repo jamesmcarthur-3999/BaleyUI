@@ -37,6 +37,22 @@ const envSchema = z.object({
   // Optional services
   TAVILY_API_KEY: z.string().optional(),
 
+  // Billing (Stripe)
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+
+  // Rate limiting (Upstash Redis)
+  UPSTASH_REDIS_REST_URL: z.string().url().optional(),
+  UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+
+  // Admin
+  ADMIN_USER_IDS: z.string().optional(),
+  RATE_LIMIT_DISABLED: z.enum(['true', 'false']).optional(),
+
+  // Monitoring (Sentry)
+  NEXT_PUBLIC_SENTRY_DSN: z.string().url().optional(),
+  SENTRY_AUTH_TOKEN: z.string().optional(),
+
   // Runtime
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });

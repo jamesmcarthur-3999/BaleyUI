@@ -18,12 +18,15 @@ import {
   eq,
   notDeleted,
 } from '@baleyui/db';
+import { auth } from '@clerk/nextjs/server';
 import { createLogger } from '@/lib/logger';
 import { executeBaleybot } from '@/lib/baleybot/executor';
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
 import { loadExecutionTools } from '@/lib/baleybot/services/execution-tools-loader';
 import { checkApiRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { createErrorResponse } from '@/lib/api/error-response';
+import { validateApiKey } from '@/lib/api/validate-api-key';
+import { apiErrors } from '@/lib/api/error-response';
 
 const log = createLogger('file-upload-trigger');
 
@@ -105,6 +108,23 @@ export async function POST(
 ) {
   const { workspaceId, baleybotId } = await params;
   const requestId = crypto.randomUUID();
+
+  // Authenticate: require session auth or API key
+  const { userId } = await auth();
+  if (!userId) {
+    // Try API key auth
+    const authHeader = request.headers.get('authorization');
+    if (authHeader) {
+      try {
+        await validateApiKey(authHeader);
+      } catch {
+        return apiErrors.unauthorized();
+      }
+    } else {
+      return apiErrors.unauthorized();
+    }
+  }
+
   const ipAddress = getClientIp(request);
 
   const rateLimitKey = `file-upload:${workspaceId}:${ipAddress ?? 'unknown'}`;

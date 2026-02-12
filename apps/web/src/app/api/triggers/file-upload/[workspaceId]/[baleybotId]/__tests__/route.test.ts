@@ -9,6 +9,8 @@ const {
   mockCheckApiRateLimit,
   mockExecuteBaleybot,
   mockLoadExecutionTools,
+  mockAuth,
+  mockValidateApiKey,
 } = vi.hoisted(() => ({
   mockFindFirstBaleybot: vi.fn(),
   mockFindFirstTrigger: vi.fn(),
@@ -17,6 +19,8 @@ const {
   mockCheckApiRateLimit: vi.fn(),
   mockExecuteBaleybot: vi.fn(),
   mockLoadExecutionTools: vi.fn(),
+  mockAuth: vi.fn(),
+  mockValidateApiKey: vi.fn(),
 }));
 
 vi.mock('@baleyui/db', () => ({
@@ -76,11 +80,22 @@ vi.mock('@/lib/logger', () => ({
   }),
 }));
 
+vi.mock('@clerk/nextjs/server', () => ({
+  auth: () => mockAuth(),
+}));
+
+vi.mock('@/lib/api/validate-api-key', () => ({
+  validateApiKey: (...args: unknown[]) => mockValidateApiKey(...args),
+}));
+
 vi.mock('@/lib/api/error-response', async () => {
   const { NextResponse } = await import('next/server');
   return {
     createErrorResponse: (status: number, _err: unknown, opts?: { message?: string; requestId?: string }) =>
       NextResponse.json({ error: opts?.message ?? 'Error', requestId: opts?.requestId }, { status }),
+    apiErrors: {
+      unauthorized: () => NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
+    },
   };
 });
 
@@ -114,6 +129,8 @@ function baseBaleybot() {
 describe('POST /api/triggers/file-upload/[workspaceId]/[baleybotId]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: authenticated via session
+    mockAuth.mockResolvedValue({ userId: 'user-1' });
     mockCheckApiRateLimit.mockResolvedValue({
       limited: false,
       remaining: 59,

@@ -85,7 +85,7 @@ export async function POST(
   const webhookSecret = request.headers.get('x-webhook-secret');
 
   // Rate limiting: 60 requests per minute per IP
-  const rateLimitKey = `webhook:baleybot:${ipAddress || 'unknown'}`;
+  const rateLimitKey = `webhook:baleybot:${baleybotId}:${ipAddress || 'unknown'}`;
   const rateLimitResult = await checkApiRateLimit(rateLimitKey, RATE_LIMITS.webhookPerMinute);
 
   if (rateLimitResult.limited) {

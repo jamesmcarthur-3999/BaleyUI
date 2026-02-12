@@ -94,6 +94,7 @@ export const workspaceMembers = pgTable(
     index('workspace_members_workspace_idx').on(table.workspaceId),
     index('workspace_members_user_idx').on(table.userId),
     index('workspace_members_deleted_idx').on(table.deletedAt),
+    index('workspace_members_ws_deleted_idx').on(table.workspaceId, table.deletedAt),
   ]
 );
 
@@ -895,6 +896,7 @@ export const baleybotExecutions = pgTable(
     index('baleybot_executions_baleybot_status_idx').on(table.baleybotId, table.status),
     index('bb_exec_bot_created_idx').on(table.baleybotId, table.createdAt),
     index('bb_exec_conversation_idx').on(table.baleybotId, table.conversationId),
+    index('bb_exec_status_created_idx').on(table.status, table.createdAt),
     uniqueIndex('bb_exec_idempotency_idx')
       .on(table.baleybotId, table.idempotencyKey)
       .where(sql`${table.idempotencyKey} IS NOT NULL`),
@@ -1182,6 +1184,7 @@ export const scheduledTasks = pgTable(
     index('scheduled_tasks_workspace_idx').on(table.workspaceId),
     index('scheduled_tasks_baleybot_idx').on(table.baleybotId),
     index('scheduled_tasks_pending_idx').on(table.status, table.runAt),
+    index('scheduled_tasks_ws_status_run_idx').on(table.workspaceId, table.status, table.runAt),
   ]
 );
 

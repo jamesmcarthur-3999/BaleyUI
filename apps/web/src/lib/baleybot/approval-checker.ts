@@ -86,18 +86,26 @@ function matchesPatternValue(
     }
   }
 
-  // Handle regex patterns for strings (enclosed in /.../)
+  // Handle glob patterns for strings (enclosed in /.../)
+  // Uses safe glob-to-regex conversion instead of raw RegExp to prevent ReDoS
   if (
     typeof pattern === 'string' &&
     typeof actual === 'string' &&
     pattern.startsWith('/') &&
     pattern.endsWith('/')
   ) {
+    const globPattern = pattern.slice(1, -1);
+    // Convert glob wildcards to safe regex: * → .*, ? → .
+    // All other regex metacharacters are escaped
+    const safeRegex = globPattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape regex metacharacters (except * and ?)
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.');
     try {
-      const regex = new RegExp(pattern.slice(1, -1));
+      const regex = new RegExp(`^${safeRegex}$`);
       return regex.test(actual);
     } catch {
-      // Invalid regex, fall through to exact match
+      // Invalid pattern, fall through to exact match
     }
   }
 
@@ -165,11 +173,16 @@ function matchesGoalPattern(
     return true;
   }
 
+  // Use safe glob-to-regex conversion to prevent ReDoS
+  const safeRegex = goalPattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
   try {
-    const regex = new RegExp(goalPattern, 'i');
+    const regex = new RegExp(safeRegex, 'i');
     return regex.test(entityGoal);
   } catch {
-    // Invalid regex, try exact match
+    // Invalid pattern, try case-insensitive substring match
     return entityGoal.toLowerCase().includes(goalPattern.toLowerCase());
   }
 }

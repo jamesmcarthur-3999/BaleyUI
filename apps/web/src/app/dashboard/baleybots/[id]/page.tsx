@@ -1254,9 +1254,18 @@ export default function BaleybotPage() {
 
   // Auto-save: triggers after first BAL generation and on subsequent changes
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSaveFailCountRef = useRef(0);
+  const AUTO_SAVE_MAX_FAILURES = 4;
+  const AUTO_SAVE_BASE_DELAY = 2000;
+  const AUTO_SAVE_MAX_DELAY = 30000;
   useEffect(() => {
     // Only auto-save when: dirty, has content, not mid-stream, not already saving
     if (!isDirty || !balCode || !name || isStreaming || isSaving) {
+      return;
+    }
+
+    // Stop auto-saving after too many consecutive failures
+    if (autoSaveFailCountRef.current >= AUTO_SAVE_MAX_FAILURES) {
       return;
     }
 
@@ -1265,11 +1274,21 @@ export default function BaleybotPage() {
       clearTimeout(autoSaveTimerRef.current);
     }
 
-    // Delay auto-save by 2s to batch rapid state changes
-    autoSaveTimerRef.current = setTimeout(() => {
+    // Exponential backoff: 2s → 4s → 8s → 16s, capped at 30s
+    const delay = Math.min(
+      AUTO_SAVE_BASE_DELAY * Math.pow(2, autoSaveFailCountRef.current),
+      AUTO_SAVE_MAX_DELAY,
+    );
+
+    autoSaveTimerRef.current = setTimeout(async () => {
       autoSaveTimerRef.current = null;
-      handleSave();
-    }, 2000);
+      const result = await handleSave();
+      if (result) {
+        autoSaveFailCountRef.current = 0;
+      } else {
+        autoSaveFailCountRef.current += 1;
+      }
+    }, delay);
 
     return () => {
       if (autoSaveTimerRef.current) {

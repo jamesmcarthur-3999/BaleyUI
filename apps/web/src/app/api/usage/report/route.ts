@@ -7,9 +7,12 @@
  */
 
 import { NextResponse } from 'next/server';
-import { db, eq, and } from '@baleyui/db';
+import { db, eq, and, isNull } from '@baleyui/db';
 import { apiKeys, baleybotUsage } from '@baleyui/db';
 import { createHash } from 'node:crypto';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('usage-report');
 
 interface UsageReportItem {
   baleybotId: string;
@@ -32,7 +35,7 @@ export async function POST(req: Request) {
 
   // Look up the API key
   const key = await db.query.apiKeys.findFirst({
-    where: and(eq(apiKeys.keyHash, keyHash), eq(apiKeys.revokedAt, null as unknown as Date)),
+    where: and(eq(apiKeys.keyHash, keyHash), isNull(apiKeys.revokedAt)),
   });
 
   if (!key) {
@@ -93,7 +96,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ received: reports.length });
   } catch (err) {
-    console.error('[usage-report]', err instanceof Error ? err.message : String(err));
+    log.error('Failed to record usage', { error: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: 'Failed to record usage' }, { status: 500 });
   }
 }

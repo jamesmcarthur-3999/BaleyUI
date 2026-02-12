@@ -423,14 +423,17 @@ export async function executeInternalBaleybot(
       aiProviders
     );
 
+    // Use caller's signal, or default to 2-minute timeout to prevent indefinite hangs
+    const signal = options.signal ?? AbortSignal.timeout(120_000);
+
     // Check signal before execution
-    if (options.signal?.aborted) {
+    if (signal.aborted) {
       throw new Error('Execution aborted');
     }
 
     const result = await executeBaleybot(runtimeBalCode, fullInput, ctx, {
       onSegment: options.onSegment,
-      signal: options.signal,
+      signal,
     });
 
     // Update execution record (including usage data for analytics)

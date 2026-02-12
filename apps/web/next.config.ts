@@ -91,6 +91,6 @@ export default withSentryConfig(nextConfig, {
   silent: true,
   // Skip source map upload when no auth token is configured
   sourcemaps: {
-    disable: true,
+    disable: !process.env.SENTRY_AUTH_TOKEN,
   },
 });

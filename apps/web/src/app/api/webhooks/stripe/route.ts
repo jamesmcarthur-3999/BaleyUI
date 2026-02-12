@@ -8,6 +8,9 @@
 
 import { NextResponse } from 'next/server';
 import { handleWebhookEvent } from '@/lib/billing/service';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('stripe-webhook');
 
 /**
  * Simple in-memory idempotency guard for webhook event IDs.
@@ -68,7 +71,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Webhook error';
-    console.error('[stripe-webhook]', message);
+    log.error('Stripe webhook processing failed', { error: message });
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

@@ -14,6 +14,9 @@ const client = globalForDb.client ?? postgres(connectionString, {
   idle_timeout: 20,          // Close idle connections after 20s
   connect_timeout: 10,       // Fail connection attempts after 10s
   max_lifetime: 60 * 30,     // Recycle connections every 30 minutes
+  connection: {
+    statement_timeout: 30000, // 30s ceiling on any single SQL statement
+  },
 });
 if (process.env.NODE_ENV !== 'production') globalForDb.client = client;
 

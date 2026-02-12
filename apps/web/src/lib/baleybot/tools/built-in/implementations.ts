@@ -118,12 +118,43 @@ async function fetchUrlImpl(
   validateUrl(args.url);
 
   try {
-    const response = await fetch(args.url, {
+    let response = await fetch(args.url, {
       headers: {
         'User-Agent': 'BaleyBot/1.0',
       },
+      redirect: 'manual',
       signal: AbortSignal.timeout(30000), // 30 second timeout
     });
+
+    // Handle redirects manually to validate each hop against SSRF
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (!location) {
+        return {
+          content: `Error fetching URL: redirect with no Location header`,
+          contentType: 'text/plain',
+          statusCode: response.status,
+        };
+      }
+      // Validate redirect target against SSRF
+      const redirectUrl = new URL(location, args.url).href;
+      validateUrl(redirectUrl);
+
+      response = await fetch(redirectUrl, {
+        headers: { 'User-Agent': 'BaleyBot/1.0' },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(30000),
+      });
+
+      // If still redirecting after one hop, stop
+      if (response.status >= 300 && response.status < 400) {
+        return {
+          content: 'Error fetching URL: too many redirects',
+          contentType: 'text/plain',
+          statusCode: response.status,
+        };
+      }
+    }
 
     if (!response.ok) {
       return {

@@ -16,6 +16,10 @@ const isApiKeyRoute = createRouteMatcher([
   '/api/v1(.*)',
 ]);
 
+// API routes handle their own auth (tRPC context, auth() checks, API key validation)
+// Skipping auth.protect() here prevents Clerk from returning HTML 404 on expired JWTs
+const isApiRoute = createRouteMatcher(['/api(.*)', '/trpc(.*)']);
+
 // Routes exempt from CSRF checks (use their own auth mechanisms)
 const isCsrfExempt = createRouteMatcher([
   '/api/webhooks(.*)',    // Secret-based auth
@@ -91,7 +95,7 @@ export default clerkMiddleware(async (auth, request) => {
     }
   }
 
-  if (!isPublicRoute(request)) {
+  if (!isPublicRoute(request) && !isApiRoute(request)) {
     await auth.protect();
   }
 

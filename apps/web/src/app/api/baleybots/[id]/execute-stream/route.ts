@@ -155,6 +155,12 @@ export async function POST(
       return apiErrors.badRequest('Cannot execute BaleyBot in error state');
     }
 
+    // Reject oversized payloads (1MB limit)
+    const contentLength = req.headers.get('content-length');
+    if (contentLength && parseInt(contentLength, 10) > 1_048_576) {
+      return createErrorResponse(413, null, { message: 'Request body too large (max 1MB)', requestId });
+    }
+
     // Parse and validate request body
     let input: unknown;
     let triggeredBy: 'manual' | 'schedule' | 'webhook' | 'other_bb' = 'manual';

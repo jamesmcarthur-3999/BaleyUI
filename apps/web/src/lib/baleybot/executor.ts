@@ -599,8 +599,12 @@ export async function executeBaleybot(
         durationMs,
       );
     } catch (usageErr) {
-      logger.warn('Usage tracking failed (non-fatal)', {
+      logger.error('Usage tracking failed — billing data may be lost', {
         executionId,
+        billing_data_lost: true,
+        workspaceId: ctx.workspaceId,
+        baleybotId: ctx.baleybotId,
+        durationMs,
         error: usageErr instanceof Error ? usageErr.message : 'Unknown error',
       });
     }
