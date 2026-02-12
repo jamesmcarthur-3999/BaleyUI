@@ -1359,15 +1359,34 @@ export default function BaleybotPage() {
     guardedNavigate,
     showDialog,
     closeDialog,
-    handleDiscard,
+    handleDiscard: rawDiscard,
     handleSaveAndLeave,
   } = useNavigationGuard(isDirty, handleSave);
+
+  // Wrap discard to also clear sessionStorage for new BBs
+  const handleDiscard = () => {
+    if (isNew) {
+      try { sessionStorage.removeItem(`creator-session:new`); } catch { /* noop */ }
+    }
+    rawDiscard();
+  };
 
   /**
    * Handle back navigation (uses guard)
    */
   const handleBack = () => {
     guardedNavigate(ROUTES.baleybots.list);
+  };
+
+  /**
+   * Start a fresh creation session (clear state and session storage)
+   */
+  const handleStartFresh = () => {
+    try { sessionStorage.removeItem(`creator-session:new`); } catch { /* noop */ }
+    // Navigate to /new with fresh flag to skip session restore
+    router.push('/dashboard/baleybots/new?fresh=1');
+    // Force a full page reload since the route is the same
+    window.location.href = '/dashboard/baleybots/new?fresh=1';
   };
 
   // =====================================================================
@@ -1467,9 +1486,14 @@ export default function BaleybotPage() {
     }
   }, [isNew, messages, entities, balCode, name, description, icon, sessionKey, savedBaleybotId]);
 
-  // Restore session on mount (new BBs only, < 24h old)
+  // Restore session on mount (new BBs only, < 24h old, unless ?fresh=1)
   useEffect(() => {
     if (!isNew) return;
+    // Skip restore if fresh flag is set (user clicked "Start Fresh")
+    if (searchParams.get('fresh')) {
+      try { sessionStorage.removeItem(sessionKey); } catch { /* noop */ }
+      return;
+    }
     try {
       const raw = sessionStorage.getItem(sessionKey);
       if (!raw) return;
@@ -1973,6 +1997,7 @@ export default function BaleybotPage() {
         onDescriptionChange={setDescription}
         onEditDescriptionToggle={setIsEditingDescription}
         onToggleFullDescription={() => setShowFullDescription(!showFullDescription)}
+        onStartFresh={messages.length > 0 ? handleStartFresh : undefined}
       />
 
       {status === 'empty' ? (

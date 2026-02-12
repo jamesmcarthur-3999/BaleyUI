@@ -7,7 +7,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Pencil, Undo2, Redo2, Keyboard, Plus } from 'lucide-react';
 import type { ValidationStatus } from '@/lib/baleybot/creator-validation';
 import { ValidationIndicator } from '@/components/review';
 
@@ -35,6 +35,7 @@ export interface BaleybotHeaderProps {
   onDescriptionChange: (value: string) => void;
   onEditDescriptionToggle: (editing: boolean) => void;
   onToggleFullDescription: () => void;
+  onStartFresh?: () => void;
 }
 
 export function BaleybotHeader({
@@ -61,6 +62,7 @@ export function BaleybotHeader({
   onDescriptionChange,
   onEditDescriptionToggle,
   onToggleFullDescription,
+  onStartFresh,
 }: BaleybotHeaderProps) {
   return (
     <header className="animate-fade-slide-down border-b border-border/60 bg-background/85 backdrop-blur-md">
@@ -70,6 +72,22 @@ export function BaleybotHeader({
         <Button variant="ghost" size="icon" onClick={onBack} className="shrink-0 min-h-10 min-w-10 sm:min-h-11 sm:min-w-11" aria-label="Go back to BaleyBots list">
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         </Button>
+
+        {/* New Bot button — shown when there's content to clear */}
+        {onStartFresh && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" onClick={onStartFresh} className="shrink-0 min-h-10 min-w-10 sm:min-h-11 sm:min-w-11" aria-label="Start a new BaleyBot">
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>New Bot</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
 
         {/* Icon and name */}
         <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
