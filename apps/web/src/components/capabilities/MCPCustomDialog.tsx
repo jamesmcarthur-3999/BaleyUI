@@ -135,7 +135,7 @@ export function MCPCustomDialog({ onCreated }: MCPCustomDialogProps) {
           Custom MCP
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Custom MCP Server</DialogTitle>
         </DialogHeader>

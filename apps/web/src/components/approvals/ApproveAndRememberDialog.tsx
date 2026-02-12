@@ -154,7 +154,7 @@ export function ApproveAndRememberDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Create Approval Pattern</DialogTitle>
           <DialogDescription>

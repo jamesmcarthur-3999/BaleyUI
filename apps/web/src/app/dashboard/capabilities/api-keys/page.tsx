@@ -172,7 +172,7 @@ export default function CapabilityApiKeysPage() {
               Create API Key
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-md">
+          <DialogContent size="md">
             <DialogHeader>
               <DialogTitle>Create API Key</DialogTitle>
               <DialogDescription>
@@ -287,7 +287,7 @@ export default function CapabilityApiKeysPage() {
 
       {/* New Key Display Dialog */}
       <Dialog open={!!newlyCreatedKey} onOpenChange={(open) => !open && setNewlyCreatedKey(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent size="xl">
           <DialogHeader>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-green-500" />

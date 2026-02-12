@@ -204,7 +204,7 @@ export function MCPLibraryDialog({ onInstalled }: MCPLibraryDialogProps) {
           Add MCP Server
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+      <DialogContent size="xl" className="flex flex-col">
         <DialogHeader>
           <DialogTitle>
             {step === 'browse' ? 'MCP Server Library' : `Connect ${selected?.name}`}
