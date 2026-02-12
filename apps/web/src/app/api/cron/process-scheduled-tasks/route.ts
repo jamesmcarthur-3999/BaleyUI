@@ -19,7 +19,6 @@ import {
   baleybotExecutions,
   eq,
   and,
-  lte,
   sql,
   notDeleted,
   withTransaction,

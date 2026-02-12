@@ -81,6 +81,7 @@ export function LeftPanel({
         streamingProgress={streamingProgress}
         className="flex-1 min-h-0"
         onOptionSelect={onOptionSelect}
+        onSendMessage={onSendMessage}
         agentEvents={agentEvents}
         streamingText={streamingText}
         connectionActions={connectionActions}

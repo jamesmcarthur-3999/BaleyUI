@@ -27,6 +27,7 @@ export function IntegrationKitCard({
   type,
   title,
   code,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- planned: syntax highlighting by language
   language = 'typescript',
   description,
   className,
@@ -41,9 +42,9 @@ export function IntegrationKitCard({
   };
 
   return (
-    <div className={cn('rounded-xl border bg-background overflow-hidden', className)}>
+    <div className={cn('rounded-xl border border-border/60 bg-card/70 shadow-sm overflow-hidden', className)}>
       {/* Header */}
-      <div className="flex items-center justify-between px-3.5 py-2.5 border-b bg-muted/20">
+      <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
         <div className="flex items-center gap-2">
           <Icon className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">{title}</span>
@@ -56,7 +57,7 @@ export function IntegrationKitCard({
         >
           {copied ? (
             <>
-              <Check className="h-3 w-3 text-emerald-500" />
+              <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
               Copied
             </>
           ) : (
@@ -70,13 +71,13 @@ export function IntegrationKitCard({
 
       {/* Description */}
       {description && (
-        <p className="px-3.5 py-2 text-xs text-muted-foreground border-b">
+        <p className="px-4 py-2 text-xs text-muted-foreground border-b">
           {description}
         </p>
       )}
 
       {/* Code block */}
-      <pre className="p-3.5 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-words bg-muted/10 max-h-[200px]">
+      <pre className="p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-words bg-muted/30 max-h-[200px]">
         <code>{code}</code>
       </pre>
     </div>

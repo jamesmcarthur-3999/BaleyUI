@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 /**
  * State snapshot for history tracking
@@ -170,6 +170,14 @@ export function useHistory<T>(options: UseHistoryOptions<T> = {}): UseHistoryRet
   };
 
   /**
+   * Keep refs to undo/redo so the keyboard effect doesn't re-run on every render
+   */
+  const undoRef = useRef(undo);
+  const redoRef = useRef(redo);
+  useEffect(() => { undoRef.current = undo; });
+  useEffect(() => { redoRef.current = redo; });
+
+  /**
    * Handle keyboard shortcuts
    */
   useEffect(() => {
@@ -182,24 +190,24 @@ export function useHistory<T>(options: UseHistoryOptions<T> = {}): UseHistoryRet
         if (e.shiftKey) {
           // Cmd/Ctrl+Shift+Z = Redo
           e.preventDefault();
-          redo();
+          redoRef.current();
         } else {
           // Cmd/Ctrl+Z = Undo
           e.preventDefault();
-          undo();
+          undoRef.current();
         }
       }
 
       // Also support Cmd/Ctrl+Y for redo (Windows convention)
       if (isMod && e.key === 'y') {
         e.preventDefault();
-        redo();
+        redoRef.current();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [enableKeyboardShortcuts, undo, redo]);
+  }, [enableKeyboardShortcuts]);
 
   return {
     current: present?.state ?? null,

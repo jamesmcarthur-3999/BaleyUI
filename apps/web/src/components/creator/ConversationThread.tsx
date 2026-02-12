@@ -37,6 +37,8 @@ interface ConversationThreadProps {
   streamingProgress?: StreamingProgress | null;
   /** Callback when user selects an option card */
   onOptionSelect?: (optionId: string) => void;
+  /** Callback to send a message (used by advisor action buttons) */
+  onSendMessage?: (message: string) => void;
   /** Agent activity events for the expandable activity panel */
   agentEvents?: AgentActivityEvent[];
   /** Real-time streaming text from creator_bot (shown as a live message bubble) */
@@ -60,6 +62,7 @@ export function ConversationThread({
   isBuilding = false,
   streamingProgress,
   onOptionSelect: _onOptionSelect,
+  onSendMessage,
   agentEvents,
   streamingText,
   connectionActions,
@@ -112,6 +115,7 @@ export function ConversationThread({
               key={message.id}
               message={message}
               onOptionSelect={_onOptionSelect}
+              onSendMessage={onSendMessage}
             />
           );
         }
@@ -244,12 +248,15 @@ function AssistantMessage({
 function SystemMessage({
   message,
   onOptionSelect,
+  onSendMessage,
 }: {
   message: CreatorMessage;
   onOptionSelect?: (optionId: string) => void;
+  onSendMessage?: (message: string) => void;
 }) {
   const isError = message.metadata?.isError;
   const options = message.metadata?.options;
+  const advisorActions = message.metadata?.advisorActions;
   const diagnostic = message.metadata?.diagnostic as { level?: string; details?: string } | undefined;
   const isSuccess = diagnostic?.level === 'success';
 
@@ -278,6 +285,19 @@ function SystemMessage({
                 className="text-xs px-3 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
               >
                 {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {advisorActions && advisorActions.length > 0 && onSendMessage && (
+          <div className="flex flex-wrap justify-center gap-2 mt-2">
+            {advisorActions.map((action, i) => (
+              <button
+                key={i}
+                onClick={() => onSendMessage(action.prompt)}
+                className="rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-sm text-primary hover:bg-primary/10 transition-colors"
+              >
+                {action.label}
               </button>
             ))}
           </div>

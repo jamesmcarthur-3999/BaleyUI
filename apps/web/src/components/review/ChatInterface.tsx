@@ -7,7 +7,7 @@ import { ToolCallCard } from '@/components/streaming/ToolCallCard';
 import type { ToolCall } from '@/components/streaming/ToolCallCard';
 import { StreamdownMarkdown } from '@/components/shared/StreamdownMarkdown';
 import { Button } from '@/components/ui/button';
-import { Send, Loader2, Bot, User, Square } from 'lucide-react';
+import { Send, Bot, User, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ToolCallState } from '@/lib/streaming/types/state';
 

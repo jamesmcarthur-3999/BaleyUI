@@ -51,6 +51,14 @@ const creatorStreamBodySchema = z
         tools: z.array(z.string()).optional(),
       })).max(50).optional(),
     }).optional(),
+    uiState: z.object({
+      activeTab: z.string(),
+      availableTabs: z.array(z.string()),
+      lifecycleStage: z.string(),
+      readinessSummary: z.string(),
+      triggerConfigured: z.boolean(),
+      webhookEnabled: z.boolean(),
+    }).optional(),
   })
   .strict();
 
@@ -165,6 +173,7 @@ export async function POST(req: NextRequest) {
             context: creatorContext.context,
             conversationHistory: creatorContext.conversationHistory,
             currentState: input.currentState,
+            uiState: input.uiState,
             signal: req.signal,
             executionId,
             onEvent: (event: CreatorSSEEvent) => {

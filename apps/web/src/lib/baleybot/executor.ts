@@ -644,6 +644,8 @@ export async function executeBaleybot(
     tokenCount: totalTokens || undefined,
     estimatedCost,
     schemaValidation,
+    apiCalls: apiCalls || undefined,
+    toolCallCount: toolCallCount || undefined,
   };
 }
 

@@ -13,10 +13,10 @@ export const POST_DESIGN_TABS: AdaptiveTab[] = ['test', 'integrate'];
  * Example prompts shown on the /new welcome view
  */
 export const EXAMPLE_PROMPTS = [
-  { label: 'Research & summarize', prompt: 'Create a bot that searches the web for a topic, fetches the top 3 results, and summarizes them into a concise report' },
-  { label: 'Data pipeline', prompt: 'Build a bot that reads data from a database, analyzes it, and sends me a notification with insights' },
-  { label: 'Multi-bot workflow', prompt: 'Create a team of bots: one that monitors websites for changes and another that summarizes the changes into a daily digest' },
-  { label: 'Simple assistant', prompt: 'Create a helpful assistant that can search the web and answer questions' },
+  { label: 'Automate research', prompt: 'I need a bot that searches for information on a topic and gives me a concise summary' },
+  { label: 'Monitor & alert', prompt: 'Build a bot that checks something regularly and notifies me when it finds something important' },
+  { label: 'Process data', prompt: 'Create a bot that takes data from a source, analyzes it, and produces a report' },
+  { label: 'Help me brainstorm', prompt: "I have a task I want to automate but I'm not sure how to design it. Can you help me brainstorm?" },
 ];
 
 /**

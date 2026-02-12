@@ -66,8 +66,10 @@ export function useDirtyState(currentState: CreatorDirtyState): UseDirtyStateRet
   // that occurs between data load and the first state comparison
   const suppressNextCheckRef = useRef(false);
 
-  // Keep currentStateRef in sync with the latest state
-  currentStateRef.current = currentState;
+  // Keep currentStateRef in sync with the latest state (must be in effect for React Compiler)
+  useEffect(() => {
+    currentStateRef.current = currentState;
+  });
 
   // Check for changes when currentState updates
   useEffect(() => {

@@ -209,6 +209,13 @@ export interface MessageMetadata {
 
   /** Compact streaming summary after completion */
   streamSummary?: string;
+
+  /** Advisor-suggested next actions (rendered as inline action buttons) */
+  advisorActions?: Array<{
+    label: string;
+    prompt: string;
+    mode?: 'send' | 'insert';
+  }>;
 }
 
 // ============================================================================
@@ -433,6 +440,50 @@ export function createSession(
     createdAt: now,
     updatedAt: now,
   };
+}
+
+// ============================================================================
+// TEST CASE TYPES
+// ============================================================================
+
+export type InputType = 'text' | 'structured' | 'fixture';
+
+export type FailureCategory =
+  | 'connection_missing'
+  | 'execution_error'
+  | 'output_mismatch'
+  | 'timeout'
+  | 'rate_limited'
+  | 'precondition_failed';
+
+export interface TestFixture {
+  key: string;
+  value: unknown;
+  ttlSeconds?: number;
+  description?: string;
+}
+
+export interface StepExpectation {
+  entityName: string;
+  expectation: string;
+}
+
+export interface TestCase {
+  id: string;
+  name: string;
+  level: 'unit' | 'integration' | 'e2e';
+  inputType?: InputType;
+  input: string | Record<string, unknown>;
+  fixtures?: TestFixture[];
+  expectedSteps?: StepExpectation[];
+  description?: string;
+  expectedOutput?: string;
+  status: 'pending' | 'running' | 'passed' | 'failed';
+  actualOutput?: string;
+  error?: string;
+  durationMs?: number;
+  failureCategory?: FailureCategory;
+  matchStrategy?: string;
 }
 
 // Re-export readiness types for convenience

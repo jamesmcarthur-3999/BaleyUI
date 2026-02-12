@@ -28,5 +28,12 @@
     "dotenv": "^17.2.3",
     "happy-dom": "^20.0.11",
     "vitest": "^4.0.16"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "@radix-ui/react-compose-refs@1.1.2": "patches/@radix-ui__react-compose-refs@1.1.2.patch",
+      "@radix-ui/react-slot@1.2.4": "patches/@radix-ui__react-slot@1.2.4.patch",
+      "@radix-ui/react-slot@1.2.3": "patches/@radix-ui__react-slot@1.2.3.patch"
+    }
   }
 }

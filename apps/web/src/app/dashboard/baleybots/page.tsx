@@ -30,7 +30,6 @@ import { Separator } from '@/components/ui/separator';
 import { ROUTES } from '@/lib/routes';
 import {
   BaleybotCard,
-  BaleybotCommandBar,
 } from '@/components/baleybots';
 import {
   AlertTriangle,
@@ -282,10 +281,6 @@ export default function BaleybotsListPage() {
     }
   };
 
-  const handleCreatePrompt = (prompt: string) => {
-    router.push(`${ROUTES.baleybots.create}?prompt=${encodeURIComponent(prompt)}`);
-  };
-
   const handleExecute = (id: string) => {
     router.push(ROUTES.baleybots.detail(id));
   };
@@ -434,8 +429,6 @@ export default function BaleybotsListPage() {
             </Link>
           </Button>
         </header>
-
-        <BaleybotCommandBar onSubmitPrompt={handleCreatePrompt} />
 
         <div className="grid gap-6 lg:grid-cols-[270px_minmax(0,1fr)]">
           <aside className="space-y-4">

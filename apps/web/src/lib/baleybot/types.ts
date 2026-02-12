@@ -588,6 +588,10 @@ export interface ExecutionResult {
   estimatedCost?: number;
   /** Schema validation result (if entity has output schema) */
   schemaValidation?: SchemaValidationResult;
+  /** Number of LLM API calls (including tool-use loops) */
+  apiCalls?: number;
+  /** Total number of tool invocations across all entities */
+  toolCallCount?: number;
 }
 
 // ============================================================================

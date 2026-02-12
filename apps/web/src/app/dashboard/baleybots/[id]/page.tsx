@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { trpc } from '@/lib/trpc/client';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- ConnectionsPanel will be wired into advanced mode
 import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ConnectionsPanel, BaleybotHeader } from '@/components/creator';
 import type {
   TestCase,
@@ -48,12 +49,13 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { ArrowLeft, LayoutGrid, Code2, MessageSquare, PanelRight, FlaskConical, Rocket } from 'lucide-react';
-import { IntegrationConversation } from '@/components/integrate/IntegrationConversation';
+import { IntegrationDashboard } from '@/components/integrate/IntegrationDashboard';
 import { BotMonitorPanel } from '@/components/monitor';
-import { ReviewPage } from '@/components/review';
+import { AdaptiveTestSurface } from '@/components/test';
+import { analyzeBotCapabilities } from '@/lib/baleybot/capabilities';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
-import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory, useTestExecution } from '@/hooks';
+import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } from '@/hooks';
 import { formatErrorWithAction, parseCreatorError } from '@/lib/errors/creator-errors';
 import { generateChangeSummary, formatChangeSummaryForChat } from '@/lib/baleybot/change-summary';
 import { safeParseDate } from '@/lib/utils/date';
@@ -69,9 +71,7 @@ import type {
   AdaptiveTab,
   CreatorOutput,
   BuilderPresentationMode,
-  TriggerSetupStep,
 } from '@/lib/baleybot/creator-types';
-import type { LaunchKit } from '@/lib/baleybot/types';
 import { computeReadiness, createInitialReadiness } from '@/lib/baleybot/readiness';
 import type { ReadinessState, SpecialistSignals } from '@/lib/baleybot/readiness';
 import type { ValidationStatus } from '@/lib/baleybot/creator-validation';
@@ -86,6 +86,7 @@ import {
   truncateName,
   extractSidecarFromStructure,
   buildDerivedGraphSidecar,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by GraphSidecar visualization (planned)
   appendGraphRuntimeEvent,
   isSameReadiness,
   escapeRegExp,
@@ -143,6 +144,22 @@ type CreatorStreamEvent =
       type: 'creator_connection_action';
       action?: string;
       result?: Record<string, unknown>;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_trigger_saved';
+      triggerConfig?: TriggerConfigType;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_webhook_enabled';
+      webhookUrl?: string;
+      webhookSecret?: string;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_navigate_tab';
+      tab?: string;
       timestamp?: number;
     };
 
@@ -222,19 +239,25 @@ export default function BaleybotPage() {
 
   // -- Navigation --
   const [viewMode, setViewMode] = useState<AdaptiveTab>('visual');
-  const viewModeRef = useRef<AdaptiveTab>(viewMode);
-  viewModeRef.current = viewMode;
   const [builderMode, setBuilderMode] = useState<BuilderPresentationMode>('simple');
   const showAdvancedUI = builderMode === 'advanced';
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [showFullDescription, setShowFullDescription] = useState(false);
   type MobileView = 'editor' | 'chat';
   const [mobileView, setMobileView] = useState<MobileView>('editor');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- setter used by runtime graph panel (planned)
   const [runtimeGraphEvents, setRuntimeGraphEvents] = useState<GraphRuntimeEvent[]>([]);
 
   // -- Launch --
   const [triggerConfig, setTriggerConfig] = useState<TriggerConfigType | undefined>(undefined);
-  const [triggerSetupStep, setTriggerSetupStep] = useState<TriggerSetupStep>('start');
+  const [webhookInfo, setWebhookInfo] = useState<{ url: string; secret: string } | null>(null);
+
+  // -- Confirmation Dialogs --
+  const [showGoLiveDialog, setShowGoLiveDialog] = useState(false);
+  const [showRevertDialog, setShowRevertDialog] = useState(false);
+
+  // -- AI Navigation Feedback --
+  const [lastAINavigatedTab, setLastAINavigatedTab] = useState<string | null>(null);
 
   // -- Readiness --
   const validationStatus: ValidationStatus = 'idle'; // Validation now handled by specialist team
@@ -342,13 +365,8 @@ export default function BaleybotPage() {
   // Combined loading check: loading, fetching, or state not yet initialized from fetched data
   const isFullyLoaded = isNew || (!isLoadingBaleybot && !isFetchingBaleybot && isStateInitialized && existingBaleybot);
 
-  // Fetch available BBs for trigger config source selector
-  const { data: availableBaleybotsData } = trpc.baleybots.list.useQuery(undefined, {
-    enabled: viewMode === 'integrate',
-  });
-  const availableBaleybots = availableBaleybotsData?.items;
-
   // Fetch workspace connections (for connections panel AND readiness computation)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- isLoadingConnections used by ConnectionsPanel (planned)
   const { data: workspaceConnections, isLoading: isLoadingConnections } = trpc.connections.list.useQuery(
     { limit: 50 },
   );
@@ -367,9 +385,19 @@ export default function BaleybotPage() {
     { enabled: !!savedBaleybotId },
   );
 
+  // Fetch recent executions for this bot (for token info + webhook deliveries)
+  const { data: botExecutions } = trpc.analytics.getBaleybotExecutions.useQuery(
+    { baleybotId: savedBaleybotId!, limit: 20 },
+    { enabled: !!savedBaleybotId },
+  );
+
+  // Fetch API keys for code snippet display
+  const { data: apiKeysData } = trpc.apiKeys.list.useQuery(undefined, {
+    staleTime: 60_000,
+  });
+
   // Launch prep readiness and runtime interface
   const {
-    data: launchReadinessData,
     isFetching: isFetchingLaunchReadiness,
     refetch: refetchLaunchReadiness,
   } = trpc.baleybots.evaluateLaunchReadiness.useQuery(
@@ -390,8 +418,9 @@ export default function BaleybotPage() {
   const generateLaunchKitMutation = trpc.baleybots.generateLaunchKit.useMutation();
   const promoteToLiveMutation = trpc.baleybots.promoteToLive.useMutation();
   const pauseLiveBotMutation = trpc.baleybots.pauseLiveBot.useMutation();
+  const revertToDraftMutation = trpc.baleybots.revertToDraft.useMutation();
 
-  // Normalize workspace connections once for both ConnectionsPanel and useTestExecution
+  // Normalize workspace connections once for ConnectionsPanel
   const normalizedConnections = workspaceConnections?.map(c => ({
     id: c.id,
     type: c.type,
@@ -418,6 +447,7 @@ export default function BaleybotPage() {
     connections: normalizedConnections,
     existingSidecar: savedStructureSidecar,
   });
+  const readinessContext = `Readiness: ${Object.entries(readiness).map(([dim, s]) => `${dim}=${s === 'complete'}`).join(', ')}. Active tab: ${viewMode}.`;
   const creatorGuidanceInput = {
     status,
     messages: messages
@@ -440,6 +470,7 @@ export default function BaleybotPage() {
           metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
         };
       }),
+    readinessContext,
   };
   const {
     data: creatorGuidanceData,
@@ -456,16 +487,65 @@ export default function BaleybotPage() {
     setCreatorGuidanceActions(creatorGuidanceData.actions);
   }, [creatorGuidanceData, isStreaming]);
 
-  const quickPrompts = buildGuidanceQuickPrompts(creatorGuidanceActions);
+  // Lifecycle-aware quick prompts based on active tab
+  const tabQuickPrompts: Record<string, Array<{ id: string; label: string; prompt: string; mode: 'send' }>> = {
+    test: [
+      { id: 'qp-test-sample', label: 'Run with sample input', prompt: 'Run a test with sample input to check the bot works correctly', mode: 'send' },
+      { id: 'qp-test-error', label: 'Test error handling', prompt: 'Test how the bot handles invalid or missing input', mode: 'send' },
+      { id: 'qp-test-complex', label: 'Try a complex case', prompt: 'Run a more complex test case to stress-test the bot', mode: 'send' },
+    ],
+    integrate: [
+      { id: 'qp-int-webhook', label: 'Set up a webhook', prompt: 'Set up a webhook so this bot can be triggered from external services', mode: 'send' },
+      { id: 'qp-int-schedule', label: 'Schedule recurring runs', prompt: 'Set up a schedule so this bot runs automatically on a recurring basis', mode: 'send' },
+      { id: 'qp-int-chain', label: 'Chain from another bot', prompt: 'Configure this bot to be triggered when another BaleyBot completes', mode: 'send' },
+      { id: 'qp-int-api', label: 'Show API endpoint', prompt: 'Show me the API endpoint and how to call this bot programmatically', mode: 'send' },
+    ],
+  };
 
-  const quickPromptContextLabel = quickPrompts.length > 0 ? 'Suggested next action' : undefined;
+  const guidancePrompts = buildGuidanceQuickPrompts(creatorGuidanceActions);
+  const quickPrompts = (viewMode === 'test' || viewMode === 'integrate')
+    ? tabQuickPrompts[viewMode] ?? guidancePrompts
+    : guidancePrompts;
+
+  const quickPromptContextLabel = quickPrompts.length > 0
+    ? (viewMode === 'test' ? 'Test suggestions' : viewMode === 'integrate' ? 'Integration options' : 'Suggested next action')
+    : undefined;
 
   // =====================================================================
   // TEST EXECUTION HOOK
   // =====================================================================
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by test execution feedback injection (planned)
   const injectMessage = (message: CreatorMessage) => {
     setMessages(prev => [...prev, message]);
+  };
+
+  /**
+   * Fetch advisor suggestions and inject them as a system message in the chat.
+   * Called after lifecycle events (test completion, save, go-live).
+   */
+  const injectAdvisorSuggestions = async (eventLabel: string) => {
+    if (isStreamingRef.current) return;
+    try {
+      const result = await utils.baleybots.getCreatorGuidance.fetch(creatorGuidanceInput);
+      if (result?.actions?.length) {
+        const sanitizedActions = result.actions.map(a => ({
+          ...a,
+          label: sanitizeCreatorText(a.label),
+          prompt: sanitizeCreatorText(a.prompt),
+        }));
+        setMessages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'system' as const,
+          content: `Here's what I'd suggest next:`,
+          timestamp: new Date(),
+          metadata: {
+            diagnostic: { level: 'info' as const, title: eventLabel },
+            advisorActions: sanitizedActions,
+          },
+        }]);
+      }
+    } catch { /* swallow — advisory, not critical */ }
   };
 
   const isDesignReviewRequired =
@@ -490,24 +570,7 @@ export default function BaleybotPage() {
     return true;
   };
 
-  const {
-    testCases,
-    setTestCases,
-  } = useTestExecution({
-    savedBaleybotId,
-    balCode,
-    botName: name,
-    entities,
-    workspaceConnections: normalizedConnections,
-    onInjectMessage: injectMessage,
-    onNavigateToTab: navigateToTab,
-    onRuntimeGraphEvent: (event) => {
-      setRuntimeGraphEvents((previous) => appendGraphRuntimeEvent(previous, event));
-    },
-    onExecutionStarted: () => {
-      setRuntimeGraphEvents([]);
-    },
-  });
+  const [testCases, setTestCases] = useState<TestCase[]>([]);
 
   // =====================================================================
   // HANDLERS
@@ -556,6 +619,16 @@ export default function BaleybotPage() {
           icon,
           entities: entities.map(e => ({ name: e.name, purpose: e.purpose, tools: e.tools })),
         } : undefined,
+        uiState: {
+          activeTab: viewMode,
+          availableTabs: availableTabs,
+          lifecycleStage: existingBaleybot?.lifecycleStage ?? 'draft',
+          readinessSummary: Object.entries(readiness)
+            .map(([dim, status]) => `${dim} (${status})`)
+            .join(', '),
+          triggerConfigured: !!triggerConfig,
+          webhookEnabled: !!webhookInfo || existingBaleybot?.webhookEnabled === true,
+        },
       },
       onEvent: (event) => {
         try {
@@ -612,6 +685,41 @@ export default function BaleybotPage() {
             }]);
           }
           utils.connections.list.invalidate();
+          return;
+        }
+
+        // Integration events from companion tools
+        if (event.type === 'creator_trigger_saved') {
+          if (event.triggerConfig) {
+            setTriggerConfig(event.triggerConfig);
+            if (savedBaleybotId) {
+              utils.baleybots.getTriggerConfig.invalidate({ baleybotId: savedBaleybotId });
+            }
+          }
+          return;
+        }
+
+        if (event.type === 'creator_webhook_enabled') {
+          if (event.webhookUrl && event.webhookSecret) {
+            setWebhookInfo({ url: event.webhookUrl, secret: event.webhookSecret });
+          }
+          if (savedBaleybotId) {
+            utils.baleybots.get.invalidate({ id: savedBaleybotId });
+          }
+          return;
+        }
+
+        if (event.type === 'creator_navigate_tab') {
+          if (event.tab) {
+            const tabName = event.tab as string;
+            navigateToTab(tabName as AdaptiveTab, { bypassDesignGate: true });
+            toast({
+              title: `Switched to ${tabName.charAt(0).toUpperCase() + tabName.slice(1)} tab`,
+              description: 'The AI assistant navigated here to show you something relevant.',
+            });
+            setLastAINavigatedTab(tabName);
+            setTimeout(() => setLastAINavigatedTab(null), 3000);
+          }
           return;
         }
 
@@ -1016,6 +1124,7 @@ export default function BaleybotPage() {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- wired when ConnectionsPanel is added to advanced mode
   const handleApplyToolRemap = (remaps: Array<{ fromTool: string; toTool: string }>) => {
     if (remaps.length === 0) return;
 
@@ -1076,6 +1185,9 @@ export default function BaleybotPage() {
 
       // Mark state as clean after successful save
       markClean();
+
+      utils.baleybots.getCreatorGuidance.invalidate();
+      injectAdvisorSuggestions('Bot saved');
 
       return result.id;
     } catch (error) {
@@ -1139,6 +1251,7 @@ export default function BaleybotPage() {
     500
   );
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- wired by launch prep panel (planned)
   const handleGenerateLaunchKit = async () => {
     if (!savedBaleybotId) return;
     try {
@@ -1154,13 +1267,31 @@ export default function BaleybotPage() {
     }
   };
 
-  const handlePromoteToLive = async () => {
+  const handlePromoteToLive = () => {
+    setShowGoLiveDialog(true);
+  };
+
+  const confirmPromoteToLive = async () => {
     if (!savedBaleybotId) return;
+    setShowGoLiveDialog(false);
     try {
+      // Pre-validate launch readiness
+      const { readiness: launchReadiness } = await refetchLaunchReadiness().then(r => r.data ?? { readiness: null });
+      if (launchReadiness?.blockingIssues?.length) {
+        toast({
+          title: 'Not ready to go live',
+          description: launchReadiness.blockingIssues.join('. '),
+          variant: 'destructive',
+        });
+        return;
+      }
+
       await promoteToLiveMutation.mutateAsync({ baleybotId: savedBaleybotId });
       await utils.baleybots.get.invalidate({ id: savedBaleybotId });
       await utils.analytics.getBaleybotAnalytics.invalidate({ baleybotId: savedBaleybotId });
       setViewMode('integrate');
+      utils.baleybots.getCreatorGuidance.invalidate();
+      injectAdvisorSuggestions('Bot is live');
     } catch (error) {
       toast({
         title: 'Could not promote to live',
@@ -1184,6 +1315,25 @@ export default function BaleybotPage() {
     } catch (error) {
       toast({
         title: 'Live state update failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleRevertToDraft = () => {
+    setShowRevertDialog(true);
+  };
+
+  const confirmRevertToDraft = async () => {
+    if (!savedBaleybotId) return;
+    setShowRevertDialog(false);
+    try {
+      await revertToDraftMutation.mutateAsync({ baleybotId: savedBaleybotId });
+      await utils.baleybots.get.invalidate({ id: savedBaleybotId });
+    } catch (error) {
+      toast({
+        title: 'Could not revert to draft',
         description: error instanceof Error ? error.message : 'Unknown error',
         variant: 'destructive',
       });
@@ -1419,18 +1569,16 @@ export default function BaleybotPage() {
       showAdvancedUI,
       isDesignReviewRequired,
     });
-    const currentView = viewModeRef.current;
-
-    if (!showAdvancedUI && isAdvancedEditorTab(currentView)) {
+    if (!showAdvancedUI && isAdvancedEditorTab(viewMode)) {
       setViewMode('visual');
       return;
     }
-    if (!visibleTabs.includes(currentView)) {
+    if (!visibleTabs.includes(viewMode)) {
       setViewMode('visual');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     readiness,
+    viewMode,
     showAdvancedUI,
     savedBaleybotId,
     existingBaleybot?.lifecycleStage,
@@ -1440,6 +1588,8 @@ export default function BaleybotPage() {
 
   // Auto-save trigger config when it changes (debounced)
   const saveTriggerMutation = trpc.baleybots.saveTriggerConfig.useMutation();
+  const saveTriggerRef = useRef(saveTriggerMutation.mutate);
+  useEffect(() => { saveTriggerRef.current = saveTriggerMutation.mutate; });
   const getPersistableTriggerConfig = (
     config: TriggerConfigType | undefined
   ):
@@ -1486,13 +1636,12 @@ export default function BaleybotPage() {
   useEffect(() => {
     if (!savedBaleybotId) return;
     const timeout = setTimeout(() => {
-      saveTriggerMutation.mutate({
+      saveTriggerRef.current({
         id: savedBaleybotId,
         triggerConfig: getPersistableTriggerConfig(triggerConfig),
       });
     }, 1000);
     return () => clearTimeout(timeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [triggerConfig, savedBaleybotId]);
 
   const handleOptionSelect = (optionId: string) => {
@@ -1533,9 +1682,12 @@ export default function BaleybotPage() {
   // EFFECTS
   // =====================================================================
 
-  // Initialize state from existing BaleyBot
+  // Initialize state from existing BaleyBot (guarded to run only once per bot load)
+  const hasInitializedRef = useRef(false);
   useEffect(() => {
+    if (hasInitializedRef.current) return;
     if (!isNew && existingBaleybot) {
+      hasInitializedRef.current = true;
       setName(existingBaleybot.name);
       setDescription(existingBaleybot.description || '');
       setIcon(existingBaleybot.icon || '');
@@ -1696,13 +1848,12 @@ export default function BaleybotPage() {
   const displayName = name || 'New BaleyBot';
   const displayIcon = icon || '✨';
   const lifecycleStage = existingBaleybot?.lifecycleStage ?? 'draft';
-  const launchKit = (existingBaleybot?.launchKit as LaunchKit | null) ?? null;
-  const launchReadiness = launchReadinessData?.readiness;
   const launchBusy =
     isFetchingLaunchReadiness ||
     generateLaunchKitMutation.isPending ||
     promoteToLiveMutation.isPending ||
-    pauseLiveBotMutation.isPending;
+    pauseLiveBotMutation.isPending ||
+    revertToDraftMutation.isPending;
   const availableTabs = computeAvailableTabs({
     readiness,
     savedBaleybotId,
@@ -1750,6 +1901,42 @@ export default function BaleybotPage() {
         isLoading={isResolvingConflict}
         baleybotName={name || undefined}
       />
+
+      {/* Go Live Confirmation Dialog */}
+      <AlertDialog open={showGoLiveDialog} onOpenChange={setShowGoLiveDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deploy {displayName} to production?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Webhooks and scheduled tasks will start executing immediately. You can pause or revert at any time from the Integrate tab.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmPromoteToLive}>
+              Go Live
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Revert to Draft Confirmation Dialog */}
+      <AlertDialog open={showRevertDialog} onOpenChange={setShowRevertDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revert {displayName} to draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will disable webhooks, pause scheduled tasks, and stop accepting new executions. In-progress executions will complete.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmRevertToDraft} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Revert to Draft
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <BaleybotHeader
         displayName={displayName}
@@ -1805,19 +1992,7 @@ export default function BaleybotPage() {
               />
             </div>
 
-            {/* Example prompt pills */}
-            <div className="flex flex-wrap justify-center gap-2">
-              {EXAMPLE_PROMPTS.map((ex) => (
-                <button
-                  key={ex.label}
-                  onClick={() => handleSendMessage(ex.prompt)}
-                  disabled={creatorMutation.isPending}
-                  className="rounded-full border border-border bg-background px-4 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
-                >
-                  {ex.label}
-                </button>
-              ))}
-            </div>
+            {/* Quick prompts are shown via ChatInput's quickPrompts prop above */}
           </div>
         </div>
       ) : (
@@ -1896,11 +2071,24 @@ export default function BaleybotPage() {
                         test: { icon: <FlaskConical className="h-3.5 w-3.5" />, label: 'Test' },
                         integrate: { icon: <Rocket className="h-3.5 w-3.5" />, label: 'Integrate' },
                       };
+                      const readinessMap: Partial<Record<AdaptiveTab, keyof ReadinessState>> = {
+                        visual: 'designed',
+                        test: 'tested',
+                        integrate: 'integrated',
+                      };
                       const config = tabConfig[tab];
+                      const dimension = readinessMap[tab];
+                      const dimStatus = dimension ? readiness[dimension] : undefined;
                       return (
-                        <TabsTrigger key={tab} value={tab} className="gap-1.5 text-xs sm:text-sm px-2 sm:px-3">
+                        <TabsTrigger key={tab} value={tab} className={cn('gap-1.5 text-xs sm:text-sm px-2 sm:px-3', lastAINavigatedTab === tab && 'animate-pulse-soft')}>
                           {config.icon}
                           <span className="hidden sm:inline">{config.label}</span>
+                          {dimStatus === 'complete' && (
+                            <span className="h-2 w-2 rounded-full bg-emerald-600 dark:bg-emerald-400 ring-1 ring-emerald-500/20" />
+                          )}
+                          {dimStatus === 'in-progress' && (
+                            <span className="h-2 w-2 rounded-full bg-amber-600 dark:bg-amber-400 animate-pulse-soft" />
+                          )}
                         </TabsTrigger>
                       );
                     })}
@@ -1923,7 +2111,7 @@ export default function BaleybotPage() {
               </div>
 
               {/* Editor content */}
-              <div className="flex-1 min-h-0 p-4">
+              <div key={viewMode} className="flex-1 min-h-0 p-4 animate-fade-in">
                 <ErrorBoundary
                   fallback={
                     <div className="h-full flex items-center justify-center bg-muted/20 rounded-2xl">
@@ -1966,23 +2154,21 @@ export default function BaleybotPage() {
 
                   {/* Test View */}
                   {viewMode === 'test' && savedBaleybotId && (
-                    <ReviewPage
+                    <AdaptiveTestSurface
                       baleybotId={savedBaleybotId}
-                      balCode={balCode}
-                      entities={entities}
-                      triggerConfig={triggerConfig}
-                      topology={
-                        entities.length <= 1
-                          ? 'single'
-                          : connections.length > 0
-                            ? 'chain'
-                            : 'parallel'
-                      }
-                      validationStatus={validationStatus}
+                      capabilities={analyzeBotCapabilities(balCode, entities, connections, triggerConfig)}
                       botName={name}
                       botIcon={icon}
+                      onFetchExecutionDetails={async (executionId) => {
+                        const executions = await utils.analytics.getBaleybotExecutions.fetch({
+                          baleybotId: savedBaleybotId,
+                          limit: 1,
+                        });
+                        const exec = executions?.find(e => e.id === executionId);
+                        if (!exec) return null;
+                        return { tokenCount: exec.tokenCount, estimatedCost: exec.estimatedCost };
+                      }}
                       onExecutionComplete={(result) => {
-                        // Update test cases to feed readiness (Gap 4)
                         setTestCases((prev) => {
                           const newCase: TestCase = {
                             id: result.executionId ?? crypto.randomUUID(),
@@ -1994,35 +2180,60 @@ export default function BaleybotPage() {
                           };
                           return [...prev, newCase];
                         });
+                        utils.baleybots.getCreatorGuidance.invalidate();
+                        injectAdvisorSuggestions('Test complete');
                       }}
                     />
                   )}
 
                   {/* Integrate / Monitor View */}
                   {viewMode === 'integrate' && savedBaleybotId && (
-                    <div className="h-full overflow-y-auto">
-                      {lifecycleStage === 'live' ? (
+                    <div className="h-full overflow-y-auto space-y-4">
+                      <IntegrationDashboard
+                        baleybotId={savedBaleybotId}
+                        workspaceId={existingBaleybot?.workspaceId ?? ''}
+                        triggerConfig={triggerConfig}
+                        webhookInfo={webhookInfo}
+                        lifecycleStage={lifecycleStage}
+                        readiness={readiness}
+                        onGoLive={handlePromoteToLive}
+                        onPause={handlePauseOrResumeLive}
+                        onRevertToDraft={handleRevertToDraft}
+                        isLaunchBusy={launchBusy}
+                        onTestWebhook={webhookInfo ? async () => {
+                          const webhookUrl = webhookInfo.url;
+                          const start = Date.now();
+                          try {
+                            const res = await fetch(webhookUrl, {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                ...(webhookInfo.secret ? { 'X-Webhook-Secret': webhookInfo.secret } : {}),
+                              },
+                              body: JSON.stringify({ message: 'Test from dashboard', _test: true }),
+                            });
+                            return {
+                              success: res.ok,
+                              statusCode: res.status,
+                              responseTimeMs: Date.now() - start,
+                            };
+                          } catch {
+                            return { success: false, statusCode: 0, responseTimeMs: Date.now() - start };
+                          }
+                        } : undefined}
+                        webhookExecutions={botExecutions
+                          ?.filter(e => e.triggeredBy === 'webhook')
+                          .map(e => ({ id: e.id, status: e.status, durationMs: e.durationMs, createdAt: e.createdAt }))
+                        }
+                        apiKeyDisplay={apiKeysData?.[0]?.keyDisplay}
+                      />
+                      {lifecycleStage === 'live' && (
                         <BotMonitorPanel
                           baleybotId={savedBaleybotId}
                           baleybotName={existingBaleybot?.name ?? (name || 'BaleyBot')}
                           onPauseOrResume={handlePauseOrResumeLive}
                           isPauseResumeBusy={pauseLiveBotMutation.isPending || promoteToLiveMutation.isPending}
                           className="p-4"
-                        />
-                      ) : (
-                        <IntegrationConversation
-                          baleybotId={savedBaleybotId}
-                          baleybotName={existingBaleybot?.name ?? (name || 'BaleyBot')}
-                          lifecycleStage={lifecycleStage}
-                          onTriggerSaved={(config) => {
-                            setTriggerConfig(config);
-                            utils.baleybots.getTriggerConfig.invalidate({ baleybotId: savedBaleybotId });
-                          }}
-                          onGoLive={handlePromoteToLive}
-                          onGenerateLaunchKit={handleGenerateLaunchKit}
-                          onPauseOrResume={handlePauseOrResumeLive}
-                          isLaunchBusy={launchBusy}
-                          className="h-full"
                         />
                       )}
                     </div>

@@ -19,7 +19,10 @@ import type { BaleybotStreamEvent } from '@baleybots/core';
 import { createLogger } from '@/lib/logger';
 import { normalizeOutputCandidate } from './internal-bb/runner';
 import { buildConnectionTools } from './tools/companion/connections';
+import { buildIntegrationTools } from './tools/companion/integration';
+import { buildUIControlTools } from './tools/companion/ui-control';
 import type { CompanionToolContext } from './tools/companion';
+import type { TriggerConfig } from './types';
 
 
 const logger = createLogger('creator-pipeline-adapter');
@@ -63,11 +66,23 @@ export type CreatorSSEEvent =
   | { type: 'creator_complete'; result: CreatorOutput; summary: string; specialist: SpecialistFindings; timestamp: number }
   | { type: 'creator_error'; message: string; timestamp: number }
   | { type: 'creator_agent_event'; event: AgentEvent; entityName?: string; timestamp: number }
-  | { type: 'creator_connection_action'; action: string; result: Record<string, unknown>; timestamp: number };
+  | { type: 'creator_connection_action'; action: string; result: Record<string, unknown>; timestamp: number }
+  | { type: 'creator_trigger_saved'; triggerConfig: TriggerConfig; timestamp: number }
+  | { type: 'creator_webhook_enabled'; webhookUrl: string; webhookSecret: string; timestamp: number }
+  | { type: 'creator_navigate_tab'; tab: string; timestamp: number };
 
 // ============================================================================
 // CONTEXT BUILDER
 // ============================================================================
+
+export interface PipelineUIState {
+  activeTab: string;
+  availableTabs: string[];
+  lifecycleStage: string;
+  readinessSummary: string;
+  triggerConfigured: boolean;
+  webhookEnabled: boolean;
+}
 
 function buildPipelineInput(args: {
   message: string;
@@ -80,6 +95,7 @@ function buildPipelineInput(args: {
     icon?: string;
     entities?: Array<{ name: string; purpose?: string; tools?: string[] }>;
   };
+  uiState?: PipelineUIState;
 }): string {
   const parts: string[] = [];
 
@@ -113,6 +129,22 @@ function buildPipelineInput(args: {
     }
     stateLines.push(`Current BAL code:\n\`\`\`\n${s.balCode}\n\`\`\``);
     parts.push(stateLines.join('\n'));
+  }
+
+  // UI state awareness — lets creator_bot know what the user is looking at
+  if (args.uiState) {
+    const ui = args.uiState;
+    const uiLines = [
+      'UI State:',
+      `- User is currently viewing: [${ui.activeTab} tab]`,
+      `- Available tabs: ${ui.availableTabs.join(', ')}`,
+      `- Lifecycle stage: ${ui.lifecycleStage}`,
+      `- Readiness: ${ui.readinessSummary}`,
+      `- Trigger: ${ui.triggerConfigured ? 'configured' : 'not configured'}`,
+      `- Webhook: ${ui.webhookEnabled ? 'enabled' : 'not enabled'}`,
+      '- You can switch tabs using navigate_tab. Use this to guide the user to relevant content.',
+    ];
+    parts.push(uiLines.join('\n'));
   }
 
   // Conversation history (last 16 messages, truncated)
@@ -387,6 +419,7 @@ export interface CreatorPipelineArgs {
     icon?: string;
     entities?: Array<{ name: string; purpose?: string; tools?: string[] }>;
   };
+  uiState?: PipelineUIState;
   signal?: AbortSignal;
   executionId: string;
   onEvent: (event: CreatorSSEEvent) => void;
@@ -403,16 +436,49 @@ export async function executeCreatorPipeline(
     context,
     conversationHistory,
     currentState: args.currentState,
+    uiState: args.uiState,
   });
 
   onEvent({ type: 'creator_stream_started', timestamp: Date.now() });
 
-  // Build connection tools for injection
+  // Build all companion tools for injection
   const connectionToolCtx: CompanionToolContext = {
     workspaceId: args.workspaceId,
     userId: args.userId,
   };
   const connectionTools = buildConnectionTools(connectionToolCtx);
+
+  // Merge all injected tools
+  const allInjectedTools = new Map([...connectionTools]);
+
+  // Always inject UI control tools
+  const uiTools = buildUIControlTools({
+    onNavigateTab: (tab) =>
+      onEvent({ type: 'creator_navigate_tab', tab, timestamp: Date.now() }),
+  });
+  for (const [k, v] of uiTools) allInjectedTools.set(k, v);
+
+  // When bot is saved, also inject integration tools
+  if (args.baleybotId) {
+    const integrationTools = buildIntegrationTools({
+      workspaceId,
+      baleybotId: args.baleybotId,
+      onTriggerSaved: (config) =>
+        onEvent({
+          type: 'creator_trigger_saved',
+          triggerConfig: config,
+          timestamp: Date.now(),
+        }),
+      onWebhookEnabled: (url, secret) =>
+        onEvent({
+          type: 'creator_webhook_enabled',
+          webhookUrl: url,
+          webhookSecret: secret,
+          timestamp: Date.now(),
+        }),
+    });
+    for (const [k, v] of integrationTools) allInjectedTools.set(k, v);
+  }
 
   try {
     // Accumulate conversational text and spawn results
@@ -426,7 +492,7 @@ export async function executeCreatorPipeline(
       input,
       {
         userWorkspaceId: workspaceId,
-        injectedTools: connectionTools,
+        injectedTools: allInjectedTools,
         signal: args.signal,
         onSegment: (event: BaleybotStreamEvent) => {
           // Accumulate conversational text

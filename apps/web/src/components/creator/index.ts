@@ -16,8 +16,7 @@ export { ConnectionsPanel } from './ConnectionsPanel';
 export { ConnectionActionCard } from './ConnectionActionCard';
 export type { ConnectionAction } from './ConnectionActionCard';
 export { InlineConnectionForm } from './InlineConnectionForm';
-// TestPanel component removed — replaced by ReviewPage. Types kept for useTestExecution.
-export type { TestCase, InputType, TestFixture, StepExpectation } from './TestPanel';
+export type { TestCase, InputType, TestFixture, StepExpectation } from '@/lib/baleybot/creator-types';
 export { MonitorPanel } from './MonitorPanel';
 export { BaleybotHeader } from './BaleybotHeader';
 export type { BaleybotHeaderProps } from './BaleybotHeader';
