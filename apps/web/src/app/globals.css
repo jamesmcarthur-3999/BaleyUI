@@ -409,7 +409,6 @@
    ANIMATIONS
    ============================================ */
 
-
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -429,37 +428,6 @@
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes scale-in {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes slide-in-right {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes bounce-subtle {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-5px);
   }
 }
 
@@ -487,78 +455,6 @@
   }
   100% {
     transform: translateX(150%);
-  }
-}
-
-@keyframes wiggle {
-  0%, 100% {
-    transform: rotate(0deg);
-  }
-  25% {
-    transform: rotate(-3deg);
-  }
-  75% {
-    transform: rotate(3deg);
-  }
-}
-
-/* Creator component animations (Framer Motion replacement) */
-@keyframes sparkle {
-  0%, 100% {
-    transform: scale(1) rotate(0deg);
-  }
-  33% {
-    transform: scale(1.1) rotate(5deg);
-  }
-  66% {
-    transform: scale(1) rotate(-5deg);
-  }
-}
-
-@keyframes orb-pulse {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.2);
-  }
-}
-
-@keyframes orb-pulse-sm {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.1);
-  }
-}
-
-@keyframes orb-glow {
-  0%, 100% {
-    box-shadow: 0 0 20px hsl(262 83% 58% / 0.3);
-  }
-  50% {
-    box-shadow: 0 0 40px hsl(262 83% 58% / 0.5);
-  }
-}
-
-@keyframes sparkle-burst {
-  0% {
-    transform: translate(-50%, -50%) translate(0, 0) scale(1);
-    opacity: 1;
-  }
-  100% {
-    transform: translate(-50%, -50%) translate(var(--sparkle-x, 40px), var(--sparkle-y, 0)) scale(0.5);
-    opacity: 0;
-  }
-}
-
-@keyframes skeleton-pulse {
-  0%, 100% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 1;
   }
 }
 
@@ -595,17 +491,6 @@
   100% {
     opacity: 1;
     transform: scale(1) translateY(0);
-  }
-}
-
-@keyframes companion-mode-enter {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -660,18 +545,6 @@
     animation: fade-in-up 0.5s ease-out backwards;
   }
 
-  .animate-scale-in {
-    animation: scale-in 0.3s ease-out backwards;
-  }
-
-  .animate-slide-in-right {
-    animation: slide-in-right 0.4s ease-out backwards;
-  }
-
-  .animate-bounce-subtle {
-    animation: bounce-subtle 2s ease-in-out 3;
-  }
-
   .animate-pulse-soft {
     animation: pulse-soft 2s ease-in-out infinite;
   }
@@ -691,35 +564,6 @@
     animation: progress-slide 1.8s ease-in-out infinite;
   }
 
-  .animate-wiggle {
-    animation: wiggle 0.5s ease-in-out;
-  }
-
-  /* Creator component animations (Framer Motion replacement) */
-  .animate-sparkle {
-    animation: sparkle 3s ease-in-out infinite;
-  }
-
-  .animate-orb-pulse {
-    animation: orb-pulse 1.5s ease-in-out infinite;
-  }
-
-  .animate-orb-pulse-sm {
-    animation: orb-pulse-sm 1.5s ease-in-out infinite;
-  }
-
-  .animate-orb-glow {
-    animation: orb-glow 1.5s ease-in-out infinite;
-  }
-
-  .animate-sparkle-burst {
-    animation: sparkle-burst 1s ease-out infinite;
-  }
-
-  .animate-skeleton-pulse {
-    animation: skeleton-pulse 1.5s ease-in-out infinite;
-  }
-
   .animate-loading-dot {
     animation: loading-dot 1s ease-in-out infinite;
   }
@@ -731,10 +575,6 @@
   /* Companion glassmorphism animations */
   .animate-companion-panel-enter {
     animation: companion-panel-enter 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
-  }
-
-  .animate-companion-mode-enter {
-    animation: companion-mode-enter 0.2s ease-out backwards;
   }
 
   .animate-typing-shimmer {
@@ -768,21 +608,8 @@
   .stagger-5 { animation-delay: 0.25s; }
   .stagger-6 { animation-delay: 0.3s; }
 
-  /* Activity feed animations */
-  .animate-stagger-fade-in {
-    animation: stagger-fade-in 0.35s ease-out backwards;
-  }
-
-  .animate-phase-pulse {
-    animation: phase-pulse 1.2s ease-in-out infinite;
-  }
-
   .animate-readiness-pop {
     animation: readiness-pop 0.3s ease-out backwards;
-  }
-
-  .animate-pulse-soft {
-    animation: pulse-soft 2s ease-in-out infinite;
   }
 
 }
@@ -840,26 +667,10 @@
   outline-offset: 2px;
 }
 
-/* Activity feed animations */
-@keyframes stagger-fade-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes phase-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.85); }
-}
-
 @keyframes readiness-pop {
   0% { transform: scale(0.6); opacity: 0; }
   60% { transform: scale(1.4); }
   100% { transform: scale(1); opacity: 1; }
-}
-
-@keyframes pulse-soft {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
 }
 
 /* Progress / Deploy animations */
@@ -894,60 +705,7 @@
   }
 }
 
-/* Celebration animations (kept from original) */
-@keyframes celebration-particle {
-  0% {
-    opacity: 1;
-    transform: translate(0, 0) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(var(--tx), var(--ty)) scale(0);
-  }
-}
-
-@keyframes celebration-flash {
-  0%, 100% {
-    opacity: 0;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-@keyframes celebration-bounce {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.05);
-  }
-}
-
-@keyframes celebration-scale {
-  0% {
-    opacity: 0;
-    transform: scale(0.5);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
 @layer utilities {
-  .animate-celebration-particle {
-    animation: celebration-particle 1s ease-out forwards;
-  }
-  .animate-celebration-flash {
-    animation: celebration-flash 0.5s ease-out;
-  }
-  .animate-celebration-bounce {
-    animation: celebration-bounce 0.6s ease-in-out infinite;
-  }
-  .animate-celebration-scale {
-    animation: celebration-scale 0.3s ease-out forwards;
-  }
   .animate-meter-fill {
     animation: meter-fill 0.8s ease-out backwards;
   }

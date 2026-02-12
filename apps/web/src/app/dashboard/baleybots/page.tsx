@@ -575,7 +575,7 @@ export default function BaleybotsListPage() {
                   ref={containerRef}
                   role="grid"
                   aria-label="BaleyBots card grid"
-                  className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+                  className="animate-fade-in grid gap-4 md:grid-cols-2 xl:grid-cols-3"
                 >
                   {filteredBots.map((bb, index) => (
                     <div
@@ -604,7 +604,7 @@ export default function BaleybotsListPage() {
                   ))}
                 </div>
               ) : (
-                <div className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+                <div className="animate-fade-in overflow-hidden rounded-2xl border border-border/60 bg-card">
                   <Table>
                     <TableHeader>
                       <TableRow>

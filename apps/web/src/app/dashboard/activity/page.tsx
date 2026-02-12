@@ -130,7 +130,7 @@ export default function ActivityPage() {
                 ))}
               </div>
             ) : filteredExecutions.length > 0 ? (
-              <div className="space-y-2">
+              <div className="animate-fade-in space-y-2">
                 {filteredExecutions.map((execution) => (
                   <Link
                     key={execution.id}
