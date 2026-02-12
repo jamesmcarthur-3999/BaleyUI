@@ -9,7 +9,7 @@ export type { StreamingProgress } from './ConversationThread';
 export { ExecutionHistory } from './ExecutionHistory';
 export { LeftPanel } from './LeftPanel';
 export { KeyboardShortcutsDialog, useKeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
-export { NetworkStatus, useNetworkStatus } from './LoadingStates';
+export { NetworkStatus, useNetworkStatus } from './NetworkStatus';
 export { SaveConflictDialog, isSaveConflictError } from './SaveConflictDialog';
 export type { ConflictAction } from './SaveConflictDialog';
 export { ConnectionsPanel } from './ConnectionsPanel';
