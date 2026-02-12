@@ -1,5 +1,6 @@
 packages:
   - 'apps/*'
+  - '!apps/contract-analyzer'
   - 'packages/*'
   # Baleybots SDK submodule packages
   - 'packages/baleybots/typescript/packages/*'
