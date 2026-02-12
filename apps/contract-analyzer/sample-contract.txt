@@ -1,0 +1,132 @@
+MASTER SAAS SUBSCRIPTION AGREEMENT
+
+This Master SaaS Subscription Agreement ("Agreement") is entered into as of January 15, 2026 ("Effective Date"), by and between CloudStack Solutions Inc., a Delaware corporation ("Provider"), and Acme Corp., a California corporation ("Customer").
+
+RECITALS
+
+WHEREAS, Provider offers a cloud-based enterprise resource planning platform known as "CloudStack ERP" (the "Service"); and
+WHEREAS, Customer desires to subscribe to and use the Service subject to the terms and conditions set forth herein.
+
+NOW, THEREFORE, in consideration of the mutual covenants and agreements set forth herein, the parties agree as follows:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SECTION 1: PRICING AND BILLING
+
+1.1 Subscription Fees. Customer shall pay Provider an annual subscription fee of $120,000 USD ("Base Fee") for up to 500 named users. Additional users may be added at $25/user/month, billed quarterly in arrears.
+
+1.2 Payment Terms. All invoices are due net-45 from the date of invoice. Late payments shall accrue interest at the rate of 1.5% per month or the maximum rate permitted by law, whichever is less.
+
+1.3 Price Increases. Provider reserves the right to increase subscription fees by up to 15% upon each renewal term with 30 days' prior written notice. Customer's sole remedy for any price increase shall be to terminate this Agreement at the end of the then-current term.
+
+1.4 Taxes. All fees are exclusive of applicable taxes. Customer shall be responsible for all sales, use, and similar taxes arising from Customer's use of the Service.
+
+1.5 Discounts. Customer shall receive a 10% discount on the Base Fee for the first two years of the subscription term ("Introductory Discount"). This discount is non-transferable and does not apply to additional user fees.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SECTION 2: SERVICE LEVEL AGREEMENT (SLA)
+
+2.1 Uptime Commitment. Provider shall use commercially reasonable efforts to maintain Service availability of at least 99.0% measured on a monthly basis, excluding scheduled maintenance windows ("Uptime Commitment").
+
+2.2 Scheduled Maintenance. Provider may perform scheduled maintenance during the hours of 2:00 AM to 6:00 AM Eastern Time on Sundays. Provider shall provide at least 48 hours' prior notice via email for scheduled maintenance expected to exceed 30 minutes.
+
+2.3 Service Credits. If Provider fails to meet the Uptime Commitment in any given month, Customer shall be entitled to a service credit calculated as follows:
+  - 98.0% to 98.99% availability: 5% credit of monthly fees
+  - 95.0% to 97.99% availability: 10% credit of monthly fees
+  - Below 95.0% availability: 15% credit of monthly fees
+Service credits shall not exceed 15% of the monthly fees in any given month and shall be Customer's sole and exclusive remedy for Provider's failure to meet the Uptime Commitment.
+
+2.4 Support Response Times. Provider shall respond to support requests within the following timeframes:
+  - Critical (Service down): 4 hours
+  - High (Major feature impaired): 8 business hours
+  - Medium (Minor feature impaired): 2 business days
+  - Low (General inquiry): 5 business days
+
+2.5 Exclusions. The Uptime Commitment does not apply to: (a) features clearly identified as "beta" or "preview"; (b) outages caused by Customer's equipment or third-party services; (c) force majeure events; or (d) Customer's failure to follow Provider's usage guidelines.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SECTION 3: SECURITY AND COMPLIANCE
+
+3.1 Certifications. Provider maintains SOC 2 Type II certification and undergoes annual third-party security audits. Provider does not currently hold ISO 27001 certification but intends to pursue such certification within 24 months of the Effective Date.
+
+3.2 Encryption. All data transmitted between Customer and the Service is encrypted using TLS 1.2 or higher. Data at rest is encrypted using AES-256 encryption. Provider manages all encryption keys; Customer does not have the option to manage its own encryption keys.
+
+3.3 Audit Rights. Upon 30 days' prior written notice and no more than once per calendar year, Customer may, at its own expense, conduct or commission a third-party security audit of Provider's systems and processes relevant to the Service. Provider shall reasonably cooperate with such audit; however, Provider may restrict access to areas containing other customers' data or proprietary information.
+
+3.4 Incident Response. In the event of a confirmed security incident affecting Customer's data, Provider shall: (a) notify Customer within 72 hours of confirming the incident; (b) provide regular updates on the investigation; and (c) deliver a written post-incident report within 30 days of resolution. Provider is not obligated to notify Customer of unsuccessful or attempted security incidents.
+
+3.5 Employee Background Checks. Provider conducts background checks on all employees with access to production systems. However, the scope and depth of these checks is at Provider's sole discretion.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SECTION 4: TERMINATION AND RENEWAL
+
+4.1 Initial Term. The initial term of this Agreement shall be three (3) years from the Effective Date ("Initial Term").
+
+4.2 Auto-Renewal. Following the Initial Term, this Agreement shall automatically renew for successive one (1) year periods ("Renewal Terms") unless either party provides written notice of non-renewal at least ninety (90) days prior to the end of the then-current term.
+
+4.3 Termination for Cause. Either party may terminate this Agreement upon sixty (60) days' written notice if the other party materially breaches this Agreement and fails to cure such breach within the sixty (60) day notice period.
+
+4.4 Termination for Convenience. Customer may terminate this Agreement for convenience upon ninety (90) days' prior written notice, subject to payment of an early termination fee equal to 50% of the remaining subscription fees for the then-current term.
+
+4.5 Exit Assistance. Upon termination or expiration, Provider shall, for a period of thirty (30) days, provide reasonable assistance to Customer in transitioning to an alternative solution, including data export in CSV format. Provider may charge its then-current professional services rates for exit assistance beyond basic data export.
+
+4.6 Data Return. Upon termination, Provider shall make Customer's data available for download in standard CSV format for thirty (30) days. After such period, Provider shall delete Customer's data within ninety (90) days, except as required by applicable law.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SECTION 5: LIABILITY AND INDEMNIFICATION
+
+5.1 Limitation of Liability. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL EITHER PARTY'S AGGREGATE LIABILITY ARISING OUT OF OR RELATED TO THIS AGREEMENT EXCEED THE TOTAL FEES PAID BY CUSTOMER TO PROVIDER DURING THE ONE (1) MONTH PERIOD IMMEDIATELY PRECEDING THE EVENT GIVING RISE TO THE CLAIM. This limitation applies whether the liability is based on breach of contract, tort (including negligence), strict liability, or any other legal theory.
+
+5.2 Exclusion of Damages. IN NO EVENT SHALL EITHER PARTY BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO DAMAGES FOR LOSS OF PROFITS, GOODWILL, DATA, OR OTHER INTANGIBLE LOSSES, REGARDLESS OF WHETHER SUCH PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+5.3 Indemnification by Provider. Provider shall indemnify and hold harmless Customer from and against any third-party claims arising from: (a) Provider's infringement of any patent, copyright, or trademark; or (b) Provider's gross negligence or willful misconduct. Provider's indemnification obligation shall not exceed the limitation of liability set forth in Section 5.1.
+
+5.4 Indemnification by Customer. Customer shall indemnify and hold harmless Provider from and against any third-party claims arising from: (a) Customer's use of the Service in violation of this Agreement; (b) Customer's data or content uploaded to the Service; or (c) Customer's violation of applicable law.
+
+5.5 Insurance. Provider maintains commercial general liability insurance with coverage limits of at least $1,000,000 per occurrence. Provider is not required to maintain cyber liability or errors and omissions insurance specific to the Service.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SECTION 6: DATA AND PRIVACY
+
+6.1 Data Ownership. Customer retains all right, title, and interest in and to Customer's data. Provider shall not access, use, or disclose Customer's data except as necessary to provide the Service or as required by applicable law.
+
+6.2 Data Processing Locations. Customer's data shall be stored and processed in the United States. Provider may transfer data to sub-processors located in the European Union, India, and the Philippines for the purpose of providing support services. Provider shall notify Customer of any new sub-processors at least 15 days before engaging them.
+
+6.3 GDPR Compliance. Provider shall comply with the General Data Protection Regulation (GDPR) with respect to any personal data of EU residents processed through the Service. A Data Processing Agreement (DPA) is available upon request and shall be incorporated into this Agreement by reference when executed.
+
+6.4 CCPA Compliance. Provider shall not sell Customer's personal information as defined under the California Consumer Privacy Act (CCPA). Provider acts as a "service provider" under the CCPA with respect to Customer's data.
+
+6.5 Breach Notification. In the event of a data breach affecting Customer's personal data, Provider shall notify Customer without undue delay. Provider does not commit to a specific timeline for breach notification beyond what is required by applicable law.
+
+6.6 Data Retention. Following termination, Provider shall retain anonymized and aggregated usage data derived from Customer's use of the Service for analytics and product improvement purposes. Such retained data shall not contain any personally identifiable information.
+
+6.7 Sub-Processors. Provider currently uses the following sub-processors: Amazon Web Services (US) for hosting, Twilio (US) for notifications, Zendesk (US) for support, and TechMahindra (India) for Tier 1 support. Customer's continued use of the Service constitutes consent to Provider's use of these sub-processors.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SECTION 7: GENERAL PROVISIONS
+
+7.1 Governing Law. This Agreement shall be governed by and construed in accordance with the laws of the State of Delaware, without regard to its conflict of laws principles.
+
+7.2 Dispute Resolution. Any disputes arising out of this Agreement shall first be subject to good-faith mediation. If mediation is unsuccessful, disputes shall be resolved through binding arbitration administered by the American Arbitration Association under its Commercial Arbitration Rules.
+
+7.3 Assignment. Neither party may assign this Agreement without the prior written consent of the other party, except that Provider may assign this Agreement in connection with a merger, acquisition, or sale of substantially all of its assets.
+
+7.4 Entire Agreement. This Agreement, together with all exhibits and schedules hereto, constitutes the entire agreement between the parties and supersedes all prior and contemporaneous agreements, proposals, and representations.
+
+7.5 Amendments. This Agreement may not be amended except by a written instrument signed by both parties. Provider may update its privacy policy and acceptable use policy with 30 days' notice, and continued use of the Service after such notice constitutes acceptance of the updated policies.
+
+7.6 Notices. All notices under this Agreement shall be in writing and shall be deemed given when delivered personally, sent by certified mail (return receipt requested), or sent by overnight courier.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the Effective Date.
+
+CloudStack Solutions Inc.               Acme Corp.
+By: _________________________          By: _________________________
+Name: Sarah Chen                        Name: Robert Martinez
+Title: Chief Executive Officer          Title: Vice President, IT
+Date: January 15, 2026                  Date: January 15, 2026

@@ -483,7 +483,7 @@ export interface TestCase {
   error?: string;
   durationMs?: number;
   failureCategory?: FailureCategory;
-  matchStrategy?: string;
+  matchStrategy?: 'exact' | 'contains' | 'semantic' | 'schema' | 'structured';
 }
 
 // Re-export readiness types for convenience

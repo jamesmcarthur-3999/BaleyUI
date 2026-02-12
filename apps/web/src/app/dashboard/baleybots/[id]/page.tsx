@@ -419,6 +419,7 @@ export default function BaleybotPage() {
   const promoteToLiveMutation = trpc.baleybots.promoteToLive.useMutation();
   const pauseLiveBotMutation = trpc.baleybots.pauseLiveBot.useMutation();
   const revertToDraftMutation = trpc.baleybots.revertToDraft.useMutation();
+  const saveTestCasesMutation = trpc.baleybots.saveTestCases.useMutation();
 
   // Normalize workspace connections once for ConnectionsPanel
   const normalizedConnections = workspaceConnections?.map(c => ({
@@ -1251,7 +1252,7 @@ export default function BaleybotPage() {
     500
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- wired by launch prep panel (planned)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- available for explicit launch prep panel
   const handleGenerateLaunchKit = async () => {
     if (!savedBaleybotId) return;
     try {
@@ -1284,6 +1285,16 @@ export default function BaleybotPage() {
           variant: 'destructive',
         });
         return;
+      }
+
+      // Auto-generate LaunchKit if it doesn't exist yet
+      if (!existingBaleybot?.launchKit) {
+        await generateLaunchKitMutation.mutateAsync({
+          baleybotId: savedBaleybotId,
+          requiredPassRate: 0.8,
+        });
+        // Re-fetch to get the updated version with launchKit
+        await utils.baleybots.get.invalidate({ id: savedBaleybotId });
       }
 
       await promoteToLiveMutation.mutateAsync({ baleybotId: savedBaleybotId });
@@ -2169,17 +2180,23 @@ export default function BaleybotPage() {
                         return { tokenCount: exec.tokenCount, estimatedCost: exec.estimatedCost };
                       }}
                       onExecutionComplete={(result) => {
-                        setTestCases((prev) => {
-                          const newCase: TestCase = {
-                            id: result.executionId ?? crypto.randomUUID(),
-                            name: `Test run ${prev.length + 1}`,
-                            level: 'integration',
-                            input: '',
-                            status: result.success ? 'passed' : 'failed',
-                            durationMs: result.durationMs,
-                          };
-                          return [...prev, newCase];
-                        });
+                        const newCase: TestCase = {
+                          id: result.executionId ?? crypto.randomUUID(),
+                          name: `Test run ${testCases.length + 1}`,
+                          level: 'integration',
+                          input: '',
+                          status: result.success ? 'passed' : 'failed',
+                          durationMs: result.durationMs,
+                        };
+                        const updatedCases = [...testCases, newCase];
+                        setTestCases(updatedCases);
+                        // Auto-persist test results so Go Live readiness check sees them
+                        if (savedBaleybotId) {
+                          saveTestCasesMutation.mutate(
+                            { id: savedBaleybotId, testCases: updatedCases },
+                            { onSuccess: () => refetchLaunchReadiness() },
+                          );
+                        }
                         utils.baleybots.getCreatorGuidance.invalidate();
                         injectAdvisorSuggestions('Test complete');
                       }}

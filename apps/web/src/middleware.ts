@@ -18,10 +18,11 @@ const isApiKeyRoute = createRouteMatcher([
 
 // Routes exempt from CSRF checks (use their own auth mechanisms)
 const isCsrfExempt = createRouteMatcher([
-  '/api/webhooks(.*)',  // Secret-based auth
-  '/api/v1(.*)',        // API key auth
-  '/api/cron(.*)',      // Bearer token auth
-  '/api/health',        // Public health check
+  '/api/webhooks(.*)',    // Secret-based auth
+  '/api/baleybots(.*)',   // API key auth
+  '/api/v1(.*)',          // API key auth
+  '/api/cron(.*)',        // Bearer token auth
+  '/api/health',          // Public health check
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
