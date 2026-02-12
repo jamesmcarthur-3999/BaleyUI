@@ -109,6 +109,7 @@ export function ToolCallCard({ toolCall, className }: ToolCallCardProps) {
             size="sm"
             className="h-auto p-0 text-xs font-medium text-muted-foreground hover:text-foreground"
             onClick={() => setIsArgsExpanded(!isArgsExpanded)}
+            aria-expanded={isArgsExpanded}
           >
             {isArgsExpanded ? (
               <ChevronDown className="h-3 w-3 mr-1" />
@@ -139,6 +140,7 @@ export function ToolCallCard({ toolCall, className }: ToolCallCardProps) {
               size="sm"
               className="h-auto p-0 text-xs font-medium text-muted-foreground hover:text-foreground"
               onClick={() => setIsResultExpanded(!isResultExpanded)}
+              aria-expanded={isResultExpanded}
             >
               {isResultExpanded ? (
                 <ChevronDown className="h-3 w-3 mr-1" />

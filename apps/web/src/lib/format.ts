@@ -79,3 +79,37 @@ export function formatDuration(ms: number | null | undefined): string {
   const seconds = Math.floor((ms % 60000) / 1000);
   return `${minutes}m ${seconds}s`;
 }
+
+/**
+ * Format a date as a relative time string
+ * - null/undefined: "-"
+ * - < 1 min: "Just now"
+ * - < 1 hour: "Xm ago"
+ * - < 24 hours: "Xh ago"
+ * - < 7 days: "Xd ago"
+ * - >= 7 days: toLocaleDateString
+ */
+export function formatTimeAgo(
+  date: Date | string | number | null | undefined
+): string {
+  if (date === null || date === undefined) {
+    return '-';
+  }
+
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) {
+    return '-';
+  }
+
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString();
+}

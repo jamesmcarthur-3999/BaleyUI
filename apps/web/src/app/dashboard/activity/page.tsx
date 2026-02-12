@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { trpc } from '@/lib/trpc/client';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,47 +17,71 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ROUTES } from '@/lib/routes';
+import { formatTimeAgo, formatDuration } from '@/lib/format';
 import {
   Activity,
   ArrowRight,
+  Loader2,
   Search,
 } from 'lucide-react';
+
+interface ExecutionItem {
+  id: string;
+  baleybotId: string;
+  status: string;
+  triggeredBy: string | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  durationMs: number | null;
+  error: string | null;
+  createdAt: Date;
+  baleybot: { id: string; name: string | null; icon: string | null };
+}
 
 export default function ActivityPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [botFilter, setBotFilter] = useState('');
-  const { data: executions, isLoading } = trpc.baleybots.getRecentActivity.useQuery({
-    limit: 50,
-  });
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [accumulated, setAccumulated] = useState<ExecutionItem[]>([]);
+  const prevDataRef = useRef<{ items: ExecutionItem[]; nextCursor?: string } | undefined>(undefined);
 
-  // Filter executions
-  const filteredExecutions = executions?.filter((exec) => {
+  const { data, isLoading, isFetching } = trpc.baleybots.getRecentActivity.useQuery(
+    { limit: 50, cursor },
+  );
+
+  // Accumulate paginated results
+  useEffect(() => {
+    if (!data || data === prevDataRef.current) return;
+    prevDataRef.current = data;
+
+    if (!cursor) {
+      // Initial load or reset
+      setAccumulated(data.items as ExecutionItem[]);
+    } else {
+      // Append new items (avoid duplicates)
+      setAccumulated((prev) => {
+        const existingIds = new Set(prev.map((item) => item.id));
+        const newItems = (data.items as ExecutionItem[]).filter((item) => !existingIds.has(item.id));
+        return [...prev, ...newItems];
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const nextCursor = data?.nextCursor;
+
+  // Filter executions (applied client-side to the accumulated list)
+  const filteredExecutions = accumulated.filter((exec) => {
     const matchesStatus = statusFilter === 'all' || exec.status === statusFilter;
     const matchesBot = !botFilter ||
       (exec.baleybot?.name && exec.baleybot.name.toLowerCase().includes(botFilter.toLowerCase()));
     return matchesStatus && matchesBot;
   });
 
-  const formatTimeAgo = (date: Date) => {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
-  };
-
-  const formatDuration = (ms: number) => {
-    if (ms < 1000) return `${ms}ms`;
-    const seconds = Math.floor(ms / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    return `${minutes}m ${seconds % 60}s`;
+  const handleLoadMore = () => {
+    if (nextCursor) {
+      setCursor(nextCursor);
+    }
   };
 
   return (
@@ -79,10 +104,11 @@ export default function ActivityPage() {
               value={botFilter}
               onChange={(e) => setBotFilter(e.target.value)}
               className="pl-9"
+              aria-label="Filter by bot name"
             />
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="w-[140px]" aria-label="Filter by execution status">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -102,13 +128,13 @@ export default function ActivityPage() {
             <CardTitle>Recent Executions</CardTitle>
           </CardHeader>
           <CardContent>
-            {isLoading ? (
+            {isLoading && !cursor ? (
               <div className="space-y-3">
                 {[1, 2, 3, 4, 5].map((i) => (
                   <Skeleton key={i} className="h-16 w-full" />
                 ))}
               </div>
-            ) : filteredExecutions && filteredExecutions.length > 0 ? (
+            ) : filteredExecutions.length > 0 ? (
               <div className="space-y-2">
                 {filteredExecutions.map((execution) => (
                   <Link
@@ -157,6 +183,22 @@ export default function ActivityPage() {
                     <ArrowRight className="h-4 w-4 text-muted-foreground" />
                   </Link>
                 ))}
+
+                {/* Load More button */}
+                {nextCursor && (
+                  <div className="flex justify-center pt-4">
+                    <Button
+                      variant="outline"
+                      onClick={handleLoadMore}
+                      disabled={isFetching}
+                    >
+                      {isFetching ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : null}
+                      Load More
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
               <EmptyState

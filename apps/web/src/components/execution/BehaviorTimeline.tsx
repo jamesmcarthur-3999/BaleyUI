@@ -10,6 +10,7 @@
 
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatDuration, formatTimeAgo } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -81,30 +82,12 @@ interface BehaviorTimelineProps {
 // HELPERS
 // ============================================================================
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
 function formatTimestamp(date: Date): string {
   return new Date(date).toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
   });
-}
-
-function getRelativeTime(date: Date): string {
-  const now = new Date();
-  const diff = now.getTime() - new Date(date).getTime();
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`;
-  if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
-  if (minutes > 0) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
-  return 'Just now';
 }
 
 function buildTimelineEvents(
@@ -207,25 +190,25 @@ function TimelineEventItem({
   const getIcon = () => {
     switch (event.type) {
       case 'start':
-        return <Play className="h-4 w-4 text-blue-500" />;
+        return <Play className="h-4 w-4 text-blue-600 dark:text-blue-400" />;
       case 'tool_call':
-        return <Wrench className="h-4 w-4 text-amber-500" />;
+        return <Wrench className="h-4 w-4 text-amber-600 dark:text-amber-400" />;
       case 'reasoning':
-        return <Brain className="h-4 w-4 text-purple-500" />;
+        return <Brain className="h-4 w-4 text-purple-600 dark:text-purple-400" />;
       case 'artifact':
-        return <FileOutput className="h-4 w-4 text-green-500" />;
+        return <FileOutput className="h-4 w-4 text-green-600 dark:text-green-400" />;
       case 'error':
-        return <XCircle className="h-4 w-4 text-red-500" />;
+        return <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />;
       case 'complete':
-        return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+        return <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />;
       case 'retry':
-        return <RotateCcw className="h-4 w-4 text-orange-500" />;
+        return <RotateCcw className="h-4 w-4 text-orange-600 dark:text-orange-400" />;
       case 'route_selected':
-        return <GitFork className="h-4 w-4 text-purple-500" />;
+        return <GitFork className="h-4 w-4 text-purple-600 dark:text-purple-400" />;
       case 'gate_evaluation':
-        return <ShieldCheck className="h-4 w-4 text-yellow-500" />;
+        return <ShieldCheck className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />;
       case 'processor_output':
-        return <Cog className="h-4 w-4 text-cyan-500" />;
+        return <Cog className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />;
       default:
         return <Clock className="h-4 w-4 text-muted-foreground" />;
     }
@@ -337,6 +320,7 @@ function TimelineEventItem({
               size="sm"
               className="h-6 px-2 text-xs"
               onClick={() => setIsExpanded(!isExpanded)}
+              aria-expanded={isExpanded}
             >
               {isExpanded ? (
                 <ChevronDown className="h-3 w-3 mr-1" />
@@ -459,7 +443,7 @@ export function BehaviorTimeline({
               </CardTitle>
               <CardDescription>
                 {lastExecutedAt
-                  ? `Last run: ${getRelativeTime(lastExecutedAt)}`
+                  ? `Last run: ${formatTimeAgo(lastExecutedAt)}`
                   : 'Execution history'}
               </CardDescription>
             </div>
@@ -476,7 +460,7 @@ export function BehaviorTimeline({
       {/* Timeline */}
       <Card>
         <CardContent className="pt-6">
-          <ScrollArea className="h-[500px] pr-4">
+          <ScrollArea className="max-h-[500px] pr-4">
             <div className="space-y-0">
               {timelineEvents.map((event, i) => (
                 <TimelineEventItem

@@ -3,6 +3,7 @@
 import { trpc } from '@/lib/trpc/client';
 import { ROUTES } from '@/lib/routes';
 import { cn } from '@/lib/utils';
+import { formatTimeAgo } from '@/lib/format';
 import { BotAnalyticsCards } from './BotAnalyticsCards';
 import { ConversationReview } from './ConversationReview';
 import { Loader2, ExternalLink, AlertTriangle, Pause } from 'lucide-react';
@@ -33,16 +34,6 @@ function StatusBadge({ status }: { status: string }) {
       {status}
     </span>
   );
-}
-
-function formatTimeAgo(date: Date | string | null): string {
-  if (!date) return '--';
-  const d = typeof date === 'string' ? new Date(date) : date;
-  const diff = Date.now() - d.getTime();
-  if (diff < 60_000) return 'just now';
-  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h ago`;
-  return `${Math.floor(diff / 86400_000)}d ago`;
 }
 
 export function BotMonitorPanel({ baleybotId, baleybotName, onPauseOrResume, isPauseResumeBusy, className }: BotMonitorPanelProps) {

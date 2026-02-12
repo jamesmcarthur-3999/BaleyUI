@@ -219,6 +219,7 @@ export function Sidebar() {
             size="sm"
             onClick={toggleCollapsed}
             className={cn('w-full justify-start gap-2', collapsed && 'justify-center px-2')}
+            aria-label="Toggle sidebar"
           >
             {collapsed ? (
               <PanelLeft className="h-4 w-4" />

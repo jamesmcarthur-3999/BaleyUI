@@ -287,7 +287,7 @@ export function CompanionContainer({
     >
       <div
         className={cn(
-          'w-96 glass-panel',
+          'w-full sm:w-96 glass-panel',
           'rounded-2xl elevation-3',
           'flex flex-col',
           'max-h-[80vh]',

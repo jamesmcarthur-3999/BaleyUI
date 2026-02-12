@@ -49,6 +49,7 @@ import {
 } from 'lucide-react';
 import { useGridNavigation } from '@/hooks/useGridNavigation';
 import { cn } from '@/lib/utils';
+import { formatTimeAgo } from '@/lib/format';
 
 type BaleybotStatus = 'draft' | 'active' | 'paused' | 'error';
 type SmartView =
@@ -91,23 +92,6 @@ function asDate(value: string | Date | null | undefined): Date | null {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function formatTimeAgo(value: string | Date | null | undefined): string {
-  const date = asDate(value);
-  if (!date) return 'Never';
-
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
 }
 
 function formatDateTime(value: string | Date | null | undefined): string {

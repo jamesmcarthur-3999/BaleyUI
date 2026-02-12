@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ROUTES } from '@/lib/routes';
 import { cn } from '@/lib/utils';
+import { formatTimeAgo } from '@/lib/format';
 
 import { Badge } from '@/components/ui/badge';
 import { TriggerBadge } from './TriggerConfig';
@@ -86,20 +87,6 @@ export function BaleybotCard({
   const config = statusConfig[status];
   const StatusIcon = config.Icon;
 
-  const formatTimeAgo = (date: Date) => {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
-  };
-
   return (
     <Link href={href ?? ROUTES.baleybots.detail(id)}>
       <div
@@ -122,6 +109,7 @@ export function BaleybotCard({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-label="Bot actions"
               >
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
@@ -173,7 +161,11 @@ export function BaleybotCard({
         <div className="p-5">
           <div className="flex items-start gap-4">
             {/* Icon */}
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-accent/10 text-2xl shrink-0 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
+            <div
+              className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-accent/10 text-2xl shrink-0 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3"
+              role="img"
+              aria-label={`${name} icon`}
+            >
               {icon?.trim() || '🤖'}
             </div>
 

@@ -887,10 +887,25 @@ export const baleybotsRouter = router({
     .input(
       z.object({
         limit: z.number().int().min(1).max(100).optional().default(20),
+        cursor: z.string().uuid().optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
-      // Single JOIN query instead of two round-trips
+      const limit = input?.limit ?? 20;
+      const cursor = input?.cursor;
+
+      // Build where conditions
+      const conditions = [
+        eq(baleybots.workspaceId, ctx.workspace.id),
+        notDeleted(baleybots),
+      ];
+
+      // Cursor-based pagination: fetch items older than the cursor
+      if (cursor) {
+        conditions.push(lt(baleybotExecutions.id, cursor));
+      }
+
+      // Fetch one extra to determine if there's a next page
       const executions = await ctx.db
         .select({
           id: baleybotExecutions.id,
@@ -907,17 +922,21 @@ export const baleybotsRouter = router({
         })
         .from(baleybotExecutions)
         .innerJoin(baleybots, eq(baleybotExecutions.baleybotId, baleybots.id))
-        .where(and(
-          eq(baleybots.workspaceId, ctx.workspace.id),
-          notDeleted(baleybots)
-        ))
+        .where(and(...conditions))
         .orderBy(desc(baleybotExecutions.createdAt))
-        .limit(input?.limit ?? 20);
+        .limit(limit + 1);
 
-      return executions.map((exec) => ({
-        ...exec,
-        baleybot: { id: exec.baleybotId, name: exec.baleybotName, icon: exec.baleybotIcon },
-      }));
+      const hasMore = executions.length > limit;
+      const items = hasMore ? executions.slice(0, limit) : executions;
+      const nextCursor = hasMore ? items[items.length - 1]?.id : undefined;
+
+      return {
+        items: items.map((exec) => ({
+          ...exec,
+          baleybot: { id: exec.baleybotId, name: exec.baleybotName, icon: exec.baleybotIcon },
+        })),
+        nextCursor,
+      };
     }),
 
   /**

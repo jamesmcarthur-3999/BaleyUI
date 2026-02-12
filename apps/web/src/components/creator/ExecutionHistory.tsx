@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ChevronUp, ChevronDown, Clock, CheckCircle, XCircle, Loader2, Ban } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatDuration } from '@/lib/format';
 import { formatDistanceToNow } from 'date-fns';
 
 interface Execution {
@@ -147,12 +148,6 @@ function ExecutionRow({ execution, onClick }: ExecutionRowProps) {
     : execution.createdAt;
 
   const timeAgo = formatDistanceToNow(createdAt, { addSuffix: true });
-
-  const formatDuration = (ms: number): string => {
-    if (ms < 1000) return `${ms}ms`;
-    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-    return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
-  };
 
   return (
     <button

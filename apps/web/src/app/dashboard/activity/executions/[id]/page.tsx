@@ -4,10 +4,13 @@ import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ROUTES } from '@/lib/routes';
+import { formatDuration } from '@/lib/format';
 import {
   ArrowLeft,
   Clock,
@@ -18,12 +21,19 @@ import {
   Timer,
 } from 'lucide-react';
 
+function getSegmentBadgeVariant(type: string): 'secondary' | 'outline' | 'connected' | 'error' | 'default' {
+  if (type === 'text_delta') return 'secondary';
+  if (type.startsWith('tool_')) return 'outline';
+  if (type === 'done') return 'connected';
+  if (type === 'error') return 'error';
+  return 'default';
+}
+
 export default function ExecutionDetailPage() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
 
-  // Fetch execution data
   const { data: execution, isLoading } = trpc.baleybots.getExecution.useQuery({
     id,
   });
@@ -32,19 +42,26 @@ export default function ExecutionDetailPage() {
     return date.toLocaleString();
   };
 
-  const formatDuration = (ms: number) => {
-    if (ms < 1000) return `${ms}ms`;
-    const seconds = Math.floor(ms / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    return `${minutes}m ${seconds % 60}s`;
-  };
-
   if (isLoading) {
     return (
       <div className="container py-10">
-        <Skeleton className="h-8 w-48 mb-4" />
-        <Skeleton className="h-64 w-full" />
+        {/* Header skeleton */}
+        <div className="flex items-start gap-4 mb-8">
+          <Skeleton className="h-10 w-10 rounded-md" />
+          <div className="flex-1">
+            <div className="flex items-center gap-3 mb-2">
+              <Skeleton className="h-8 w-64" />
+              <Skeleton className="h-6 w-20 rounded-full" />
+            </div>
+            <Skeleton className="h-4 w-40" />
+          </div>
+        </div>
+        {/* Content skeleton */}
+        <div className="grid gap-6 md:grid-cols-2">
+          <Skeleton className="h-48 rounded-xl" />
+          <Skeleton className="h-48 rounded-xl" />
+        </div>
+        <Skeleton className="h-32 rounded-xl mt-6" />
       </div>
     );
   }
@@ -85,17 +102,19 @@ export default function ExecutionDetailPage() {
   const StatusIcon = () => {
     switch (execution.status) {
       case 'completed':
-        return <CheckCircle2 className="h-6 w-6 text-green-500" />;
+        return <CheckCircle2 className="h-6 w-6 text-green-600 dark:text-green-400" />;
       case 'failed':
-        return <XCircle className="h-6 w-6 text-red-500" />;
+        return <XCircle className="h-6 w-6 text-red-600 dark:text-red-400" />;
       case 'running':
-        return <Play className="h-6 w-6 text-blue-500 animate-pulse" />;
+        return <Play className="h-6 w-6 text-blue-600 dark:text-blue-400 animate-pulse" />;
       case 'cancelled':
         return <XCircle className="h-6 w-6 text-muted-foreground" />;
       default:
         return <Clock className="h-6 w-6 text-muted-foreground" />;
     }
   };
+
+  const hasSegments = Array.isArray(execution.segments) && execution.segments.length > 0;
 
   return (
     <div className="container py-10">
@@ -131,152 +150,182 @@ export default function ExecutionDetailPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Timing */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Timer className="h-4 w-4" />
-              Timing
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Started</span>
-              <span>
-                {displayStartedAt ? formatTime(displayStartedAt) : 'Not started'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Completed</span>
-              <span>
-                {displayCompletedAt
-                  ? formatTime(displayCompletedAt)
-                  : displayStatus === 'running'
-                    ? 'In progress...'
-                    : 'N/A'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Duration</span>
-              <span>
-                {displayDurationMs !== null
-                  ? formatDuration(displayDurationMs)
-                  : 'N/A'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Triggered By</span>
-              <span className="capitalize">
-                {displayTriggeredBy ?? 'Unknown'}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
+      <Tabs defaultValue="overview">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="io">Input / Output</TabsTrigger>
+          {hasSegments && (
+            <TabsTrigger value="segments">Segments</TabsTrigger>
+          )}
+        </TabsList>
 
-        {/* Metrics */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Metrics</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Token Count</span>
-              <span>{displayTokenCount ?? 'N/A'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Status</span>
-              <span className="capitalize">{displayStatus}</span>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Overview Tab */}
+        <TabsContent value="overview" className="mt-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Timer className="h-4 w-4" />
+                  Timing
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Started</span>
+                  <span>
+                    {displayStartedAt ? formatTime(displayStartedAt) : 'Not started'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Completed</span>
+                  <span>
+                    {displayCompletedAt
+                      ? formatTime(displayCompletedAt)
+                      : displayStatus === 'running'
+                        ? 'In progress...'
+                        : 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Duration</span>
+                  <span>
+                    {displayDurationMs !== null
+                      ? formatDuration(displayDurationMs)
+                      : 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Triggered By</span>
+                  <span className="capitalize">
+                    {displayTriggeredBy ?? 'Unknown'}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
 
-        {/* Input */}
-        <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle>Input</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <pre className="text-sm bg-muted p-4 rounded-lg overflow-x-auto whitespace-pre-wrap">
-              {execution.input
-                ? typeof execution.input === 'string'
-                  ? execution.input
-                  : JSON.stringify(execution.input, null, 2)
-                : 'No input provided'}
-            </pre>
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Metrics</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Token Count</span>
+                  <span>{displayTokenCount ?? 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Status</span>
+                  <span className="capitalize">{displayStatus}</span>
+                </div>
+              </CardContent>
+            </Card>
 
-        {/* Output */}
-        {execution.output != null && (
-          <Card className="md:col-span-2">
+            {/* Error (shown in overview for visibility) */}
+            {typeof execution.error === 'string' && execution.error && (
+              <Card className="md:col-span-2 border-destructive">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    Error
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <pre className="text-sm bg-destructive/10 text-destructive p-4 rounded-lg overflow-x-auto whitespace-pre-wrap">
+                    {execution.error}
+                  </pre>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* Input / Output Tab */}
+        <TabsContent value="io" className="mt-6 space-y-6">
+          <Card>
             <CardHeader>
-              <CardTitle>Output</CardTitle>
+              <CardTitle>Input</CardTitle>
             </CardHeader>
             <CardContent>
               <pre className="text-sm bg-muted p-4 rounded-lg overflow-x-auto whitespace-pre-wrap">
-                {typeof execution.output === 'string'
-                  ? execution.output
-                  : JSON.stringify(execution.output, null, 2)}
+                {execution.input
+                  ? typeof execution.input === 'string'
+                    ? execution.input
+                    : JSON.stringify(execution.input, null, 2)
+                  : 'No input provided'}
               </pre>
             </CardContent>
           </Card>
-        )}
 
-        {/* Error */}
-        {typeof execution.error === 'string' && execution.error && (
-          <Card className="md:col-span-2 border-destructive">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-destructive">
-                <AlertCircle className="h-4 w-4" />
-                Error
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <pre className="text-sm bg-destructive/10 text-destructive p-4 rounded-lg overflow-x-auto whitespace-pre-wrap">
-                {execution.error}
-              </pre>
-            </CardContent>
-          </Card>
-        )}
+          {execution.output != null && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Output</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <pre className="text-sm bg-muted p-4 rounded-lg overflow-x-auto whitespace-pre-wrap">
+                  {typeof execution.output === 'string'
+                    ? execution.output
+                    : JSON.stringify(execution.output, null, 2)}
+                </pre>
+              </CardContent>
+            </Card>
+          )}
 
-        {/* Segments (streaming events) */}
-        {Array.isArray(execution.segments) && execution.segments.length > 0 ? (
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <CardTitle>Execution Segments</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {execution.segments.map((segment, index) => {
-                  const seg = segment as Record<string, unknown>;
-                  const typeStr = String(seg.type || 'unknown');
-                  const contentStr = seg.content
-                    ? String(seg.content).slice(0, 100)
-                    : JSON.stringify(seg).slice(0, 100);
-                  const fullLength = seg.content
-                    ? String(seg.content).length
-                    : JSON.stringify(seg).length;
-                  return (
-                    <div
-                      key={index}
-                      className="text-xs font-mono p-2 bg-muted rounded"
-                    >
-                      <span className="text-muted-foreground">
-                        [{typeStr}]
-                      </span>{' '}
-                      <span>
-                        {contentStr}
-                        {fullLength > 100 ? '...' : ''}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
-      </div>
+          {typeof execution.error === 'string' && execution.error && (
+            <Card className="border-destructive">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  Error
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <pre className="text-sm bg-destructive/10 text-destructive p-4 rounded-lg overflow-x-auto whitespace-pre-wrap">
+                  {execution.error}
+                </pre>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Segments Tab */}
+        {hasSegments && (
+          <TabsContent value="segments" className="mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Execution Segments</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {execution.segments!.map((segment, index) => {
+                    const seg = segment as Record<string, unknown>;
+                    const typeStr = String(seg.type || 'unknown');
+                    const contentStr = seg.content
+                      ? String(seg.content).slice(0, 200)
+                      : JSON.stringify(seg).slice(0, 200);
+                    const fullLength = seg.content
+                      ? String(seg.content).length
+                      : JSON.stringify(seg).length;
+                    return (
+                      <div
+                        key={`${typeStr}-${index}`}
+                        className="text-xs font-mono p-2 bg-muted rounded flex items-start gap-2"
+                      >
+                        <Badge variant={getSegmentBadgeVariant(typeStr)} className="text-[10px] shrink-0">
+                          {typeStr}
+                        </Badge>
+                        <span className="break-all">
+                          {contentStr}
+                          {fullLength > 200 ? '...' : ''}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
   );
 }
