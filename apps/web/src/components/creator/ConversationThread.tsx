@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { User, Bot, Brain } from 'lucide-react';
+import { User, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { StreamdownMarkdown } from '@/components/shared/StreamdownMarkdown';
+import { SegmentRenderer, CREATOR_CONFIG } from '@/components/chat';
+import type { StreamSegment } from '@baleybots/chat';
 import type { CreatorMessage } from '@/lib/baleybot/creator-types';
 import { AgentActivityPanel } from './AgentActivityPanel';
 import { InlineAgentIndicators } from './InlineAgentIndicator';
@@ -52,8 +53,9 @@ interface ConversationThreadProps {
 /**
  * ConversationThread displays the chat history as a clean, barebones chat.
  *
- * The AI leads the process — all rich detail lives in the right panel tabs.
- * Chat shows only: message text (markdown), thinking toggle, timestamps.
+ * Uses the unified chat component library's SegmentRenderer for content
+ * rendering (text, reasoning, tool calls) while keeping creator-specific
+ * card wrappers, system messages, and building indicators.
  */
 export function ConversationThread({
   messages,
@@ -141,6 +143,66 @@ export function ConversationThread({
 }
 
 // ============================================================================
+// SEGMENT BUILDERS — convert creator data into SDK-aligned StreamSegment[]
+// ============================================================================
+
+/** Build segments from a stored assistant message (text + optional reasoning) */
+function buildMessageSegments(message: CreatorMessage): StreamSegment[] {
+  const segments: StreamSegment[] = [];
+  const ts = message.timestamp.getTime();
+
+  if (message.thinking) {
+    segments.push({
+      type: 'reasoning',
+      id: `${message.id}-reasoning`,
+      timestamp: ts,
+      content: message.thinking,
+      isStreaming: false,
+    });
+  }
+
+  if (message.content) {
+    segments.push({
+      type: 'text',
+      id: `${message.id}-text`,
+      timestamp: ts,
+      content: message.content,
+      isStreaming: false,
+    });
+  }
+
+  return segments;
+}
+
+/** Build segments from live streaming props */
+function buildStreamingSegments(text: string, reasoning?: string): StreamSegment[] {
+  const segments: StreamSegment[] = [];
+  const now = Date.now();
+
+  if (reasoning) {
+    segments.push({
+      type: 'reasoning',
+      id: 'streaming-reasoning',
+      timestamp: now,
+      content: reasoning,
+      isStreaming: !text, // Active while no text has arrived yet
+    });
+  }
+
+  if (text) {
+    segments.push({
+      type: 'text',
+      id: 'streaming-text',
+      timestamp: now,
+      content: text,
+      isStreaming: true,
+    });
+  }
+
+  return segments;
+}
+
+// ============================================================================
 // USER MESSAGE
 // ============================================================================
 
@@ -178,7 +240,7 @@ function UserMessage({
 }
 
 // ============================================================================
-// ASSISTANT MESSAGE
+// ASSISTANT MESSAGE — card wrapper with SegmentRenderer for content
 // ============================================================================
 
 function AssistantMessage({
@@ -188,8 +250,8 @@ function AssistantMessage({
   message: CreatorMessage;
   isLatest: boolean;
 }) {
-  const [showThinking, setShowThinking] = useState(false);
   const isError = message.metadata?.isError;
+  const segments = buildMessageSegments(message);
 
   return (
     <div className={cn(isLatest && 'animate-fade-in-up')}>
@@ -207,27 +269,9 @@ function AssistantMessage({
             BaleyBot
           </span>
 
-          {/* Message text with markdown */}
-          <StreamdownMarkdown text={message.content} />
+          {/* Content via unified SegmentRenderer (handles text + reasoning) */}
+          <SegmentRenderer segments={segments} config={CREATOR_CONFIG} />
         </div>
-
-        {/* Thinking/reasoning expandable */}
-        {message.thinking && (
-          <div>
-            <button
-              onClick={() => setShowThinking(!showThinking)}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-            >
-              <Brain className="h-3 w-3" />
-              {showThinking ? 'Hide reasoning' : 'Show reasoning'}
-            </button>
-            {showThinking && (
-              <div className="mt-1.5 pl-3 border-l-2 border-muted-foreground/20 text-xs text-muted-foreground whitespace-pre-wrap">
-                {message.thinking}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Timestamp */}
         <time
@@ -308,7 +352,7 @@ function SystemMessage({
 }
 
 // ============================================================================
-// STREAMING MESSAGE (live text from creator_bot)
+// STREAMING MESSAGE — live text from creator_bot with SegmentRenderer
 // ============================================================================
 
 function StreamingMessage({
@@ -322,7 +366,7 @@ function StreamingMessage({
   connectionActions?: ConnectionAction[];
   reasoning?: string;
 }) {
-  const isThinking = !text && !!reasoning;
+  const segments = buildStreamingSegments(text, reasoning);
 
   return (
     <div className="animate-fade-in">
@@ -332,12 +376,8 @@ function StreamingMessage({
           BaleyBot
         </span>
 
-        {/* Thinking indicator — shown while reasoning before text starts */}
-        {reasoning && (
-          <ThinkingIndicator reasoning={reasoning} isActive={isThinking} />
-        )}
-
-        <StreamdownMarkdown text={text} isStreaming />
+        {/* Content via unified SegmentRenderer (handles text + reasoning) */}
+        <SegmentRenderer segments={segments} config={CREATOR_CONFIG} />
 
         {/* Inline agent indicators — subtle dividers for specialist bot activity */}
         {agentEvents && agentEvents.length > 0 && (
@@ -353,35 +393,6 @@ function StreamingMessage({
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// THINKING INDICATOR
-// ============================================================================
-
-function ThinkingIndicator({ reasoning, isActive }: { reasoning: string; isActive: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="mb-2">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-muted-foreground/70 transition-colors"
-      >
-        <Brain className="h-3 w-3" />
-        {isActive ? (
-          <span className="animate-pulse-soft">Thinking...</span>
-        ) : (
-          <span>Thought for {Math.ceil(reasoning.length / 100)}s</span>
-        )}
-      </button>
-      {expanded && (
-        <div className="mt-1 pl-3 border-l-2 border-muted-foreground/15 text-xs text-muted-foreground/60 whitespace-pre-wrap max-h-40 overflow-y-auto">
-          {reasoning}
-        </div>
-      )}
     </div>
   );
 }
