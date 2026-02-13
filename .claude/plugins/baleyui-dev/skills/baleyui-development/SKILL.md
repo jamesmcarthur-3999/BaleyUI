@@ -164,7 +164,7 @@ User Request
 
 Tools are assembled at execution time from multiple sources:
 
-1. **Built-in** (10 tools) - Always available, defined in `tools/built-in/index.ts`
+1. **Built-in** - Always available, defined in `tools/built-in/index.ts`
 2. **Connection-derived** - Generated from workspace connections (e.g., postgres connection -> `query_postgres` tool)
 3. **MCP tools** - From connected MCP servers
 4. **Workspace tools** - User-defined tools stored in DB
@@ -293,7 +293,7 @@ After execution completes, the executor fires (all wrapped in try/catch, failure
 
 BaleyUI "eats its own cooking" - internal operations use BaleyBots stored with `isInternal: true`.
 
-### 17 Internal Bots
+### Internal Bots
 
 | ID | Icon | Role | Model |
 |----|------|------|-------|
@@ -314,6 +314,7 @@ BaleyUI "eats its own cooking" - internal operations use BaleyBots stored with `
 | `integration_builder` | `link` | Conversational integration guide | anthropic:powerful |
 | `test_interface_designer` | `target` | Designs optimal test UI for a BB | anthropic:powerful |
 | `tool_executor` | `wrench` | Executes NL-defined workspace tools | openai:fast |
+| `context_processor` | `gear` | Processes and enriches context for BB execution | anthropic:powerful |
 
 ### Calling Internal BaleyBots
 

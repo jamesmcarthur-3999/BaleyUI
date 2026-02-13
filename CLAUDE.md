@@ -2,9 +2,36 @@
 
 Essential context for AI-assisted development on this project.
 
+## Critical Rules
+
+- When implementing fixes or changes, ALWAYS verify you are editing the correct file that is actually used at runtime. Check build configs, bundler resolution (e.g., Vite, webpack), and dist vs source paths before making edits. Never assume the source file you find via grep is the one being loaded.
+- Do NOT give superficial fixes or declare victory prematurely. When debugging, trace the FULL execution path from entry point to failure before proposing a fix. If the user pushes back, it means your analysis was too shallow — go deeper, don't just try another surface-level patch.
+
 ## Project Overview
 
 BaleyUI is a visual platform for building AI-powered workflows using BaleyBots. The core abstraction is the **BaleyBot (BB)** - an AI agent defined in BAL (Baleybots Assembly Language) that can use tools, chain with other BBs, and be triggered automatically.
+
+## Design Philosophy: AI-First
+
+BaleyUI builds **AI-controlled systems**, not hard-coded software. Every feature should default to BaleyBot intelligence over deterministic code.
+
+### Decision Framework (in priority order)
+
+1. **Can an existing internal BaleyBot do this?** — Internal bots cover creation, testing, deployment, review, NL-to-SQL, pattern learning, and more (see Internal BaleyBots table below)
+2. **Can a new BaleyBot via BAL composition handle it?** — chain, parallel, route, gate, loop, try/catch, filter, processor
+3. **Can a built-in tool empower a BaleyBot to do it?** — Built-in tools like web_search, spawn_baleybot, schedule_task, store_memory, etc. (see Built-in Tools Reference below)
+4. **Does this need a new tool that BaleyBots use?** — Extend capability, not logic
+5. **Only if none of the above:** write deterministic code (DB operations, auth, streaming infrastructure, HTTP routing)
+
+### Anti-Patterns (never do these)
+
+- Hard-coded if/else trees for decisions a BaleyBot should make
+- Multi-step wizards where a conversational BaleyBot should guide the user
+- Static routing tables where `route()` composition should classify and dispatch
+- Manual review forms where `execution_reviewer` should analyze and suggest
+- Rigid pipelines where adaptive BAL chains should self-correct
+
+**See the `baleyui-feature-design` skill for detailed design guidance, anti-pattern tables, and before/after examples.**
 
 ## Current Development Focus
 
@@ -48,19 +75,9 @@ await withTransaction(async (tx) => {
 ```
 
 ### BaleyBot Streaming Events
-Types are re-exported from `@/lib/streaming/types/events` (source: @baleybots/core).
+Types re-exported from `@/lib/streaming/types/events` (source: `@baleybots/core`). Key fields: use `content` (NOT `delta`) for text events, `id` for tool call ID, `reason` (NOT `result`) for done events.
 
-**Key event field names:**
-- `text_delta`: `{ type, content }`
-- `tool_call_stream_start`: `{ type, id, toolName }`
-- `tool_call_arguments_delta`: `{ type, id, argumentsDelta }`
-- `tool_call_stream_complete`: `{ type, id, toolName, arguments }`
-- `tool_execution_start`: `{ type, id, toolName, arguments }`
-- `tool_execution_output`: `{ type, id, toolName, result, error? }`
-- `tool_execution_stream`: `{ type, toolName, nestedEvent, childBotName?, toolCallId? }`
-- `done`: `{ type, reason, agent_id, parent_agent_id?, timestamp, duration_ms, ... }`
-
-**DoneReason values:** `turn_yielded`, `out_of_iterations`, `max_tokens_reached`, `error`, `interrupted`, `no_applicable_tools`, `max_depth_reached`, `graceful_shutdown`
+**See the `baleyui-development` skill or `docs/reference/STREAMING_EVENT_SCHEMA.md` for the complete, authoritative streaming events reference.**
 
 ### Streaming UI Performance
 - Use RAF batching + direct DOM manipulation
@@ -102,12 +119,23 @@ BaleyUI uses BaleyBots internally ("eating our own cooking"). These are stored i
 | Name | Purpose |
 |------|---------|
 | `creator_bot` | Creates new BaleyBots from user descriptions |
+| `creator_action_advisor` | Suggests next creator actions based on context |
 | `bal_generator` | Converts descriptions to BAL code |
 | `pattern_learner` | Analyzes approvals, suggests patterns |
 | `execution_reviewer` | Reviews executions, suggests improvements |
 | `nl_to_sql_postgres` | Translates NL to PostgreSQL |
 | `nl_to_sql_mysql` | Translates NL to MySQL |
 | `web_search_fallback` | AI fallback when no Tavily key |
+| `connection_advisor` | Advises on connection requirements |
+| `test_orchestrator` | Topology-aware test designer |
+| `test_generator` | Generates test cases from BB goal |
+| `test_validator` | Validates test output semantically |
+| `test_results_analyzer` | Analyzes test run results |
+| `deployment_advisor` | Advises on triggers/scheduling/activation |
+| `integration_builder` | Conversational integration guide |
+| `test_interface_designer` | Designs optimal test UI for a BB |
+| `tool_executor` | Executes NL-defined workspace tools |
+| `context_processor` | Processes and enriches context for BB execution |
 
 ### Using Internal BaleyBots
 
@@ -141,14 +169,14 @@ All internal BaleyBot executions are tracked in `baleybotExecutions`.
 - Use `"array"` for simple string lists (e.g., `warnings`, `recommendations`, `nextSteps`)
 - Use `"array<object>"` for arrays of structured items (e.g., `entities`, `tests`, `suggestions` with inner fields)
 
-### The `resolveOutput()` pattern
-Internal bot callers should wrap `output` in a `resolveOutput()` helper before `.parse()`:
+### The `normalizeOutputCandidate()` pattern
+Internal bot callers should wrap `output` in `normalizeOutputCandidate()` before `.parse()`:
 ```typescript
-// Handles: object passthrough, JSON string, markdown-fenced JSON
-const resolved = resolveOutput(output);
+// Handles: object passthrough, JSON string, markdown-fenced JSON, balanced JSON extraction
+const resolved = normalizeOutputCandidate(output);
 const result = schema.parse(resolved);
 ```
-See `creator-bot.ts:resolveCreatorOutput()` and `pattern-learner.ts:resolveOutput()` for examples.
+See `runner.ts:normalizeOutputCandidate()` for the implementation.
 
 ### Resilient Schemas for BAL Output
 BAL `array<object>` produces `z.array(z.record(z.string(), z.unknown()))` — the model doesn't know which inner fields are required. When consuming BAL output in caller schemas, use Zod `.default()` coercions for non-critical fields instead of strict `.min(1)` requirements. Only keep `.min(1)` on truly unrecoverable fields (e.g., `name`, `balCode`).
@@ -160,14 +188,10 @@ BAL `array<object>` produces `z.array(z.record(z.string(), z.unknown()))` — th
 assistant {
   "goal": "Help users with questions",
   "model": "anthropic:claude-sonnet-4-20250514",
-  "tools": ["web_search", "fetch_url"],
-  "can_request": ["schedule_task"],
-  "temperature": 0.7,
-  "reasoning": "high",
-  "stopWhen": "stepCount:10",
-  "retries": 2,
+  "tools": { "web_search", "fetch_url" },
   "maxTokens": 4096
 }
+# NOTE: temperature, reasoning, stopWhen, retries, can_request are NOT YET SUPPORTED in BAL syntax
 
 # Compositions
 chain { a b }                                    # Sequential
@@ -181,7 +205,9 @@ filter("item.score > 0.5") { enricher }          # Array filter
 processor("extract") { "result.data" }           # Data transform
 ```
 
-## Testing
+## Testing & Verification
+
+After implementing changes, verify the app ACTUALLY WORKS end-to-end, not just that lint/types/tests pass. Passing CI checks do not mean the app is functional. Launch the app or test the real user flow when possible.
 
 ```bash
 pnpm test              # Run all tests
@@ -209,6 +235,10 @@ pnpm lint              # ESLint
 3. Add implementation to `tools/built-in/implementations.ts`
 4. Wire up in `getBuiltInRuntimeTools()`
 
+## Git Operations
+
+Before any git stash pop or branch merge, list all uncommitted changes and verify they will survive the operation. After the operation, diff to confirm no changes were silently dropped. If a stash pop has conflicts, stop and report before proceeding.
+
 ## Documentation
 
 | Doc | Purpose |
@@ -217,7 +247,7 @@ pnpm lint              # ESLint
 | `CODING_GUIDELINES.md` | React 19, Next.js 15 patterns |
 | `AGENTS.md` | Task assignments |
 | `docs/getting-started.md` | Quick-start guide |
-| `docs/reference/` | BAL language, type system, events, design system |
+| `docs/reference/` | BAL language, type system, builder events, streaming events, design system |
 | `docs/guides/` | Developer guide, testing |
 | `docs/plans/` | Implementation plans |
 | `docs/architecture/` | Technical deep-dives |

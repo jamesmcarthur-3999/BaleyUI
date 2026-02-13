@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { auth } from '@clerk/nextjs/server';
+import { auth } from '@/lib/auth/server';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { ROUTES } from '@/lib/routes';
 import { Button } from '@/components/ui/button';
@@ -22,9 +23,9 @@ import {
 } from 'lucide-react';
 
 export default async function HomePage() {
-  const { userId } = await auth();
+  const session = await auth.api.getSession({ headers: await headers() });
 
-  if (userId) {
+  if (session?.user?.id) {
     redirect(ROUTES.dashboard);
   }
 

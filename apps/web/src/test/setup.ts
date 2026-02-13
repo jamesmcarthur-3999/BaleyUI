@@ -28,5 +28,6 @@ if (typeof crypto === 'undefined' || !crypto.randomUUID) {
 // Mock environment variables
 vi.stubEnv('DATABASE_URL', 'postgresql://test:test@localhost:5432/test');
 vi.stubEnv('ENCRYPTION_KEY', 'test-encryption-key-32-bytes-00');
-vi.stubEnv('NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY', 'pk_test_xxx');
-vi.stubEnv('CLERK_SECRET_KEY', 'sk_test_xxx');
+vi.stubEnv('BETTER_AUTH_SECRET', 'test-secret');
+vi.stubEnv('BETTER_AUTH_URL', 'http://localhost:3000');
+vi.stubEnv('NEXT_PUBLIC_BETTER_AUTH_URL', 'http://localhost:3000');

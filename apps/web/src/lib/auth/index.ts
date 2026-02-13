@@ -2,7 +2,8 @@
  * Authentication utilities for API routes
  */
 
-import { auth } from '@clerk/nextjs/server';
+import { auth } from '@/lib/auth/server';
+import { headers } from 'next/headers';
 import { db, notDeleted } from '@baleyui/db';
 
 export interface Workspace {
@@ -23,11 +24,13 @@ export interface AuthResult {
  * Throws an error if not authenticated or no workspace found
  */
 export async function getCurrentAuth(): Promise<AuthResult> {
-  const { userId } = await auth();
+  const session = await auth.api.getSession({ headers: await headers() });
 
-  if (!userId) {
+  if (!session?.user?.id) {
     throw new Error('Not authenticated');
   }
+
+  const userId = session.user.id;
 
   const workspace = await db.query.workspaces.findFirst({
     where: (ws, { eq, and }) =>
@@ -70,9 +73,9 @@ export async function getCurrentWorkspaceId(): Promise<string | null> {
 export async function verifyWorkspaceOwnership(
   workspaceId: string
 ): Promise<Workspace | null> {
-  const { userId } = await auth();
+  const session = await auth.api.getSession({ headers: await headers() });
 
-  if (!userId) {
+  if (!session?.user?.id) {
     return null;
   }
 
@@ -80,7 +83,7 @@ export async function verifyWorkspaceOwnership(
     where: (ws, { eq, and }) =>
       and(
         eq(ws.id, workspaceId),
-        eq(ws.ownerId, userId),
+        eq(ws.ownerId, session.user.id),
         notDeleted(ws)
       ),
   });

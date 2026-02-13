@@ -29,48 +29,20 @@ export type InternalBaleybotDef = GeneratedInternalBaleybotDef;
  * - Conversational (no output schema)
  * - Tools are injected at runtime (30+ companion tools), not declared in BAL
  */
-const BALEY_GOAL = `You are Baley, the AI assistant built into BaleyUI. You are always present in the workspace sidebar, context-aware, and proactive. Be direct, helpful, and professional. Keep responses concise (1-3 sentences) unless the user asks for detail. When you detect issues (broken connections, missing AI providers, failed executions), mention them proactively.
+const BALEY_GOAL = `You are Baley, the AI assistant built into BaleyUI. Be direct, warm, and concise — respond in 1-3 natural sentences like a knowledgeable colleague, not a manual. Never use markdown headers, bullet lists, or numbered steps unless the user explicitly asks for structured output. Match the user's energy — if they send something casual and short, keep your reply casual and short.
 
-## Platform Knowledge
-BaleyBots are AI agents defined in BAL (Baleybots Assembly Language). Each BaleyBot has entities with goals, models, and tools. Entities can be composed: chain (sequential), parallel (concurrent), if/else (conditional), loop (iterative).
+BaleyBots are AI agents defined in BAL with entities, goals, models, and tools composed via chain, parallel, if/else, and loop.
 
-Connections provide external capabilities:
-- AI providers: OpenAI, Anthropic, Google, Ollama (local)
-- Databases: PostgreSQL, MySQL — yield query tools
-- MCP servers: 40+ integrations (Stripe, GitHub, Linear, Notion, Slack, HubSpot, Sentry, Supabase, and more)
+When the user asks for help or seems stuck, check workspace health first. When creating connections, gather credentials conversationally — never echo them back. Before any destructive action (deleting connections, revoking keys), always confirm first.
 
-Tool sources: built-in (always available), connection-derived (from DB connections), MCP (from MCP servers), workspace custom (user-defined). Three tools require user approval before execution: schedule_task, create_agent, create_tool.
+Your context includes pendingActions data:
+- First message only: if critical actions exist, mention them briefly once.
+- Do not list individual actions unprompted. Use list_pending_actions when the user asks.
+- If only info/warning actions exist, do not mention them proactively.
+- On /dashboard/actions, the user already sees the list — help explain or batch-apply instead.
+- Before applying any recommendation, describe what it does and confirm.
 
-## Context Awareness
-Use the current page path to provide contextually relevant help. Use workspace health data to detect and surface issues proactively. Remember conversation history — never repeat questions or re-explain context already discussed.
-
-## Actions & Recommendations
-Your context includes pendingActions data. Follow these rules:
-- On the FIRST message of a conversation, if critical actions exist, mention them briefly once: "Heads up — there are N critical items in your Actions that need attention."
-- Do NOT list individual actions unprompted. Wait for the user to ask.
-- If there are only info/warning actions and no critical ones, do NOT mention them proactively.
-- When the user asks about actions, use list_pending_actions for details.
-- Before applying any recommendation, describe what it will do and ask for confirmation.
-- When the user is on /dashboard/actions, they can already see the list. Help with explaining recommendations or performing bulk operations instead.
-
-## Your Tools
-Navigation: get_workspace_health (workspace status and issues), navigate_user_to (send user to dashboard pages)
-Connections: list_connections, test_connection, set_default_connection, create_connection, delete_connection
-Tools: list_tools, create_tool, delete_tool
-API Keys: list_api_keys, create_api_key, revoke_api_key
-BaleyBots: list_baleybots, get_baleybot, get_execution, list_recent_executions
-Analytics: get_analytics_summary
-Workspace: get_workspace_info, update_workspace
-Approvals: list_approval_patterns, revoke_approval_pattern
-Intelligence: review_execution (analyze execution for issues), diagnose_failure (deep root cause analysis), suggest_approval_patterns (suggest auto-approval patterns)
-Actions: list_pending_actions (view pending recommendations), apply_action (accept a recommendation)
-General: web_search, fetch_url, spawn_baleybot, send_notification, store_memory, request_user_input
-
-## Tool Usage Guidelines
-Use get_workspace_health proactively when the user asks for help, mentions problems, or seems stuck. Use navigate_user_to with dashboard paths like /dashboard, /dashboard/baleybots, /dashboard/capabilities/connections, /dashboard/tools, /dashboard/settings, /dashboard/analytics. Before any destructive action (delete_connection, delete_tool, revoke_api_key, revoke_approval_pattern), always confirm with the user first. Use web_search for questions about external services or APIs. Use spawn_baleybot to run the user's bots on their behalf. For creating connections, gather required fields conversationally — AI providers need an apiKey, databases need host/port/database/username/password, MCP servers need url and transportType. Use get_analytics_summary with a period parameter (7d, 30d, 90d) for usage questions.
-
-## Safety
-Never delete, revoke, or perform destructive actions without explicit user confirmation. When uncertain about the user's intent, ask rather than assume. If an action fails, explain what happened clearly and suggest concrete next steps.`;
+When uncertain, ask one focused question rather than assuming. If something fails, explain clearly and suggest a concrete next step.`;
 
 /**
  * All internal BaleyBot definitions.
@@ -110,12 +82,27 @@ export const INTERNAL_BALEYBOTS: Record<string, InternalBaleybotDef> = {
 // ============================================================================
 
 /**
+ * In-memory cache for internal BB definitions.
+ * Internal BBs are static after seeding — BAL code and config never change at runtime
+ * (except admin edits, which invalidate the cache).
+ */
+const internalBBCache = new Map<string, { id: string; name: string; balCode: string }>();
+/** Clear the internal BB cache (call after admin edits) */
+export function invalidateInternalBBCache(): void {
+  internalBBCache.clear();
+}
+
+/**
  * Get an internal BaleyBot by name.
- * First checks database, falls back to definition.
+ * Uses in-memory cache after first DB lookup.
  */
 export async function getInternalBaleybot(
   name: string
 ): Promise<{ id: string; name: string; balCode: string } | null> {
+  // Fast path: return from cache
+  const cached = internalBBCache.get(name);
+  if (cached) return cached;
+
   const def = INTERNAL_BALEYBOTS[name];
   if (!def) {
     return null;
@@ -141,11 +128,13 @@ export async function getInternalBaleybot(
       // If admin has edited this bot, respect their changes (DB wins)
       if (existing.adminEdited) {
         logger.info('Skipping BAL code update for admin-edited internal BaleyBot', { name, id: existing.id });
-        return {
+        const result = {
           id: existing.id,
           name: existing.name,
           balCode: existing.balCode,
         };
+        internalBBCache.set(name, result);
+        return result;
       }
 
       logger.info('Updating internal BaleyBot BAL code', { name, id: existing.id });
@@ -159,11 +148,13 @@ export async function getInternalBaleybot(
         .where(eq(baleybots.id, existing.id));
     }
 
-    return {
+    const result = {
       id: existing.id,
       name: existing.name,
       balCode: expectedBalCode,
     };
+    internalBBCache.set(name, result);
+    return result;
   }
 
   // Create if not exists (auto-seed). Use try-catch to handle concurrent
@@ -189,11 +180,13 @@ export async function getInternalBaleybot(
 
     logger.info('Created internal BaleyBot', { name, id: created.id });
 
-    return {
+    const result = {
       id: created.id,
       name: created.name,
       balCode: created.balCode,
     };
+    internalBBCache.set(name, result);
+    return result;
   } catch (insertError) {
     // Concurrent insert race — re-query for the winning row
     logger.warn('Concurrent insert for internal BaleyBot, re-querying', { name });
@@ -207,7 +200,9 @@ export async function getInternalBaleybot(
         ),
     });
     if (raceWinner) {
-      return { id: raceWinner.id, name: raceWinner.name, balCode: raceWinner.balCode };
+      const result = { id: raceWinner.id, name: raceWinner.name, balCode: raceWinner.balCode };
+      internalBBCache.set(name, result);
+      return result;
     }
     throw insertError;
   }
@@ -308,12 +303,15 @@ export async function executeInternalBaleybot(
   input: string,
   options: InternalExecutionOptions = {}
 ): Promise<{ output: unknown; executionId: string }> {
-  const internalBB = await getInternalBaleybot(name);
+  // Parallel initialization: fetch internal BB definition and system workspace concurrently
+  const [internalBB, systemWorkspaceId] = await Promise.all([
+    getInternalBaleybot(name),
+    getOrCreateSystemWorkspace(),
+  ]);
+
   if (!internalBB) {
     throw new Error(`Internal BaleyBot not found: ${name}`);
   }
-
-  const systemWorkspaceId = await getOrCreateSystemWorkspace();
 
   // Create execution record
   const [execution] = await db
@@ -334,21 +332,22 @@ export async function executeInternalBaleybot(
   const startTime = Date.now();
 
   try {
-    // Update to running
-    await db
-      .update(baleybotExecutions)
-      .set({ status: 'running', startedAt: new Date() })
-      .where(eq(baleybotExecutions.id, execution.id));
-
-    // Fetch available AI connections for the workspace
     const workspaceId = options.userWorkspaceId || systemWorkspaceId;
-    const availableConnections = await db.query.connections.findMany({
-      where: and(
-        eq(connections.workspaceId, workspaceId),
-        notDeleted(connections),
-      ),
-      columns: { type: true, name: true, status: true },
-    });
+
+    // Parallel: update status to running + fetch AI connections concurrently
+    const [, availableConnections] = await Promise.all([
+      db
+        .update(baleybotExecutions)
+        .set({ status: 'running', startedAt: new Date() })
+        .where(eq(baleybotExecutions.id, execution.id)),
+      db.query.connections.findMany({
+        where: and(
+          eq(connections.workspaceId, workspaceId),
+          notDeleted(connections),
+        ),
+        columns: { type: true, name: true, status: true },
+      }),
+    ]);
 
     const aiProviders = Array.from(
       new Set(

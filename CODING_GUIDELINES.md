@@ -2,7 +2,7 @@
 
 > Modern patterns for Next.js 15, React 19, and the BaleyBots ecosystem.
 
-**Last Updated**: December 2024
+**Last Updated**: February 2026
 
 ---
 

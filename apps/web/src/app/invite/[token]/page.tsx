@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useAuth } from '@clerk/nextjs';
+import { authClient } from '@/lib/auth/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/lib/trpc/client';
@@ -12,7 +12,9 @@ import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 export default function AcceptInvitationPage() {
   const params = useParams();
   const router = useRouter();
-  const { isSignedIn, isLoaded } = useAuth();
+  const { data: sessionData, isPending } = authClient.useSession();
+  const isLoaded = !isPending;
+  const isSignedIn = !!sessionData?.user;
   const token = params.token as string;
 
   const [status, setStatus] = useState<'loading' | 'accepting' | 'success' | 'error'>('loading');

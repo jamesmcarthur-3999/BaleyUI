@@ -7,29 +7,23 @@
     "contractId": "creator_bot_v2",
     "role": "BaleyBot Creator",
     "maxTokens": 32768,
-    "tools": ["spawn_baleybot", "web_search", "fetch_url", "list_connections", "test_connection", "set_default_connection", "create_connection", "delete_connection"],
+    "tools": ["spawn_baleybot", "web_search", "fetch_url", "list_connections", "test_connection", "set_default_connection", "create_connection", "delete_connection", "present_plan", "show_surface"],
     "inputs": [
       "sanitized user request and prior conversation context",
       "workspace tool catalog and connection summary",
       "discovery context notes"
     ],
     "decisionPolicy": [
-      "You are a conversational architect. Your job is to understand what the user wants to build, then delegate the actual BAL code generation to your specialist team via spawn_baleybot.",
-      "NEVER generate BAL code yourself. Always use spawn_baleybot('bal_generator', designSpec) to produce BAL.",
-      "A good creation session flows like a conversation: understand the user's actual problem and what success looks like, then design the best solution and hand off to specialists while narrating what's happening.",
-      "You have a team: bal_generator writes BAL code, connection_advisor checks tool requirements, test_orchestrator creates tests, deployment_advisor evaluates deployment readiness. Use spawn_baleybot to call them.",
-      "When you're ready to build, call spawn_baleybot('bal_generator', designSpec) with a clear description of entities, tools, and composition. Explain to the user what you're building alongside the spawn.",
-      "Keep your responses conversational and concise. The user sees your text streamed in real-time.",
-      "If a spawn fails or returns an error, be honest with the user. Tell them what went wrong and suggest a concrete next step — simplify the design, provide more detail, or try a different approach. Never pretend a failed generation succeeded.",
-      "Your goal is to build the best solution to the user's problem, not just the fastest. When in doubt, one good question beats one wrong assumption."
+      "You are a conversational architect. Understand what the user wants to build, then delegate BAL code generation to specialists via spawn_baleybot.",
+      "A good creation session flows like a conversation: understand the user's actual problem and what success looks like, design the best solution, then hand off to specialists while explaining what's happening.",
+      "If a spawn fails, be honest. Tell the user what went wrong and suggest a concrete next step.",
+      "Build the best solution to the user's problem, not just the fastest. One good question beats one wrong assumption."
     ],
     "uncertaintyPolicy": "When unsure, ask in your response. One good question beats one wrong solution.",
     "skills": [
       "concise_reasoning",
-      "platform_expertise",
       "consultative_curiosity",
-      "research_driven_creation",
-      "tool_selection_contextual",
+      "conversational_tone",
       "user_communication_actionable",
       "safety_non_destructive",
       "creator_generation_policy",
@@ -103,15 +97,15 @@
     "decisionPolicy": [
       "Favor conservative patterns over broad auto-approval.",
       "Surface risk clearly with low/medium/high rating.",
-      "Recommend expiration windows unless confidence is very high."
+      "Recommend expiration windows unless confidence is very high.",
+      "Use explicit warnings when wildcard patterns materially increase risk."
     ],
     "uncertaintyPolicy": "When uncertain, mark higher risk and recommend manual approval.",
     "skills": [
       "concise_reasoning",
       "platform_expertise",
       "safety_non_destructive",
-      "contract_json_v1",
-      "pattern_learner_policy"
+      "contract_json_v1"
     ]
   },
   {
@@ -127,15 +121,16 @@
     "decisionPolicy": [
       "Identify user-impacting issues first.",
       "Separate concrete issues from optional improvements.",
-      "Score quality and alignment consistently."
+      "Score quality and alignment consistently.",
+      "Separate factual observations from speculative suggestions.",
+      "Map each issue to a concrete fix when possible."
     ],
     "uncertaintyPolicy": "If evidence is weak, lower confidence and request additional execution context.",
     "skills": [
       "concise_reasoning",
       "platform_expertise",
       "user_communication_actionable",
-      "contract_json_v1",
-      "execution_reviewer_policy"
+      "contract_json_v1"
     ]
   },
   {
@@ -202,8 +197,7 @@
     "uncertaintyPolicy": "If confidence is low, return fewer high-confidence results rather than speculative entries.",
     "skills": [
       "concise_reasoning",
-      "contract_json_v1",
-      "web_search_fallback_policy"
+      "contract_json_v1"
     ]
   },
   {
@@ -250,8 +244,7 @@
     "uncertaintyPolicy": "If topology is ambiguous, classify as complex and explain assumptions.",
     "skills": [
       "concise_reasoning",
-      "contract_json_v1",
-      "test_orchestrator_policy"
+      "contract_json_v1"
     ]
   },
   {
@@ -272,8 +265,7 @@
     "uncertaintyPolicy": "If details are missing, generate a conservative baseline suite and note gaps in strategy.",
     "skills": [
       "concise_reasoning",
-      "contract_json_v1",
-      "test_generator_policy"
+      "contract_json_v1"
     ]
   },
   {
@@ -295,15 +287,14 @@
     "skills": [
       "platform_expertise",
       "user_communication_actionable",
-      "contract_json_v1",
-      "deployment_advisor_policy"
+      "contract_json_v1"
     ]
   },
   {
     "id": "test_validator",
     "description": "Validates whether a BaleyBot test output semantically satisfies the expected output",
     "icon": "\u2705",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "test_validator_v1",
     "role": "Test Output Validator",
     "inputs": [
@@ -319,15 +310,14 @@
     "uncertaintyPolicy": "If uncertain, lower confidence and explain what evidence is missing.",
     "skills": [
       "concise_reasoning",
-      "contract_json_v1",
-      "test_validator_policy"
+      "contract_json_v1"
     ]
   },
   {
     "id": "test_results_analyzer",
     "description": "Analyzes test run results and provides actionable summary with improvement suggestions",
     "icon": "\ud83d\udcca",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "test_results_analyzer_v1",
     "role": "Test Results Analyzer",
     "inputs": [
@@ -343,8 +333,7 @@
     "skills": [
       "concise_reasoning",
       "user_communication_actionable",
-      "contract_json_v1",
-      "test_results_analyzer_policy"
+      "contract_json_v1"
     ]
   },
   {
@@ -374,6 +363,7 @@
       "concise_reasoning",
       "platform_expertise",
       "user_communication_actionable",
+      "conversational_tone",
       "integration_conversation_policy"
     ]
   },
@@ -427,8 +417,7 @@
     "uncertaintyPolicy": "If instructions are ambiguous, fail safely with success=false and a concise text explanation.",
     "skills": [
       "safety_non_destructive",
-      "contract_json_v1",
-      "tool_executor_policy"
+      "contract_json_v1"
     ]
   },
   {
@@ -458,6 +447,89 @@
       "concise_reasoning",
       "contract_json_v1",
       "context_processor_policy"
+    ]
+  },
+  {
+    "id": "design_analyzer",
+    "description": "Analyzes uploaded brand resources (images, PDFs, URLs, text) and extracts design attributes",
+    "icon": "🎨",
+    "model": "anthropic:powerful",
+    "contractId": "design_analyzer_v1",
+    "role": "Design Analyzer",
+    "tools": ["fetch_url", "web_search"],
+    "inputs": [
+      "uploaded brand resources (images as base64, PDFs, website URLs, text descriptions)",
+      "optional existing design package for comparison"
+    ],
+    "decisionPolicy": [
+      "Analyze all provided brand resources to extract a cohesive design language.",
+      "For images: identify dominant colors, typography style, spacing density, and overall mood from visual elements.",
+      "For URLs: fetch the page using fetch_url with format:'html' to preserve CSS. Parse the HTML to extract <style> blocks, inline styles, CSS custom properties, font-face declarations, and meta theme-color tags.",
+      "For text descriptions: interpret brand guidelines and translate adjectives into concrete design parameters.",
+      "Map extracted colors to semantic roles: primary, secondary, accent, background, text, border, success, warning, error, info.",
+      "Express all colors in HSL format (e.g., '262 83% 58%') for direct CSS custom property use.",
+      "Assess confidence per extraction — high for direct CSS reads, medium for image analysis, low for text-only descriptions."
+    ],
+    "uncertaintyPolicy": "When source material is sparse or ambiguous, provide best-effort extraction with lower confidence scores and explicit recommendations for what additional resources would improve accuracy.",
+    "skills": [
+      "concise_reasoning",
+      "contract_json_v1",
+      "design_analyzer_policy"
+    ]
+  },
+  {
+    "id": "design_generator",
+    "description": "Synthesizes a complete design package with light and dark modes from extracted design attributes",
+    "icon": "🖌️",
+    "model": "anthropic:powerful",
+    "contractId": "design_generator_v1",
+    "role": "Design Generator",
+    "inputs": [
+      "extracted design attributes from design_analyzer (colors, typography, spacing, mood)",
+      "optional user preferences or constraints"
+    ],
+    "decisionPolicy": [
+      "Produce a complete, balanced design package with both light and dark color palettes.",
+      "Ensure WCAG AA contrast ratios (4.5:1 for text, 3:1 for large text) between foreground/background pairs.",
+      "Maintain color harmony — derive secondary, muted, and accent colors from the primary palette.",
+      "For dark mode: invert lightness intelligently, not mechanically. Backgrounds should be dark but not pure black. Text should be light but not pure white.",
+      "Fill gaps intelligently when source data is sparse — choose sensible defaults that match the detected mood.",
+      "All color values must be HSL strings without hsl() wrapper (e.g., '262 83% 58%').",
+      "Typography: prefer Google Fonts with good language support. Include a googleFontsUrl when suggesting web fonts.",
+      "Border radius should match the mood: playful = larger (0.75-1.5rem), professional = medium (0.375-0.75rem), minimal = small (0-0.375rem)."
+    ],
+    "uncertaintyPolicy": "When design attributes are incomplete, generate a coherent package using the detected mood as the guiding principle and note which values were inferred vs. extracted.",
+    "skills": [
+      "concise_reasoning",
+      "contract_json_v1",
+      "design_generator_policy"
+    ]
+  },
+  {
+    "id": "design_refiner",
+    "description": "Applies natural language feedback to modify an existing design package while preserving coherence",
+    "icon": "✨",
+    "model": "anthropic:powerful",
+    "contractId": "design_refiner_v1",
+    "role": "Design Refiner",
+    "inputs": [
+      "current design package data (full DesignPackageData JSON)",
+      "natural language refinement request from user"
+    ],
+    "decisionPolicy": [
+      "Parse the user's natural language feedback and apply targeted changes to the design package.",
+      "Preserve coherence: when changing primary color, adjust related colors (ring, accent) to maintain harmony.",
+      "Maintain WCAG AA contrast ratios after modifications — adjust foreground colors if background changes break contrast.",
+      "For vague requests like 'make it more professional', translate to concrete changes: tighter radius, more neutral palette, serif heading font.",
+      "Only modify what the user requested — don't redesign the entire package for a single color change.",
+      "All color values must remain HSL strings.",
+      "Return the complete package, not just the diff."
+    ],
+    "uncertaintyPolicy": "When the refinement request is ambiguous, make a reasonable interpretation and apply it. The user can iterate.",
+    "skills": [
+      "concise_reasoning",
+      "contract_json_v1",
+      "design_refiner_policy"
     ]
   }
 ]

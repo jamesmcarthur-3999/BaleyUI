@@ -28,6 +28,11 @@ For new Claude Code sessions:
 | Phase 3 | ✅ Complete | Testing & Observability |
 | Audit (Sprints 1-4) | ✅ Complete | Security, performance, React 19, lint remediation |
 | **Phase 4** | 🚧 **In Progress** | Tool Ecosystem (35 tasks across 8 sub-phases) |
+| BB Launch Prep | 📋 Planned | BaleyBot launch prep & live experience |
+| MCP Foundation | 📋 Planned | MCP cluster implementation |
+| UX Consolidation | 📋 Planned | UX consolidation & polish |
+
+See `docs/plans/README.md` for the full list of implementation plans and their status.
 
 ---
 
@@ -111,7 +116,7 @@ pnpm db:studio    # Open Drizzle Studio
 - [CLAUDE.md](./CLAUDE.md) - AI development context
 - [docs/plans/](./docs/plans/) - Implementation plans
 - [docs/architecture/](./docs/architecture/) - Technical documentation
-- [docs/reference/](./docs/reference/) - BAL language, type system, events
+- [docs/reference/](./docs/reference/) - BAL language, type system, builder events, streaming events
 - [docs/guides/](./docs/guides/) - Developer guide, testing
 
 ---

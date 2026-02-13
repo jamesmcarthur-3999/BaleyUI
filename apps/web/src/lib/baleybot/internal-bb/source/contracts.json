@@ -3,10 +3,10 @@
     "id": "creator_bot_v2",
     "output": {},
     "rules": [
-      "Your streamed text IS the user-facing conversation. Write naturally.",
-      "NEVER generate BAL code yourself. Use spawn_baleybot('bal_generator', designSpec) to generate BAL code — you are the architect, not the coder.",
-      "When asking the user something, just write it in your response. They'll reply in the next message.",
-      "After spawning specialists, briefly summarize what you built and what's next."
+      "Your streamed text IS the user-facing conversation. Write in natural flowing prose — no markdown headers, bullet lists, or numbered steps.",
+      "Always delegate BAL code generation to spawn_baleybot('bal_generator', designSpec) — you are the architect, not the coder.",
+      "Ask one or two questions at most per message. Keep them conversational.",
+      "After spawning specialists, briefly say what you built and what's next. One or two sentences."
     ]
   },
   "creator_action_advisor_v2": {
@@ -229,6 +229,66 @@
       "Keys should be concise labels (2-8 words). Values should be clear, actionable text.",
       "summary should be 1-2 sentences describing what was extracted.",
       "skippedReasons should list any content intentionally not extracted, with brief explanation."
+    ]
+  },
+  "design_analyzer_v1": {
+    "id": "design_analyzer_v1",
+    "output": {
+      "colors": "array<object>",
+      "typography": "object",
+      "spacing": "object",
+      "mood": "string",
+      "confidence": "number",
+      "recommendations": "array<string>"
+    },
+    "rules": [
+      "Each color object must include: hex (string), hsl (string), role (string: primary/secondary/accent/background/text/border/success/warning/error/info).",
+      "Typography object must include: primaryFont (string). Optional: fontUrl (string), scale (string), weights (array<string>).",
+      "Spacing object must include: borderRadius (string like '0.75rem'). Optional: density (string: compact/normal/relaxed).",
+      "mood must be one of: playful, professional, minimal, elegant, bold.",
+      "confidence must be 0-1 reflecting overall extraction quality.",
+      "recommendations should suggest what additional resources would improve accuracy."
+    ]
+  },
+  "design_generator_v1": {
+    "id": "design_generator_v1",
+    "output": {
+      "colors": "object",
+      "typography": "object",
+      "borderRadius": "string",
+      "mood": "string",
+      "animationStyle": "string",
+      "suggestedName": "string"
+    },
+    "rules": [
+      "colors must be an object with 'light' and 'dark' keys, each containing a full ColorPalette with 21 HSL color strings.",
+      "ColorPalette keys: background, foreground, card, cardForeground, primary, primaryForeground, secondary, secondaryForeground, muted, mutedForeground, accent, accentForeground, destructive, destructiveForeground, border, input, ring, success, warning, error, info.",
+      "All color values must be HSL strings without hsl() wrapper (e.g., '262 83% 58%').",
+      "typography must include fontFamily (string). Optional: fontFamilyHeading (string), googleFontsUrl (string).",
+      "borderRadius must be a CSS value like '0.75rem'.",
+      "mood must be one of: playful, professional, minimal, elegant, bold.",
+      "animationStyle must be one of: playful, professional, minimal.",
+      "Ensure WCAG AA contrast ratios between all foreground/background pairs."
+    ]
+  },
+  "design_refiner_v1": {
+    "id": "design_refiner_v1",
+    "output": {
+      "colors": "object",
+      "typography": "object",
+      "borderRadius": "string",
+      "mood": "string",
+      "animationStyle": "string",
+      "suggestedName": "string"
+    },
+    "rules": [
+      "Return the complete modified design package, not just changed fields.",
+      "colors must be an object with 'light' and 'dark' keys, each containing a full ColorPalette with 21 HSL color strings.",
+      "All color values must be HSL strings without hsl() wrapper.",
+      "Preserve coherence: changing primary should cascade to ring and related accent colors.",
+      "Maintain WCAG AA contrast ratios after modifications.",
+      "Only modify what the user's feedback specifically requests.",
+      "mood and animationStyle values must use the same enum values as design_generator_v1."
     ]
   }
 }

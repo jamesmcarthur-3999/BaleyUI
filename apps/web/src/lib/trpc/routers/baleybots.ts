@@ -2217,6 +2217,316 @@ export const baleybotsRouter = router({
       }
     }),
 
+  /**
+   * Execute all pending test cases for a BaleyBot in sequence.
+   * For each test: execute bot → deterministic pre-check → AI validation (Haiku).
+   * After all tests: run test_results_analyzer → store analysis.
+   * Returns updated test cases and analysis.
+   */
+  batchExecuteTests: editorProcedure
+    .input(z.object({
+      baleybotId: z.string().uuid(),
+      testCases: z.array(z.object({
+        id: z.string(),
+        name: z.string(),
+        level: z.enum(['unit', 'integration', 'e2e']),
+        input: z.union([z.string(), z.record(z.string(), z.unknown())]),
+        expectedOutput: z.string().optional(),
+        matchStrategy: z.enum(['exact', 'contains', 'semantic', 'schema', 'structured']).optional(),
+        description: z.string().optional(),
+        expectedSteps: z.array(z.object({
+          entityName: z.string(),
+          expectation: z.string(),
+        })).optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await checkRateLimit(
+        `batchTest:${ctx.workspace.id}:${ctx.userId}`,
+        { windowMs: 60000, maxRequests: 5 }, // 5 batch runs per minute
+      );
+
+      // Fetch the bot
+      const baleybot = await ctx.db.query.baleybots.findFirst({
+        where: and(
+          eq(baleybots.id, input.baleybotId),
+          eq(baleybots.workspaceId, ctx.workspace.id),
+          notDeleted(baleybots),
+        ),
+      });
+
+      if (!baleybot) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'BaleyBot not found' });
+      }
+
+      if (!baleybot.balCode) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'BaleyBot has no BAL code to execute' });
+      }
+
+      // Configure tools for execution
+      const tavilyKey = await getWorkspaceTavilyKey(ctx.workspace.id);
+      if (tavilyKey) configureWebSearch(tavilyKey);
+      initializeBuiltInToolServices();
+
+      const results: Array<{
+        id: string;
+        name: string;
+        level: 'unit' | 'integration' | 'e2e';
+        input: string | Record<string, unknown>;
+        expectedOutput?: string;
+        status: 'passed' | 'failed';
+        actualOutput?: string;
+        error?: string;
+        durationMs?: number;
+        matchStrategy?: string;
+        validationConfidence?: number;
+        validationReasoning?: string;
+        validationSuggestions?: string[];
+      }> = [];
+
+      // Execute each test case sequentially
+      for (const testCase of input.testCases) {
+        const startTime = Date.now();
+        try {
+          // Build tool context for this execution
+          const toolCtx: BuiltInToolContext = {
+            workspaceId: ctx.workspace.id,
+            baleybotId: input.baleybotId,
+            executionId: `test_batch_${testCase.id}`,
+            userId: ctx.userId!,
+          };
+
+          const { runtimeTools } = await loadExecutionTools({
+            workspaceId: ctx.workspace.id,
+            toolCtx,
+          });
+
+          const executorCtx: ExecutorContext = {
+            workspaceId: ctx.workspace.id,
+            baleybotId: input.baleybotId,
+            baleybotName: baleybot.name,
+            availableTools: runtimeTools,
+            workspacePolicies: null,
+            triggeredBy: 'manual',
+            triggerSource: `test_runner_batch_${testCase.id}`,
+          };
+
+          const inputStr = typeof testCase.input === 'object'
+            ? JSON.stringify(testCase.input)
+            : testCase.input;
+
+          const execResult = await executeBaleybot(baleybot.balCode, inputStr, executorCtx);
+          const durationMs = Date.now() - startTime;
+          const actualOutput = typeof execResult.output === 'string'
+            ? execResult.output
+            : JSON.stringify(execResult.output);
+
+          // If no expected output, pass based on execution success
+          if (!testCase.expectedOutput) {
+            results.push({
+              id: testCase.id,
+              name: testCase.name,
+              level: testCase.level,
+              input: testCase.input,
+              status: execResult.status === 'completed' ? 'passed' : 'failed',
+              actualOutput,
+              durationMs,
+              error: execResult.error ?? undefined,
+              validationConfidence: execResult.status === 'completed' ? 0.95 : 0.05,
+              validationReasoning: execResult.status === 'completed'
+                ? 'Execution completed successfully (no expected output specified).'
+                : `Execution failed: ${execResult.error ?? 'unknown error'}`,
+              validationSuggestions: [],
+            });
+            continue;
+          }
+
+          // Deterministic pre-check
+          const strategy = testCase.matchStrategy ?? 'contains';
+          const deterministic = evaluateOutputMatch(actualOutput, testCase.expectedOutput, strategy as MatchStrategy);
+
+          if (deterministic.passed) {
+            results.push({
+              id: testCase.id,
+              name: testCase.name,
+              level: testCase.level,
+              input: testCase.input,
+              expectedOutput: testCase.expectedOutput,
+              status: 'passed',
+              actualOutput,
+              durationMs,
+              matchStrategy: strategy,
+              validationConfidence: 0.98,
+              validationReasoning: `${deterministic.reason} (deterministic ${strategy} match)`,
+              validationSuggestions: [],
+            });
+            continue;
+          }
+
+          // For strict strategies, deterministic mismatch is authoritative
+          if (strategy === 'exact' || strategy === 'schema' || strategy === 'structured') {
+            results.push({
+              id: testCase.id,
+              name: testCase.name,
+              level: testCase.level,
+              input: testCase.input,
+              expectedOutput: testCase.expectedOutput,
+              status: 'failed',
+              actualOutput,
+              durationMs,
+              matchStrategy: strategy,
+              validationConfidence: 0.98,
+              validationReasoning: `${deterministic.reason} (deterministic ${strategy} mismatch)`,
+              validationSuggestions: ['Adjust expected output to match actual structure/content.'],
+            });
+            continue;
+          }
+
+          // AI validation for semantic/contains strategies that failed deterministic check
+          try {
+            const contextStr = [
+              `Bot: ${baleybot.name}`,
+              baleybot.description ? `Goal: ${baleybot.description}` : '',
+              `Test: ${testCase.name}`,
+              `Match Strategy: ${strategy}`,
+              `Input: ${inputStr}`,
+              `Expected Output: ${testCase.expectedOutput}`,
+              `Actual Output: ${actualOutput}`,
+              testCase.expectedSteps?.length
+                ? `Expected Steps:\n${testCase.expectedSteps.map(s => `  - ${s.entityName}: ${s.expectation}`).join('\n')}`
+                : '',
+            ].filter(Boolean).join('\n');
+
+            const validation = await runTestValidator(
+              `Validate this test result:\n${contextStr}`,
+              { userWorkspaceId: ctx.workspace.id, triggeredBy: 'internal' },
+            );
+
+            const minConfidence = strategy === 'semantic' ? 0.5 : 0.6;
+            const passed = validation.passed && validation.confidence >= minConfidence;
+
+            results.push({
+              id: testCase.id,
+              name: testCase.name,
+              level: testCase.level,
+              input: testCase.input,
+              expectedOutput: testCase.expectedOutput,
+              status: passed ? 'passed' : 'failed',
+              actualOutput,
+              durationMs,
+              matchStrategy: strategy,
+              validationConfidence: validation.confidence,
+              validationReasoning: passed ? validation.reasoning : (
+                validation.confidence < minConfidence
+                  ? `Validator confidence (${validation.confidence.toFixed(2)}) was below threshold (${minConfidence.toFixed(2)}). ${validation.reasoning}`
+                  : validation.reasoning
+              ),
+              validationSuggestions: validation.suggestions ?? [],
+            });
+          } catch (valError) {
+            log.error('test_validator failed in batch', {
+              testId: testCase.id,
+              error: valError instanceof Error ? valError.message : String(valError),
+            });
+            results.push({
+              id: testCase.id,
+              name: testCase.name,
+              level: testCase.level,
+              input: testCase.input,
+              expectedOutput: testCase.expectedOutput,
+              status: 'failed',
+              actualOutput,
+              durationMs,
+              matchStrategy: strategy,
+              validationConfidence: 0,
+              validationReasoning: 'AI validation failed. Could not determine pass/fail.',
+              validationSuggestions: [],
+            });
+          }
+        } catch (execError) {
+          const durationMs = Date.now() - startTime;
+          log.error('Test execution failed in batch', {
+            testId: testCase.id,
+            error: execError instanceof Error ? execError.message : String(execError),
+          });
+          results.push({
+            id: testCase.id,
+            name: testCase.name,
+            level: testCase.level,
+            input: testCase.input,
+            expectedOutput: testCase.expectedOutput,
+            status: 'failed',
+            actualOutput: undefined,
+            durationMs,
+            error: execError instanceof Error ? execError.message : 'Execution failed',
+            validationConfidence: 0,
+            validationReasoning: `Execution error: ${execError instanceof Error ? execError.message : 'Unknown'}`,
+            validationSuggestions: [],
+          });
+        }
+      }
+
+      // Run test_results_analyzer on the batch
+      const passed = results.filter(r => r.status === 'passed').length;
+      const total = results.length;
+
+      let analysis: Awaited<ReturnType<typeof runTestResultsAnalyzer>>;
+
+      try {
+        const contextStr = [
+          `Bot: ${baleybot.name}`,
+          baleybot.description ? `Goal: ${baleybot.description}` : '',
+          '',
+          'Test Results:',
+          ...results.map(r => [
+            `- ${r.name} (${r.level}): ${r.status}`,
+            r.error ? `  Error: ${r.error}` : '',
+            r.actualOutput ? `  Output: ${r.actualOutput.slice(0, 200)}` : '',
+            r.durationMs ? `  Duration: ${r.durationMs}ms` : '',
+            r.validationReasoning ? `  Reasoning: ${r.validationReasoning}` : '',
+          ].filter(Boolean).join('\n')),
+        ].filter(Boolean).join('\n');
+
+        analysis = await runTestResultsAnalyzer(
+          `Analyze these test results and provide an actionable summary:\n${contextStr}`,
+          { userWorkspaceId: ctx.workspace.id, triggeredBy: 'internal' },
+        );
+      } catch (analyzeError) {
+        log.error('test_results_analyzer failed in batch', {
+          error: analyzeError instanceof Error ? analyzeError.message : String(analyzeError),
+        });
+        analysis = {
+          overallStatus: passed === total ? 'passed' : passed === 0 ? 'failed' : 'mixed',
+          summary: `${passed}/${total} tests passed.`,
+          passRate: total > 0 ? passed / total : 0,
+        };
+      }
+
+      // Persist test results
+      const persistCases = results.map(r => ({
+        id: r.id,
+        name: r.name,
+        level: r.level,
+        input: r.input,
+        expectedOutput: r.expectedOutput,
+        status: r.status,
+        actualOutput: r.actualOutput,
+        error: r.error,
+        durationMs: r.durationMs,
+        matchStrategy: r.matchStrategy,
+        validationConfidence: r.validationConfidence,
+        validationReasoning: r.validationReasoning,
+        validationSuggestions: r.validationSuggestions,
+      }));
+
+      await updateWithLock(baleybots, input.baleybotId, baleybot.version, {
+        testCasesJson: persistCases,
+        updatedAt: new Date(),
+      });
+
+      return { testCases: results, analysis };
+    }),
+
   // ========================================================================
   // LAUNCH & DEPLOY
   // ========================================================================

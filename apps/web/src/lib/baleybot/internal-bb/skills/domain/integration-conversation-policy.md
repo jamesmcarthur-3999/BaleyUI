@@ -1,6 +1,6 @@
 ---
 id: integration_conversation_policy
-version: 2
+version: 3
 appliesTo: integration_builder
 section: output_rules
 ---
@@ -31,15 +31,6 @@ When the user's intent maps to multiple methods, ask ONE clarifying question rat
 **Database Trigger** — For bots that react to database changes. Provide the connection config and table/event setup. Trigger type: `db_event`.
 
 **BB Chain** — For composition with other BaleyBots. Explain how to wire this bot as a downstream step. Trigger type: `other_bb`.
-
-## Unsupported Methods
-
-If the user asks about platforms or methods not listed above (AWS Lambda, Zapier, n8n, custom infrastructure), explain which supported method best maps to their use case:
-- Lambda / serverless → API endpoint (call the bot's API from your Lambda)
-- Zapier / n8n → Webhook listener (Zapier sends a webhook to your bot's URL)
-- Custom deployment → API endpoint (any HTTP client can call it)
-
-Don't invent integration types the platform doesn't support.
 
 ## Tool Usage
 

@@ -12,7 +12,7 @@
  */
 
 import { executeInternalBaleybot } from './internal-baleybots';
-import type { CreatorOutput, CreatorMessage } from './creator-types';
+import type { CreatorOutput, CreatorMessage, PlanPreviewData } from './creator-types';
 import { creatorOutputSchema } from './creator-types';
 import type { GeneratorContext } from './types';
 import type { BaleybotStreamEvent } from '@baleybots/core';
@@ -69,7 +69,9 @@ export type CreatorSSEEvent =
   | { type: 'creator_connection_action'; action: string; result: Record<string, unknown>; timestamp: number }
   | { type: 'creator_trigger_saved'; triggerConfig: TriggerConfig; timestamp: number }
   | { type: 'creator_webhook_enabled'; webhookUrl: string; webhookSecret: string; timestamp: number }
-  | { type: 'creator_navigate_tab'; tab: string; timestamp: number };
+  | { type: 'creator_navigate_tab'; tab: string; timestamp: number }
+  | { type: 'creator_show_plan'; plan: PlanPreviewData; timestamp: number }
+  | { type: 'creator_show_surface'; surface: string; reason?: string; timestamp: number };
 
 // ============================================================================
 // CONTEXT BUILDER
@@ -455,6 +457,10 @@ export async function executeCreatorPipeline(
   const uiTools = buildUIControlTools({
     onNavigateTab: (tab) =>
       onEvent({ type: 'creator_navigate_tab', tab, timestamp: Date.now() }),
+    onShowPlan: (plan) =>
+      onEvent({ type: 'creator_show_plan', plan, timestamp: Date.now() }),
+    onShowSurface: (surface, reason) =>
+      onEvent({ type: 'creator_show_surface', surface, reason, timestamp: Date.now() }),
   });
   for (const [k, v] of uiTools) allInjectedTools.set(k, v);
 

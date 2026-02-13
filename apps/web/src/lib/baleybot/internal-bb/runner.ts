@@ -817,6 +817,112 @@ export async function runContextProcessor(
   });
 }
 
+// Design System — analyzer, generator, refiner
+const designColorEntrySchema = z.object({
+  hex: z.string().catch('#000000'),
+  hsl: z.string().catch('0 0% 0%'),
+  role: z.string().catch('primary'),
+}).passthrough();
+
+export const designAnalyzerOutputSchema = z.object({
+  colors: z.array(designColorEntrySchema).catch([]),
+  typography: z.object({
+    primaryFont: z.string().catch('Inter'),
+    fontUrl: z.string().optional(),
+    scale: z.string().optional(),
+    weights: z.array(z.string()).optional(),
+  }).passthrough().catch({ primaryFont: 'Inter' }),
+  spacing: z.object({
+    borderRadius: z.string().catch('0.75rem'),
+    density: z.enum(['compact', 'normal', 'relaxed']).optional(),
+  }).passthrough().catch({ borderRadius: '0.75rem' }),
+  mood: z.enum(['playful', 'professional', 'minimal', 'elegant', 'bold']).catch('professional'),
+  confidence: z.number().min(0).max(1).catch(0.5),
+  recommendations: z.array(z.string()).catch([]),
+});
+
+const colorPaletteSchema = z.object({
+  background: z.string(),
+  foreground: z.string(),
+  card: z.string(),
+  cardForeground: z.string(),
+  primary: z.string(),
+  primaryForeground: z.string(),
+  secondary: z.string(),
+  secondaryForeground: z.string(),
+  muted: z.string(),
+  mutedForeground: z.string(),
+  accent: z.string(),
+  accentForeground: z.string(),
+  destructive: z.string(),
+  destructiveForeground: z.string(),
+  border: z.string(),
+  input: z.string(),
+  ring: z.string(),
+  success: z.string(),
+  warning: z.string(),
+  error: z.string(),
+  info: z.string(),
+}).passthrough();
+
+export const designGeneratorOutputSchema = z.object({
+  colors: z.object({
+    light: colorPaletteSchema,
+    dark: colorPaletteSchema,
+  }),
+  typography: z.object({
+    fontFamily: z.string().catch('Inter, sans-serif'),
+    fontFamilyHeading: z.string().optional(),
+    googleFontsUrl: z.string().optional(),
+  }).passthrough(),
+  borderRadius: z.string().catch('0.75rem'),
+  mood: z.enum(['playful', 'professional', 'minimal', 'elegant', 'bold']).catch('professional'),
+  animationStyle: z.enum(['playful', 'professional', 'minimal']).catch('professional'),
+  suggestedName: z.string().catch('Custom Design'),
+});
+
+export const designRefinerOutputSchema = designGeneratorOutputSchema;
+
+export type DesignAnalyzerOutput = z.infer<typeof designAnalyzerOutputSchema>;
+export type DesignGeneratorOutput = z.infer<typeof designGeneratorOutputSchema>;
+export type DesignRefinerOutput = z.infer<typeof designRefinerOutputSchema>;
+
+export async function runDesignAnalyzer(
+  input: string,
+  options?: InternalBBRunOptions<DesignAnalyzerOutput>
+): Promise<DesignAnalyzerOutput> {
+  return runInternalBB({
+    botName: 'design_analyzer',
+    input,
+    schema: designAnalyzerOutputSchema,
+    options,
+  });
+}
+
+export async function runDesignGenerator(
+  input: string,
+  options?: InternalBBRunOptions<DesignGeneratorOutput>
+): Promise<DesignGeneratorOutput> {
+  return runInternalBB({
+    botName: 'design_generator',
+    input,
+    schema: designGeneratorOutputSchema,
+    options,
+  });
+}
+
+export async function runDesignRefiner(
+  input: string,
+  options?: InternalBBRunOptions<DesignRefinerOutput>
+): Promise<DesignRefinerOutput> {
+  return runInternalBB({
+    botName: 'design_refiner',
+    input,
+    schema: designRefinerOutputSchema,
+    options,
+  });
+}
+
 export async function runTestInterfaceDesigner(
   input: string,
   options?: InternalBBRunOptions<TestInterfaceDesignerOutput>

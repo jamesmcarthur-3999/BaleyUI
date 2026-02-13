@@ -15,26 +15,145 @@ import {
 import { relations, sql } from 'drizzle-orm';
 
 // ============================================================================
-// USERS
+// BETTER AUTH CORE TABLES
 // ============================================================================
 
-export const users = pgTable(
-  'users',
+export const user = pgTable(
+  'user',
   {
-    id: varchar('id', { length: 255 }).primaryKey(), // Clerk user ID
-    email: varchar('email', { length: 255 }).notNull(),
+    id: varchar('id', { length: 255 }).primaryKey(),
+    email: varchar('email', { length: 255 }).notNull().unique(),
     name: varchar('name', { length: 255 }),
+    emailVerified: boolean('email_verified').default(false).notNull(),
+    image: varchar('image', { length: 2000 }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    // Custom fields
     avatarUrl: varchar('avatar_url', { length: 2000 }),
     preferences: jsonb('preferences').default({}).$type<{
       theme?: 'light' | 'dark' | 'system';
       notificationEmail?: boolean;
       displayTimezone?: string;
     }>(),
+  },
+  (table) => [
+    index('user_email_idx').on(table.email),
+  ]
+);
+
+// Backwards-compatible alias so existing code referencing `users` keeps working
+export const users = user;
+
+export const session = pgTable(
+  'session',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(),
+    userId: varchar('user_id', { length: 255 })
+      .references(() => user.id, { onDelete: 'cascade' })
+      .notNull(),
+    token: varchar('token', { length: 255 }).notNull().unique(),
+    expiresAt: timestamp('expires_at').notNull(),
+    ipAddress: varchar('ip_address', { length: 255 }),
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    activeOrganizationId: varchar('active_organization_id', { length: 255 }),
+  },
+  (table) => [
+    index('session_user_id_idx').on(table.userId),
+    index('session_token_idx').on(table.token),
+  ]
+);
+
+export const account = pgTable(
+  'account',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(),
+    userId: varchar('user_id', { length: 255 })
+      .references(() => user.id, { onDelete: 'cascade' })
+      .notNull(),
+    accountId: varchar('account_id', { length: 255 }).notNull(),
+    providerId: varchar('provider_id', { length: 255 }).notNull(),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    accessTokenExpiresAt: timestamp('access_token_expires_at'),
+    refreshTokenExpiresAt: timestamp('refresh_token_expires_at'),
+    scope: text('scope'),
+    idToken: text('id_token'),
+    password: text('password'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
   },
   (table) => [
-    index('users_email_idx').on(table.email),
+    index('account_user_id_idx').on(table.userId),
+  ]
+);
+
+export const verification = pgTable(
+  'verification',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(),
+    identifier: varchar('identifier', { length: 255 }).notNull(),
+    value: text('value').notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  }
+);
+
+// ============================================================================
+// BETTER AUTH ORGANIZATION TABLES
+// ============================================================================
+
+export const organization = pgTable(
+  'organization',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(),
+    name: varchar('name', { length: 255 }).notNull(),
+    slug: varchar('slug', { length: 255 }).unique(),
+    logo: varchar('logo', { length: 2000 }),
+    metadata: text('metadata'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  }
+);
+
+export const member = pgTable(
+  'member',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(),
+    userId: varchar('user_id', { length: 255 })
+      .references(() => user.id, { onDelete: 'cascade' })
+      .notNull(),
+    organizationId: varchar('organization_id', { length: 255 })
+      .references(() => organization.id, { onDelete: 'cascade' })
+      .notNull(),
+    role: varchar('role', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('member_user_id_idx').on(table.userId),
+    index('member_organization_id_idx').on(table.organizationId),
+  ]
+);
+
+export const invitation = pgTable(
+  'invitation',
+  {
+    id: varchar('id', { length: 255 }).primaryKey(),
+    email: varchar('email', { length: 255 }).notNull(),
+    organizationId: varchar('organization_id', { length: 255 })
+      .references(() => organization.id, { onDelete: 'cascade' })
+      .notNull(),
+    role: varchar('role', { length: 255 }),
+    status: varchar('status', { length: 50 }).notNull(),
+    inviterId: varchar('inviter_id', { length: 255 })
+      .references(() => user.id, { onDelete: 'cascade' })
+      .notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (table) => [
+    index('invitation_organization_id_idx').on(table.organizationId),
   ]
 );
 
@@ -48,7 +167,7 @@ export const workspaces = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     name: varchar('name', { length: 255 }).notNull(),
     slug: varchar('slug', { length: 255 }).unique().notNull(),
-    ownerId: varchar('owner_id', { length: 255 }).notNull(), // Clerk user ID
+    ownerId: varchar('owner_id', { length: 255 }).notNull(),
 
     // Soft delete fields
     deletedAt: timestamp('deleted_at'),
@@ -146,7 +265,7 @@ export const apiKeys = pgTable(
     lastUsedAt: timestamp('last_used_at'),
     expiresAt: timestamp('expires_at'),
     revokedAt: timestamp('revoked_at'), // For soft revoke
-    createdBy: varchar('created_by', { length: 255 }).notNull(), // Clerk user ID
+    createdBy: varchar('created_by', { length: 255 }).notNull(), // User ID
 
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -1119,7 +1238,7 @@ export const notifications = pgTable(
       .notNull(),
 
     // Who to notify
-    userId: varchar('user_id', { length: 255 }).notNull(), // Clerk user ID
+    userId: varchar('user_id', { length: 255 }).notNull(), // User ID
 
     // Notification content
     title: varchar('title', { length: 255 }).notNull(),
@@ -1308,6 +1427,42 @@ export const sharedContext = pgTable(
     index('shared_context_workspace_idx').on(table.workspaceId),
     index('shared_context_category_idx').on(table.category),
     index('shared_context_active_idx').on(table.isActive),
+  ]
+);
+
+// ============================================================================
+// DESIGN PACKAGES (theming / brand calibration)
+// ============================================================================
+
+export const designPackages = pgTable(
+  'design_packages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
+    packageData: jsonb('package_data').notNull(), // DesignPackageData
+    sourceType: varchar('source_type', { length: 50 }).default('ai_generated'), // 'ai_generated' | 'manual' | 'preset'
+    sourceResources: jsonb('source_resources'), // Array<{name, type, uploadedAt}>
+    isDefault: boolean('is_default').default(false),
+
+    // Optimistic locking
+    version: integer('version').default(1).notNull(),
+
+    createdBy: varchar('created_by', { length: 255 }),
+    updatedBy: varchar('updated_by', { length: 255 }),
+
+    // Soft delete fields
+    deletedAt: timestamp('deleted_at'),
+    deletedBy: varchar('deleted_by', { length: 255 }),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('design_packages_workspace_idx').on(table.workspaceId),
   ]
 );
 
@@ -1768,9 +1923,28 @@ export const executionEventsRelations = relations(executionEvents, ({ one }) => 
   }),
 }));
 
-export const usersRelations = relations(users, ({ many }) => ({
+export const userRelations = relations(user, ({ many }) => ({
   workspaces: many(workspaces),
   memberships: many(workspaceMembers),
+  sessions: many(session),
+  accounts: many(account),
+}));
+
+// Backwards-compatible alias
+export const usersRelations = userRelations;
+
+export const sessionRelations = relations(session, ({ one }) => ({
+  user: one(user, {
+    fields: [session.userId],
+    references: [user.id],
+  }),
+}));
+
+export const accountRelations = relations(account, ({ one }) => ({
+  user: one(user, {
+    fields: [account.userId],
+    references: [user.id],
+  }),
 }));
 
 export const workspaceMembersRelations = relations(workspaceMembers, ({ one }) => ({
@@ -1778,9 +1952,9 @@ export const workspaceMembersRelations = relations(workspaceMembers, ({ one }) =
     fields: [workspaceMembers.workspaceId],
     references: [workspaces.id],
   }),
-  user: one(users, {
+  user: one(user, {
     fields: [workspaceMembers.userId],
-    references: [users.id],
+    references: [user.id],
   }),
 }));
 
@@ -1792,9 +1966,9 @@ export const workspaceInvitationsRelations = relations(workspaceInvitations, ({ 
 }));
 
 export const workspacesRelations = relations(workspaces, ({ many, one }) => ({
-  owner: one(users, {
+  owner: one(user, {
     fields: [workspaces.ownerId],
-    references: [users.id],
+    references: [user.id],
   }),
   members: many(workspaceMembers),
   invitations: many(workspaceInvitations),
@@ -1813,6 +1987,7 @@ export const workspacesRelations = relations(workspaces, ({ many, one }) => ({
   companionConversations: many(companionConversations),
   recommendations: many(recommendations),
   sharedContext: many(sharedContext),
+  designPackages: many(designPackages),
 }));
 
 export const recommendationsRelations = relations(recommendations, ({ one }) => ({
@@ -1835,6 +2010,13 @@ export const recommendationsRelations = relations(recommendations, ({ one }) => 
 export const sharedContextRelations = relations(sharedContext, ({ one }) => ({
   workspace: one(workspaces, {
     fields: [sharedContext.workspaceId],
+    references: [workspaces.id],
+  }),
+}));
+
+export const designPackagesRelations = relations(designPackages, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [designPackages.workspaceId],
     references: [workspaces.id],
   }),
 }));

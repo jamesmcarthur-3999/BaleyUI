@@ -1,21 +1,186 @@
 /**
  * UI Control Companion Tools
  *
- * Lets the creator_bot switch the user's right-panel view by calling
- * navigate_tab. The pipeline emits a creator_navigate_tab SSE event
- * which the page.tsx handler uses to call navigateToTab().
+ * Lets the creator_bot control the user's right-panel view.
+ * - `present_plan`: Show a plan preview before building
+ * - `show_surface`: Switch to any surface with a reason toast
+ * - `navigate_tab`: Legacy alias for show_surface
+ *
+ * The pipeline emits SSE events which page.tsx handlers consume.
  */
 
 import type { RuntimeToolDefinition } from '../../executor';
+import type { PlanPreviewData } from '../../creator-types';
 
 export interface UIControlToolContext {
   onNavigateTab: (tab: string) => void;
+  onShowPlan: (plan: PlanPreviewData) => void;
+  onShowSurface: (surface: string, reason?: string) => void;
 }
 
 export function buildUIControlTools(
   ctx: UIControlToolContext,
 ): Map<string, RuntimeToolDefinition> {
   const tools = new Map<string, RuntimeToolDefinition>();
+
+  // -------------------------------------------------------------------------
+  // present_plan — Show a structured plan preview on the right panel
+  // -------------------------------------------------------------------------
+
+  tools.set('present_plan', {
+    name: 'present_plan',
+    description:
+      'Present a structured build plan to the user for review before generating BAL code. Call this when you have enough information to propose a design. The plan will appear as a visual preview card on the right panel. Wait for user approval before building.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Suggested bot name',
+        },
+        description: {
+          type: 'string',
+          description: '1-2 sentence description of what the bot does',
+        },
+        icon: {
+          type: 'string',
+          description: 'Emoji icon for the bot',
+        },
+        entities: {
+          type: 'array',
+          description: 'Entities (agents) in the bot',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Entity name' },
+              purpose: { type: 'string', description: 'What this entity does' },
+              tools: { type: 'array', items: { type: 'string' }, description: 'Tools assigned' },
+              model: { type: 'string', description: 'Model to use (optional)' },
+              icon: { type: 'string', description: 'Emoji icon (optional)' },
+            },
+            required: ['name', 'purpose', 'tools'],
+          },
+        },
+        topology: {
+          type: 'string',
+          enum: ['single', 'chain', 'parallel', 'conditional', 'loop', 'mixed'],
+          description: 'How entities are composed',
+        },
+        topologyDescription: {
+          type: 'string',
+          description: 'Human-readable description of the flow',
+        },
+        connections: {
+          type: 'array',
+          description: 'External connections required',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', description: 'Connection type (e.g., "anthropic", "postgres")' },
+              name: { type: 'string', description: 'Display name' },
+              status: { type: 'string', enum: ['ready', 'needs-setup', 'missing'] },
+              requiredBy: { type: 'array', items: { type: 'string' }, description: 'Entity names that need this' },
+            },
+            required: ['type', 'name', 'status'],
+          },
+        },
+        complexity: {
+          type: 'string',
+          enum: ['simple', 'moderate', 'complex'],
+          description: 'Overall complexity assessment',
+        },
+        designRationale: {
+          type: 'string',
+          description: 'Brief explanation of why this design was chosen',
+        },
+      },
+      required: ['name', 'description', 'entities', 'topology', 'topologyDescription', 'complexity'],
+    },
+    category: 'ui',
+    dangerLevel: 'safe',
+    async function(args: Record<string, unknown>) {
+      const plan: PlanPreviewData = {
+        name: String(args.name ?? 'Unnamed Bot'),
+        description: String(args.description ?? ''),
+        icon: String(args.icon ?? '🤖'),
+        entities: Array.isArray(args.entities)
+          ? (args.entities as Array<Record<string, unknown>>).map((e) => ({
+              name: String(e.name ?? ''),
+              purpose: String(e.purpose ?? ''),
+              tools: Array.isArray(e.tools) ? (e.tools as unknown[]).map(String) : [],
+              model: e.model ? String(e.model) : undefined,
+              icon: e.icon ? String(e.icon) : undefined,
+            }))
+          : [],
+        topology: (['single', 'chain', 'parallel', 'conditional', 'loop', 'mixed'].includes(String(args.topology))
+          ? String(args.topology)
+          : 'single') as PlanPreviewData['topology'],
+        topologyDescription: String(args.topologyDescription ?? ''),
+        connections: Array.isArray(args.connections)
+          ? (args.connections as Array<Record<string, unknown>>).map((c) => ({
+              type: String(c.type ?? ''),
+              name: String(c.name ?? ''),
+              status: (['ready', 'needs-setup', 'missing'].includes(String(c.status))
+                ? String(c.status)
+                : 'missing') as 'ready' | 'needs-setup' | 'missing',
+              requiredBy: Array.isArray(c.requiredBy) ? (c.requiredBy as unknown[]).map(String) : undefined,
+            }))
+          : [],
+        complexity: (['simple', 'moderate', 'complex'].includes(String(args.complexity))
+          ? String(args.complexity)
+          : 'moderate') as PlanPreviewData['complexity'],
+        designRationale: args.designRationale ? String(args.designRationale) : undefined,
+      };
+
+      ctx.onShowPlan(plan);
+      return {
+        success: true,
+        message: 'Plan presented to user. Wait for their approval before building. They will say "approve", "looks good", "build it", or provide feedback for changes.',
+        awaitUserAction: true,
+      };
+    },
+  });
+
+  // -------------------------------------------------------------------------
+  // show_surface — Switch the right panel to any surface
+  // -------------------------------------------------------------------------
+
+  tools.set('show_surface', {
+    name: 'show_surface',
+    description:
+      'Switch the user\'s right-panel view to a specific surface. Use this to guide the user — for example, switching to the test surface after building, or to integrate when discussing deployment. Include a reason so the user understands why you switched.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        surface: {
+          type: 'string',
+          enum: ['plan', 'visual', 'code', 'test', 'integrate'],
+          description: 'The surface to show',
+        },
+        reason: {
+          type: 'string',
+          description: 'Why you are switching (shown as a toast to the user)',
+        },
+      },
+      required: ['surface'],
+    },
+    category: 'ui',
+    dangerLevel: 'safe',
+    async function(args: Record<string, unknown>) {
+      const surface = String(args.surface ?? '');
+      const validSurfaces = ['plan', 'visual', 'code', 'test', 'integrate'];
+      if (!validSurfaces.includes(surface)) {
+        return { success: false, error: `Invalid surface: ${surface}. Must be one of: ${validSurfaces.join(', ')}` };
+      }
+      const reason = args.reason ? String(args.reason) : undefined;
+      ctx.onShowSurface(surface, reason);
+      return { success: true, message: `Switched to ${surface} surface${reason ? `: ${reason}` : ''}` };
+    },
+  });
+
+  // -------------------------------------------------------------------------
+  // navigate_tab — Backward-compatible alias for show_surface
+  // -------------------------------------------------------------------------
 
   tools.set('navigate_tab', {
     name: 'navigate_tab',

@@ -13,7 +13,6 @@ import { buildZodSchema } from '@baleybots/tools/dsl/type-builder';
 import type {
   BaleybotStreamEvent,
   ToolCall,
-  ProviderConfig,
 } from '@baleybots/core';
 import { compileBALCode, executeBALCode } from '@baleyui/sdk';
 import { createLogger } from '@/lib/logger';
@@ -49,8 +48,8 @@ interface CachedBALParse {
  */
 class BALParseCache {
   private cache = new Map<string, CachedBALParse>();
-  private readonly maxSize = 100;
-  private readonly ttlMs = 5 * 60 * 1000; // 5 minutes
+  private readonly maxSize = 500;
+  private readonly ttlMs = 10 * 60 * 1000; // 10 minutes
 
   private hash(balCode: string): string {
     return crypto.createHash('sha256').update(balCode).digest('hex');
@@ -346,17 +345,19 @@ export function getPreferredModel(balCode: string): string {
 }
 
 // ============================================================================
-// SHARED CONTEXT ENRICHMENT
+// SHARED CONTEXT ENRICHMENT (with per-workspace cache)
 // ============================================================================
 
-/**
- * Enrich user input with workspace-scoped shared context entries.
- * Returns the original input unchanged if no active entries exist.
- */
-export async function buildInputWithSharedContext(
-  workspaceId: string,
-  userInput: string
-): Promise<string> {
+/** Cached shared context per workspace (30-second TTL) */
+const sharedContextCache = new Map<string, { block: string; timestamp: number }>();
+const SHARED_CONTEXT_TTL = 30_000; // 30 seconds
+
+async function getCachedSharedContextBlock(workspaceId: string): Promise<string> {
+  const cached = sharedContextCache.get(workspaceId);
+  if (cached && Date.now() - cached.timestamp < SHARED_CONTEXT_TTL) {
+    return cached.block;
+  }
+
   const { db, sharedContext, eq, and } = await import('@baleyui/db');
 
   const entries = await db.query.sharedContext.findMany({
@@ -366,18 +367,32 @@ export async function buildInputWithSharedContext(
     ),
   });
 
-  if (entries.length === 0) return userInput;
+  const block = entries.length === 0
+    ? ''
+    : entries
+        .map((e) => {
+          const meta = e.fileMetadata as { fileName?: string } | null;
+          const sourceHint = e.contentType === 'file' && meta?.fileName
+            ? ` (from: ${meta.fileName})`
+            : '';
+          return `- ${e.key}${sourceHint}: ${e.value}`;
+        })
+        .join('\n');
 
-  const contextBlock = entries
-    .map((e) => {
-      const meta = e.fileMetadata as { fileName?: string } | null;
-      const sourceHint = e.contentType === 'file' && meta?.fileName
-        ? ` (from: ${meta.fileName})`
-        : '';
-      return `- ${e.key}${sourceHint}: ${e.value}`;
-    })
-    .join('\n');
+  sharedContextCache.set(workspaceId, { block, timestamp: Date.now() });
+  return block;
+}
 
+/**
+ * Enrich user input with workspace-scoped shared context entries.
+ * Returns the original input unchanged if no active entries exist.
+ */
+export async function buildInputWithSharedContext(
+  workspaceId: string,
+  userInput: string
+): Promise<string> {
+  const contextBlock = await getCachedSharedContextBlock(workspaceId);
+  if (!contextBlock) return userInput;
   return `[Shared Context]\n${contextBlock}\n\n[User Input]\n${userInput}`;
 }
 
@@ -404,25 +419,31 @@ export async function executeBaleybot(
 
   const entityGoals = getEntityGoals(balCode);
   const preferredProvider = getPreferredProvider(balCode);
-  let providerConfig: ProviderConfig | undefined;
-  let actualProvider: AIProviderType | null = preferredProvider;
-  try {
-    providerConfig = await resolveProviderConfig(ctx.workspaceId, preferredProvider);
 
-    // Detect which provider we're actually using based on what key is available
-    // This is needed to override the model string if we fell back to a different provider
-    if (providerConfig?.apiKey) {
-      if (preferredProvider === 'anthropic' && !process.env.ANTHROPIC_API_KEY && process.env.OPENAI_API_KEY) {
-        actualProvider = 'openai';
-      } else if (preferredProvider === 'openai' && !process.env.OPENAI_API_KEY && process.env.ANTHROPIC_API_KEY) {
-        actualProvider = 'anthropic';
-      }
+  // Parallel: resolve provider config + pre-fetch shared context concurrently
+  const shouldEnrichContext = ctx.triggeredBy !== 'internal';
+  const [providerConfigResult, prefetchedContextBlock] = await Promise.all([
+    resolveProviderConfig(ctx.workspaceId, preferredProvider).catch((err: unknown) => {
+      logger.warn('Failed to resolve provider config', {
+        workspaceId: ctx.workspaceId,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+      return undefined;
+    }),
+    shouldEnrichContext
+      ? getCachedSharedContextBlock(ctx.workspaceId)
+      : Promise.resolve(''),
+  ]);
+
+  const providerConfig = providerConfigResult;
+  let actualProvider: AIProviderType | null = preferredProvider;
+
+  if (providerConfig?.apiKey) {
+    if (preferredProvider === 'anthropic' && !process.env.ANTHROPIC_API_KEY && process.env.OPENAI_API_KEY) {
+      actualProvider = 'openai';
+    } else if (preferredProvider === 'openai' && !process.env.OPENAI_API_KEY && process.env.ANTHROPIC_API_KEY) {
+      actualProvider = 'anthropic';
     }
-  } catch (err: unknown) {
-    logger.warn('Failed to resolve provider config', {
-      workspaceId: ctx.workspaceId,
-      error: err instanceof Error ? err.message : 'Unknown error',
-    });
   }
 
   if (!providerConfig) {
@@ -462,9 +483,9 @@ export async function executeBaleybot(
   try {
     // Enrich input with workspace shared context (skip for internal BBs — they
     // do their own context enrichment and we don't want to dilute their prompts)
-    const enrichedInput = ctx.triggeredBy === 'internal'
+    const enrichedInput = !shouldEnrichContext || !prefetchedContextBlock
       ? input
-      : await buildInputWithSharedContext(ctx.workspaceId, input);
+      : `[Shared Context]\n${prefetchedContextBlock}\n\n[User Input]\n${input}`;
 
     // Note: Using type assertion because we pass extended options (onToolCallApproval)
     // that the SDK's public BALExecutionOptions doesn't expose.
@@ -601,131 +622,139 @@ export async function executeBaleybot(
     : undefined;
 
   // ============================================================================
-  // POST-EXECUTION: Analytics, Usage Tracking, and Alerts (non-blocking)
-  // All service calls are wrapped in try/catch so failures don't affect results.
+  // POST-EXECUTION: Analytics, Usage Tracking, and Alerts (parallel, non-blocking)
+  // All service calls are fire-and-forget — failures don't affect results.
   // ============================================================================
 
-  // Record metrics (built-in defaults + BAL analytics block if present)
   if (ctx.baleybotId) {
-    try {
-      const { metricsService } = await import('./analytics/metrics-service');
-      const { getDefaultMetrics, extractAnalyticsFromBAL } = await import('./analytics/schema-parser');
+    const postHooks: Promise<void>[] = [];
 
-      const metricsCtx = {
-        workspaceId: ctx.workspaceId,
-        baleybotId: ctx.baleybotId,
-        executionId,
-        status: status === 'completed' ? 'completed' as const : 'failed' as const,
-        durationMs,
-        output,
-      };
+    // 1. Record metrics (built-in defaults + BAL analytics block if present)
+    postHooks.push(
+      (async () => {
+        const { metricsService } = await import('./analytics/metrics-service');
+        const { getDefaultMetrics, extractAnalyticsFromBAL } = await import('./analytics/schema-parser');
 
-      // Always record default metrics (count, success rate, duration)
-      const metricDefs = getDefaultMetrics();
+        const metricsCtx = {
+          workspaceId: ctx.workspaceId,
+          baleybotId: ctx.baleybotId!,
+          executionId,
+          status: status === 'completed' ? 'completed' as const : 'failed' as const,
+          durationMs,
+          output,
+        };
 
-      // Also record any custom metrics from the BAL analytics block
-      const analyticsSchema = extractAnalyticsFromBAL(balCode);
-      if (analyticsSchema?.track) {
-        metricDefs.push(...analyticsSchema.track);
-      }
+        const metricDefs = getDefaultMetrics();
+        const analyticsSchema = extractAnalyticsFromBAL(balCode);
+        if (analyticsSchema?.track) {
+          metricDefs.push(...analyticsSchema.track);
+        }
+        await metricsService.recordMetrics(metricsCtx, metricDefs);
+      })().catch((metricsErr) => {
+        logger.warn('Metrics recording failed (non-fatal)', {
+          executionId,
+          error: metricsErr instanceof Error ? metricsErr.message : 'Unknown error',
+        });
+      })
+    );
 
-      await metricsService.recordMetrics(metricsCtx, metricDefs);
-    } catch (metricsErr) {
-      logger.warn('Metrics recording failed (non-fatal)', {
-        executionId,
-        error: metricsErr instanceof Error ? metricsErr.message : 'Unknown error',
-      });
-    }
-  }
-
-  // Record usage/cost tracking from execution segments
-  if (ctx.baleybotId) {
-    try {
-      const { recordUsageFromExecution } = await import('./cost/usage-tracker');
-      await recordUsageFromExecution(
-        ctx.workspaceId,
-        ctx.baleybotId,
-        executionId,
-        segments,
-        durationMs,
-      );
-    } catch (usageErr) {
-      logger.error('Usage tracking failed — billing data may be lost', {
-        executionId,
-        billing_data_lost: true,
-        workspaceId: ctx.workspaceId,
-        baleybotId: ctx.baleybotId,
-        durationMs,
-        error: usageErr instanceof Error ? usageErr.message : 'Unknown error',
-      });
-    }
-  }
-
-  // Evaluate alert conditions on failure (check if error rate exceeds thresholds)
-  if (ctx.baleybotId && status === 'failed') {
-    try {
-      const { alertService } = await import('./analytics/alert-service');
-      const { extractAnalyticsFromBAL } = await import('./analytics/schema-parser');
-
-      const analyticsSchema = extractAnalyticsFromBAL(balCode);
-      if (analyticsSchema?.alertWhen) {
-        await alertService.evaluateAlerts(
-          {
-            workspaceId: ctx.workspaceId,
-            baleybotId: ctx.baleybotId,
-            executionId,
-          },
-          analyticsSchema.alertWhen,
+    // 2. Record usage/cost tracking
+    postHooks.push(
+      (async () => {
+        const { recordUsageFromExecution } = await import('./cost/usage-tracker');
+        await recordUsageFromExecution(
+          ctx.workspaceId,
+          ctx.baleybotId!,
+          executionId,
+          segments,
+          durationMs,
         );
-      }
-    } catch (alertErr) {
-      logger.warn('Alert evaluation failed (non-fatal)', {
-        executionId,
-        error: alertErr instanceof Error ? alertErr.message : 'Unknown error',
-      });
-    }
-  }
+      })().catch((usageErr) => {
+        logger.error('Usage tracking failed — billing data may be lost', {
+          executionId,
+          billing_data_lost: true,
+          workspaceId: ctx.workspaceId,
+          baleybotId: ctx.baleybotId,
+          durationMs,
+          error: usageErr instanceof Error ? usageErr.message : 'Unknown error',
+        });
+      })
+    );
 
-  // Error resolution pipeline (non-blocking, never throws)
-  if (status === 'failed' && ctx.baleybotId && ctx.triggeredBy !== 'internal') {
-    try {
-      const { processError } = await import('./services/error-resolution-service');
-      void processError({
-        workspaceId: ctx.workspaceId,
-        sourceType: 'execution',
-        sourceId: executionId,
-        baleybotId: ctx.baleybotId,
-        baleybotName: ctx.baleybotName ?? '',
-        balCode,
-        input,
-        output,
-        error: error ?? 'Unknown error',
-        durationMs,
-        segments,
-      });
-    } catch {
-      logger.warn('Error resolution failed (non-fatal)', { executionId });
+    // 3. Evaluate alert conditions on failure
+    if (status === 'failed') {
+      postHooks.push(
+        (async () => {
+          const { alertService } = await import('./analytics/alert-service');
+          const { extractAnalyticsFromBAL } = await import('./analytics/schema-parser');
+          const analyticsSchema = extractAnalyticsFromBAL(balCode);
+          if (analyticsSchema?.alertWhen) {
+            await alertService.evaluateAlerts(
+              {
+                workspaceId: ctx.workspaceId,
+                baleybotId: ctx.baleybotId!,
+                executionId,
+              },
+              analyticsSchema.alertWhen,
+            );
+          }
+        })().catch((alertErr) => {
+          logger.warn('Alert evaluation failed (non-fatal)', {
+            executionId,
+            error: alertErr instanceof Error ? alertErr.message : 'Unknown error',
+          });
+        })
+      );
     }
-  }
 
-  // Success analysis pipeline (non-blocking, never throws)
-  if (status === 'completed' && ctx.baleybotId && ctx.triggeredBy !== 'internal') {
-    try {
-      const { analyzeSuccessfulExecution } = await import('./services/post-execution-analysis');
-      void analyzeSuccessfulExecution({
-        workspaceId: ctx.workspaceId,
-        baleybotId: ctx.baleybotId,
-        baleybotName: ctx.baleybotName ?? '',
-        balCode,
-        executionId,
-        input,
-        output,
-        durationMs,
-        segments,
-      });
-    } catch {
-      logger.warn('Post-execution analysis failed (non-fatal)', { executionId });
+    // 4. Error resolution pipeline
+    if (status === 'failed' && ctx.triggeredBy !== 'internal') {
+      postHooks.push(
+        (async () => {
+          const { processError } = await import('./services/error-resolution-service');
+          await processError({
+            workspaceId: ctx.workspaceId,
+            sourceType: 'execution',
+            sourceId: executionId,
+            baleybotId: ctx.baleybotId!,
+            baleybotName: ctx.baleybotName ?? '',
+            balCode,
+            input,
+            output,
+            error: error ?? 'Unknown error',
+            durationMs,
+            segments,
+          });
+        })().catch(() => {
+          logger.warn('Error resolution failed (non-fatal)', { executionId });
+        })
+      );
     }
+
+    // 5. Success analysis pipeline
+    if (status === 'completed' && ctx.triggeredBy !== 'internal') {
+      postHooks.push(
+        (async () => {
+          const { analyzeSuccessfulExecution } = await import('./services/post-execution-analysis');
+          await analyzeSuccessfulExecution({
+            workspaceId: ctx.workspaceId,
+            baleybotId: ctx.baleybotId!,
+            baleybotName: ctx.baleybotName ?? '',
+            balCode,
+            executionId,
+            input,
+            output,
+            durationMs,
+            segments,
+          });
+        })().catch(() => {
+          logger.warn('Post-execution analysis failed (non-fatal)', { executionId });
+        })
+      );
+    }
+
+    // Fire all post-execution hooks in parallel (don't await — fire-and-forget)
+    void Promise.allSettled(postHooks);
   }
 
   return {

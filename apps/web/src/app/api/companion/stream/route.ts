@@ -6,7 +6,8 @@
  * Companion-specific tools are injected at runtime.
  */
 
-import { auth } from '@clerk/nextjs/server';
+import { auth } from '@/lib/auth/server';
+import { headers } from 'next/headers';
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { db, companionConversations } from '@baleyui/db';
@@ -49,7 +50,8 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId } = await auth();
+    const session = await auth.api.getSession({ headers: await headers() });
+    const userId = session?.user?.id ?? null;
     if (!userId) {
       return apiErrors.unauthorized();
     }

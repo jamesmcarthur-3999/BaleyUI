@@ -46,6 +46,8 @@ function makeCallbacks(overrides?: Partial<CreatorStreamCallbacks>): CreatorStre
     onTriggerSaved: vi.fn(),
     onWebhookEnabled: vi.fn(),
     onNavigateTab: vi.fn(),
+    onShowPlan: vi.fn(),
+    onShowSurface: vi.fn(),
     onSpecialistSignals: vi.fn(),
     invalidateConnections: vi.fn(),
     invalidateTriggerConfig: vi.fn(),

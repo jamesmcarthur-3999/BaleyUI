@@ -111,6 +111,15 @@ const config: Config = {
           '0%': { height: 'var(--radix-collapsible-content-height)' },
           '100%': { height: '0' },
         },
+        'surface-enter': {
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        shake: {
+          '0%, 100%': { transform: 'translateX(0)' },
+          '10%, 30%, 50%, 70%, 90%': { transform: 'translateX(-4px)' },
+          '20%, 40%, 60%, 80%': { transform: 'translateX(4px)' },
+        },
       },
       animation: {
         'slide-in-right': 'slide-in-from-right 200ms ease-out',
@@ -118,6 +127,8 @@ const config: Config = {
         'fade-slide-down': 'fade-slide-down 300ms ease-out',
         'collapsible-down': 'collapsible-down 200ms ease-out',
         'collapsible-up': 'collapsible-up 200ms ease-out',
+        'surface-enter': 'surface-enter 350ms ease-out',
+        shake: 'shake 500ms ease-in-out',
       },
     },
   },

@@ -10,10 +10,7 @@ const workspaceRoot = path.join(process.cwd(), '../..');
 
 const nextConfig: NextConfig = {
   images: {
-    remotePatterns: [
-      { protocol: 'https', hostname: 'img.clerk.com' },
-      { protocol: 'https', hostname: '*.clerk.accounts.dev' },
-    ],
+    remotePatterns: [],
   },
   experimental: {
     reactCompiler: true,
@@ -37,15 +34,15 @@ const nextConfig: NextConfig = {
     return config;
   },
   async headers() {
-    // CSP directives — allows Clerk, Vercel analytics, and inline styles (Next.js requires them)
+    // CSP directives — allows Vercel analytics and inline styles (Next.js requires them)
     const cspDirectives = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://*.clerk.accounts.dev",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "img-src 'self' data: blob: https://img.clerk.com https://*.clerk.accounts.dev",
+      "img-src 'self' data: blob:",
       "font-src 'self' https://fonts.gstatic.com",
-      "connect-src 'self' https://*.clerk.accounts.dev https://api.clerk.com https://*.neon.tech wss://*.neon.tech",
-      "frame-src 'self' https://challenges.cloudflare.com https://*.clerk.accounts.dev",
+      "connect-src 'self' https://*.neon.tech wss://*.neon.tech",
+      "frame-src 'self' https://challenges.cloudflare.com",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",

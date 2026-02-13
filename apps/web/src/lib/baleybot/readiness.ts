@@ -132,9 +132,9 @@ export function countCompleted(state: ReadinessState): { completed: number; tota
 }
 
 /**
- * Simplified tab set: Builder, Code, Test, Integrate
+ * Simplified tab set: Plan, Builder, Code, Test, Integrate
  */
-export type AdaptiveTab = 'visual' | 'code' | 'test' | 'integrate';
+export type AdaptiveTab = 'plan' | 'visual' | 'code' | 'test' | 'integrate';
 
 export interface RecommendedAction {
   dimension: ReadinessDimension;

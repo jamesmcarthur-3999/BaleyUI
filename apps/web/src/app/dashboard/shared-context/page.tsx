@@ -41,8 +41,9 @@ import { formatTimeAgo } from '@/lib/format';
 import type { FileReaderResult } from '@/hooks/useFileReader';
 import {
   BookOpen, Plus, Pencil, Trash2, Check, Upload, FileText,
-  Loader2, Sparkles, Search, PanelRightOpen, Zap, Pause,
+  Loader2, Sparkles, Search, PanelRightOpen, Zap, Pause, Palette,
 } from 'lucide-react';
+import { DesignPackagesTab } from '@/components/design-packages/DesignPackagesTab';
 
 // ============================================================================
 // CONSTANTS
@@ -469,7 +470,7 @@ export default function SharedContextPage() {
           Shared Context
         </span>
       }
-      description="Define workspace-wide knowledge that gets injected into every BaleyBot execution."
+      description="Manage workspace knowledge and design system packages."
       actions={
         <>
           <Button variant="outline" onClick={openCreate}>
@@ -483,6 +484,19 @@ export default function SharedContextPage() {
         </>
       }
     >
+      <Tabs defaultValue="context" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="context" className="gap-2">
+            <BookOpen className="h-3.5 w-3.5" />
+            Context Entries
+          </TabsTrigger>
+          <TabsTrigger value="design" className="gap-2">
+            <Palette className="h-3.5 w-3.5" />
+            Design Packages
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="context">
       <div className="grid gap-6 lg:grid-cols-[270px_minmax(0,1fr)]">
         {/* ================================================================ */}
         {/* LEFT SIDEBAR                                                     */}
@@ -1419,6 +1433,12 @@ export default function SharedContextPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+        </TabsContent>
+
+        <TabsContent value="design">
+          <DesignPackagesTab />
+        </TabsContent>
+      </Tabs>
     </PageShell>
   );
 }
