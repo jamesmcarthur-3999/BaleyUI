@@ -19,10 +19,10 @@ const envSchema = z.object({
   // Database
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 
-  // Authentication (Clerk)
-  CLERK_SECRET_KEY: z.string().optional(),
-  CLERK_WEBHOOK_SECRET: z.string().optional(),
-  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().optional(),
+  // Authentication (Better Auth)
+  BETTER_AUTH_SECRET: z.string().optional(),
+  BETTER_AUTH_URL: z.string().optional(),
+  NEXT_PUBLIC_BETTER_AUTH_URL: z.string().optional(),
 
   // Cron security
   CRON_SECRET: z.string().optional(),
@@ -87,9 +87,9 @@ function validateEnv() {
       return {
         DATABASE_URL: process.env.DATABASE_URL || '',
         NODE_ENV: 'development' as const,
-        CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
-        CLERK_WEBHOOK_SECRET: process.env.CLERK_WEBHOOK_SECRET,
-        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+        BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
+        BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
+        NEXT_PUBLIC_BETTER_AUTH_URL: process.env.NEXT_PUBLIC_BETTER_AUTH_URL,
         CRON_SECRET: process.env.CRON_SECRET,
         OPENAI_API_KEY: process.env.OPENAI_API_KEY,
         ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,

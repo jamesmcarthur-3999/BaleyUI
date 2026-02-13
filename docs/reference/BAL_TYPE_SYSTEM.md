@@ -416,6 +416,58 @@ analyzer {
 }
 ```
 
+## Validation Behavior of `array<object>`
+
+When using `array<object>` in BAL output blocks, the generated Zod schema is `z.array(z.record(z.string(), z.unknown()))`. This means:
+
+- **Inner fields are weakly typed** — the schema validates that items are objects, but doesn't enforce specific field names or types within each object
+- **The LLM doesn't know which fields are required** — since the schema only says "array of objects", the model may omit fields it considers optional
+- **Caller schemas must use `.default()` for non-critical fields** — when consuming `array<object>` output in TypeScript, add fallbacks:
+
+```typescript
+// BAL output: "suggestions": "array<object>"
+// Caller schema for consuming the output:
+const suggestionSchema = z.object({
+  name: z.string().min(1),                              // Required — no fallback
+  description: z.string().min(1),                       // Required — no fallback
+  id: z.string().default(() => crypto.randomUUID()),    // Has fallback
+  priority: z.string().default('medium'),               // Has fallback
+  tags: z.array(z.string()).default([]),                 // Has fallback
+});
+```
+
+Only keep strict validation (`.min(1)` without `.default()`) on truly unrecoverable fields like `name` or `balCode`.
+
+## Supported Type Combinations
+
+### Valid Nesting
+
+| Combination | Valid? | Notes |
+|-------------|--------|-------|
+| `array<string>` | Yes | Standard usage |
+| `array<number>` | Yes | Standard usage |
+| `array<boolean>` | Yes | Standard usage |
+| `array<object>` | Yes | Weakly typed — see section above |
+| `array<object { ... }>` | Yes | Strongly typed with named fields |
+| `array<enum(...)>` | Yes | Array of enum values |
+| `array<array<string>>` | Yes | Nested arrays |
+| `array<array<object>>` | Yes | Nested arrays of objects |
+| `?array<string>` | Yes | Optional array |
+| `?object { ... }` | Yes | Optional object |
+| `object { f: ?string }` | Yes | Object with optional field |
+| `object { f: array<object { ... }> }` | Yes | Deeply nested |
+
+### Not Supported
+
+| Combination | Notes |
+|-------------|-------|
+| `array<object{...}>` (no space) | Must have space: `array<object { ... }>` |
+| `enum(...)` as top-level output | Enums are field types, not standalone outputs |
+| `?type` at top-level output | Top-level output fields are always required |
+| `unknown` | Not a valid BAL type |
+
+---
+
 ## See Also
 
 - [BAL Language Reference](./BAL_LANGUAGE_REFERENCE.md) - Complete syntax reference

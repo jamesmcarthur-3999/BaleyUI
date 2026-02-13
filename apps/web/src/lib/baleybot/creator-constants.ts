@@ -8,6 +8,8 @@ import type { AdaptiveTab } from './creator-types';
 
 export const ADVANCED_EDITOR_TABS: AdaptiveTab[] = ['code'];
 export const POST_DESIGN_TABS: AdaptiveTab[] = ['test', 'integrate'];
+/** Tabs that are only visible when plan data exists */
+export const PLAN_TABS: AdaptiveTab[] = ['plan'];
 
 /**
  * Example prompts shown on the /new welcome view

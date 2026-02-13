@@ -29,8 +29,24 @@ const {
 // Module mocks
 // ============================================================================
 
-vi.mock('@clerk/nextjs/server', () => ({
-  auth: (...args: unknown[]) => mockAuth(...args),
+vi.mock('@/lib/auth/server', () => ({
+  auth: {
+    api: {
+      getSession: (...args: unknown[]) => {
+        const result = mockAuth(...args);
+        if (result && typeof result === 'object' && 'then' in result) {
+          return (result as Promise<{ userId: string | null }>).then((r) =>
+            r?.userId ? { user: { id: r.userId } } : null
+          );
+        }
+        return result?.userId ? { user: { id: result.userId } } : null;
+      },
+    },
+  },
+}));
+
+vi.mock('next/headers', () => ({
+  headers: vi.fn(() => Promise.resolve(new Headers())),
 }));
 
 vi.mock('@baleyui/db', () => ({

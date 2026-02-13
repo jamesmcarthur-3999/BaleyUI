@@ -7,7 +7,8 @@
  * Useful for polling as an alternative to SSE streaming.
  */
 
-import { auth } from '@clerk/nextjs/server';
+import { auth } from '@/lib/auth/server';
+import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { db, flowExecutions, blockExecutions, eq } from '@baleyui/db';
 import { createLogger } from '@/lib/logger';
@@ -24,7 +25,8 @@ export async function GET(
 
   try {
     // Authenticate the request
-    const { userId } = await auth();
+    const session = await auth.api.getSession({ headers: await headers() });
+    const userId = session?.user?.id ?? null;
     if (!userId) {
       return apiErrors.unauthorized();
     }

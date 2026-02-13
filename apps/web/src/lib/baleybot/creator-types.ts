@@ -443,6 +443,46 @@ export function createSession(
 }
 
 // ============================================================================
+// PLAN PREVIEW TYPES
+// ============================================================================
+
+/**
+ * Entity within a plan preview, before BAL code is generated.
+ */
+export interface PlannedEntity {
+  name: string;
+  purpose: string;
+  tools: string[];
+  model?: string;
+  icon?: string;
+}
+
+/**
+ * Connection requirement surfaced during planning.
+ */
+export interface PlannedConnection {
+  type: string;
+  name: string;
+  status: 'ready' | 'needs-setup' | 'missing';
+  requiredBy?: string[];
+}
+
+/**
+ * Data for the Plan Preview surface. Produced by the `present_plan` AI tool.
+ */
+export interface PlanPreviewData {
+  name: string;
+  description: string;
+  icon: string;
+  entities: PlannedEntity[];
+  topology: 'single' | 'chain' | 'parallel' | 'conditional' | 'loop' | 'mixed';
+  topologyDescription: string;
+  connections: PlannedConnection[];
+  complexity: 'simple' | 'moderate' | 'complex';
+  designRationale?: string;
+}
+
+// ============================================================================
 // TEST CASE TYPES
 // ============================================================================
 
@@ -484,6 +524,12 @@ export interface TestCase {
   durationMs?: number;
   failureCategory?: FailureCategory;
   matchStrategy?: 'exact' | 'contains' | 'semantic' | 'schema' | 'structured';
+  /** AI validation confidence (0-1) from test_validator */
+  validationConfidence?: number;
+  /** AI reasoning for pass/fail judgment */
+  validationReasoning?: string;
+  /** AI suggestions for improvement */
+  validationSuggestions?: string[];
 }
 
 // ============================================================================
@@ -556,6 +602,17 @@ export type CreatorStreamEvent =
   | {
       type: 'creator_navigate_tab';
       tab?: string;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_show_plan';
+      plan?: PlanPreviewData;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_show_surface';
+      surface?: string;
+      reason?: string;
       timestamp?: number;
     };
 

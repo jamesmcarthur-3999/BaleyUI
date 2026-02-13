@@ -1,5 +1,6 @@
 import { initTRPC, TRPCError } from '@trpc/server';
-import { auth } from '@clerk/nextjs/server';
+import { auth } from '@/lib/auth/server';
+import { headers } from 'next/headers';
 import superjson from 'superjson';
 import { db, notDeleted, workspaceMembers, eq, and, isNull } from '@baleyui/db';
 import { validateApiKey } from '@/lib/api/validate-api-key';
@@ -9,13 +10,13 @@ type WorkspaceRole = 'admin' | 'editor' | 'operator' | 'viewer';
 /**
  * Create tRPC context for each request.
  * Contains the database client and user info.
- * Supports both Clerk session auth and API key auth.
+ * Supports both Better Auth session auth and API key auth.
  */
 export const createTRPCContext = async (req?: Request) => {
-  // Try Clerk session auth first
-  const { userId } = await auth();
-  if (userId) {
-    return { db, userId, workspaceId: null as string | null, authMethod: 'session' as const };
+  // Try session auth first (Better Auth)
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (session?.user?.id) {
+    return { db, userId: session.user.id, workspaceId: null as string | null, authMethod: 'session' as const };
   }
 
   // Try API key auth if request is provided

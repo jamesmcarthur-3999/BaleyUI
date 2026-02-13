@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { trpc } from '@/lib/trpc/client';
-import { UserButton } from '@clerk/nextjs';
+import { authClient } from '@/lib/auth/client';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,6 +14,12 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ROUTES, isActiveRoute } from '@/lib/routes';
 import { cn } from '@/lib/utils';
 import {
@@ -31,6 +37,8 @@ import {
   PanelLeft,
   Menu,
   X,
+  LogOut,
+  User,
 } from 'lucide-react';
 
 // ============================================================================
@@ -66,7 +74,7 @@ const bottomNav: NavItem[] = [
 ];
 
 const adminNav: NavItem[] = [
-  { label: 'Admin Panel', href: ROUTES.admin.baleybots, icon: Shield },
+  { label: 'Admin Panel', href: ROUTES.admin.overview, icon: Shield },
 ];
 
 const COLLAPSED_KEY = 'sidebar-collapsed';
@@ -237,7 +245,7 @@ export function Sidebar() {
         </div>
 
         <div className={cn('flex items-center gap-2', collapsed ? 'flex-col' : 'justify-between')}>
-          <UserButton afterSignOutUrl="/" />
+          <UserMenu collapsed={collapsed} />
           <ThemeToggle />
         </div>
       </div>
@@ -285,6 +293,50 @@ export function Sidebar() {
         {sidebarContent}
       </aside>
     </TooltipProvider>
+  );
+}
+
+// ============================================================================
+// USER MENU
+// ============================================================================
+
+function UserMenu({ collapsed }: { collapsed: boolean }) {
+  const { data: sessionData } = authClient.useSession();
+
+  const handleSignOut = async () => {
+    await authClient.signOut();
+    window.location.href = '/';
+  };
+
+  const initials = sessionData?.user?.name
+    ? sessionData.user.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+    : '?';
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
+          <div className="h-7 w-7 rounded-full bg-gradient-to-br from-primary/15 to-accent/15 ring-1 ring-primary/20 flex items-center justify-center text-xs font-medium text-primary">
+            {initials}
+          </div>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={collapsed ? 'center' : 'start'} side="top" className="w-52">
+        <div className="px-2 py-1.5">
+          <p className="text-sm font-medium truncate">{sessionData?.user?.name || 'User'}</p>
+          <p className="text-xs text-muted-foreground truncate">{sessionData?.user?.email}</p>
+        </div>
+        <Separator className="my-1" />
+        <DropdownMenuItem onClick={() => window.location.href = ROUTES.settings.profile}>
+          <User className="mr-2 h-4 w-4" />
+          Profile
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={handleSignOut}>
+          <LogOut className="mr-2 h-4 w-4" />
+          Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

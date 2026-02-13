@@ -2,7 +2,7 @@
  * Shared Execution Stream Logic
  *
  * Creates SSE streams for real-time execution updates.
- * Used by both the Clerk-authenticated and API-key-authenticated routes.
+ * Used by both the session-authenticated and API-key-authenticated routes.
  */
 
 import { NextRequest } from 'next/server';

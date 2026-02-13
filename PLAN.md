@@ -265,6 +265,8 @@ To make internal BaleyBots work seamlessly, the architecture must be:
 
 #### Example: Model Advisor Bot
 
+> **Note:** This is a conceptual example from the original architecture vision. The actual internal bot system now uses BAL definitions + `executeInternalBaleybot()`. See `apps/web/src/lib/baleybot/internal-bb/` for the current implementation.
+
 ```typescript
 // Internal bot that suggests model optimizations
 const modelAdvisor = Baleybot.create({
@@ -617,6 +619,8 @@ BaleyUI/
 ```
 
 ### 1.3 Database Schema (Drizzle)
+
+> **Canonical source:** See `packages/db/src/schema.ts` for the current schema definition. The inline schema below is a historical snapshot and may be out of date.
 
 ```typescript
 // packages/db/src/schema.ts

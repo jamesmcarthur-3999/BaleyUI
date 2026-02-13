@@ -68,7 +68,7 @@ export async function streamPostSSE<TEvent = Record<string, unknown>>(
     throw new Error(text || `Streaming request failed (${response.status})`);
   }
 
-  // Detect HTML responses (e.g. Clerk auth redirect) before the SSE parser chokes
+  // Detect HTML responses (e.g. auth redirect) before the SSE parser chokes
   const contentType = response.headers.get('content-type') ?? '';
   if (contentType.includes('text/html')) {
     throw new Error(

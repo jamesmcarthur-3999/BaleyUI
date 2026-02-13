@@ -6,7 +6,7 @@
  * rather than capturing them from React component closures.
  */
 
-import type { CreatorStreamEvent, CreatorOutput } from './creator-types';
+import type { CreatorStreamEvent, CreatorOutput, PlanPreviewData } from './creator-types';
 import type { ReadinessState } from './readiness';
 import { streamPostSSE } from '@/lib/streaming/client-post-sse';
 
@@ -54,6 +54,8 @@ export interface CreatorStreamCallbacks {
   onTriggerSaved: (config: unknown) => void;
   onWebhookEnabled: (url: string, secret: string) => void;
   onNavigateTab: (tab: string) => void;
+  onShowPlan: (plan: PlanPreviewData) => void;
+  onShowSurface: (surface: string, reason?: string) => void;
   onSpecialistSignals: (signals: {
     connections?: boolean;
     tests?: boolean;
@@ -199,6 +201,20 @@ export async function runCreatorStream(
         if (event.type === 'creator_navigate_tab') {
           if (event.tab) {
             callbacks.onNavigateTab(event.tab);
+          }
+          return;
+        }
+
+        if (event.type === 'creator_show_plan') {
+          if (event.plan) {
+            callbacks.onShowPlan(event.plan);
+          }
+          return;
+        }
+
+        if (event.type === 'creator_show_surface') {
+          if (event.surface) {
+            callbacks.onShowSurface(event.surface, event.reason);
           }
           return;
         }

@@ -2,7 +2,7 @@ import { DashboardLayoutClient } from './DashboardLayoutClient';
 
 /**
  * Force dynamic rendering for all dashboard routes.
- * This prevents static generation errors when env vars (like Clerk keys) are missing.
+ * This prevents static generation errors when env vars are missing.
  */
 export const dynamic = 'force-dynamic';
 

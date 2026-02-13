@@ -24,6 +24,8 @@ export interface UseEditorNavigationArgs {
   readiness: ReadinessState;
   savedBaleybotId: string | null;
   isDesignReviewRequired: boolean;
+  /** When plan data exists, the plan tab is visible */
+  hasPlanData?: boolean;
 }
 
 export interface UseEditorNavigationResult {
@@ -48,7 +50,7 @@ export interface UseEditorNavigationResult {
 // ============================================================================
 
 export function useEditorNavigation(args: UseEditorNavigationArgs): UseEditorNavigationResult {
-  const { readiness, savedBaleybotId, isDesignReviewRequired } = args;
+  const { readiness, savedBaleybotId, isDesignReviewRequired, hasPlanData } = args;
   const { toast } = useToast();
 
   // -- State --
@@ -60,12 +62,16 @@ export function useEditorNavigation(args: UseEditorNavigationArgs): UseEditorNav
 
   // -- Derived --
   const showAdvancedUI = builderMode === 'advanced';
-  const availableTabs = computeAvailableTabs({
+  const baseTabs = computeAvailableTabs({
     readiness,
     savedBaleybotId,
     showAdvancedUI,
     isDesignReviewRequired,
   });
+  // Prepend plan tab when plan data exists
+  const availableTabs: AdaptiveTab[] = hasPlanData
+    ? ['plan' as AdaptiveTab, ...baseTabs.filter((t) => t !== 'plan')]
+    : baseTabs.filter((t) => t !== 'plan');
 
   // -------------------------------------------------------------------------
   // navigateToTab
@@ -102,14 +108,18 @@ export function useEditorNavigation(args: UseEditorNavigationArgs): UseEditorNav
       showAdvancedUI,
       isDesignReviewRequired,
     });
+    // Include plan tab in visibility check when data exists
+    const effectiveTabs: AdaptiveTab[] = hasPlanData
+      ? ['plan' as AdaptiveTab, ...visibleTabs.filter((t) => t !== 'plan')]
+      : visibleTabs.filter((t) => t !== 'plan');
     if (!showAdvancedUI && isAdvancedEditorTab(viewMode)) {
       setViewMode('visual');
       return;
     }
-    if (!visibleTabs.includes(viewMode)) {
+    if (!effectiveTabs.includes(viewMode)) {
       setViewMode('visual');
     }
-  }, [readiness, viewMode, showAdvancedUI, savedBaleybotId, isDesignReviewRequired]);
+  }, [readiness, viewMode, showAdvancedUI, savedBaleybotId, isDesignReviewRequired, hasPlanData]);
 
   // -------------------------------------------------------------------------
   // resetDesignGateReminder — called by page when isDesignConfirmed changes

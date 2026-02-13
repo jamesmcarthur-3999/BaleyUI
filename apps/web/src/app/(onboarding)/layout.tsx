@@ -1,4 +1,5 @@
-import { auth } from '@clerk/nextjs/server';
+import { auth } from '@/lib/auth/server';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { ROUTES } from '@/lib/routes';
 
@@ -7,9 +8,9 @@ export default async function OnboardingLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { userId } = await auth();
+  const session = await auth.api.getSession({ headers: await headers() });
 
-  if (!userId) {
+  if (!session?.user?.id) {
     redirect(ROUTES.auth.signIn);
   }
 

@@ -172,25 +172,11 @@ function titleFromSection(section) {
   }
 }
 
-function indentBody(body, prefix = '- ') {
-  const lines = body
+function formatBody(body) {
+  return body
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean);
-
-  if (lines.length === 0) {
-    return [];
-  }
-
-  const formatted = [];
-  lines.forEach((line, index) => {
-    if (index === 0) {
-      formatted.push(`${prefix}${line}`);
-    } else {
-      formatted.push(`  ${line}`);
-    }
-  });
-  return formatted;
 }
 
 function buildGoal(spec, contract, resolvedSkills) {
@@ -200,22 +186,16 @@ function buildGoal(spec, contract, resolvedSkills) {
   lines.push(`Outcome: ${spec.description}`);
   lines.push('');
 
-  lines.push('Inputs Available:');
-  for (const input of spec.inputs) {
-    lines.push(`- ${input}`);
-  }
-  lines.push('');
-
   lines.push('Decision Policy:');
   for (const policyLine of spec.decisionPolicy) {
     lines.push(`- ${policyLine}`);
   }
-  lines.push(`- Uncertainty policy: ${spec.uncertaintyPolicy}`);
+  lines.push(`- ${spec.uncertaintyPolicy}`);
   lines.push('');
 
   const hasOutput = contract.output && Object.keys(contract.output).length > 0;
   if (hasOutput) {
-    lines.push(`Output Contract: ${contract.id}`);
+    lines.push('Output:');
     lines.push('- Return exactly one JSON object matching this key/type map:');
     for (const [key, value] of Object.entries(contract.output)) {
       lines.push(`  - ${key}: ${value}`);
@@ -225,10 +205,9 @@ function buildGoal(spec, contract, resolvedSkills) {
       lines.push(`  - ${rule}`);
     }
   } else {
-    lines.push(`Communication Contract: ${contract.id}`);
-    lines.push('- Contract rules:');
+    lines.push('Rules:');
     for (const rule of contract.rules) {
-      lines.push(`  - ${rule}`);
+      lines.push(`- ${rule}`);
     }
   }
   lines.push('');
@@ -251,10 +230,9 @@ function buildGoal(spec, contract, resolvedSkills) {
 
     lines.push(`${titleFromSection(section)}:`);
     for (const skill of sectionSkills) {
-      lines.push(`- Skill: ${skill.id}@${skill.version}`);
-      lines.push(...indentBody(skill.body));
+      lines.push(...formatBody(skill.body));
+      lines.push('');
     }
-    lines.push('');
   }
 
   return lines.join('\n').trim();

@@ -8,7 +8,8 @@
  * generate webhook secrets as side effects.
  */
 
-import { auth } from '@clerk/nextjs/server';
+import { auth } from '@/lib/auth/server';
+import { headers } from 'next/headers';
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { db, baleybots, baleybotTriggers, eq, and, notDeleted, updateWithLock } from '@baleyui/db';
@@ -47,7 +48,8 @@ export async function POST(
   const requestId = req.headers.get('x-request-id') ?? undefined;
 
   try {
-    const { userId } = await auth();
+    const session = await auth.api.getSession({ headers: await headers() });
+    const userId = session?.user?.id ?? null;
     if (!userId) {
       return apiErrors.unauthorized();
     }

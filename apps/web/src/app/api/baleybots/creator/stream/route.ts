@@ -5,7 +5,8 @@
  * The concierge BB streams natural conversation text directly to the user.
  */
 
-import { auth } from '@clerk/nextjs/server';
+import { auth } from '@/lib/auth/server';
+import { headers } from 'next/headers';
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { db } from '@baleyui/db';
@@ -90,7 +91,8 @@ export async function POST(req: NextRequest) {
   const requestId = req.headers.get('x-request-id') ?? undefined;
 
   try {
-    const { userId } = await auth();
+    const session = await auth.api.getSession({ headers: await headers() });
+    const userId = session?.user?.id ?? null;
     if (!userId) {
       return apiErrors.unauthorized();
     }

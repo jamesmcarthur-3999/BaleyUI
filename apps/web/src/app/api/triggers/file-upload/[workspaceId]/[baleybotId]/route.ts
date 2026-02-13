@@ -18,7 +18,8 @@ import {
   eq,
   notDeleted,
 } from '@baleyui/db';
-import { auth } from '@clerk/nextjs/server';
+import { auth } from '@/lib/auth/server';
+import { headers } from 'next/headers';
 import { createLogger } from '@/lib/logger';
 import { executeBaleybot } from '@/lib/baleybot/executor';
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
@@ -110,7 +111,8 @@ export async function POST(
   const requestId = crypto.randomUUID();
 
   // Authenticate: require session auth or API key
-  const { userId } = await auth();
+  const session = await auth.api.getSession({ headers: await headers() });
+  const userId = session?.user?.id ?? null;
   if (!userId) {
     // Try API key auth
     const authHeader = request.headers.get('authorization');

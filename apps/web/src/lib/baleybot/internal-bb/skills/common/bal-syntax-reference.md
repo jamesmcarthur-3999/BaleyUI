@@ -1,7 +1,7 @@
 ---
 id: bal_syntax_reference
-version: 1
-appliesTo: creator_bot, bal_generator
+version: 2
+appliesTo: bal_generator
 section: output_rules
 ---
 Single source of truth for BAL syntax. All generated balCode MUST follow these rules exactly.

@@ -48,7 +48,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowLeft, LayoutGrid, Code2, MessageSquare, PanelRight, FlaskConical, Rocket } from 'lucide-react';
+import { ArrowLeft, LayoutGrid, Code2, MessageSquare, PanelRight, FlaskConical, Rocket, ClipboardList } from 'lucide-react';
 
 function PanelSkeleton() {
   return (
@@ -70,10 +70,20 @@ const AdaptiveTestSurface = dynamic(
   () => import('@/components/test').then(mod => ({ default: mod.AdaptiveTestSurface })),
   { ssr: false, loading: () => <PanelSkeleton /> }
 );
+const PlanPreview = dynamic(
+  () => import('@/components/plan').then(mod => ({ default: mod.PlanPreview })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const TestSuitePanel = dynamic(
+  () => import('@/components/test').then(mod => ({ default: mod.TestSuitePanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+// TestAnalysis type is used internally by TestSuitePanel via useTestStream
 import { analyzeBotCapabilities } from '@/lib/baleybot/capabilities';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
 import { useDirtyState, useNavigationGuard, useHistory, useBaleybotPersistence, useSessionRecovery, useEditorNavigation, useReadiness } from '@/hooks';
+import { useTestStream } from '@/hooks/use-test-stream';
 import { parseCreatorError } from '@/lib/errors/creator-errors';
 import { safeParseDate } from '@/lib/utils/date';
 import { cn } from '@/lib/utils';
@@ -86,6 +96,7 @@ import type {
   CreationStatus,
   AdaptiveTab,
   HistoryState,
+  PlanPreviewData,
 } from '@/lib/baleybot/creator-types';
 import type { ReadinessState } from '@/lib/baleybot/readiness';
 import type { GraphRuntimeEvent } from '@/lib/streaming/types/events';
@@ -180,8 +191,12 @@ export default function BaleybotPage() {
   const [triggerConfig, setTriggerConfig] = useState<TriggerConfigType | undefined>(undefined);
   const [webhookInfo, setWebhookInfo] = useState<{ url: string; secret: string } | null>(null);
 
+  // -- Plan Preview --
+  const [planData, setPlanData] = useState<PlanPreviewData | null>(null);
+
   // -- Test Cases --
   const [testCases, setTestCases] = useState<TestCase[]>([]);
+  const [isRegeneratingTests, setIsRegeneratingTests] = useState(false);
 
   // -- Confirmation Dialogs --
   const [showGoLiveDialog, setShowGoLiveDialog] = useState(false);
@@ -306,6 +321,7 @@ export default function BaleybotPage() {
     readiness,
     savedBaleybotId,
     isDesignReviewRequired,
+    hasPlanData: planData !== null,
   });
 
   // Wire up the ref to break circular dep (useReadiness needs this, useEditorNavigation provides it)
@@ -385,6 +401,7 @@ export default function BaleybotPage() {
   const pauseLiveBotMutation = trpc.baleybots.pauseLiveBot.useMutation();
   const revertToDraftMutation = trpc.baleybots.revertToDraft.useMutation();
   const saveTestCasesMutation = trpc.baleybots.saveTestCases.useMutation();
+  const generateTestsMutation = trpc.baleybots.generateTests.useMutation();
 
   // Normalize workspace connections once for ConnectionsPanel
   const normalizedConnections = workspaceConnections?.map(c => ({
@@ -463,8 +480,20 @@ export default function BaleybotPage() {
     : undefined;
 
   // =====================================================================
-  // TEST EXECUTION HOOK
+  // TEST EXECUTION HOOK (streaming SSE)
   // =====================================================================
+
+  const testStream = useTestStream(savedBaleybotId ?? '');
+
+  // Sync fix_applied BAL code changes back to editor state
+  const latestBalCodeFromFix = testStream.latestBalCode;
+  const prevLatestBalCodeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (latestBalCodeFromFix && latestBalCodeFromFix !== prevLatestBalCodeRef.current) {
+      prevLatestBalCodeRef.current = latestBalCodeFromFix;
+      setBalCode(latestBalCodeFromFix);
+    }
+  }, [latestBalCodeFromFix]);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by test execution feedback injection (planned)
   const injectMessage = (message: CreatorMessage) => {
@@ -602,6 +631,21 @@ export default function BaleybotPage() {
                 description: 'The AI assistant navigated here to show you something relevant.',
               });
               setLastAINavigatedTab(tab);
+              setTimeout(() => setLastAINavigatedTab(null), 3000);
+            },
+            onShowPlan: (plan) => {
+              setPlanData(plan);
+              navigateToTab('plan' as AdaptiveTab, { bypassDesignGate: true });
+            },
+            onShowSurface: (surface, reason) => {
+              navigateToTab(surface as AdaptiveTab, { bypassDesignGate: true });
+              if (reason) {
+                toast({
+                  title: `Switched to ${surface.charAt(0).toUpperCase() + surface.slice(1)}`,
+                  description: reason,
+                });
+              }
+              setLastAINavigatedTab(surface);
               setTimeout(() => setLastAINavigatedTab(null), 3000);
             },
             onSpecialistSignals: (signals) => setSpecialistSignals(prev => ({
@@ -778,6 +822,61 @@ export default function BaleybotPage() {
         description: error instanceof Error ? error.message : 'Unknown error',
         variant: 'destructive',
       });
+    }
+  };
+
+  // =====================================================================
+  // TEST SUITE HANDLERS
+  // =====================================================================
+
+  const handleRunAllTests = () => {
+    if (!savedBaleybotId || testCases.length === 0) return;
+    testStream.startTestRun(testCases);
+  };
+
+  const handleRegenerateTests = async () => {
+    if (!savedBaleybotId) return;
+    setIsRegeneratingTests(true);
+    try {
+      const result = await generateTestsMutation.mutateAsync({
+        baleybotId: savedBaleybotId,
+        balCode,
+        entities: entities.map(e => ({ name: e.name, tools: e.tools, purpose: e.purpose })),
+      });
+
+      if (result.tests) {
+        const newCases: TestCase[] = (result.tests as Array<Record<string, unknown>>).map((tc, i) => ({
+          id: (tc.id as string) ?? crypto.randomUUID(),
+          name: (tc.name as string) ?? `Test ${i + 1}`,
+          level: ((tc.level as string) ?? 'unit') as TestCase['level'],
+          input: (tc.input as string) ?? '',
+          expectedOutput: (tc.expectedOutput as string) ?? undefined,
+          matchStrategy: (tc.matchStrategy as TestCase['matchStrategy']) ?? 'semantic',
+          description: (tc.description as string) ?? undefined,
+          status: 'pending' as const,
+        }));
+        setTestCases(newCases);
+
+        // Persist the generated tests
+        saveTestCasesMutation.mutate({ id: savedBaleybotId, testCases: newCases });
+
+        // Auto-trigger streaming test run after generation
+        if (newCases.length > 0) {
+          setViewMode('test');
+          // Small delay to let state settle before starting stream
+          setTimeout(() => {
+            testStream.startTestRun(newCases);
+          }, 100);
+        }
+      }
+    } catch (error) {
+      toast({
+        title: 'Test generation failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRegeneratingTests(false);
     }
   };
 
@@ -1454,6 +1553,7 @@ export default function BaleybotPage() {
                   <TabsList className="h-9 bg-muted/50">
                     {availableTabs.map((tab) => {
                       const tabConfig: Record<AdaptiveTab, { icon: React.ReactNode; label: string }> = {
+                        plan: { icon: <ClipboardList className="h-3.5 w-3.5" />, label: 'Plan' },
                         visual: { icon: <LayoutGrid className="h-3.5 w-3.5" />, label: 'Builder' },
                         code: { icon: <Code2 className="h-3.5 w-3.5" />, label: 'Code' },
                         test: { icon: <FlaskConical className="h-3.5 w-3.5" />, label: 'Test' },
@@ -1507,6 +1607,20 @@ export default function BaleybotPage() {
                     </div>
                   }
                 >
+                  {/* Plan Preview */}
+                  {viewMode === 'plan' && planData && (
+                    <PlanPreview
+                      plan={planData}
+                      onApprove={() => handleSendMessage('I approve the plan. Go ahead and build it.')}
+                      onRevise={() => {
+                        navigateToTab('plan' as AdaptiveTab);
+                        setMobileView('chat');
+                      }}
+                      isStreaming={isStreaming}
+                      className="h-full"
+                    />
+                  )}
+
                   {/* Visual Editor View */}
                   {viewMode === 'visual' && (
                     <div className="h-full flex flex-col gap-3">
@@ -1542,42 +1656,67 @@ export default function BaleybotPage() {
 
                   {/* Test View */}
                   {viewMode === 'test' && savedBaleybotId && (
-                    <AdaptiveTestSurface
-                      baleybotId={savedBaleybotId}
-                      capabilities={analyzeBotCapabilities(balCode, entities, connections, triggerConfig)}
-                      botName={name}
-                      botIcon={icon}
-                      onFetchExecutionDetails={async (executionId) => {
-                        const executions = await utils.analytics.getBaleybotExecutions.fetch({
-                          baleybotId: savedBaleybotId,
-                          limit: 1,
-                        });
-                        const exec = executions?.find(e => e.id === executionId);
-                        if (!exec) return null;
-                        return { tokenCount: exec.tokenCount, estimatedCost: exec.estimatedCost };
-                      }}
-                      onExecutionComplete={(result) => {
-                        const newCase: TestCase = {
-                          id: result.executionId ?? crypto.randomUUID(),
-                          name: `Test run ${testCases.length + 1}`,
-                          level: 'integration',
-                          input: '',
-                          status: result.success ? 'passed' : 'failed',
-                          durationMs: result.durationMs,
-                        };
-                        const updatedCases = [...testCases, newCase];
-                        setTestCases(updatedCases);
-                        // Auto-persist test results so Go Live readiness check sees them
-                        if (savedBaleybotId) {
-                          saveTestCasesMutation.mutate(
-                            { id: savedBaleybotId, testCases: updatedCases },
-                            { onSuccess: () => refetchLaunchReadiness() },
-                          );
-                        }
-                        utils.baleybots.getCreatorGuidance.invalidate();
-                        injectAdvisorSuggestions('Test complete');
-                      }}
-                    />
+                    <div className="h-full overflow-y-auto space-y-4">
+                      {/* AI-Driven Streaming Test Suite */}
+                      <TestSuitePanel
+                        testCases={testCases}
+                        testStates={testStream.testStates}
+                        streamPhase={testStream.streamPhase}
+                        overallProgress={testStream.overallProgress}
+                        activeTestId={testStream.activeTestId}
+                        analysis={testStream.analysis}
+                        fixAttempts={testStream.fixAttempts}
+                        onRunAll={handleRunAllTests}
+                        onCancel={testStream.cancelTestRun}
+                        onRegenerate={handleRegenerateTests}
+                        onStopAutoFix={testStream.cancelTestRun}
+                        isRegenerating={isRegeneratingTests}
+                      />
+
+                      {/* Divider */}
+                      <div className="border-t border-border/30" />
+
+                      {/* Manual Testing */}
+                      <div>
+                        <h3 className="text-sm font-medium text-muted-foreground mb-2">Manual Testing</h3>
+                        <AdaptiveTestSurface
+                          baleybotId={savedBaleybotId}
+                          capabilities={analyzeBotCapabilities(balCode, entities, connections, triggerConfig)}
+                          botName={name}
+                          botIcon={icon}
+                          onFetchExecutionDetails={async (executionId) => {
+                            const executions = await utils.analytics.getBaleybotExecutions.fetch({
+                              baleybotId: savedBaleybotId,
+                              limit: 1,
+                            });
+                            const exec = executions?.find(e => e.id === executionId);
+                            if (!exec) return null;
+                            return { tokenCount: exec.tokenCount, estimatedCost: exec.estimatedCost };
+                          }}
+                          onExecutionComplete={(result) => {
+                            const newCase: TestCase = {
+                              id: result.executionId ?? crypto.randomUUID(),
+                              name: `Test run ${testCases.length + 1}`,
+                              level: 'integration',
+                              input: '',
+                              status: result.success ? 'passed' : 'failed',
+                              durationMs: result.durationMs,
+                            };
+                            const updatedCases = [...testCases, newCase];
+                            setTestCases(updatedCases);
+                            // Auto-persist test results so Go Live readiness check sees them
+                            if (savedBaleybotId) {
+                              saveTestCasesMutation.mutate(
+                                { id: savedBaleybotId, testCases: updatedCases },
+                                { onSuccess: () => refetchLaunchReadiness() },
+                              );
+                            }
+                            utils.baleybots.getCreatorGuidance.invalidate();
+                            injectAdvisorSuggestions('Test complete');
+                          }}
+                        />
+                      </div>
+                    </div>
                   )}
 
                   {/* Integrate / Monitor View */}

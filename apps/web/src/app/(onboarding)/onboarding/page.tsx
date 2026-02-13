@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser } from '@clerk/nextjs';
+import { authClient } from '@/lib/auth/client';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,7 @@ import {
   Check,
   Key,
 } from 'lucide-react';
+import { DesignCalibrationWizard } from '@/components/design-packages/DesignCalibrationWizard';
 import {
   Select,
   SelectContent,
@@ -27,11 +28,12 @@ import {
 } from '@/components/ui/select';
 import { ROUTES } from '@/lib/routes';
 
-type Step = 'welcome' | 'create' | 'connect-ai';
+type Step = 'welcome' | 'create' | 'connect-ai' | 'design-calibration';
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { user } = useUser();
+  const { data: sessionData } = authClient.useSession();
+  const user = sessionData?.user;
   const { toast } = useToast();
   const [workspaceName, setWorkspaceName] = useState('');
   const [step, setStep] = useState<Step>('welcome');
@@ -50,8 +52,9 @@ export default function OnboardingPage() {
     return null;
   }
 
-  const defaultName = user?.firstName
-    ? `${user.firstName}'s Workspace`
+  const firstName = user?.name?.split(' ')[0];
+  const defaultName = firstName
+    ? `${firstName}'s Workspace`
     : 'My Workspace';
 
   const handleCreate = async () => {
@@ -91,7 +94,7 @@ export default function OnboardingPage() {
         title: 'AI provider connected!',
         description: `${aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'} is ready to use.`,
       });
-      router.push(ROUTES.baleybots.list);
+      setStep('design-calibration');
     } catch (error) {
       toast({
         title: 'Connection Failed',
@@ -107,6 +110,18 @@ export default function OnboardingPage() {
     toast({
       title: 'Skipped AI setup',
       description: "You'll need to connect an AI provider before creating your first BaleyBot.",
+    });
+    setStep('design-calibration');
+  };
+
+  const handleSkipDesign = () => {
+    router.push(ROUTES.baleybots.list);
+  };
+
+  const handleDesignComplete = () => {
+    toast({
+      title: 'Design package saved!',
+      description: 'Your brand design will be applied to your apps.',
     });
     router.push(ROUTES.baleybots.list);
   };
@@ -130,7 +145,7 @@ export default function OnboardingPage() {
             </div>
           </div>
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
-            Welcome{user?.firstName ? `, ${user.firstName}` : ''}!
+            Welcome{firstName ? `, ${firstName}` : ''}!
           </h1>
           <p className="text-lg text-muted-foreground max-w-md mx-auto">
             Let&apos;s get you set up with BaleyUI. It only takes a moment.
@@ -230,6 +245,7 @@ export default function OnboardingPage() {
           <div className="h-2 w-2 rounded-full bg-primary" />
           <div className="h-2 w-2 rounded-full bg-primary" />
           <div className="h-2 w-2 rounded-full bg-muted" />
+          <div className="h-2 w-2 rounded-full bg-muted" />
         </div>
       </div>
     );
@@ -298,8 +314,30 @@ export default function OnboardingPage() {
           </button>
         </div>
 
-        {/* Progress indicator - 3 dots */}
+        {/* Progress indicator - 4 dots */}
         <div className="flex items-center justify-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-primary" />
+          <div className="h-2 w-2 rounded-full bg-primary" />
+          <div className="h-2 w-2 rounded-full bg-primary" />
+          <div className="h-2 w-2 rounded-full bg-muted" />
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'design-calibration') {
+    return (
+      <div className="w-full max-w-5xl mx-4 animate-fade-in">
+        <div className="rounded-2xl border border-border bg-card overflow-hidden" style={{ height: '80vh', maxHeight: '800px' }}>
+          <DesignCalibrationWizard
+            onComplete={handleDesignComplete}
+            onSkip={handleSkipDesign}
+          />
+        </div>
+
+        {/* Progress indicator - 4 dots */}
+        <div className="flex items-center justify-center gap-2 mt-6">
+          <div className="h-2 w-2 rounded-full bg-primary" />
           <div className="h-2 w-2 rounded-full bg-primary" />
           <div className="h-2 w-2 rounded-full bg-primary" />
           <div className="h-2 w-2 rounded-full bg-primary" />

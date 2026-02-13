@@ -1,12 +1,11 @@
 import type { Metadata } from 'next';
-import { ClerkProvider } from '@clerk/nextjs';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
 
 /**
  * Force dynamic rendering for all routes.
- * This prevents static generation errors when env vars (like Clerk keys) are missing at build time.
+ * This prevents static generation errors when env vars are missing at build time.
  */
 export const dynamic = 'force-dynamic';
 
@@ -43,12 +42,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
-      <html lang="en" suppressHydrationWarning>
-        <body className={`${plusJakarta.variable} font-sans antialiased`}>
-          <Providers>{children}</Providers>
-        </body>
-      </html>
-    </ClerkProvider>
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${plusJakarta.variable} font-sans antialiased`}>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
   );
 }

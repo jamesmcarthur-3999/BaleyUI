@@ -1,42 +1,46 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { getSessionCookie } from 'better-auth/cookies';
 
-const isPublicRoute = createRouteMatcher([
-  '/',
-  '/sign-in(.*)',
-  '/sign-up(.*)',
-  '/api/webhooks(.*)',
-  '/api/health',
-]);
+// Public routes that don't require authentication
+const publicPaths = ['/', '/sign-in', '/sign-up', '/api/webhooks', '/api/health', '/api/auth'];
 
-// Routes that support API key authentication (in addition to session auth)
-const isApiKeyRoute = createRouteMatcher([
-  '/api/baleybots(.*)',
-  '/api/trpc/baleybots(.*)',
-  '/api/v1(.*)',
-]);
+function isPublicRoute(pathname: string): boolean {
+  return publicPaths.some((path) => pathname === path || pathname.startsWith(path + '/') || pathname.startsWith(path + '?'));
+}
 
 // API routes handle their own auth (tRPC context, auth() checks, API key validation)
-// Skipping auth.protect() here prevents Clerk from returning HTML 404 on expired JWTs
-const isApiRoute = createRouteMatcher(['/api(.*)', '/trpc(.*)']);
+function isApiRoute(pathname: string): boolean {
+  return pathname.startsWith('/api') || pathname.startsWith('/trpc');
+}
 
-// Routes exempt from CSRF checks (use their own auth mechanisms)
-const isCsrfExempt = createRouteMatcher([
-  '/api/webhooks(.*)',    // Secret-based auth
-  '/api/baleybots(.*)',   // API key auth
-  '/api/v1(.*)',          // API key auth
-  '/api/cron(.*)',        // Bearer token auth
-  '/api/health',          // Public health check
-]);
+// Routes that support API key authentication
+function isApiKeyRoute(pathname: string): boolean {
+  return pathname.startsWith('/api/baleybots') || pathname.startsWith('/api/trpc/baleybots') || pathname.startsWith('/api/v1');
+}
 
-export default clerkMiddleware(async (auth, request) => {
-  // Add request ID for tracing (use existing header or generate new one)
+// Routes exempt from CSRF checks
+function isCsrfExempt(pathname: string): boolean {
+  return (
+    pathname.startsWith('/api/webhooks') ||
+    pathname.startsWith('/api/baleybots') ||
+    pathname.startsWith('/api/v1') ||
+    pathname.startsWith('/api/cron') ||
+    pathname.startsWith('/api/health') ||
+    pathname.startsWith('/api/auth')
+  );
+}
+
+export default async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Add request ID for tracing
   const requestId = request.headers.get('x-request-id') ?? globalThis.crypto.randomUUID();
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-request-id', requestId);
 
   // CSRF protection: validate Origin for mutation requests
-  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method) && !isCsrfExempt(request)) {
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method) && !isCsrfExempt(pathname)) {
     const origin = request.headers.get('origin');
     const referer = request.headers.get('referer');
     const host = request.headers.get('host');
@@ -57,7 +61,6 @@ export default clerkMiddleware(async (auth, request) => {
         );
       }
     } else if (referer && host) {
-      // Fallback: check Referer header when Origin is absent
       try {
         const refererHost = new URL(referer).host;
         if (refererHost !== host) {
@@ -73,7 +76,6 @@ export default clerkMiddleware(async (auth, request) => {
         );
       }
     } else if (host) {
-      // Neither Origin nor Referer present — block mutation
       return NextResponse.json(
         { error: 'Forbidden', requestId },
         { status: 403, headers: { 'x-request-id': requestId } }
@@ -82,11 +84,9 @@ export default clerkMiddleware(async (auth, request) => {
   }
 
   // Allow API key authenticated requests to pass through
-  // The route handlers will validate the API key
-  if (isApiKeyRoute(request)) {
+  if (isApiKeyRoute(pathname)) {
     const authHeader = request.headers.get('authorization');
     if (authHeader?.startsWith('Bearer bui_')) {
-      // API key present - skip Clerk auth, let route handler validate
       const apiKeyResponse = NextResponse.next({
         request: { headers: requestHeaders },
       });
@@ -95,8 +95,14 @@ export default clerkMiddleware(async (auth, request) => {
     }
   }
 
-  if (!isPublicRoute(request) && !isApiRoute(request)) {
-    await auth.protect();
+  // For protected non-API routes, check for session cookie
+  if (!isPublicRoute(pathname) && !isApiRoute(pathname)) {
+    const sessionCookie = getSessionCookie(request);
+    if (!sessionCookie) {
+      const signInUrl = new URL('/sign-in', request.url);
+      signInUrl.searchParams.set('redirect_url', pathname);
+      return NextResponse.redirect(signInUrl);
+    }
   }
 
   // Propagate request ID to response headers
@@ -105,7 +111,7 @@ export default clerkMiddleware(async (auth, request) => {
   });
   response.headers.set('x-request-id', requestId);
   return response;
-});
+}
 
 export const config = {
   matcher: [

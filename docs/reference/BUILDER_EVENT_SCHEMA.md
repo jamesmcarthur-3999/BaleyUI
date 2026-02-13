@@ -1,6 +1,6 @@
-# BaleyUI Event Schema
+# BaleyUI Builder Event Schema
 
-This document describes the event sourcing schema used throughout BaleyUI.
+This document describes the **builder/UI event sourcing schema** used for workspace collaboration, undo/redo, and audit logging. For BaleyBot execution streaming events, see [STREAMING_EVENT_SCHEMA.md](./STREAMING_EVENT_SCHEMA.md).
 
 ## Overview
 

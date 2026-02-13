@@ -61,6 +61,9 @@ const ALL_INTERNAL_BOTS = [
   'creator_action_advisor',
   'creator_bot',
   'deployment_advisor',
+  'design_analyzer',
+  'design_generator',
+  'design_refiner',
   'execution_reviewer',
   'integration_builder',
   'nl_to_sql_mysql',
@@ -95,9 +98,9 @@ describe('internal-baleybots', () => {
       }
     });
 
-    it('has exactly 19 internal bots', () => {
+    it('has exactly 22 internal bots', () => {
       const definedBots = Object.keys(INTERNAL_BALEYBOTS);
-      expect(definedBots).toHaveLength(19);
+      expect(definedBots).toHaveLength(22);
     });
 
     it.each(ALL_INTERNAL_BOTS)('%s has required fields (name, description, icon, balCode)', (botName) => {
@@ -204,8 +207,8 @@ describe('internal-baleybots', () => {
       expect(INTERNAL_BALEYBOTS.creator_bot!.balCode).toContain('anthropic:claude-sonnet-4-20250514');
     });
 
-    it('test_validator balCode specifies claude-sonnet model', () => {
-      expect(INTERNAL_BALEYBOTS.test_validator!.balCode).toContain('anthropic:claude-sonnet-4-20250514');
+    it('test_validator balCode specifies claude-haiku model (fast tier for per-test validation)', () => {
+      expect(INTERNAL_BALEYBOTS.test_validator!.balCode).toContain('anthropic:claude-haiku-4-5-20251001');
     });
 
     it('creator_action_advisor output keeps structured actions typing', () => {
@@ -215,7 +218,7 @@ describe('internal-baleybots', () => {
     it('creator_bot has no output block (conversational mode)', () => {
       const balCode = INTERNAL_BALEYBOTS.creator_bot!.balCode;
       expect(balCode).not.toContain('"output"');
-      expect(balCode).toContain('Communication Contract: creator_bot_v2');
+      expect(balCode).toContain('Rules:');
     });
 
     it('creator_bot BAL contains maxTokens', () => {
@@ -225,8 +228,7 @@ describe('internal-baleybots', () => {
 
     it('creator_bot goal emphasizes spawn delegation over direct BAL generation', () => {
       const balCode = INTERNAL_BALEYBOTS.creator_bot!.balCode;
-      expect(balCode).toContain('NEVER generate BAL code yourself');
-      expect(balCode).toContain("spawn_baleybot('bal_generator'");
+      expect(balCode).toContain("delegate BAL code generation to spawn_baleybot('bal_generator'");
     });
   });
 

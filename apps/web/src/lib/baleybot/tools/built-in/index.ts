@@ -494,7 +494,7 @@ export interface BuiltInToolContext {
   baleybotId: string;
   /** Execution UUID - must be a valid UUID from the baleybot_executions table */
   executionId: string;
-  /** User ID from authentication provider (e.g., Clerk) */
+  /** User ID from authentication provider */
   userId?: string;
 }
 

@@ -80,8 +80,24 @@ vi.mock('@/lib/logger', () => ({
   }),
 }));
 
-vi.mock('@clerk/nextjs/server', () => ({
-  auth: () => mockAuth(),
+vi.mock('@/lib/auth/server', () => ({
+  auth: {
+    api: {
+      getSession: () => {
+        const result = mockAuth();
+        if (result && typeof result === 'object' && 'then' in result) {
+          return (result as Promise<{ userId: string | null }>).then((r) =>
+            r?.userId ? { user: { id: r.userId } } : null
+          );
+        }
+        return result?.userId ? { user: { id: result.userId } } : null;
+      },
+    },
+  },
+}));
+
+vi.mock('next/headers', () => ({
+  headers: vi.fn(() => Promise.resolve(new Headers())),
 }));
 
 vi.mock('@/lib/api/validate-api-key', () => ({

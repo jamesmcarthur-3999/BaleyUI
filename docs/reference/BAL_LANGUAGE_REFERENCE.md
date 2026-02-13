@@ -107,7 +107,7 @@ List of tools the entity can use.
 ```bal
 researcher {
   "goal": "Research the given topic",
-  "tools": ["web_search", "fetch_url"]
+  "tools": { "web_search", "fetch_url" }
 }
 ```
 
@@ -297,6 +297,85 @@ loop ("until": "result.quality > 0.9", "max": 5) {
   improver
 }
 ```
+
+### try / catch
+
+Handle errors gracefully with optional retry logic.
+
+```bal
+try ("retries": 3) {
+  risky_processor
+} catch {
+  fallback_handler
+}
+```
+
+- The `try` block executes the inner entity/composition
+- If it fails, the `catch` block runs instead
+- `retries` specifies how many times to retry before falling through to catch
+
+### route
+
+Multi-way routing based on a classifier entity's output.
+
+```bal
+classifier {
+  "goal": "Classify the input type",
+  "output": { "type": "enum('sales', 'support', 'billing')" }
+}
+
+sales_handler { "goal": "Handle sales inquiries" }
+support_handler { "goal": "Handle support requests" }
+billing_handler { "goal": "Handle billing questions" }
+
+route(classifier) {
+  "sales": sales_handler,
+  "support": support_handler,
+  "billing": billing_handler
+}
+```
+
+- The classifier entity runs first and produces a routing key
+- The matching handler is executed based on the classifier's output
+
+### gate
+
+Conditional gate — only executes the inner block if the condition is true.
+
+```bal
+gate("result.needsReview") {
+  reviewer
+}
+```
+
+- If the condition evaluates to true, the inner entity/composition executes
+- If false, the gate is skipped and execution continues
+
+### filter
+
+Array filtering with a predicate — processes only matching items.
+
+```bal
+filter("item.score > 0.5") {
+  enricher
+}
+```
+
+- Filters an array from the previous result
+- Only items matching the predicate are passed to the inner entity
+
+### processor
+
+Data transformation and extraction between steps.
+
+```bal
+processor("extract") {
+  "result.data"
+}
+```
+
+- Reshapes or extracts data from the previous step's output
+- Useful for narrowing data between chain steps
 
 ### Nested Compositions
 
@@ -554,7 +633,7 @@ loop ("until": "result.done", "max": 10) {
 ```bal
 researcher {
   "goal": "Research the topic thoroughly using web search",
-  "tools": ["web_search", "fetch_url"],
+  "tools": { "web_search", "fetch_url" },
   "output": {
     "findings": "array<string>",
     "sources": "array<string>"
@@ -657,8 +736,25 @@ chain {
 
 ---
 
+## Advanced Properties (Executor-Only, Not Yet in BAL Syntax)
+
+The following properties are referenced in architecture plans and the executor but are **not yet supported in BAL syntax**. They cannot be used in `.bal` files — the lexer/parser will reject them.
+
+| Property | Intended Behavior | Status |
+|----------|------------------|--------|
+| `temperature` | Control model randomness (0.0-1.0) | Planned — executor supports via runtime config |
+| `reasoning` | Enable extended thinking (`"high"`, `"medium"`) | Planned — requires model support |
+| `stopWhen` | Halt condition (e.g., `"stepCount:10"`) | Planned — executor loop logic |
+| `retries` | Auto-retry on failure (integer count) | Planned — `try/catch` composition covers this partially |
+| `can_request` | Tools the BB can request approval to use | Planned — approval flow exists, syntax doesn't |
+| `trigger` | Activation condition (cron, webhook, BB completion) | Planned — `schedule_task` tool covers this at runtime |
+
+These properties exist in executor-level configuration and can be set programmatically when calling `executeBALCode()`, but they have no BAL syntax representation yet.
+
+---
+
 ## See Also
 
 - [BAL Type System](./BAL_TYPE_SYSTEM.md) - Detailed type specification reference
-- [Built-in Tools Reference](../CLAUDE.md#built-in-tools-reference) - Complete tool documentation
+- [Built-in Tools Reference](../../CLAUDE.md#built-in-tools-reference) - Complete tool documentation
 - [Developer Guide](../guides/DEVELOPER_GUIDE.md) - Integration and API documentation

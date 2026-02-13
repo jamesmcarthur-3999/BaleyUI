@@ -46,10 +46,14 @@ export const ROUTES = {
   // Shared Context (workspace-level knowledge)
   sharedContext: '/dashboard/shared-context',
 
-  // Admin (internal BaleyBots management)
+  // Admin (system management)
   admin: {
+    overview: '/dashboard/admin',
     baleybots: '/dashboard/admin/baleybots',
     baleybot: (id: string) => `/dashboard/admin/baleybots/${id}`,
+    users: '/dashboard/admin/users',
+    user: (id: string) => `/dashboard/admin/users/${id}`,
+    sessions: '/dashboard/admin/sessions',
   },
 
   // Actions (recommendations hub)
@@ -64,6 +68,7 @@ export const ROUTES = {
   auth: {
     signIn: '/sign-in',
     signUp: '/sign-up',
+    forgotPassword: '/forgot-password',
   },
 
   // Onboarding

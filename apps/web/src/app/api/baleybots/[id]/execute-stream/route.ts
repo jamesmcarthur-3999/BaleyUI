@@ -6,12 +6,13 @@
  * Server-Sent Events stream for real-time BaleyBot execution.
  * Uses the SDK's streamBALExecution to execute BAL code and stream events.
  *
- * Authentication: Supports both Clerk session auth and API key auth.
+ * Authentication: Supports both session auth (Better Auth) and API key auth.
  * - Session auth: Automatically from cookies
  * - API key auth: Authorization: Bearer bui_live_xxx or bui_test_xxx
  */
 
-import { auth } from '@clerk/nextjs/server';
+import { auth } from '@/lib/auth/server';
+import { headers } from 'next/headers';
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import {
@@ -85,7 +86,8 @@ async function authenticateRequest(req: NextRequest): Promise<{
   authMethod: 'session' | 'api_key';
 } | null> {
   // Try session auth first
-  const { userId } = await auth();
+  const session = await auth.api.getSession({ headers: await headers() });
+  const userId = session?.user?.id ?? null;
   if (userId) {
     const workspace = await getAuthenticatedWorkspace(userId);
     if (workspace) {
