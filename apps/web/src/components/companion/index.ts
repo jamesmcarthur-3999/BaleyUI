@@ -8,7 +8,8 @@ export { CompanionContainer } from './CompanionContainer';
 export type { CompanionMode, CompanionState } from './CompanionContainer';
 
 export { ChatMode } from './ChatMode';
-export type { ChatMessage } from './ChatMode';
+// ChatMessage is now from the unified chat library
+export type { ChatMessage } from '@/components/chat';
 
 export { OrbMode } from './OrbMode';
 export type { OrbState, OrbActivity } from './OrbMode';

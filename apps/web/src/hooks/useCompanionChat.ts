@@ -3,6 +3,9 @@
  *
  * Manages state for the Baley companion assistant.
  * Sends messages via SSE to /api/companion/stream and parses streaming events.
+ *
+ * Produces ChatMessage objects with SDK-aligned StreamSegment[] for rendering
+ * via the unified chat component library.
  */
 
 'use client';
@@ -11,7 +14,8 @@ import { useState, useRef, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { useRouter } from 'next/navigation';
 import { useWorkspaceHealth } from './useWorkspaceHealth';
-import type { ChatMessage, ContentBlock } from '@/components/companion/ChatMode';
+import type { ChatMessage } from '@/components/chat';
+import type { StreamSegment } from '@baleybots/chat';
 
 interface PendingInput {
   executionId: string;
@@ -52,20 +56,28 @@ export function useCompanionChat() {
     setMessages((prev) =>
       prev.map((m) => {
         if (m.id !== assistantId) return m;
-        const blocks = [...(m.blocks ?? [])];
-        const lastBlock = blocks[blocks.length - 1];
-        if (lastBlock && lastBlock.type === 'text') {
-          blocks[blocks.length - 1] = {
-            ...lastBlock,
-            content: lastBlock.content + delta,
+        const segments = [...(m.segments ?? [])];
+        const lastSeg = segments[segments.length - 1];
+        if (lastSeg && lastSeg.type === 'text') {
+          // Append to existing text segment
+          segments[segments.length - 1] = {
+            ...lastSeg,
+            content: lastSeg.content + delta,
           };
         } else {
-          blocks.push({ type: 'text', content: delta });
+          // Create new text segment
+          segments.push({
+            type: 'text',
+            id: `text-${Date.now()}`,
+            timestamp: Date.now(),
+            content: delta,
+            isStreaming: true,
+          });
         }
         return {
           ...m,
           content: m.content + delta,
-          blocks,
+          segments,
         };
       })
     );
@@ -80,19 +92,19 @@ export function useCompanionChat() {
       role: 'user',
       content: message,
       timestamp: new Date(),
-      status: 'sent',
+      status: 'complete',
     };
     setMessages((prev) => [...prev, userMsg]);
 
-    // Create placeholder for assistant response with empty blocks
+    // Create placeholder for assistant response with empty segments
     const assistantId = `assistant-${Date.now()}`;
     const assistantMsg: ChatMessage = {
       id: assistantId,
       role: 'assistant',
       content: '',
-      blocks: [],
+      segments: [],
       timestamp: new Date(),
-      status: 'sending',
+      status: 'streaming',
     };
     setMessages((prev) => [...prev, assistantMsg]);
 
@@ -165,14 +177,16 @@ export function useCompanionChat() {
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (m.id !== assistantId) return m;
-                    const blocks: ContentBlock[] = [...(m.blocks ?? [])];
-                    blocks.push({
+                    const segments: StreamSegment[] = [...(m.segments ?? [])];
+                    segments.push({
                       type: 'tool_call',
                       id: event.toolCallId ?? `tool-${Date.now()}`,
-                      toolName: event.toolName ?? 'unknown',
+                      timestamp: Date.now(),
+                      name: event.toolName ?? 'unknown',
+                      args: undefined,
                       status: 'running',
                     });
-                    return { ...m, blocks };
+                    return { ...m, segments };
                   })
                 );
                 break;
@@ -187,24 +201,20 @@ export function useCompanionChat() {
                   router.push(event.result.path);
                 }
 
-                // Update matching tool_call block to complete
+                // Update matching tool_call segment to completed/failed
                 setMessages((prev) =>
                   prev.map((m) => {
                     if (m.id !== assistantId) return m;
-                    const blocks = (m.blocks ?? []).map((block) => {
+                    const segments = (m.segments ?? []).map((seg): StreamSegment => {
                       if (
-                        block.type === 'tool_call' &&
-                        block.toolName === event.toolName &&
-                        block.status === 'running'
+                        seg.type === 'tool_call' &&
+                        seg.name === event.toolName &&
+                        seg.status === 'running'
                       ) {
                         return {
-                          ...block,
-                          status: event.error ? ('error' as const) : ('complete' as const),
-                          result: event.result
-                            ? typeof event.result === 'string'
-                              ? event.result
-                              : JSON.stringify(event.result).substring(0, 500)
-                            : undefined,
+                          ...seg,
+                          status: event.error ? 'failed' : 'completed',
+                          result: event.result ?? undefined,
                           error: event.error
                             ? typeof event.error === 'string'
                               ? event.error
@@ -212,9 +222,9 @@ export function useCompanionChat() {
                             : undefined,
                         };
                       }
-                      return block;
+                      return seg;
                     });
-                    return { ...m, blocks };
+                    return { ...m, segments };
                   })
                 );
                 break;
@@ -232,15 +242,19 @@ export function useCompanionChat() {
 
               case 'companion_complete':
                 setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId
-                      ? {
-                          ...m,
-                          content: m.content || (event.output ?? ''),
-                          status: 'sent' as const,
-                        }
-                      : m
-                  )
+                  prev.map((m) => {
+                    if (m.id !== assistantId) return m;
+                    // Finalize: mark text segments as not streaming
+                    const segments = (m.segments ?? []).map((seg): StreamSegment =>
+                      seg.type === 'text' ? { ...seg, isStreaming: false } : seg
+                    );
+                    return {
+                      ...m,
+                      content: m.content || (event.output ?? ''),
+                      segments,
+                      status: 'complete' as const,
+                    };
+                  })
                 );
                 break;
 
