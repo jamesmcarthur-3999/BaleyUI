@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import {
   Bot,
   Activity,
+  Sparkles,
   Plug,
   Wrench,
   BarChart3,
@@ -49,6 +50,7 @@ interface NavItem {
 const mainNav: NavItem[] = [
   { label: 'BaleyBots', href: ROUTES.baleybots.list, icon: Bot },
   { label: 'Activity', href: ROUTES.activity.list, icon: Activity },
+  { label: 'Actions', href: ROUTES.actions.list, icon: Sparkles },
 ];
 
 const capabilitiesNav: NavItem[] = [

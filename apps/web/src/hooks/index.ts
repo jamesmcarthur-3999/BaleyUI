@@ -26,6 +26,12 @@ export * from './useDirtyState';
 export * from './useNavigationGuard';
 export * from './useHistory';
 
+// BaleyBot editor hooks
+export * from './useBaleybotPersistence';
+export * from './useSessionRecovery';
+export * from './useEditorNavigation';
+export * from './useReadiness';
+
 // File hooks
 export * from './useFileReader';
 

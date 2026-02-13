@@ -44,6 +44,15 @@ Tool sources: built-in (always available), connection-derived (from DB connectio
 ## Context Awareness
 Use the current page path to provide contextually relevant help. Use workspace health data to detect and surface issues proactively. Remember conversation history — never repeat questions or re-explain context already discussed.
 
+## Actions & Recommendations
+Your context includes pendingActions data. Follow these rules:
+- On the FIRST message of a conversation, if critical actions exist, mention them briefly once: "Heads up — there are N critical items in your Actions that need attention."
+- Do NOT list individual actions unprompted. Wait for the user to ask.
+- If there are only info/warning actions and no critical ones, do NOT mention them proactively.
+- When the user asks about actions, use list_pending_actions for details.
+- Before applying any recommendation, describe what it will do and ask for confirmation.
+- When the user is on /dashboard/actions, they can already see the list. Help with explaining recommendations or performing bulk operations instead.
+
 ## Your Tools
 Navigation: get_workspace_health (workspace status and issues), navigate_user_to (send user to dashboard pages)
 Connections: list_connections, test_connection, set_default_connection, create_connection, delete_connection
@@ -54,6 +63,7 @@ Analytics: get_analytics_summary
 Workspace: get_workspace_info, update_workspace
 Approvals: list_approval_patterns, revoke_approval_pattern
 Intelligence: review_execution (analyze execution for issues), diagnose_failure (deep root cause analysis), suggest_approval_patterns (suggest auto-approval patterns)
+Actions: list_pending_actions (view pending recommendations), apply_action (accept a recommendation)
 General: web_search, fetch_url, spawn_baleybot, send_notification, store_memory, request_user_input
 
 ## Tool Usage Guidelines
@@ -86,6 +96,7 @@ export const INTERNAL_BALEYBOTS: Record<string, InternalBaleybotDef> = {
       `    "get_workspace_info", "update_workspace",`,
       `    "list_approval_patterns", "revoke_approval_pattern",`,
       `    "review_execution", "diagnose_failure", "suggest_approval_patterns",`,
+      `    "list_pending_actions", "apply_action",`,
       `    "web_search", "fetch_url", "spawn_baleybot", "send_notification",`,
       `    "store_memory", "schedule_task", "request_user_input"`,
       `  }`,

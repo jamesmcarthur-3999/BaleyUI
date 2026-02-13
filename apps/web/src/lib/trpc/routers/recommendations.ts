@@ -13,6 +13,7 @@ import {
   approvalPatterns,
   baleybots,
   eq,
+  ne,
   and,
   lt,
   sql,
@@ -33,6 +34,7 @@ export const recommendationsRouter = router({
         sourceType: z.string().max(50).optional(),
         targetBaleybotId: uuidSchema.optional(),
         severity: z.enum(['info', 'warning', 'critical']).optional(),
+        excludeSeverity: z.enum(['info', 'warning', 'critical']).optional(),
         limit: z.number().int().min(1).max(100).optional().default(50),
         cursor: uuidSchema.optional(),
       }).optional()
@@ -51,6 +53,9 @@ export const recommendationsRouter = router({
       }
       if (input?.severity) {
         filters.push(eq(recommendations.severity, input.severity));
+      }
+      if (input?.excludeSeverity) {
+        filters.push(ne(recommendations.severity, input.excludeSeverity));
       }
 
       // Cursor-based pagination: fetch items older than the cursor's createdAt
@@ -277,7 +282,7 @@ export const recommendationsRouter = router({
       .where(eq(recommendations.workspaceId, ctx.workspace.id))
       .groupBy(recommendations.status);
 
-    const counts: Record<string, number> = {
+    const counts = {
       pending: 0,
       accepted: 0,
       rejected: 0,
@@ -285,9 +290,38 @@ export const recommendationsRouter = router({
     };
 
     for (const row of rows) {
-      counts[row.status] = row.count;
+      if (row.status in counts) {
+        counts[row.status as keyof typeof counts] = row.count;
+      }
     }
 
-    return counts;
+    // Severity breakdown for pending items (used by workspace health)
+    const severityRows = await ctx.db
+      .select({
+        severity: recommendations.severity,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(recommendations)
+      .where(
+        and(
+          eq(recommendations.workspaceId, ctx.workspace.id),
+          eq(recommendations.status, 'pending')
+        )
+      )
+      .groupBy(recommendations.severity);
+
+    const pendingBySeverity = {
+      info: 0,
+      warning: 0,
+      critical: 0,
+    };
+
+    for (const row of severityRows) {
+      if (row.severity in pendingBySeverity) {
+        pendingBySeverity[row.severity as keyof typeof pendingBySeverity] = row.count;
+      }
+    }
+
+    return { ...counts, pendingBySeverity };
   }),
 });

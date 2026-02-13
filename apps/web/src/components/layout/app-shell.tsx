@@ -13,6 +13,7 @@ import {
 } from '@/components/companion';
 import { Toaster } from '@/components/ui/toaster';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
+import { ActionsIndicator } from '@/components/actions/ActionsIndicator';
 import { Sidebar } from './sidebar';
 import { useBreadcrumbs } from './breadcrumb-context';
 import { useCompanionChat } from '@/hooks/useCompanionChat';
@@ -102,6 +103,7 @@ function AppShell({ children }: AppShellProps) {
                   <path d="m21 21-4.3-4.3" />
                 </svg>
               </Button>
+              <ActionsIndicator />
               <NotificationBell />
             </div>
           </div>

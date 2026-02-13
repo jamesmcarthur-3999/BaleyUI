@@ -1,218 +1,128 @@
-# Phase 3: Actions Hub
+# Phase 3: Actions Hub — AI-First Design
 
-**Status:** Pending Review
-**Dependencies:** Phase 1 (recommendations table), best after Phase 2 (so there's data to display)
-**Estimated Scope:** ~600 LOC across 5 new files + 3 modified files
+**Status:** Complete
+**Dependencies:** Phase 1 (recommendations table), Phase 2 (data producers)
+**Implemented:** 5 tasks across 4 new files + 7 modified files
 
 ## Overview
 
-The Actions Hub is the **core differentiating feature** of BaleyUI. It's a central page that aggregates all BB-generated recommendations, proposed fixes, and insights into an actionable feed. Users accept, reject, or dismiss items. It replaces the passive notification bell with an interactive, action-oriented system.
+The Actions Hub is the **core differentiating feature** of BaleyUI. Rather than a passive notification feed, it surfaces AI-generated recommendations as an actionable, prioritized interface. The design is AI-first: Baley (the companion assistant) is aware of pending actions and can manage them conversationally, while the `/dashboard/actions` page provides the visual hub.
 
 ---
 
-## 3.1 — Actions Hub Page (`/dashboard/actions`)
+## Implementation Summary
 
-### Route
+### Task 1: Baley Recommendation Awareness
 
-Create `apps/web/src/app/dashboard/actions/page.tsx`
+Baley's system prompt now includes pending critical actions on first message. The workspace health hook surfaces critical recommendation counts, and the companion's initial context mentions items requiring attention.
 
-### Layout
+**Files modified:**
+- `apps/web/src/hooks/useWorkspaceHealth.ts` — includes recommendation counts
+- `apps/web/src/lib/baleybot/tools/companion/index.ts` — registers action tools
 
-```
-┌─────────────────────────────────────────────────────┐
-│ Actions Hub                              [Filter ▾]  │
-├──────────┬──────────┬──────────┬───────────────────┤
-│ Pending  │ Applied  │ All      │                    │
-│ (12)     │ (34)     │ (58)     │                    │
-├──────────┴──────────┴──────────┴───────────────────┤
-│                                                      │
-│  ┌─────────────────────────────────────────────────┐ │
-│  │ 🔍 Pattern: Auto-approve "web_search" for...   │ │
-│  │ From: pattern_learner → research_bot            │ │
-│  │ Confidence: 92%              [Accept] [Reject]  │ │
-│  └─────────────────────────────────────────────────┘ │
-│                                                      │
-│  ┌─────────────────────────────────────────────────┐ │
-│  │ 🔧 Fix: Missing error handler in data_bot      │ │
-│  │ From: execution_reviewer · Critical             │ │
-│  │ [View Diff]                   [Apply] [Dismiss] │ │
-│  └─────────────────────────────────────────────────┘ │
-│                                                      │
-│  ┌─────────────────────────────────────────────────┐ │
-│  │ 📊 Insight: research_bot 2x slower than median  │ │
-│  │ From: execution_reviewer · Warning              │ │
-│  │                              [View] [Dismiss]   │ │
-│  └─────────────────────────────────────────────────┘ │
-│                                                      │
-│  [Load more...]                                      │
-└─────────────────────────────────────────────────────┘
-```
+### Task 2: Companion Action Tools
 
-### Filters
+Two new tools for Baley to manage recommendations conversationally:
 
-- **Status tabs:** Pending | Applied | All (default: Pending)
-- **Filter dropdown:**
-  - Source type: pattern_learner, execution_reviewer, analytics_interpreter, manual
-  - Severity: info, warning, critical
-  - Target bot: dropdown of workspace BBs
-- **Sort:** Most recent first (default), severity (critical first), confidence (highest first)
+| Tool | Purpose |
+|------|---------|
+| `list_pending_actions` | Lists pending recommendations with optional severity filter and SQL count |
+| `apply_action` | Applies safe actions directly; redirects to Actions page for code changes (bal_patch) |
 
-### Components
+**Guardrails:**
+- Code changes (`bal_patch`, `error_review` with hardening steps) redirect to the Actions page for visual diff review
+- Race condition protection via `status = 'pending'` WHERE clause on update
+- Approval patterns insert with `trustLevel: 'provisional'`
 
-| Component | File | Purpose |
-|---|---|---|
-| `ActionsHubPage` | `app/dashboard/actions/page.tsx` | Server component, page shell |
-| `ActionsHubContent` | `components/actions/ActionsHubContent.tsx` | Client component, tabs + filters + list |
-| `ActionCard` | `components/actions/ActionCard.tsx` | Single recommendation card |
-| `ActionDiffView` | `components/actions/ActionDiffView.tsx` | Split-view BAL diff for `bal_patch` type |
-| `ActionFilters` | `components/actions/ActionFilters.tsx` | Filter controls |
+**File:** `apps/web/src/lib/baleybot/tools/companion/actions.ts`
 
-### Data Fetching
+### Task 3: ActionCard Component
 
-Uses the `recommendations.list` tRPC procedure from Phase 1.1 with cursor-based pagination.
+A collapsible card that renders severity-specific styling, type-specific action buttons, and proposed action previews:
 
-### Actions
+| targetType | Primary Button | Preview |
+|------------|---------------|---------|
+| `approval_pattern` | "Accept Rule" | Natural language description of the pattern |
+| `bal_patch` | "Apply Fix" | Side-by-side current/proposed BAL code blocks |
+| `error_review` | — (informational) | Root cause + hardening steps |
+| `configuration` | "Apply" | — |
+| `insight` | — | — |
+| `performance` | — | — |
 
-Each card has action buttons based on `targetType`:
+Includes removal animation (opacity + scale transition) with focus management to next sibling.
 
-| targetType | Primary Action | Secondary |
-|---|---|---|
-| `approval_pattern` | "Accept Pattern" → calls `recommendations.accept` | "Reject" |
-| `bal_patch` | "View Diff" → opens diff modal, then "Apply Fix" | "Dismiss" |
-| `configuration` | "Apply Change" | "Dismiss" |
-| `insight` | "Acknowledge" (dismiss) | — |
-| `performance` | "View Execution" link + "Re-run with longer timeout" | "Dismiss" |
+**File:** `apps/web/src/components/actions/ActionCard.tsx`
 
-**Design notes:**
-- All cards that open dialogs should use `SlidePanel` instead of modal (`PromotionDialog.tsx` pattern should migrate to SlidePanel for design system consistency).
+### Task 4: Actions Page (`/dashboard/actions`)
+
+Three-section layout:
+1. **Needs Attention** — critical items in a red-bordered section (collapsible after 5)
+2. **Suggestions** — paginated warning/info items with type filter dropdown
+3. **Recently Resolved** — collapsible section showing accepted/dismissed items
+
+Features:
+- `?highlight={id}` scrolls to and pulses a specific card
+- `?sourceType={type}` filters suggestions by source (e.g., `analytics_interpreter`)
+- Server-side severity exclusion via `excludeSeverity` tRPC parameter
+- Pagination via cursor-based loading with accumulated suggestions
+- "All caught up" empty state when resolved items exist but no pending
+
+**File:** `apps/web/src/app/dashboard/actions/page.tsx`
+
+### Task 5: ActionsIndicator + Sidebar Integration
+
+Replaced the notification bell with a recommendation-aware indicator:
+- Shows pending count badge
+- Badge turns red when critical items exist
+- Links to `/dashboard/actions`
+- Polls every 30 seconds
+- Accessible aria-label with count and critical breakdown
+
+**File:** `apps/web/src/components/actions/ActionsIndicator.tsx`
 
 ---
 
-## 3.2 — Widgets on Bot Detail + Dashboard
+## tRPC Enhancements
 
-### Bot Detail Page Widget
-
-On the bot detail page's integrate tab, add an "Actions" card:
-
-```
-┌─────────────────────────────────────┐
-│ Actions (3 pending)                  │
-│                                      │
-│ • Auto-approve "web_search"    [→]   │
-│ • Fix: error handler missing   [→]   │
-│ • 2x slower than median        [→]   │
-│                                      │
-│ [View all in Actions Hub →]          │
-└─────────────────────────────────────┘
-```
-
-**File:** Modify the integrate tab component to include this card.
-**Data:** `recommendations.list({ targetBaleybotId: bbId, status: 'pending', limit: 5 })`
-
-### Dashboard Overview Widget
-
-On the main dashboard page, add an "Actions" summary card:
-
-```
-┌─────────────────────────────────────┐
-│ Actions                    [View →]  │
-│                                      │
-│ 12 pending · 3 critical · 34 total   │
-│ ████████░░ 74% addressed             │
-└─────────────────────────────────────┘
-```
-
-**File:** Modify `apps/web/src/app/dashboard/page.tsx` (or its dashboard content component).
-**Data:** `recommendations.counts()`
+The `recommendations.list` input schema was extended with:
+- `excludeSeverity` — exclude items of a given severity (used by suggestions query to avoid fetching critical items redundantly)
 
 ---
 
-## 3.3 — ActionsIndicator (Replaces NotificationBell)
+## Test Coverage
 
-### Current State
-
-`NotificationBell.tsx` exists and shows unread notification count from the `notifications` table.
-
-### New Component: `ActionsIndicator`
-
-**File:** `apps/web/src/components/ActionsIndicator.tsx`
-
-- Replaces `NotificationBell` in the app header/sidebar
-- Shows pending recommendation count as a badge
-- Clicking navigates to `/dashboard/actions`
-- Badge turns red if any `severity: 'critical'` recommendations are pending
-- Visible on ALL dashboard pages (placed in the dashboard layout)
-
-```typescript
-// Simplified structure:
-export function ActionsIndicator() {
-  const { data: counts } = trpc.recommendations.counts.useQuery();
-  const hasCritical = (counts?.critical ?? 0) > 0;
-
-  return (
-    <Link href="/dashboard/actions">
-      <Button variant="ghost" size="icon" className="relative">
-        <Zap className="h-5 w-5" />
-        {counts?.pending > 0 && (
-          <Badge className={hasCritical ? 'bg-red-500' : 'bg-blue-500'}>
-            {counts.pending}
-          </Badge>
-        )}
-      </Button>
-    </Link>
-  );
-}
-```
-
-### Integration
-
-- Add `ActionsIndicator` to the dashboard layout header (replace `NotificationBell`)
-- The layout file is likely at `apps/web/src/app/dashboard/layout.tsx`
+| File | Tests |
+|------|-------|
+| `ActionCard.test.tsx` | 17 tests — severity rendering, type buttons, expanded content, proposed action previews, click handlers |
+| `ActionsIndicator.test.tsx` | 9 tests — count badge, critical red styling, aria-labels, polling interval |
+| `companion-actions.test.ts` | 11 tests — list filtering, count query, apply routing, race condition detection, pattern insertion |
 
 ---
-
-## 3.4 — Deprecate Old Notifications System
-
-### Approach
-
-Do NOT delete the `notifications` table or `send_notification` tool yet — they serve a different purpose (BB-to-user messages). Instead:
-
-1. Remove `NotificationBell` component from the layout (replaced by `ActionsIndicator`)
-2. Route `send_notification` outputs to the Actions Hub as `sourceType: 'manual'` recommendations
-3. Keep the `notifications` table for backwards compatibility but stop rendering it in UI
-
-### Migration Path
-
-Later (Phase 9 or beyond), merge `notifications` into `recommendations` fully if the Actions Hub proves sufficient.
-
----
-
-## Verification
-
-```bash
-pnpm type-check
-pnpm test
-pnpm lint
-```
-
-### Manual Testing
-1. Navigate to `/dashboard/actions` — page renders with empty state
-2. Create test recommendations in DB → they appear in the list
-3. Click "Accept" on a pattern recommendation → status changes, row appears in `approvalPatterns`
-4. Click "Apply Fix" on a BAL patch → diff view opens, applying updates BB
-5. ActionsIndicator shows correct count in header
-6. Bot detail page shows per-bot actions widget
 
 ## Files Created/Modified
 
 | Action | File |
-|---|---|
+|--------|------|
 | **Create** | `apps/web/src/app/dashboard/actions/page.tsx` |
-| **Create** | `apps/web/src/components/actions/ActionsHubContent.tsx` |
 | **Create** | `apps/web/src/components/actions/ActionCard.tsx` |
-| **Create** | `apps/web/src/components/actions/ActionDiffView.tsx` |
-| **Create** | `apps/web/src/components/actions/ActionFilters.tsx` |
-| **Create** | `apps/web/src/components/ActionsIndicator.tsx` |
-| **Modify** | `apps/web/src/app/dashboard/layout.tsx` — replace NotificationBell with ActionsIndicator |
-| **Modify** | Bot detail integrate tab — add actions widget |
-| **Modify** | `apps/web/src/app/dashboard/page.tsx` — add actions summary card |
+| **Create** | `apps/web/src/components/actions/ActionsIndicator.tsx` |
+| **Create** | `apps/web/src/components/actions/index.ts` (barrel) |
+| **Create** | `apps/web/src/lib/baleybot/tools/companion/actions.ts` |
+| **Create** | `apps/web/src/components/actions/__tests__/ActionCard.test.tsx` |
+| **Create** | `apps/web/src/components/actions/__tests__/ActionsIndicator.test.tsx` |
+| **Create** | `apps/web/src/lib/baleybot/__tests__/companion-actions.test.ts` |
+| **Modify** | `apps/web/src/lib/trpc/routers/recommendations.ts` — `excludeSeverity` filter |
+| **Modify** | `apps/web/src/hooks/useWorkspaceHealth.ts` |
+| **Modify** | `apps/web/src/lib/baleybot/tools/companion/index.ts` |
+| **Modify** | `apps/web/src/components/layout/sidebar.tsx` — ActionsIndicator integration |
+| **Modify** | `apps/web/src/components/layout/app-shell.tsx` |
+| **Modify** | `apps/web/src/lib/routes.ts` — `actions.list` route constant |
+
+---
+
+## Design Decisions
+
+1. **AI-first, not notification-first.** Baley proactively mentions critical actions. The page is for review, not discovery.
+2. **Code change guardrails.** `bal_patch` and hardening-step recommendations redirect to the visual page — Baley can't silently modify BAL code.
+3. **No separate diff modal.** Phase 7.2 will upgrade the inline `<pre>` blocks to a line-by-line diff view. Current implementation uses side-by-side code blocks.
+4. **Server-side severity exclusion.** The suggestions query uses `excludeSeverity: 'critical'` to avoid pagination skew from client-side filtering.

@@ -486,6 +486,94 @@ export interface TestCase {
   matchStrategy?: 'exact' | 'contains' | 'semantic' | 'schema' | 'structured';
 }
 
+// ============================================================================
+// STREAMING EVENT TYPES
+// ============================================================================
+
+import type { TriggerConfig } from './types';
+
+/**
+ * Events received from the creator SSE stream.
+ * Used by both the page component and creator-streaming.ts.
+ */
+export type CreatorStreamEvent =
+  | {
+      type: 'creator_stream_started';
+      executionId?: string;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_text_delta';
+      content?: string;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_progress';
+      phase?: string;
+      message?: string;
+      heartbeat?: boolean;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_complete';
+      result?: CreatorOutput;
+      summary?: string;
+      specialist?: {
+        connections: unknown | null;
+        tests: unknown | null;
+        deployment: unknown | null;
+      };
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_error';
+      message?: string;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_agent_event';
+      event?: Record<string, unknown>;
+      entityName?: string;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_connection_action';
+      action?: string;
+      result?: Record<string, unknown>;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_trigger_saved';
+      triggerConfig?: TriggerConfig;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_webhook_enabled';
+      webhookUrl?: string;
+      webhookSecret?: string;
+      timestamp?: number;
+    }
+  | {
+      type: 'creator_navigate_tab';
+      tab?: string;
+      timestamp?: number;
+    };
+
+// ============================================================================
+// HISTORY STATE (undo/redo)
+// ============================================================================
+
+/**
+ * State snapshot for undo/redo history
+ */
+export interface HistoryState {
+  entities: VisualEntity[];
+  connections: Connection[];
+  balCode: string;
+  name: string;
+  icon: string;
+}
+
 // Re-export readiness types for convenience
 export type { ReadinessState, ReadinessDimension, DimensionStatus, AdaptiveTab, RecommendedAction, SpecialistSignals } from './readiness';
 export { computeReadiness, createInitialReadiness, countCompleted, getVisibleTabs, getRecommendedAction } from './readiness';

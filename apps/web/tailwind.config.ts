@@ -103,11 +103,21 @@ const config: Config = {
           '0%': { opacity: '0', transform: 'translateY(-10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
+        'collapsible-down': {
+          '0%': { height: '0' },
+          '100%': { height: 'var(--radix-collapsible-content-height)' },
+        },
+        'collapsible-up': {
+          '0%': { height: 'var(--radix-collapsible-content-height)' },
+          '100%': { height: '0' },
+        },
       },
       animation: {
         'slide-in-right': 'slide-in-from-right 200ms ease-out',
         'slide-out-right': 'slide-out-to-right 150ms ease-in',
         'fade-slide-down': 'fade-slide-down 300ms ease-out',
+        'collapsible-down': 'collapsible-down 200ms ease-out',
+        'collapsible-up': 'collapsible-up 200ms ease-out',
       },
     },
   },

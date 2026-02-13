@@ -29,20 +29,19 @@ After Phases 1-8 are complete, assess:
 
 **If NO:** Keep them separate. Baley can still delegate to creator_bot via `spawn_baleybot`.
 
-### 2. Should Baley access recommendations?
+### 2. Should Baley's recommendation tools be expanded?
 
-**Current state:** Baley has no awareness of the recommendations system (Phase 1-3).
+**Current state (Phase 3, shipped):** Baley already has `list_pending_actions` and `apply_action` companion tools. Baley proactively mentions critical actions on first message. Code changes redirect to the Actions page for visual review.
 
-**Possible tools to add:**
-- `list_recommendations` — show pending actions
-- `accept_recommendation` — apply a recommendation
-- `dismiss_recommendation` — dismiss an action
-- `explain_recommendation` — provide context on why something was recommended
+**Possible enhancements to evaluate:**
+- `explain_recommendation` — provide deeper context on why something was recommended
+- Batch operations: "accept all pattern suggestions" or "dismiss all info-level items"
+- Is the code-change redirect pattern working well, or do users want inline approval?
 
 **Evaluate:**
-- Do users want to manage recommendations conversationally ("accept all pattern suggestions")?
-- Or is the Actions Hub UI sufficient?
-- Risk: Baley accepting recommendations without the user seeing the full context
+- Are the existing tools being used effectively?
+- Do users want more conversational control (batch operations)?
+- Should Baley be able to dismiss recommendations, not just accept them?
 
 ### 3. Should Baley become the primary interaction mode?
 
@@ -69,7 +68,7 @@ These phases prepare the ground for Baley expansion:
 | Phase 1.1 | Recommendations table — Baley can read/write it |
 | Phase 1.2 | Shared context — Baley already receives it in system prompt |
 | Phase 2 | Pattern learner + reviewer generate data Baley can surface |
-| Phase 3 | Actions Hub exists as the GUI alternative to conversational management |
+| Phase 3 | Actions Hub exists with Baley companion tools (`list_pending_actions`, `apply_action`) already shipped |
 | Phase 8 | Analytics interpreter generates insights Baley can narrate |
 
 ---

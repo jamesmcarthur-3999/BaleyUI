@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { trpc } from '@/lib/trpc/client';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- ConnectionsPanel will be wired into advanced mode
-import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, isSaveConflictError, ConnectionsPanel, BaleybotHeader } from '@/components/creator';
+import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDialog, NetworkStatus, useNetworkStatus, SaveConflictDialog, ConnectionsPanel, BaleybotHeader } from '@/components/creator';
 import type {
   TestCase,
 } from '@/components/creator';
@@ -35,7 +35,7 @@ const BalCodeEditor = dynamic(
 );
 import type { TriggerConfig as TriggerConfigType } from '@/lib/baleybot/types';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { ConflictAction } from '@/components/creator';
+// ConflictAction type is now handled internally by useBaleybotPersistence hook
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -49,15 +49,32 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { ArrowLeft, LayoutGrid, Code2, MessageSquare, PanelRight, FlaskConical, Rocket } from 'lucide-react';
-import { IntegrationDashboard } from '@/components/integrate/IntegrationDashboard';
-import { BotMonitorPanel } from '@/components/monitor';
-import { AdaptiveTestSurface } from '@/components/test';
+
+function PanelSkeleton() {
+  return (
+    <div className="h-full flex items-center justify-center bg-muted/20 rounded-2xl">
+      <span className="text-sm text-muted-foreground">Loading...</span>
+    </div>
+  );
+}
+
+const IntegrationDashboard = dynamic(
+  () => import('@/components/integrate/IntegrationDashboard').then(mod => ({ default: mod.IntegrationDashboard })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const BotMonitorPanel = dynamic(
+  () => import('@/components/monitor').then(mod => ({ default: mod.BotMonitorPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
+const AdaptiveTestSurface = dynamic(
+  () => import('@/components/test').then(mod => ({ default: mod.AdaptiveTestSurface })),
+  { ssr: false, loading: () => <PanelSkeleton /> }
+);
 import { analyzeBotCapabilities } from '@/lib/baleybot/capabilities';
 import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
-import { useDirtyState, useDebouncedCallback, useNavigationGuard, useHistory } from '@/hooks';
-import { formatErrorWithAction, parseCreatorError } from '@/lib/errors/creator-errors';
-import { generateChangeSummary, formatChangeSummaryForChat } from '@/lib/baleybot/change-summary';
+import { useDirtyState, useNavigationGuard, useHistory, useBaleybotPersistence, useSessionRecovery, useEditorNavigation, useReadiness } from '@/hooks';
+import { parseCreatorError } from '@/lib/errors/creator-errors';
 import { safeParseDate } from '@/lib/utils/date';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
@@ -66,113 +83,33 @@ import type {
   Connection,
   CreatorMessage,
   CreatorGuidanceAction,
-  CreationProgress,
   CreationStatus,
   AdaptiveTab,
-  CreatorOutput,
-  BuilderPresentationMode,
+  HistoryState,
 } from '@/lib/baleybot/creator-types';
-import { computeReadiness, createInitialReadiness } from '@/lib/baleybot/readiness';
-import type { ReadinessState, SpecialistSignals } from '@/lib/baleybot/readiness';
-import type { ValidationStatus } from '@/lib/baleybot/creator-validation';
-import { getConnectionSummary } from '@/lib/baleybot/tools/requirements-scanner';
+import type { ReadinessState } from '@/lib/baleybot/readiness';
 import type { GraphRuntimeEvent } from '@/lib/streaming/types/events';
 import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
 import { sanitizeCreatorText } from '@/lib/baleybot/creator-sanitization';
-import { streamPostSSE } from '@/lib/streaming/client-post-sse';
+import { runCreatorStream } from '@/lib/baleybot/creator-streaming';
+import { buildCreatorResultPatch } from '@/lib/baleybot/creator-response-handler';
 import {
-  isAdvancedEditorTab,
-  computeAvailableTabs,
-  truncateName,
   extractSidecarFromStructure,
   buildDerivedGraphSidecar,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by GraphSidecar visualization (planned)
   appendGraphRuntimeEvent,
-  isSameReadiness,
   escapeRegExp,
   buildCreatorHistoryPayload,
   buildGuidanceQuickPrompts,
 } from '@/lib/baleybot/creator-helpers';
-import { POST_DESIGN_TABS, EXAMPLE_PROMPTS } from '@/lib/baleybot/creator-constants';
+import { EXAMPLE_PROMPTS, TAB_QUICK_PROMPTS } from '@/lib/baleybot/creator-constants';
 
 // Pure functions and constants extracted to:
 // - @/lib/baleybot/creator-helpers.ts
 // - @/lib/baleybot/creator-constants.ts
+// - @/lib/baleybot/creator-streaming.ts
+// - @/lib/baleybot/creator-response-handler.ts
 
-
-type CreatorStreamEvent =
-  | {
-      type: 'creator_stream_started';
-      executionId?: string;
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_text_delta';
-      content?: string;
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_progress';
-      phase?: string;
-      message?: string;
-      heartbeat?: boolean;
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_complete';
-      result?: CreatorOutput;
-      summary?: string;
-      specialist?: {
-        connections: unknown | null;
-        tests: unknown | null;
-        deployment: unknown | null;
-      };
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_error';
-      message?: string;
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_agent_event';
-      event?: Record<string, unknown>;
-      entityName?: string;
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_connection_action';
-      action?: string;
-      result?: Record<string, unknown>;
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_trigger_saved';
-      triggerConfig?: TriggerConfigType;
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_webhook_enabled';
-      webhookUrl?: string;
-      webhookSecret?: string;
-      timestamp?: number;
-    }
-  | {
-      type: 'creator_navigate_tab';
-      tab?: string;
-      timestamp?: number;
-    };
-
-/**
- * State snapshot for undo/redo history
- */
-interface HistoryState {
-  entities: VisualEntity[];
-  connections: Connection[];
-  balCode: string;
-  name: string;
-  icon: string;
-}
 
 /**
  * Unified BaleyBot creation and detail page.
@@ -220,7 +157,6 @@ export default function BaleybotPage() {
     result: Record<string, unknown>;
     timestamp: number;
   }>>([]);
-  const [, setCreationProgress] = useState<CreationProgress | null>(null);
   const [creatorStreamingProgress, setCreatorStreamingProgress] =
     useState<{ phase: string; message: string; startedAt: number } | null>(null);
   const [creatorGuidanceActions, setCreatorGuidanceActions] = useState<CreatorGuidanceAction[]>([]);
@@ -233,18 +169,10 @@ export default function BaleybotPage() {
 
   // -- Persistence --
   const [savedBaleybotId, setSavedBaleybotId] = useState<string | null>(isNew ? null : id);
-  const [isSaving, setIsSaving] = useState(false);
-  const [showConflictDialog, setShowConflictDialog] = useState(false);
-  const [isResolvingConflict, setIsResolvingConflict] = useState(false);
 
-  // -- Navigation --
-  const [viewMode, setViewMode] = useState<AdaptiveTab>('visual');
-  const [builderMode, setBuilderMode] = useState<BuilderPresentationMode>('simple');
-  const showAdvancedUI = builderMode === 'advanced';
+  // -- Navigation (managed by useEditorNavigation hook, initialized below after readiness) --
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [showFullDescription, setShowFullDescription] = useState(false);
-  type MobileView = 'editor' | 'chat';
-  const [mobileView, setMobileView] = useState<MobileView>('editor');
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- setter used by runtime graph panel (planned)
   const [runtimeGraphEvents, setRuntimeGraphEvents] = useState<GraphRuntimeEvent[]>([]);
 
@@ -252,20 +180,15 @@ export default function BaleybotPage() {
   const [triggerConfig, setTriggerConfig] = useState<TriggerConfigType | undefined>(undefined);
   const [webhookInfo, setWebhookInfo] = useState<{ url: string; secret: string } | null>(null);
 
+  // -- Test Cases --
+  const [testCases, setTestCases] = useState<TestCase[]>([]);
+
   // -- Confirmation Dialogs --
   const [showGoLiveDialog, setShowGoLiveDialog] = useState(false);
   const [showRevertDialog, setShowRevertDialog] = useState(false);
 
-  // -- AI Navigation Feedback --
-  const [lastAINavigatedTab, setLastAINavigatedTab] = useState<string | null>(null);
-
-  // -- Readiness --
-  const validationStatus: ValidationStatus = 'idle'; // Validation now handled by specialist team
-  const [readiness, setReadiness] = useState(createInitialReadiness());
-  const prevReadinessRef = useRef<ReadinessState | null>(isNew ? createInitialReadiness() : null);
-  const [specialistSignals, setSpecialistSignals] = useState<SpecialistSignals>({});
-  const [isDesignConfirmed, setIsDesignConfirmed] = useState(!isNew);
-  const designGateReminderShownRef = useRef(false);
+  // -- Readiness (ref breaks circular dep: useReadiness ↔ useEditorNavigation) --
+  const resetDesignGateReminderRef = useRef<(() => void) | null>(null);
 
   // Cleanup throttle timer on unmount to prevent memory leaks
   useEffect(() => {
@@ -322,14 +245,71 @@ export default function BaleybotPage() {
   // =====================================================================
 
   const hasContent = entities.length > 0 || balCode.length > 0;
-  const canSave = hasContent && !!balCode && !!name && !isSaving && !isStreaming;
-  const isInputDisabled = isStreaming || isSaving;
 
   // Backward-compatible derived status for component props and query inputs
   const status: CreationStatus = isStreaming ? 'building'
     : lastError ? 'error'
     : (hasContent || messages.length > 0) ? 'ready'
     : 'empty';
+
+  // =====================================================================
+  // READINESS (design confirmation, specialist signals, readiness state)
+  // Queries needed by readiness are co-located here to avoid stale values.
+  // =====================================================================
+
+  // Fetch workspace connections (for connections panel AND readiness computation)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- isLoadingConnections used by ConnectionsPanel (planned)
+  const { data: workspaceConnections, isLoading: isLoadingConnections } = trpc.connections.list.useQuery(
+    { limit: 50 },
+  );
+
+  // Fetch per-bot analytics (for readiness computation and Monitor tab)
+  const { data: analyticsData } = trpc.analytics.getBaleybotAnalytics.useQuery(
+    { baleybotId: savedBaleybotId! },
+    { enabled: !!savedBaleybotId },
+  );
+
+  const {
+    readiness,
+    setIsDesignConfirmed,
+    isDesignReviewRequired,
+    setSpecialistSignals,
+  } = useReadiness({
+    entities,
+    balCode,
+    testCases,
+    triggerConfig,
+    workspaceConnections,
+    analyticsData,
+    isNew,
+    status,
+    resetDesignGateReminderRef,
+  });
+
+  // =====================================================================
+  // EDITOR NAVIGATION (tabs, builder mode, mobile view, design gate)
+  // =====================================================================
+
+  const {
+    viewMode,
+    setViewMode,
+    builderMode,
+    setBuilderMode,
+    mobileView,
+    setMobileView,
+    availableTabs,
+    navigateToTab,
+    lastAINavigatedTab,
+    setLastAINavigatedTab,
+    resetDesignGateReminder,
+  } = useEditorNavigation({
+    readiness,
+    savedBaleybotId,
+    isDesignReviewRequired,
+  });
+
+  // Wire up the ref to break circular dep (useReadiness needs this, useEditorNavigation provides it)
+  resetDesignGateReminderRef.current = resetDesignGateReminder;
 
   // =====================================================================
   // DIRTY STATE TRACKING (Phase 1.1)
@@ -364,20 +344,6 @@ export default function BaleybotPage() {
 
   // Combined loading check: loading, fetching, or state not yet initialized from fetched data
   const isFullyLoaded = isNew || (!isLoadingBaleybot && !isFetchingBaleybot && isStateInitialized && existingBaleybot);
-
-  // Fetch workspace connections (for connections panel AND readiness computation)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- isLoadingConnections used by ConnectionsPanel (planned)
-  const { data: workspaceConnections, isLoading: isLoadingConnections } = trpc.connections.list.useQuery(
-    { limit: 50 },
-  );
-
-  // Fetch per-bot analytics (for readiness computation and Monitor tab)
-  const { data: analyticsData } = trpc.analytics.getBaleybotAnalytics.useQuery(
-    { baleybotId: savedBaleybotId! },
-    { enabled: !!savedBaleybotId },
-  );
-
-  // Workspace-level overview query removed (analytics tab removed)
 
   // Fetch trigger config from baleybotTriggers table
   const { data: savedTriggerConfig } = trpc.baleybots.getTriggerConfig.useQuery(
@@ -414,7 +380,6 @@ export default function BaleybotPage() {
 
   // Mutations
   const creatorMutation = trpc.baleybots.sendCreatorMessage.useMutation();
-  const saveMutation = trpc.baleybots.saveFromSession.useMutation();
   const generateLaunchKitMutation = trpc.baleybots.generateLaunchKit.useMutation();
   const promoteToLiveMutation = trpc.baleybots.promoteToLive.useMutation();
   const pauseLiveBotMutation = trpc.baleybots.pauseLiveBot.useMutation();
@@ -488,24 +453,9 @@ export default function BaleybotPage() {
     setCreatorGuidanceActions(creatorGuidanceData.actions);
   }, [creatorGuidanceData, isStreaming]);
 
-  // Lifecycle-aware quick prompts based on active tab
-  const tabQuickPrompts: Record<string, Array<{ id: string; label: string; prompt: string; mode: 'send' }>> = {
-    test: [
-      { id: 'qp-test-sample', label: 'Run with sample input', prompt: 'Run a test with sample input to check the bot works correctly', mode: 'send' },
-      { id: 'qp-test-error', label: 'Test error handling', prompt: 'Test how the bot handles invalid or missing input', mode: 'send' },
-      { id: 'qp-test-complex', label: 'Try a complex case', prompt: 'Run a more complex test case to stress-test the bot', mode: 'send' },
-    ],
-    integrate: [
-      { id: 'qp-int-webhook', label: 'Set up a webhook', prompt: 'Set up a webhook so this bot can be triggered from external services', mode: 'send' },
-      { id: 'qp-int-schedule', label: 'Schedule recurring runs', prompt: 'Set up a schedule so this bot runs automatically on a recurring basis', mode: 'send' },
-      { id: 'qp-int-chain', label: 'Chain from another bot', prompt: 'Configure this bot to be triggered when another BaleyBot completes', mode: 'send' },
-      { id: 'qp-int-api', label: 'Show API endpoint', prompt: 'Show me the API endpoint and how to call this bot programmatically', mode: 'send' },
-    ],
-  };
-
   const guidancePrompts = buildGuidanceQuickPrompts(creatorGuidanceActions);
   const quickPrompts = (viewMode === 'test' || viewMode === 'integrate')
-    ? tabQuickPrompts[viewMode] ?? guidancePrompts
+    ? TAB_QUICK_PROMPTS[viewMode] ?? guidancePrompts
     : guidancePrompts;
 
   const quickPromptContextLabel = quickPrompts.length > 0
@@ -549,485 +499,9 @@ export default function BaleybotPage() {
     } catch { /* swallow — advisory, not critical */ }
   };
 
-  const isDesignReviewRequired =
-    status === 'ready' && entities.length > 0 && !isDesignConfirmed;
-  const requiresDesignReviewForTab = (tab: AdaptiveTab) =>
-    isDesignReviewRequired && POST_DESIGN_TABS.includes(tab);
-
-  const navigateToTab = (tab: AdaptiveTab, options?: { bypassDesignGate?: boolean }) => {
-    if (!options?.bypassDesignGate && requiresDesignReviewForTab(tab)) {
-      // Soft reminder via toast — don't block navigation
-      if (!designGateReminderShownRef.current) {
-        designGateReminderShownRef.current = true;
-        toast({
-          title: 'Review your design',
-          description: 'Consider confirming the visual layout before proceeding to setup.',
-        });
-      }
-    }
-
-    setViewMode(tab);
-    setMobileView('editor');
-    return true;
-  };
-
-  const [testCases, setTestCases] = useState<TestCase[]>([]);
-
   // =====================================================================
   // HANDLERS
   // =====================================================================
-
-  const startCreatorStream = async (args: {
-    message: string;
-    conversationHistory: ReturnType<typeof buildCreatorHistoryPayload>;
-  }): Promise<{
-    result: CreatorOutput;
-    summary?: string;
-  }> => {
-    const startedAt = Date.now();
-    let finalResult: CreatorOutput | null = null;
-    let finalSummary: string | undefined;
-    // Creator streaming progress is tracked via setCreatorStreamingProgress state
-
-    setCreatorGuidanceActions([]);
-    setAgentEvents([]);
-    setConnectionActions([]);
-    // Clear any stale throttle timer from a previous turn before resetting refs
-    if (throttleRef.current) {
-      clearTimeout(throttleRef.current);
-      throttleRef.current = null;
-    }
-    streamingTextRef.current = '';
-    setStreamingText('');
-    streamingReasoningRef.current = '';
-    setStreamingReasoning('');
-    setCreatorStreamingProgress({
-      phase: 'discovery',
-      message: 'Starting creator workflow...',
-      startedAt,
-    });
-
-    await streamPostSSE<CreatorStreamEvent>({
-      url: '/api/baleybots/creator/stream',
-      body: {
-        baleybotId: savedBaleybotId ?? undefined,
-        message: args.message,
-        conversationHistory: args.conversationHistory,
-        currentState: balCode ? {
-          balCode,
-          name,
-          description,
-          icon,
-          entities: entities.map(e => ({ name: e.name, purpose: e.purpose, tools: e.tools })),
-        } : undefined,
-        uiState: {
-          activeTab: viewMode,
-          availableTabs: availableTabs,
-          lifecycleStage: existingBaleybot?.lifecycleStage ?? 'draft',
-          readinessSummary: Object.entries(readiness)
-            .map(([dim, status]) => `${dim} (${status})`)
-            .join(', '),
-          triggerConfigured: !!triggerConfig,
-          webhookEnabled: !!webhookInfo || existingBaleybot?.webhookEnabled === true,
-        },
-      },
-      onEvent: (event) => {
-        try {
-        if (event.type === 'creator_stream_started') {
-          setCreatorStreamingProgress((previous) =>
-            previous
-              ? {
-                  ...previous,
-                  phase: 'discovery',
-                  message: 'Understanding your request...',
-                }
-              : previous
-          );
-          return;
-        }
-
-        // Agent activity events (for expandable activity panel)
-        if (event.type === 'creator_agent_event') {
-          if (event.event) {
-            const agentEvent = event.event as Record<string, unknown>;
-
-            // Capture top-level reasoning from creator_bot
-            if (agentEvent.type === 'reasoning' && agentEvent.content) {
-              streamingReasoningRef.current += String(agentEvent.content);
-              // Throttle reasoning updates with the same timer as text
-              if (!throttleRef.current) {
-                throttleRef.current = setTimeout(() => {
-                  setStreamingReasoning(streamingReasoningRef.current);
-                  setStreamingText(streamingTextRef.current);
-                  throttleRef.current = null;
-                }, 200);
-              }
-            }
-
-            setAgentEvents((prev) => [
-              ...prev,
-              {
-                event: agentEvent,
-                entityName: event.entityName,
-                timestamp: event.timestamp ?? Date.now(),
-              },
-            ]);
-          }
-          return;
-        }
-
-        // Connection action events → visual action cards
-        if (event.type === 'creator_connection_action') {
-          if (event.result) {
-            setConnectionActions(prev => [...prev, {
-              action: event.action ?? 'unknown',
-              result: event.result!,
-              timestamp: event.timestamp ?? Date.now(),
-            }]);
-          }
-          utils.connections.list.invalidate();
-          return;
-        }
-
-        // Integration events from companion tools
-        if (event.type === 'creator_trigger_saved') {
-          if (event.triggerConfig) {
-            setTriggerConfig(event.triggerConfig);
-            if (savedBaleybotId) {
-              utils.baleybots.getTriggerConfig.invalidate({ baleybotId: savedBaleybotId });
-            }
-          }
-          return;
-        }
-
-        if (event.type === 'creator_webhook_enabled') {
-          if (event.webhookUrl && event.webhookSecret) {
-            setWebhookInfo({ url: event.webhookUrl, secret: event.webhookSecret });
-          }
-          if (savedBaleybotId) {
-            utils.baleybots.get.invalidate({ id: savedBaleybotId });
-          }
-          return;
-        }
-
-        if (event.type === 'creator_navigate_tab') {
-          if (event.tab) {
-            const tabName = event.tab as string;
-            navigateToTab(tabName as AdaptiveTab, { bypassDesignGate: true });
-            toast({
-              title: `Switched to ${tabName.charAt(0).toUpperCase() + tabName.slice(1)} tab`,
-              description: 'The AI assistant navigated here to show you something relevant.',
-            });
-            setLastAINavigatedTab(tabName);
-            setTimeout(() => setLastAINavigatedTab(null), 3000);
-          }
-          return;
-        }
-
-        // Show streaming text in chat (creator_bot is conversational now)
-        if (event.type === 'creator_text_delta') {
-          const content = event.content ?? '';
-          if (content) {
-            streamingTextRef.current += content;
-            // Throttle state updates to ~5fps (200ms)
-            if (!throttleRef.current) {
-              throttleRef.current = setTimeout(() => {
-                setStreamingText(streamingTextRef.current);
-                throttleRef.current = null;
-              }, 200);
-            }
-          }
-          return;
-        }
-
-        if (event.type === 'creator_progress') {
-          const phase = event.phase ?? 'building';
-          const progressMessage = event.message?.trim() || 'Building...';
-          setCreationProgress({
-            phase: 'generating',
-            message: progressMessage,
-          });
-
-          setCreatorStreamingProgress((previous) => ({
-            phase,
-            message: progressMessage,
-            startedAt: previous?.startedAt ?? startedAt,
-          }));
-          return;
-        }
-
-        if (event.type === 'creator_complete') {
-          if (event.result) {
-            finalResult = event.result;
-          }
-          finalSummary =
-            event.summary?.trim() ||
-            'Creator completed the response.';
-
-          // Capture specialist findings for readiness enrichment
-          if (event.specialist) {
-            setSpecialistSignals((prev) => ({
-              ...prev,
-              connectionAdvisorRan: prev.connectionAdvisorRan || event.specialist!.connections != null,
-              testOrchestratorRan: prev.testOrchestratorRan || event.specialist!.tests != null,
-              deploymentAdvisorRan: prev.deploymentAdvisorRan || event.specialist!.deployment != null,
-            }));
-          }
-
-          setCreationProgress({ phase: 'complete', message: 'Ready!' });
-          setCreatorStreamingProgress((previous) =>
-            previous
-              ? {
-                  ...previous,
-                  phase: 'complete',
-                  message: finalSummary || 'Ready!',
-                }
-              : previous
-          );
-          return;
-        }
-
-        if (event.type === 'creator_error') {
-          throw new Error(event.message || 'Creator stream failed');
-        }
-        } catch (eventError) {
-          // Don't let a single malformed event kill the entire stream
-          if (event.type === 'creator_error') throw eventError;
-          console.warn('Error processing creator stream event:', event.type, eventError);
-        }
-      },
-    });
-
-    // Flush any remaining streaming text — clear timer first to prevent stale writes
-    if (throttleRef.current) {
-      clearTimeout(throttleRef.current);
-      throttleRef.current = null;
-    }
-
-    // If the concierge streamed text but no structured result (conversation-only turn),
-    // build a synthetic building response from the streamed text
-    const finalStreamedText = streamingTextRef.current.trim();
-    if (!finalResult && finalStreamedText) {
-      finalResult = {
-        status: 'building' as const,
-        message: finalStreamedText,
-        entities: [],
-        connections: [],
-        balCode: '',
-        name: 'Unnamed BaleyBot',
-        description: '',
-        icon: '🤖',
-      };
-    }
-
-    // Reset streaming state atomically — ref first, then UI state
-    streamingTextRef.current = '';
-    setStreamingText('');
-    streamingReasoningRef.current = '';
-    setStreamingReasoning('');
-
-    if (!finalResult) {
-      // Stream completed but produced neither a creator_complete event nor streamed text.
-      // Pass empty message so applyCreatorResult surfaces a system notice.
-      finalResult = {
-        status: 'building' as const,
-        message: '',
-        entities: [],
-        connections: [],
-        balCode: '',
-        name: 'Unnamed BaleyBot',
-        description: '',
-        icon: '🤖',
-      };
-    }
-
-    return {
-      result: finalResult,
-      summary: finalSummary,
-    };
-  };
-
-  const applyCreatorResult = (
-    result: CreatorOutput,
-    args: {
-      prevEntities: VisualEntity[];
-      prevConnections: Connection[];
-      prevName: string;
-      streamSummary?: string;
-    }
-  ) => {
-    const { prevEntities, prevConnections, prevName, streamSummary } = args;
-
-    if (result.status === 'building') {
-      // Conversational turn — creator_bot streamed text directly to the user.
-      // The message is the full conversation from this turn.
-      const responseContent = (result.message?.trim() || result.thinking?.trim() || '').replace(
-        /\n{3,}/g,
-        '\n\n'
-      );
-
-      if (!name && result.name && result.name !== 'Unnamed BaleyBot') {
-        setName(truncateName(result.name));
-      }
-      if (!icon && result.icon && result.icon !== '🤖') {
-        setIcon(result.icon);
-      }
-      if (!description && result.description) {
-        setDescription(result.description);
-      }
-
-      if (responseContent) {
-        const assistantMessage: CreatorMessage = {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: responseContent,
-          timestamp: new Date(),
-          thinking: result.thinking || undefined,
-          metadata: {
-            streamSummary,
-          },
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
-      } else {
-        // Model produced nothing — surface as system notice
-        setMessages((prev) => [...prev, {
-          id: crypto.randomUUID(),
-          role: 'system' as const,
-          content: 'No response received. Try rephrasing or simplifying your request.',
-          timestamp: new Date(),
-          metadata: { isError: true },
-        }]);
-      }
-      setIsStreaming(false);
-      isStreamingRef.current = false;
-      setCreationProgress(null);
-      setCreatorStreamingProgress(null);
-      return;
-    }
-
-    setCreationProgress({
-      phase: 'designing',
-      message: `Designed ${result.entities.length} entit${result.entities.length === 1 ? 'y' : 'ies'}`,
-    });
-
-    const visualEntities: VisualEntity[] = result.entities.map((entity) => ({
-      ...entity,
-      position: { x: 0, y: 0 },
-      status: 'appearing' as const,
-    }));
-
-    const visualConnections: Connection[] = result.connections.map((conn, index) => ({
-      id: `conn-${index}`,
-      from: conn.from,
-      to: conn.to,
-      label: conn.label,
-      status: 'stable' as const,
-    }));
-    if (visualConnections.length > 0) {
-      setCreationProgress({
-        phase: 'connecting',
-        message: `Connected ${visualConnections.length} workflow${visualConnections.length === 1 ? '' : 's'}`,
-      });
-    }
-    setCreationProgress({ phase: 'generating', message: 'Generating BAL code...' });
-
-    setEntities(visualEntities);
-
-    setTimeout(() => {
-      setEntities((prev) => prev.map((entity) => ({ ...entity, status: 'stable' as const })));
-    }, 600);
-    setConnections(visualConnections);
-    setBalCode(result.balCode);
-    setName(truncateName(result.name));
-    setIcon(result.icon);
-    if (result.description) {
-      setDescription(result.description);
-    }
-
-    const truncatedName = truncateName(result.name);
-    pushHistory(
-      {
-        entities: visualEntities,
-        connections: visualConnections,
-        balCode: result.balCode,
-        name: truncatedName,
-        icon: result.icon,
-      },
-      `AI response: ${truncatedName}`
-    );
-
-    const changeSummary = generateChangeSummary(
-      prevEntities,
-      visualEntities,
-      prevConnections,
-      visualConnections,
-      prevName,
-      result.name
-    );
-    const summaryText = formatChangeSummaryForChat(changeSummary);
-
-    const isInitialCreation = prevEntities.length === 0;
-    const modelNarrative = result.message?.trim();
-
-    // Use model's text if provided; otherwise generate a concise summary
-    const responseContent = modelNarrative || summaryText || '';
-
-    const prevEntityIds = new Set(prevEntities.map((entity) => entity.id));
-    const entityMetadata = visualEntities.map((entity) => ({
-      id: entity.id,
-      name: entity.name,
-      icon: entity.icon,
-      tools: entity.tools,
-      isNew: !prevEntityIds.has(entity.id),
-    }));
-
-    const metadata: CreatorMessage['metadata'] = {
-      entities: entityMetadata,
-      isInitialCreation,
-    };
-
-    if (responseContent) {
-      const assistantMessage: CreatorMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: responseContent.trim(),
-        timestamp: new Date(),
-        thinking: result.thinking || undefined,
-        metadata,
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-    }
-
-    // Build notification — "here's what I built" moment
-    {
-      const entityCount = visualEntities.length;
-      const toolCount = new Set(visualEntities.flatMap(e => e.tools ?? [])).size;
-      setMessages((prev) => [...prev, {
-        id: crypto.randomUUID(),
-        role: 'system' as const,
-        content: `Built "${truncateName(result.name)}" \u2014 ${entityCount} step${entityCount !== 1 ? 's' : ''}, ${toolCount} tool${toolCount !== 1 ? 's' : ''}.`,
-        timestamp: new Date(),
-        metadata: {
-          diagnostic: {
-            level: 'success',
-            title: 'BaleyBot Created',
-            details: 'Review in the visual editor or code tab.',
-          },
-        },
-      }]);
-    }
-
-    setIsStreaming(false);
-    isStreamingRef.current = false;
-    setLastError(null);
-    if (isInitialCreation) {
-      setIsDesignConfirmed(false);
-      designGateReminderShownRef.current = false;
-    }
-    setCreationProgress({ phase: 'complete', message: 'Ready!' });
-    setTimeout(() => setCreationProgress(null), 1000);
-    setCreatorStreamingProgress(null);
-  };
 
   /**
    * Handle sending a message to the Creator Bot
@@ -1064,24 +538,93 @@ export default function BaleybotPage() {
     setIsStreaming(true);
     isStreamingRef.current = true;
     setLastError(null);
-    setCreationProgress({ phase: 'understanding', message: 'Understanding your request...' });
+
+    // Reset streaming-related state
+    setCreatorGuidanceActions([]);
+    setAgentEvents([]);
+    setConnectionActions([]);
+    if (throttleRef.current) {
+      clearTimeout(throttleRef.current);
+      throttleRef.current = null;
+    }
+    streamingTextRef.current = '';
+    setStreamingText('');
+    streamingReasoningRef.current = '';
+    setStreamingReasoning('');
 
     try {
-      let streamResult:
-        | {
-            result: CreatorOutput;
-            summary?: string;
-          }
-        | null = null;
+      // 3. Try SSE streaming, fall back to mutation
+      let streamResult: Awaited<ReturnType<typeof runCreatorStream>> | null = null;
       try {
-        streamResult = await startCreatorStream({
-          message: sanitizedMessage,
-          conversationHistory: nextConversationHistory,
-        });
+        streamResult = await runCreatorStream(
+          {
+            message: sanitizedMessage,
+            conversationHistory: nextConversationHistory,
+            savedBaleybotId,
+            balCode,
+            name,
+            description,
+            icon,
+            entities: entities.map(e => ({ name: e.name, purpose: e.purpose, tools: e.tools })),
+            viewMode,
+            availableTabs,
+            lifecycleStage: existingBaleybot?.lifecycleStage ?? 'draft',
+            readiness,
+            triggerConfigured: !!triggerConfig,
+            webhookEnabled: !!webhookInfo || existingBaleybot?.webhookEnabled === true,
+          },
+          {
+            onStreamingText: (text) => { streamingTextRef.current = text; setStreamingText(text); },
+            onStreamingReasoning: (text) => { streamingReasoningRef.current = text; setStreamingReasoning(text); },
+            onProgress: (phase, message) => setCreatorStreamingProgress(prev =>
+              prev ? { ...prev, phase, message } : { phase, message, startedAt: Date.now() }
+            ),
+            onAgentEvent: (event, entityName, timestamp) => setAgentEvents(prev => [
+              ...prev,
+              { event, entityName, timestamp: timestamp ?? Date.now() },
+            ]),
+            onConnectionAction: (action, result, timestamp) => setConnectionActions(prev => [
+              ...prev,
+              { action, result, timestamp },
+            ]),
+            onTriggerSaved: (config) => {
+              setTriggerConfig(config as TriggerConfigType);
+              if (savedBaleybotId) utils.baleybots.getTriggerConfig.invalidate({ baleybotId: savedBaleybotId });
+            },
+            onWebhookEnabled: (url, secret) => {
+              setWebhookInfo({ url, secret });
+              if (savedBaleybotId) utils.baleybots.get.invalidate({ id: savedBaleybotId });
+            },
+            onNavigateTab: (tab) => {
+              navigateToTab(tab as AdaptiveTab, { bypassDesignGate: true });
+              toast({
+                title: `Switched to ${tab.charAt(0).toUpperCase() + tab.slice(1)} tab`,
+                description: 'The AI assistant navigated here to show you something relevant.',
+              });
+              setLastAINavigatedTab(tab);
+              setTimeout(() => setLastAINavigatedTab(null), 3000);
+            },
+            onSpecialistSignals: (signals) => setSpecialistSignals(prev => ({
+              ...prev,
+              connectionAdvisorRan: prev.connectionAdvisorRan || !!signals.connections,
+              testOrchestratorRan: prev.testOrchestratorRan || !!signals.tests,
+              deploymentAdvisorRan: prev.deploymentAdvisorRan || !!signals.deployment,
+            })),
+            invalidateConnections: () => utils.connections.list.invalidate(),
+            invalidateTriggerConfig: (id) => utils.baleybots.getTriggerConfig.invalidate({ baleybotId: id }),
+            invalidateBot: (id) => utils.baleybots.get.invalidate({ id }),
+          },
+        );
       } catch (streamError) {
         console.warn('Creator stream failed, falling back to mutation:', streamError);
         setCreatorStreamingProgress(null);
       }
+
+      // Reset streaming refs after stream completes
+      streamingTextRef.current = '';
+      setStreamingText('');
+      streamingReasoningRef.current = '';
+      setStreamingReasoning('');
 
       const result =
         streamResult?.result ??
@@ -1091,21 +634,46 @@ export default function BaleybotPage() {
           conversationHistory: nextConversationHistory,
         }));
 
-      applyCreatorResult(result, {
+      // 4. Apply result via pure function patch
+      const patch = buildCreatorResultPatch({
+        result,
         prevEntities,
         prevConnections,
         prevName,
+        currentName: name,
+        currentIcon: icon,
+        currentDescription: description,
         streamSummary: streamResult?.summary,
       });
+
+      if (patch.entities) {
+        setEntities(patch.entities);
+        setTimeout(() => setEntities(prev => prev.map(e => ({ ...e, status: 'stable' as const }))), 600);
+      }
+      if (patch.connections) setConnections(patch.connections);
+      if (patch.balCode !== undefined) setBalCode(patch.balCode);
+      if (patch.name) setName(patch.name);
+      if (patch.icon) setIcon(patch.icon);
+      if (patch.description) setDescription(patch.description);
+      if (patch.historyEntry) pushHistory(patch.historyEntry.state, patch.historyEntry.label);
+      if (patch.newMessages.length > 0) setMessages(prev => [...prev, ...patch.newMessages]);
+
+      setIsStreaming(false);
+      isStreamingRef.current = false;
+      if (!patch.isConversationOnly) setLastError(null);
+      if (patch.resetDesignConfirmation) {
+        setIsDesignConfirmed(false);
+        resetDesignGateReminder();
+      }
+      setCreatorStreamingProgress(null);
     } catch (error) {
       console.error('Creator message failed:', error);
       setIsStreaming(false);
       isStreamingRef.current = false;
       setLastError(error instanceof Error ? error.message : 'Unknown error');
-      setCreationProgress(null);
       setCreatorStreamingProgress(null);
 
-      // Pipeline error → system message (not from the model)
+      // Pipeline error -> system message (not from the model)
       const parsed = parseCreatorError(error);
       const errorMessage: CreatorMessage = {
         id: crypto.randomUUID(),
@@ -1115,7 +683,7 @@ export default function BaleybotPage() {
         metadata: {
           isError: true,
           options: [
-            { id: 'retry', label: 'Retry', description: 'Send the same message again', icon: '🔄' },
+            { id: 'retry', label: 'Retry', description: 'Send the same message again', icon: '\u{1F504}' },
           ],
         },
       };
@@ -1152,152 +720,50 @@ export default function BaleybotPage() {
     });
   };
 
-  /**
-   * Handle saving the BaleyBot
-   * Returns the saved BaleyBot ID if successful, null if failed
-   */
-  const handleSave = async (): Promise<string | null> => {
-    if (!balCode || !name) return null;
+  // =====================================================================
+  // PERSISTENCE (save, auto-save, conflict handling)
+  // =====================================================================
 
-    setIsSaving(true);
-
-    try {
-      const result = await saveMutation.mutateAsync({
-        baleybotId: savedBaleybotId ?? undefined,
-        name,
-        description: description || undefined,
-        icon: icon || undefined,
-        balCode,
-        conversationHistory: buildCreatorHistoryPayload(messages),
-      });
-
-      // If new, update savedBaleybotId and URL
-      if (!savedBaleybotId) {
-        setSavedBaleybotId(result.id);
+  const {
+    handleSave,
+    debouncedSave,
+    isSaving,
+    isSavePending,
+    showConflictDialog,
+    setShowConflictDialog,
+    handleConflictAction,
+    isResolvingConflict,
+  } = useBaleybotPersistence({
+    savedBaleybotId,
+    setSavedBaleybotId,
+    balCode,
+    name,
+    description,
+    icon,
+    messages,
+    isDirty,
+    isStreaming,
+    markClean,
+    onSaveSuccess: (id, isFirstSave) => {
+      if (isFirstSave) {
         // Update URL without reload
-        window.history.replaceState(null, '', ROUTES.baleybots.detail(result.id));
+        window.history.replaceState(null, '', ROUTES.baleybots.detail(id));
       }
-
       // Invalidate queries
       utils.baleybots.list.invalidate();
       if (savedBaleybotId) {
         utils.baleybots.get.invalidate({ id: savedBaleybotId });
       }
-
-      // Mark state as clean after successful save
-      markClean();
-
       utils.baleybots.getCreatorGuidance.invalidate();
       injectAdvisorSuggestions('Bot saved');
+    },
+    onError: (message) => setLastError(message),
+    toast,
+  });
 
-      return result.id;
-    } catch (error) {
-      console.error('Save failed:', error);
-
-      // Check for save conflict (Phase 5.4)
-      if (isSaveConflictError(error)) {
-        setShowConflictDialog(true);
-        return null;
-      }
-
-      const errorContent = formatErrorWithAction(error);
-      toast({ title: 'Save failed', description: errorContent, variant: 'destructive' });
-      setLastError(errorContent);
-
-      return null;
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  /**
-   * Handle save conflict resolution (Phase 5.4)
-   */
-  const handleConflictAction = async (action: ConflictAction) => {
-    setIsResolvingConflict(true);
-
-    try {
-      switch (action) {
-        case 'reload':
-          // Reload the latest version from server
-          if (savedBaleybotId) {
-            await utils.baleybots.get.invalidate({ id: savedBaleybotId });
-            // Force refetch will trigger the effect to update local state
-            window.location.reload();
-          }
-          break;
-
-        case 'force-save':
-          // Retry save uses optimistic locking (updateWithLock) — safer than force-overwrite
-          setShowConflictDialog(false);
-          await handleSave();
-          break;
-
-        case 'cancel':
-        default:
-          setShowConflictDialog(false);
-          break;
-      }
-    } finally {
-      setIsResolvingConflict(false);
-      if (action !== 'force-save') {
-        setShowConflictDialog(false);
-      }
-    }
-  };
-
-  // Debounced save to prevent rapid clicks (Phase 1.5)
-  const { debouncedFn: debouncedSave, isPending: isSavePending } = useDebouncedCallback(
-    handleSave,
-    500
-  );
-
-  // Auto-save: triggers after first BAL generation and on subsequent changes
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoSaveFailCountRef = useRef(0);
-  const AUTO_SAVE_MAX_FAILURES = 4;
-  const AUTO_SAVE_BASE_DELAY = 2000;
-  const AUTO_SAVE_MAX_DELAY = 30000;
-  useEffect(() => {
-    // Only auto-save when: dirty, has content, not mid-stream, not already saving
-    if (!isDirty || !balCode || !name || isStreaming || isSaving) {
-      return;
-    }
-
-    // Stop auto-saving after too many consecutive failures
-    if (autoSaveFailCountRef.current >= AUTO_SAVE_MAX_FAILURES) {
-      return;
-    }
-
-    // Clear any existing auto-save timer
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-    }
-
-    // Exponential backoff: 2s → 4s → 8s → 16s, capped at 30s
-    const delay = Math.min(
-      AUTO_SAVE_BASE_DELAY * Math.pow(2, autoSaveFailCountRef.current),
-      AUTO_SAVE_MAX_DELAY,
-    );
-
-    autoSaveTimerRef.current = setTimeout(async () => {
-      autoSaveTimerRef.current = null;
-      const result = await handleSave();
-      if (result) {
-        autoSaveFailCountRef.current = 0;
-      } else {
-        autoSaveFailCountRef.current += 1;
-      }
-    }, delay);
-
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-        autoSaveTimerRef.current = null;
-      }
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDirty, balCode, name, isStreaming, isSaving]);
+  // Derived values that depend on isSaving from persistence hook
+  const canSave = hasContent && !!balCode && !!name && !isSaving && !isStreaming;
+  const isInputDisabled = isStreaming || isSaving;
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- available for explicit launch prep panel
   const handleGenerateLaunchKit = async () => {
@@ -1505,168 +971,13 @@ export default function BaleybotPage() {
   // SESSION RECOVERY (persists conversation + canvas state to sessionStorage)
   // =====================================================================
 
-  const sessionKey = `creator-session:${id}`;
-
-  // Save state to sessionStorage after each meaningful change
-  // Stop persisting once the BB has been saved (savedBaleybotId is set)
-  useEffect(() => {
-    if (!isNew || messages.length === 0 || savedBaleybotId) return;
-    try {
-      const snapshot = {
-        ts: Date.now(),
-        messages: messages.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
-          metadata: m.metadata,
-        })),
-        entities,
-        balCode,
-        name,
-        description,
-        icon,
-      };
-      sessionStorage.setItem(sessionKey, JSON.stringify(snapshot));
-    } catch {
-      // sessionStorage full or unavailable — non-critical
-    }
-  }, [isNew, messages, entities, balCode, name, description, icon, sessionKey, savedBaleybotId]);
-
-  // Restore session on mount (new BBs only, < 24h old, unless ?fresh=1)
-  useEffect(() => {
-    if (!isNew) return;
-    // Skip restore if fresh flag is set (user clicked "Start Fresh")
-    if (searchParams.get('fresh')) {
-      try { sessionStorage.removeItem(sessionKey); } catch { /* noop */ }
-      return;
-    }
-    try {
-      const raw = sessionStorage.getItem(sessionKey);
-      if (!raw) return;
-      const snapshot = JSON.parse(raw) as {
-        ts: number;
-        messages: Array<{ id: string; role: string; content: string; timestamp: string; metadata?: Record<string, unknown> }>;
-        entities: VisualEntity[];
-        balCode: string;
-        name: string;
-        description: string;
-        icon: string;
-      };
-      // Only restore if < 24 hours old
-      if (Date.now() - snapshot.ts > 24 * 60 * 60 * 1000) {
-        sessionStorage.removeItem(sessionKey);
-        return;
-      }
-      if (snapshot.messages.length > 0) {
-        setMessages(
-          snapshot.messages.map((m) => ({
-            ...m,
-            role: m.role as 'user' | 'assistant' | 'system',
-            timestamp: new Date(m.timestamp),
-          }))
-        );
-      }
-      if (snapshot.entities.length > 0) setEntities(snapshot.entities);
-      if (snapshot.balCode) setBalCode(snapshot.balCode);
-      if (snapshot.name) setName(snapshot.name);
-      if (snapshot.description) setDescription(snapshot.description);
-      if (snapshot.icon) setIcon(snapshot.icon);
-    } catch {
-      // Corrupted session data — ignore
-    }
-    // Only run on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Clear session storage after successful save
-  // Note: isNew (from params.id) stays 'new' after replaceState, so we cannot
-  // rely on !isNew. Instead, clear whenever savedBaleybotId is set — the session
-  // persist effect above already guards against re-writing after save.
-  useEffect(() => {
-    if (savedBaleybotId) {
-      try { sessionStorage.removeItem(`creator-session:new`); } catch { /* noop */ }
-    }
-  }, [savedBaleybotId]);
-
-  // Compute readiness whenever relevant state changes
-  useEffect(() => {
-    const allTools = entities.flatMap(e => e.tools);
-    const wsConns = workspaceConnections ?? [];
-    const connectedTypes = new Set(wsConns.filter(c => c.status === 'connected').map(c => c.type));
-    const hasAiProvider = connectedTypes.has('openai') || connectedTypes.has('anthropic') || connectedTypes.has('ollama');
-
-    // Check tool-specific connection requirements
-    const summary = getConnectionSummary(allTools);
-    const toolRequirementsMet = summary.required.every(req =>
-      wsConns.some(c => c.type === req.connectionType && (c.status === 'connected' || c.status === 'unconfigured'))
-    );
-    const allConnectionsMet = hasAiProvider && (summary.required.length === 0 || toolRequirementsMet);
-
-    const newReadiness = computeReadiness({
-      hasBalCode: balCode.length > 0,
-      hasEntities: entities.length > 0,
-      tools: allTools,
-      connectionsMet: allConnectionsMet,
-      hasConnections: wsConns.length > 0,
-      testsPassed: testCases.length > 0 && testCases.every(t => t.status === 'passed'),
-      hasTestRuns: testCases.filter(t => t.status !== 'pending').length,
-      hasTrigger: !!triggerConfig,
-      hasMonitoring: (analyticsData?.total ?? 0) >= 1,
-      specialist: specialistSignals,
-    });
-    setReadiness((prev) => (isSameReadiness(prev, newReadiness) ? prev : newReadiness));
-
-    prevReadinessRef.current = newReadiness;
-  }, [
-    balCode,
-    entities,
-    testCases,
-    triggerConfig,
-    workspaceConnections,
-    analyticsData,
-    isDesignConfirmed,
-    specialistSignals,
-  ]);
-
-  // Once user has progressed past design, don't block stage tabs again.
-  useEffect(() => {
-    if (isDesignConfirmed) return;
-    const hasProgressedBeyondDesign =
-      readiness.connected === 'complete' ||
-      readiness.tested !== 'incomplete' ||
-      readiness.integrated === 'complete' ||
-      readiness.monitored === 'complete';
-    if (hasProgressedBeyondDesign) {
-      setIsDesignConfirmed(true);
-      designGateReminderShownRef.current = false;
-    }
-  }, [isDesignConfirmed, readiness]);
-
-  // Auto-switch to a visible tab if current tab becomes hidden
-  useEffect(() => {
-    const visibleTabs = computeAvailableTabs({
-      readiness,
-      savedBaleybotId,
-      showAdvancedUI,
-      isDesignReviewRequired,
-    });
-    if (!showAdvancedUI && isAdvancedEditorTab(viewMode)) {
-      setViewMode('visual');
-      return;
-    }
-    if (!visibleTabs.includes(viewMode)) {
-      setViewMode('visual');
-    }
-  }, [
-    readiness,
-    viewMode,
-    showAdvancedUI,
+  useSessionRecovery({
+    id,
+    isNew,
     savedBaleybotId,
-    existingBaleybot?.lifecycleStage,
-    existingBaleybot?.runtimeInterfaceSpec,
-    isDesignReviewRequired,
-  ]);
+    state: { messages, entities, balCode, name, description, icon },
+    restore: { setMessages, setEntities, setBalCode, setName, setDescription, setIcon },
+  });
 
   // Auto-save trigger config when it changes (debounced)
   const saveTriggerMutation = trpc.baleybots.saveTriggerConfig.useMutation();
@@ -1729,7 +1040,7 @@ export default function BaleybotPage() {
   const handleOptionSelect = (optionId: string) => {
     if (optionId === 'confirm-design') {
       setIsDesignConfirmed(true);
-      designGateReminderShownRef.current = false;
+      resetDesignGateReminder();
       navigateToTab('test', { bypassDesignGate: true });
       return;
     }
@@ -1775,7 +1086,7 @@ export default function BaleybotPage() {
       setIcon(existingBaleybot.icon || '');
       setBalCode(existingBaleybot.balCode);
       setIsDesignConfirmed(true);
-      designGateReminderShownRef.current = false;
+      resetDesignGateReminder();
       if (existingBaleybot.lifecycleStage === 'live' || existingBaleybot.lifecycleStage === 'paused') {
         setViewMode('integrate');
       }
@@ -1857,7 +1168,7 @@ export default function BaleybotPage() {
       // Mark state as initialized after all state updates
       setIsStateInitialized(true);
     }
-  }, [isNew, existingBaleybot, markClean, setTestCases]);
+  }, [isNew, existingBaleybot, markClean, setTestCases, resetDesignGateReminder, setViewMode, setIsDesignConfirmed]);
 
   // Auto-send initial prompt if provided (using ref to track sent state)
   // Note: handleSendMessage is intentionally excluded from deps - we use ref to ensure single execution
@@ -1936,12 +1247,6 @@ export default function BaleybotPage() {
     promoteToLiveMutation.isPending ||
     pauseLiveBotMutation.isPending ||
     revertToDraftMutation.isPending;
-  const availableTabs = computeAvailableTabs({
-    readiness,
-    savedBaleybotId,
-    showAdvancedUI,
-    isDesignReviewRequired,
-  });
   // Compute save button disabled reason for tooltip (Phase 1.8)
   const saveDisabledReason = !balCode || !name
     ? 'Build something first'
@@ -2027,7 +1332,7 @@ export default function BaleybotPage() {
         isNew={isNew}
         isDirty={isDirty}
         lifecycleStage={lifecycleStage}
-        validationStatus={validationStatus}
+        validationStatus={'idle'}
         canSave={canSave}
         isSaving={isSaving}
         isSavePending={isSavePending}

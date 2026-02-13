@@ -85,19 +85,23 @@ When undo/redo restores from a visual change:
 
 ---
 
-## 7.2 — Recommendation Diff View
+## 7.2 — Recommendation Diff View (Enhancement of Phase 3)
 
-**Dependency:** Phase 1.1 (recommendations with `bal_patch` type)
+**Dependency:** Phase 3 (Actions Hub, shipped)
+
+### Current State (Phase 3)
+
+Phase 3 shipped inline `<pre>` blocks in `ActionCard.tsx`'s `ProposedActionPreview` component for `bal_patch` type recommendations. These show current and proposed BAL code in separate code blocks but without line-level diff highlighting.
 
 ### Purpose
 
-When the execution reviewer (Phase 2) proposes a BAL patch, the user needs to see a clear before/after diff before deciding to accept or reject.
+Upgrade the existing code preview to a proper line-by-line diff view with added/removed/unchanged line highlighting.
 
 ### Component
 
 **File:** Create `apps/web/src/components/actions/ActionDiffView.tsx`
 
-This was listed as a Phase 3 component but the implementation details are here since it's fundamentally a visual editor feature.
+This component replaces the `bal_patch` case in `ProposedActionPreview` within `ActionCard.tsx`.
 
 ### UI: Split-View Diff
 
@@ -120,7 +124,7 @@ This was listed as a Phase 3 component but the implementation details are here s
 
 ### Implementation
 
-Use a simple line-by-line diff algorithm (or a lightweight diff library already in the project's dependencies). Don't add a heavy dependency — a basic implementation is sufficient:
+Use a simple line-by-line diff algorithm. Don't add a heavy dependency — a basic implementation is sufficient:
 
 ```typescript
 function computeLineDiff(current: string, proposed: string): DiffLine[] {
@@ -131,18 +135,11 @@ function computeLineDiff(current: string, proposed: string): DiffLine[] {
 }
 ```
 
-### Visual Preview (Optional Enhancement)
-
-Below the text diff, show side-by-side visual editor previews:
-- Left: current BAL → visual nodes
-- Right: proposed BAL → visual nodes
-
-This leverages the existing `bal-to-nodes.ts` to render both versions as visual graphs, making structural changes (added entities, changed connections) visually obvious.
-
 ### Integration Points
 
-1. **Actions Hub (Phase 3):** `ActionCard` for `bal_patch` type opens this diff view
-2. **Bot detail page:** If a pending `bal_patch` recommendation exists, show a banner with "View Proposed Fix" link
+1. **Actions Hub:** Replaces the `bal_patch` case in `ActionCard.tsx` → `ProposedActionPreview`
+2. **Bot detail page:** Potential banner showing "View Proposed Fix" for pending `bal_patch` recommendations
+3. **Any future surface** showing BAL diffs (e.g., undo/redo preview)
 
 ---
 

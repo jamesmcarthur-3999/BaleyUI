@@ -191,7 +191,11 @@ Add an "AI Insights" card at the top of the analytics page:
 2. "Generate" button triggers `generateAnalyticsInsights()` on demand
 3. Period dropdown: 7d, 30d, 90d
 4. Each insight links to the relevant BB detail page
-5. "View all" links to Actions Hub filtered by `sourceType: 'analytics_interpreter'`
+5. "View all" links to Actions Hub filtered by `sourceType: 'analytics_interpreter'`:
+   ```
+   /dashboard/actions?sourceType=analytics_interpreter
+   ```
+   Phase 3 added `?sourceType=` URL parameter support with a dismissible filter chip.
 
 ---
 

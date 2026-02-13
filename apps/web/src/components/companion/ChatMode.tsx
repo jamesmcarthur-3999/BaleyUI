@@ -59,15 +59,30 @@ interface ChatModeProps {
 }
 
 // ============================================================================
+// TOOL DISPLAY NAMES — human-friendly status labels for tool chips
+// ============================================================================
+
+const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  list_pending_actions: 'Checking your actions',
+  apply_action: 'Applying recommendation',
+  get_workspace_health: 'Checking workspace health',
+  review_execution: 'Analyzing execution',
+  diagnose_failure: 'Diagnosing failure',
+  suggest_approval_patterns: 'Analyzing approval patterns',
+  navigate_user_to: 'Navigating',
+};
+
+// ============================================================================
 // TOOL CALL BLOCK COMPONENT
 // ============================================================================
 
 function ToolCallBlock({ block }: { block: Extract<ContentBlock, { type: 'tool_call' }> }) {
   const [expanded, setExpanded] = useState(false);
 
-  const displayName = block.toolName
+  const fallbackName = block.toolName
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
+  const displayName = TOOL_DISPLAY_NAMES[block.toolName] ?? fallbackName;
 
   return (
     <div className="my-1">

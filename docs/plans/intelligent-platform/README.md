@@ -11,7 +11,7 @@ Build a cohesive system where internal BaleyBots detect issues, maintain a recom
 | 0 | Security & Data Integrity | [`phase-0-security.md`](phase-0-security.md) | Pending Review | None |
 | 1 | Foundation (Recommendations DB + Shared Context) | [`phase-1-foundation.md`](phase-1-foundation.md) | Pending Review | Phase 0 |
 | 2 | Internal BB Intelligence (Pattern Learner + Execution Reviewer) | [`phase-2-internal-bb-intelligence.md`](phase-2-internal-bb-intelligence.md) | Pending Review | Phase 1 |
-| 3 | Actions Hub | [`phase-3-actions-hub.md`](phase-3-actions-hub.md) | Pending Review | Phase 1, best after Phase 2 |
+| 3 | Actions Hub — AI-First Design | [`phase-3-actions-hub.md`](phase-3-actions-hub.md) | **Complete** | Phase 1, Phase 2 |
 | 4 | Wire 5 tRPC Routes | [`phase-4-wire-trpc-routes.md`](phase-4-wire-trpc-routes.md) | Pending Review | None |
 | 4.5 | Centralized Config | [`phase-4.5-centralized-config.md`](phase-4.5-centralized-config.md) | Pending Review | None |
 | 5 | Operational Storage | [`phase-5-operational-storage.md`](phase-5-operational-storage.md) | Pending Review | None (5.5 needs Phase 1.2) |

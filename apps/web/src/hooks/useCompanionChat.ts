@@ -116,6 +116,10 @@ export function useCompanionChat() {
           context: {
             currentPage: pathname,
             healthSummary: health.summary,
+            pendingActions: {
+              total: health.pendingActions ?? 0,
+              critical: health.criticalActions ?? 0,
+            },
           },
         }),
         signal: abortRef.current.signal,

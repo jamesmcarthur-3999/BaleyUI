@@ -1,8 +1,8 @@
 /**
  * Workspace Health Hook
  *
- * Monitors workspace health (connection status, errors) and provides
- * a summary for the companion's context-aware behavior.
+ * Monitors workspace health (connection status, errors, pending actions)
+ * and provides a summary for the companion's context-aware behavior.
  */
 
 'use client';
@@ -10,13 +10,18 @@
 import { trpc } from '@/lib/trpc/client';
 
 export interface HealthIssue {
-  type: 'connection_error' | 'no_connections' | 'unconfigured_connection';
+  type: 'connection_error' | 'no_connections' | 'unconfigured_connection' | 'pending_critical_actions';
   details: string;
 }
 
 export function useWorkspaceHealth() {
   const { data: connections } = trpc.connections.list.useQuery(undefined, {
-    staleTime: 60_000, // Re-check every 60s
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const { data: recCounts } = trpc.recommendations.counts.useQuery(undefined, {
+    staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
 
@@ -52,12 +57,26 @@ export function useWorkspaceHealth() {
     }
   }
 
+  const criticalActions = recCounts?.pendingBySeverity?.critical ?? 0;
+  const pendingActions = recCounts?.pending ?? 0;
+
+  if (criticalActions > 0) {
+    issues.push({
+      type: 'pending_critical_actions',
+      details: `${criticalActions} critical action(s) need attention`,
+    });
+  }
+
   const healthy = connections?.filter((c) => c.status === 'connected').length ?? 0;
   const total = connections?.length ?? 0;
 
-  const summary = connections
-    ? `${healthy} healthy, ${issues.length} issues out of ${total} connections`
-    : 'Loading...';
+  const parts = [
+    `${healthy} healthy, ${issues.filter((i) => i.type !== 'pending_critical_actions').length} issues out of ${total} connections`,
+  ];
+  if (pendingActions > 0) {
+    parts.push(`${pendingActions} pending actions (${criticalActions} critical)`);
+  }
+  const summary = connections ? parts.join(', ') : 'Loading...';
 
   return {
     issues,
@@ -65,5 +84,7 @@ export function useWorkspaceHealth() {
     summary,
     connectionCount: total,
     healthyCount: healthy,
+    pendingActions,
+    criticalActions,
   };
 }
