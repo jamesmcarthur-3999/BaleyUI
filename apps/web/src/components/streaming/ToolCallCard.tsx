@@ -125,7 +125,7 @@ export function ToolCallCard({ toolCall, className }: ToolCallCardProps) {
         </div>
 
         {/* Result Section */}
-        {(toolCall.result != null || toolCall.error) && (
+        {(toolCall.result != null || toolCall.error) ? (
           <div>
             <Button
               variant="ghost"
@@ -157,10 +157,10 @@ export function ToolCallCard({ toolCall, className }: ToolCallCardProps) {
               </div>
             )}
           </div>
-        )}
+        ) : null}
 
         {/* Loading state for execution */}
-        {toolCall.status === 'running' && toolCall.parsedArguments && !toolCall.result && !toolCall.error && (
+        {toolCall.status === 'running' && !!toolCall.parsedArguments && !toolCall.result && !toolCall.error && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <LoadingDots size="sm" />
             <span>Executing tool...</span>

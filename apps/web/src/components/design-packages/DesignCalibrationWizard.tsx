@@ -9,8 +9,20 @@ import {
   type DesignCalibrationCallbacks,
 } from '@/lib/design-packages/calibration-streaming';
 import { StreamdownMarkdown } from '@/components/shared/StreamdownMarkdown';
-import type { ToolCallState } from '@/lib/streaming/types/state';
 import { cn } from '@/lib/utils';
+
+/** Local tool call state for the calibration wizard's streaming UI */
+interface ToolCallState {
+  id: string;
+  toolName: string;
+  status: 'streaming_args' | 'args_complete' | 'executing' | 'complete' | 'error';
+  arguments: string;
+  parsedArguments?: unknown;
+  result?: unknown;
+  error?: string;
+  startTime?: number;
+  endTime?: number;
+}
 import {
   Send,
   Sparkles,

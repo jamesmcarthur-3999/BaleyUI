@@ -87,7 +87,7 @@ export async function updateWithLock<
     // Check if record exists at all
     const current = await executor
       .select({ id: table.id, version: table.version })
-      .from(table)
+      .from(table as any)
       .where(eq(table.id, id) as any)
       .limit(1);
 
