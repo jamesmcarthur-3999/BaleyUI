@@ -23,10 +23,10 @@ export function ChatBubble({ message, config, onRetry, className }: ChatBubblePr
   const segments = message.segments ?? textToSegments(message.content);
 
   const handleCopy = () => {
-    // Extract text from segments for copying
+    // Extract text from segments for copying (type-narrowed)
     const textContent = segments
-      .filter(s => s.type === 'text')
-      .map(s => (s as { content: string }).content)
+      .filter((s): s is Extract<typeof s, { type: 'text' }> => s.type === 'text')
+      .map(s => s.content)
       .join('\n');
     navigator.clipboard.writeText(textContent || message.content);
     setCopied(true);

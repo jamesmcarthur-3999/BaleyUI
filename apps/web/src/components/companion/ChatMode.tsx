@@ -110,9 +110,7 @@ export function ChatMode({
           )}
         </div>
 
-        <p className="text-[10px] text-muted-foreground/40 text-center mt-2">
-          Press Enter to send, Shift+Enter for new line
-        </p>
+        {/* Keyboard hint omitted — standard chat UX, users know Enter to send */}
       </div>
     </div>
   );

@@ -65,7 +65,10 @@ export function ChatThread({
 
   return (
     <div ref={scrollRef} className={cn('flex-1 overflow-y-auto', className)}>
-      <div className="max-w-3xl mx-auto py-4">
+      <div className={cn(
+          'py-4',
+          config.variant === 'full-page' ? 'max-w-3xl mx-auto' : 'px-3',
+        )}>
         {messages.map((msg) => (
           <ChatBubble
             key={msg.id}
