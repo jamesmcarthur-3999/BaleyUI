@@ -178,9 +178,11 @@ export function useCompanionChat() {
                   prev.map((m) => {
                     if (m.id !== assistantId) return m;
                     const segments: StreamSegment[] = [...(m.segments ?? [])];
+                    const toolId = event.toolCallId ?? `tool-${Date.now()}`;
                     segments.push({
                       type: 'tool_call',
-                      id: event.toolCallId ?? `tool-${Date.now()}`,
+                      id: toolId,
+                      toolCallId: toolId,
                       timestamp: Date.now(),
                       name: event.toolName ?? 'unknown',
                       args: undefined,
