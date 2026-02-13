@@ -30,7 +30,7 @@ export function ToolCallGroup({ group, detail, className }: ToolCallGroupProps) 
       <button
         onClick={() => setExpanded(!expanded)}
         className={cn(
-          'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs w-full text-left transition-colors',
+          'flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs w-full text-left transition-all duration-200',
           'bg-foreground/[0.03] hover:bg-foreground/[0.05]',
         )}
       >
@@ -39,6 +39,21 @@ export function ToolCallGroup({ group, detail, className }: ToolCallGroupProps) 
           : <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 text-primary" />
         }
         <span className="font-medium text-muted-foreground">{label}</span>
+        {!expanded && (
+          <span className="flex items-center gap-0.5 ml-2">
+            {group.tools.map((t) => (
+              <span
+                key={t.id}
+                className={cn(
+                  'w-1.5 h-1.5 rounded-full',
+                  t.status === 'running' && 'bg-primary animate-pulse-soft',
+                  t.status === 'completed' && 'bg-emerald-500',
+                  t.status === 'failed' && 'bg-destructive',
+                )}
+              />
+            ))}
+          </span>
+        )}
         <ChevronDown className={cn(
           'h-3 w-3 ml-auto shrink-0 text-muted-foreground/50 transition-transform',
           expanded && 'rotate-180',
@@ -47,7 +62,7 @@ export function ToolCallGroup({ group, detail, className }: ToolCallGroupProps) 
 
       {/* Expanded tool list */}
       {expanded && (
-        <div className="ml-3 border-l border-foreground/[0.06] pl-2 mt-1 space-y-0.5 animate-content-enter">
+        <div className="ml-4 border-l-2 border-foreground/[0.06] pl-2 mt-1.5 space-y-0.5 animate-content-enter">
           {group.tools.map((tool) => (
             <ToolCallChip key={tool.id} segment={tool} detail={detail} />
           ))}

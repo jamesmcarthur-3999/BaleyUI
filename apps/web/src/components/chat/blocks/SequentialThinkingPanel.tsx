@@ -21,16 +21,17 @@ export function SequentialThinkingPanel({ segment, className }: SequentialThinki
       <button
         onClick={() => setExpanded(!expanded)}
         className={cn(
-          'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs w-full text-left transition-colors',
-          'bg-foreground/[0.03] hover:bg-foreground/[0.05]',
-          isRunning && 'text-primary',
+          'flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs w-full text-left transition-all duration-200',
+          isRunning
+            ? 'bg-amber-500/[0.05] border border-amber-500/10'
+            : 'bg-foreground/[0.03] hover:bg-foreground/[0.05]',
         )}
       >
         {isRunning
-          ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-          : <Lightbulb className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+          ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 text-amber-500" />
+          : <Lightbulb className="h-3.5 w-3.5 shrink-0 text-amber-500/60" />
         }
-        <span className="font-medium">
+        <span className={cn('font-medium', isRunning ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
           {isRunning ? `Thinking deeply (step ${thoughtCount})` : `Deep reasoning (${thoughtCount} steps)`}
         </span>
         {!isRunning && (
@@ -42,7 +43,7 @@ export function SequentialThinkingPanel({ segment, className }: SequentialThinki
       </button>
 
       {expanded && (
-        <div className="mt-1 space-y-1 animate-content-enter">
+        <div className="mt-1.5 space-y-1 animate-content-enter">
           {segment.thoughts.map((thought) => (
             <ThoughtRow key={thought.thought_id} thought={thought} />
           ))}
@@ -63,9 +64,9 @@ function ThoughtRow({ thought }: { thought: ThoughtItem }) {
 
   return (
     <div className={cn(
-      'px-3 py-1.5 rounded-lg text-xs',
+      'px-3 py-1.5 rounded-xl text-xs',
       thought.isRevised && 'opacity-50',
-      thought.is_final && 'bg-amber-50/50 dark:bg-amber-950/20',
+      thought.is_final && 'bg-amber-500/[0.06] border border-amber-500/10',
     )}>
       <button
         onClick={() => setShowDetail(!showDetail)}
@@ -74,7 +75,7 @@ function ThoughtRow({ thought }: { thought: ThoughtItem }) {
         {thought.is_final
           ? <CheckCircle2 className="h-3 w-3 shrink-0 text-amber-500" />
           : <span className="text-[10px] text-muted-foreground/50 w-3 text-center tabular-nums">
-              {thought.progressCurrent ?? '·'}
+              {thought.progressCurrent ?? '\u00B7'}
             </span>
         }
         <span className={cn(

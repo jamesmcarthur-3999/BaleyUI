@@ -35,7 +35,7 @@ export function ChatBubble({ message, config, onRetry, className }: ChatBubblePr
 
   return (
     <div className={cn(
-      'group/bubble flex gap-3 px-4 py-3',
+      'group/bubble flex gap-3 px-4 py-4 animate-message-enter',
       isUser && 'flex-row-reverse',
       className,
     )}>
@@ -59,12 +59,15 @@ export function ChatBubble({ message, config, onRetry, className }: ChatBubblePr
       )}>
         {/* User messages: plain text bubble */}
         {isUser ? (
-          <div className="inline-block max-w-[85%] px-3 py-2 rounded-2xl rounded-tr-sm bg-primary text-primary-foreground text-sm">
+          <div className="inline-block max-w-[85%] px-4 py-2.5 rounded-2xl rounded-tr-md bg-primary text-primary-foreground text-[0.9375rem] leading-relaxed shadow-md shadow-primary/10">
             {message.content}
           </div>
         ) : (
           /* Assistant messages: segment-based rendering */
-          <div className="max-w-full">
+          <div className={cn(
+            'max-w-full',
+            message.status === 'streaming' && 'pl-3 border-l-2 border-primary/20',
+          )}>
             <SegmentRenderer segments={segments} config={config} />
           </div>
         )}
@@ -82,7 +85,7 @@ export function ChatBubble({ message, config, onRetry, className }: ChatBubblePr
             <span className="tabular-nums">{message.meta.tokens} tokens</span>
           )}
           {!isUser && config.showCopy && (
-            <button onClick={handleCopy} className="hover:text-foreground transition-colors p-0.5">
+            <button onClick={handleCopy} className="hover:text-foreground hover:bg-foreground/[0.06] transition-all rounded-full p-1">
               {copied
                 ? <Check className="h-3 w-3 text-emerald-500" />
                 : <Copy className="h-3 w-3" />
@@ -90,7 +93,7 @@ export function ChatBubble({ message, config, onRetry, className }: ChatBubblePr
             </button>
           )}
           {isError && onRetry && (
-            <button onClick={onRetry} className="hover:text-foreground transition-colors p-0.5 flex items-center gap-1">
+            <button onClick={onRetry} className="hover:text-foreground hover:bg-foreground/[0.06] transition-all rounded-full p-1 flex items-center gap-1">
               <RotateCcw className="h-3 w-3" />
               <span>Retry</span>
             </button>

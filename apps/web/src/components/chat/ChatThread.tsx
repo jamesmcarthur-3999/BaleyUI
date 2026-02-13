@@ -2,8 +2,7 @@
 
 import { useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { MessageSquare } from 'lucide-react';
-import { LoadingDots } from '@/components/ui/loading-dots';
+import { Bot, MessageSquare } from 'lucide-react';
 import { ChatBubble } from './ChatBubble';
 import type { ChatMessage, ChatConfig } from './types';
 
@@ -66,7 +65,7 @@ export function ChatThread({
   return (
     <div ref={scrollRef} className={cn('flex-1 overflow-y-auto', className)}>
       <div className={cn(
-          'py-4',
+          'py-4 space-y-1',
           config.variant === 'full-page' ? 'max-w-3xl mx-auto' : 'px-3',
         )}>
         {messages.map((msg) => (
@@ -79,9 +78,19 @@ export function ChatThread({
         ))}
 
         {isTyping && (
-          <div className="flex items-center gap-3 px-4 py-3">
-            <LoadingDots size="sm" />
-            <span className="text-xs text-muted-foreground/50">Thinking...</span>
+          <div className="flex items-center gap-3 px-4 py-4 animate-fade-in">
+            {config.showAvatars && (
+              <div className="flex-none w-7 h-7 rounded-full flex items-center justify-center bg-foreground/[0.05]">
+                <Bot className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+            )}
+            <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-foreground/[0.03]">
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-loading-dot" style={{ animationDelay: '0ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-loading-dot" style={{ animationDelay: '200ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-loading-dot" style={{ animationDelay: '400ms' }} />
+              </span>
+            </div>
           </div>
         )}
 
