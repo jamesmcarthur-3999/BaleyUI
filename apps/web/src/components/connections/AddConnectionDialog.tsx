@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Form } from '@/components/ui/form';
-import { Label } from '@/components/ui/label';
+import { FormFieldGroup } from '@/components/ui/form-field-group';
 import {
   Select,
   SelectContent,
@@ -198,11 +198,10 @@ export function AddConnectionDialog() {
           </div>
 
           {/* Provider Selection */}
-          <div className="space-y-2">
-            <Label>
-              {category === 'ai' ? 'AI Provider' : 'Database Type'}{' '}
-              <span className="text-destructive">*</span>
-            </Label>
+          <FormFieldGroup
+            label={category === 'ai' ? 'AI Provider' : 'Database Type'}
+            required
+          >
             <Select
               value={selectedProvider}
               onValueChange={(value) => handleProviderChange(value as ProviderType)}
@@ -226,7 +225,7 @@ export function AddConnectionDialog() {
                 })}
               </SelectContent>
             </Select>
-          </div>
+          </FormFieldGroup>
 
           {/* Provider-Specific Form */}
           <Form {...form}>
@@ -249,8 +248,8 @@ export function AddConnectionDialog() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={createMutation.isPending}>
-                  {createMutation.isPending ? 'Creating...' : 'Create Connection'}
+                <Button type="submit" loading={createMutation.isPending} loadingText="Creating...">
+                  Create Connection
                 </Button>
               </DialogFooter>
             </form>

@@ -57,6 +57,7 @@ const ALL_INTERNAL_BOTS = [
   'bal_generator',
   'baley',
   'connection_advisor',
+  'context_processor',
   'creator_action_advisor',
   'creator_bot',
   'deployment_advisor',
@@ -78,7 +79,7 @@ const ALL_INTERNAL_BOTS = [
 // Most internal bots use complex output type syntax (array<object{...}>, enum(...), ?type)
 // that the SDK's type parser doesn't support yet.
 // nl_to_sql_postgres and nl_to_sql_mysql use only simple types (string, number, boolean, array, object).
-const BOTS_PARSEABLE_NOW = ['nl_to_sql_postgres', 'nl_to_sql_mysql'] as const;
+const BOTS_PARSEABLE_NOW = ['context_processor', 'nl_to_sql_postgres', 'nl_to_sql_mysql'] as const;
 
 describe('internal-baleybots', () => {
   describe('INTERNAL_BALEYBOTS', () => {
@@ -94,9 +95,9 @@ describe('internal-baleybots', () => {
       }
     });
 
-    it('has exactly 18 internal bots', () => {
+    it('has exactly 19 internal bots', () => {
       const definedBots = Object.keys(INTERNAL_BALEYBOTS);
-      expect(definedBots).toHaveLength(18);
+      expect(definedBots).toHaveLength(19);
     });
 
     it.each(ALL_INTERNAL_BOTS)('%s has required fields (name, description, icon, balCode)', (botName) => {

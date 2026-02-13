@@ -18,6 +18,13 @@ const log = createLogger('ai-credentials-service');
 // TYPES
 // ============================================================================
 
+export class MissingCredentialsError extends Error {
+  constructor(message = 'No AI provider configured') {
+    super(message);
+    this.name = 'MissingCredentialsError';
+  }
+}
+
 export type AIProviderType = 'openai' | 'anthropic' | 'ollama';
 
 export interface AICredentials {
@@ -42,7 +49,11 @@ export function decryptMaybe(value?: string): string | undefined {
   if (!value) return undefined;
   try {
     return decrypt(value);
-  } catch {
+  } catch (error) {
+    log.warn('Failed to decrypt credential value — returning raw value', {
+      error: error instanceof Error ? error.message : String(error),
+      valueLength: value.length,
+    });
     return value;
   }
 }

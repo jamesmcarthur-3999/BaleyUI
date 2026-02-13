@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { Loader2, Rocket, CirclePlay, PauseCircle, RefreshCw, DollarSign } from 'lucide-react';
+import { Rocket, CirclePlay, PauseCircle, RefreshCw, DollarSign } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { RuntimeSelector } from './RuntimeSelector';
 import { ReadinessChecklist } from './ReadinessChecklist';
@@ -200,18 +200,20 @@ export function DeployPanel({
             {lifecycleStage !== 'live' && lifecycleStage !== 'paused' && !launchKit && (
               <Button
                 onClick={onGenerateLaunchKit}
-                disabled={!savedBaleybotId || launchBusy || (readyForLaunchPrep === false)}
+                disabled={!savedBaleybotId || (readyForLaunchPrep === false)}
+                loading={isGeneratingLaunchKit}
               >
-                {isGeneratingLaunchKit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Rocket className="h-4 w-4 mr-2" />}
+                <Rocket className="h-4 w-4 mr-2" />
                 Prepare Launch
               </Button>
             )}
             {launchKit && lifecycleStage !== 'live' && lifecycleStage !== 'paused' && (
               <Button
                 onClick={onPromoteToLive}
-                disabled={!savedBaleybotId || launchBusy}
+                disabled={!savedBaleybotId}
+                loading={isPromotingToLive}
               >
-                {isPromotingToLive ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CirclePlay className="h-4 w-4 mr-2" />}
+                <CirclePlay className="h-4 w-4 mr-2" />
                 Go Live
               </Button>
             )}
@@ -219,11 +221,9 @@ export function DeployPanel({
               <Button
                 variant="outline"
                 onClick={onPauseOrResume}
-                disabled={launchBusy}
+                loading={launchBusy}
               >
-                {launchBusy ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : lifecycleStage === 'live' ? (
+                {lifecycleStage === 'live' ? (
                   <PauseCircle className="h-4 w-4 mr-2" />
                 ) : (
                   <CirclePlay className="h-4 w-4 mr-2" />

@@ -24,6 +24,7 @@ import {
 } from '@baleyui/db';
 import { executeBALCode } from '@baleyui/sdk';
 import { createLogger } from '@/lib/logger';
+import { processError } from '@/lib/baleybot/services/error-resolution-service';
 import { getWorkspaceAICredentials } from '@/lib/baleybot/services';
 import { checkApiRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { createErrorResponse } from '@/lib/api/error-response';
@@ -50,22 +51,16 @@ function getClientIp(request: NextRequest): string | undefined {
 }
 
 /**
- * Timing-safe comparison of webhook secrets to prevent timing attacks
+ * Timing-safe comparison of webhook secrets to prevent timing attacks.
+ * Uses HMAC-then-compare to ensure constant-time regardless of input length.
  */
 function verifyWebhookSecret(expected: string, provided: string | null): boolean {
   if (!provided || !expected) {
     return false;
   }
-  // Convert to buffers for timing-safe comparison
-  const expectedBuffer = Buffer.from(expected, 'utf-8');
-  const providedBuffer = Buffer.from(provided, 'utf-8');
-  // If lengths differ, we still need to do a comparison to avoid timing leak
-  if (expectedBuffer.length !== providedBuffer.length) {
-    // Compare against expected to maintain constant time
-    crypto.timingSafeEqual(expectedBuffer, expectedBuffer);
-    return false;
-  }
-  return crypto.timingSafeEqual(expectedBuffer, providedBuffer);
+  const expectedHmac = crypto.createHmac('sha256', expected).update('verify').digest();
+  const providedHmac = crypto.createHmac('sha256', provided).update('verify').digest();
+  return crypto.timingSafeEqual(expectedHmac, providedHmac);
 }
 
 // ============================================================================
@@ -101,6 +96,17 @@ export async function POST(
           'X-RateLimit-Reset': String(Math.ceil(rateLimitResult.resetAt / 1000)),
         },
       }
+    );
+  }
+
+  // Reject oversized request bodies (100KB limit)
+  const contentLength = parseInt(request.headers.get('content-length') || '0', 10);
+  const MAX_WEBHOOK_BODY_SIZE = 102_400; // 100KB
+  if (contentLength > MAX_WEBHOOK_BODY_SIZE) {
+    log.warn('Webhook body too large', { baleybotId, contentLength, maxBytes: MAX_WEBHOOK_BODY_SIZE });
+    return NextResponse.json(
+      { error: 'Request body too large', maxBytes: MAX_WEBHOOK_BODY_SIZE },
+      { status: 413 }
     );
   }
 
@@ -297,6 +303,15 @@ export async function POST(
       userAgent,
       endpoint: `/api/webhooks/baleybots/${workspaceId}/${baleybotId}`,
     });
+
+    // Error resolution pipeline (async, non-blocking)
+    processError({
+      workspaceId,
+      sourceType: 'webhook',
+      sourceId: baleybotId,
+      baleybotId,
+      error: errorMessage,
+    }).catch(() => {});
 
     // Determine specific error type for client response
     let clientError = 'Failed to execute BaleyBot';

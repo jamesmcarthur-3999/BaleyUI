@@ -14,6 +14,7 @@ import { buildAnalyticsTools } from './analytics';
 import { buildWorkspaceTools } from './workspace';
 import { buildApprovalTools } from './approvals';
 import { buildNavigationTools } from './navigation';
+import { buildIntelligenceTools } from './intelligence';
 
 export interface CompanionToolContext {
   workspaceId: string;
@@ -38,6 +39,7 @@ export function buildCompanionTools(
     buildAnalyticsTools,
     buildWorkspaceTools,
     buildApprovalTools,
+    buildIntelligenceTools,
   ];
 
   for (const builder of domainBuilders) {

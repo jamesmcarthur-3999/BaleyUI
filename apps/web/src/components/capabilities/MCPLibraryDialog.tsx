@@ -25,7 +25,6 @@ import {
   Brain,
   CreditCard,
   Users,
-  Loader2,
   CheckCircle2,
   ExternalLink,
   Lock,
@@ -373,18 +372,15 @@ export function MCPLibraryDialog({ onInstalled }: MCPLibraryDialogProps) {
               <Button
                 size="sm"
                 onClick={handleInstall}
+                loading={installing}
+                loadingText="Installing..."
                 disabled={
-                  installing ||
                   selected.requiredCredentials.some(
                     (c) => !credentials[c.name]?.trim()
                   )
                 }
               >
-                {installing ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Plug className="h-4 w-4 mr-2" />
-                )}
+                <Plug className="h-4 w-4 mr-2" />
                 Connect
               </Button>
             </div>

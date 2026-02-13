@@ -108,13 +108,9 @@ export function OllamaForm({ form }: OllamaFormProps) {
             variant="outline"
             size="sm"
             onClick={fetchModels}
-            disabled={loading}
+            loading={loading}
           >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
+            <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
 

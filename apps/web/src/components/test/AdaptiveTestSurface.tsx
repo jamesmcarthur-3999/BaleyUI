@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Play, Loader2, ChevronDown, ChevronUp, Clock, CheckCircle2, XCircle, FileUp, Copy, Check, RotateCcw, Wrench, ExternalLink } from 'lucide-react';
 import { StreamdownMarkdown } from '@/components/shared/StreamdownMarkdown';
@@ -81,7 +82,11 @@ export function AdaptiveTestSurface({
   const [testRuns, setTestRuns] = useState<TestRun[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [, setExecutionId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{
+    message: string;
+    actionUrl?: string;
+    actionLabel?: string;
+  } | null>(null);
   const [durationMs, setDurationMs] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -109,7 +114,7 @@ export function AdaptiveTestSurface({
       try {
         input = JSON.parse(jsonInput);
       } catch {
-        setError('Invalid JSON payload');
+        setError({ message: 'Invalid JSON payload' });
         return;
       }
     } else {
@@ -228,14 +233,18 @@ export function AdaptiveTestSurface({
           }
 
           if (event.type === 'error') {
-            setError((event.error as string) ?? 'Execution failed');
+            setError({
+              message: (event.error as string) ?? 'Execution failed',
+              actionUrl: event.actionUrl as string | undefined,
+              actionLabel: event.actionLabel as string | undefined,
+            });
             success = false;
             return;
           }
         },
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Execution failed');
+      setError({ message: err instanceof Error ? err.message : 'Execution failed' });
       success = false;
     }
 
@@ -412,7 +421,16 @@ export function AdaptiveTestSurface({
 
         {error && (
           <div className="rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2 text-sm text-destructive mb-3">
-            {error}
+            <p>{error.message}</p>
+            {error.actionUrl && (
+              <Link
+                href={error.actionUrl}
+                className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:underline"
+              >
+                {error.actionLabel ?? 'Fix this'}
+                <ExternalLink className="h-3 w-3" />
+              </Link>
+            )}
           </div>
         )}
 

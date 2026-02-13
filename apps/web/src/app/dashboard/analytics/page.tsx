@@ -77,7 +77,7 @@ export default function AnalyticsPage() {
                         {formatCost(costSummary?.totalCost || 0)}
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {totalExecutions.toLocaleString()} executions
+                        {totalExecutions.toLocaleString()} runs
                       </p>
                     </>
                   )}
@@ -109,7 +109,7 @@ export default function AnalyticsPage() {
               {/* Total Executions */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Executions</CardTitle>
+                  <CardTitle className="text-sm font-medium">Total Runs</CardTitle>
                   <Activity className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
@@ -118,7 +118,7 @@ export default function AnalyticsPage() {
                   ) : (
                     <>
                       <div className="text-2xl font-bold">{totalExecutions.toLocaleString()}</div>
-                      <p className="text-xs text-muted-foreground mt-1">Total executions</p>
+                      <p className="text-xs text-muted-foreground mt-1">Total runs</p>
                     </>
                   )}
                 </CardContent>
@@ -127,7 +127,7 @@ export default function AnalyticsPage() {
               {/* Avg Cost Per Execution */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Cost per Execution</CardTitle>
+                  <CardTitle className="text-sm font-medium">Cost per Run</CardTitle>
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
@@ -188,7 +188,7 @@ export default function AnalyticsPage() {
                           <div>
                             <div className="font-medium">{bot.name}</div>
                             <div className="text-xs text-muted-foreground">
-                              {bot.executions.toLocaleString()} executions
+                              {bot.executions.toLocaleString()} runs
                             </div>
                           </div>
                         </div>

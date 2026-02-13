@@ -55,7 +55,10 @@ export const triggersRouter = router({
    */
   list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.query.baleybotTriggers.findMany({
-      where: eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+      where: and(
+        eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+        notDeleted(baleybotTriggers)
+      ),
       with: {
         sourceBaleybot: { columns: { id: true, name: true } },
         targetBaleybot: { columns: { id: true, name: true } },
@@ -114,7 +117,8 @@ export const triggersRouter = router({
       return ctx.db.query.baleybotTriggers.findMany({
         where: and(
           eq(baleybotTriggers.targetBaleybotId, input.targetBaleybotId),
-          eq(baleybotTriggers.workspaceId, ctx.workspace.id)
+          eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+          notDeleted(baleybotTriggers)
         ),
         with: {
           sourceBaleybot: { columns: { id: true, name: true } },
@@ -178,7 +182,10 @@ export const triggersRouter = router({
 
       // Cycle detection: check if adding this trigger creates a cycle
       const allTriggers = await ctx.db.query.baleybotTriggers.findMany({
-        where: eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+        where: and(
+          eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+          notDeleted(baleybotTriggers)
+        ),
         columns: { sourceBaleybotId: true, targetBaleybotId: true },
       });
 
@@ -194,7 +201,8 @@ export const triggersRouter = router({
         where: and(
           eq(baleybotTriggers.sourceBaleybotId, input.sourceBaleybotId),
           eq(baleybotTriggers.targetBaleybotId, input.targetBaleybotId),
-          eq(baleybotTriggers.workspaceId, ctx.workspace.id)
+          eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+          notDeleted(baleybotTriggers)
         ),
       });
 
@@ -229,7 +237,8 @@ export const triggersRouter = router({
       const trigger = await ctx.db.query.baleybotTriggers.findFirst({
         where: and(
           eq(baleybotTriggers.id, input.id),
-          eq(baleybotTriggers.workspaceId, ctx.workspace.id)
+          eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+          notDeleted(baleybotTriggers)
         ),
       });
 
@@ -253,7 +262,8 @@ export const triggersRouter = router({
       const trigger = await ctx.db.query.baleybotTriggers.findFirst({
         where: and(
           eq(baleybotTriggers.id, input.id),
-          eq(baleybotTriggers.workspaceId, ctx.workspace.id)
+          eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+          notDeleted(baleybotTriggers)
         ),
       });
 
@@ -277,7 +287,8 @@ export const triggersRouter = router({
       const trigger = await ctx.db.query.baleybotTriggers.findFirst({
         where: and(
           eq(baleybotTriggers.id, input.id),
-          eq(baleybotTriggers.workspaceId, ctx.workspace.id)
+          eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+          notDeleted(baleybotTriggers)
         ),
       });
 
@@ -311,7 +322,8 @@ export const triggersRouter = router({
       const trigger = await ctx.db.query.baleybotTriggers.findFirst({
         where: and(
           eq(baleybotTriggers.id, id),
-          eq(baleybotTriggers.workspaceId, ctx.workspace.id)
+          eq(baleybotTriggers.workspaceId, ctx.workspace.id),
+          notDeleted(baleybotTriggers)
         ),
       });
 

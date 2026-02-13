@@ -43,10 +43,18 @@ export const ROUTES = {
     approvals: '/dashboard/settings/approvals',
   },
 
+  // Shared Context (workspace-level knowledge)
+  sharedContext: '/dashboard/shared-context',
+
   // Admin (internal BaleyBots management)
   admin: {
     baleybots: '/dashboard/admin/baleybots',
     baleybot: (id: string) => `/dashboard/admin/baleybots/${id}`,
+  },
+
+  // Actions (recommendations hub)
+  actions: {
+    list: '/dashboard/actions',
   },
 
   // Playground

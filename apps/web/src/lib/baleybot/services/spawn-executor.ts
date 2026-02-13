@@ -377,6 +377,7 @@ export function createSpawnBaleybotExecutor(options?: {
       // Cast to FullWorkspacePolicies since the local type is a subset
       const executorContext: ExecutorContext = {
         workspaceId: ctx.workspaceId,
+        baleybotName: targetBB.name,
         availableTools,
         workspacePolicies: policies as FullWorkspacePolicies | null,
         triggeredBy: 'other_bb',

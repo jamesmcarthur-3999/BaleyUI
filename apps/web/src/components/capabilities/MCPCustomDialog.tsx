@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Settings2, Loader2, Plug, Wrench, AlertTriangle } from 'lucide-react';
+import { Settings2, Plug, Wrench, AlertTriangle } from 'lucide-react';
 import { trpc } from '@/lib/trpc/client';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -284,14 +284,12 @@ export function MCPCustomDialog({ onCreated }: MCPCustomDialogProps) {
           <div className="flex justify-end gap-2 pt-2">
             <Button
               onClick={handleCreate}
-              disabled={!isValid || creating}
+              disabled={!isValid}
+              loading={creating}
+              loadingText="Saving..."
               size="sm"
             >
-              {creating ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Plug className="h-4 w-4 mr-2" />
-              )}
+              <Plug className="h-4 w-4 mr-2" />
               Connect & Discover
             </Button>
           </div>

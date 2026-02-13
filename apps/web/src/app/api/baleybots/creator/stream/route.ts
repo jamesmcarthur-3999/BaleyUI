@@ -21,6 +21,7 @@ import {
   executeCreatorPipeline,
   type CreatorSSEEvent,
 } from '@/lib/baleybot/creator-pipeline-adapter';
+import { MissingCredentialsError } from '@/lib/baleybot/services/ai-credentials-service';
 
 const log = createLogger('creator-stream-route');
 
@@ -191,11 +192,22 @@ export async function POST(req: NextRequest) {
             workspaceId: workspace.id,
             error: rawMessage,
           });
-          sendEvent({
-            type: 'creator_error',
-            message: sanitizeStreamError(rawMessage),
-            timestamp: Date.now(),
-          });
+
+          if (error instanceof MissingCredentialsError) {
+            sendEvent({
+              type: 'creator_error',
+              message: 'No AI provider connected. Go to Integrations → Connections to add your OpenAI or Anthropic API key.',
+              actionUrl: '/dashboard/capabilities/connections',
+              actionLabel: 'Set Up AI Provider',
+              timestamp: Date.now(),
+            });
+          } else {
+            sendEvent({
+              type: 'creator_error',
+              message: sanitizeStreamError(rawMessage),
+              timestamp: Date.now(),
+            });
+          }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           clearInterval(heartbeat);
           controller.close();

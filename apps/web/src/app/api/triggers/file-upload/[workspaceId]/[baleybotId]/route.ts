@@ -177,7 +177,8 @@ export async function POST(
       where: and(
         eq(baleybotTriggers.workspaceId, workspaceId),
         eq(baleybotTriggers.targetBaleybotId, baleybotId),
-        eq(baleybotTriggers.enabled, true)
+        eq(baleybotTriggers.enabled, true),
+        notDeleted(baleybotTriggers)
       ),
     });
 
@@ -282,6 +283,7 @@ export async function POST(
       {
         workspaceId,
         baleybotId,
+        baleybotName: baleybot.name,
         availableTools: runtimeTools,
         workspacePolicies: null,
         triggeredBy: 'webhook',

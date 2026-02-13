@@ -25,6 +25,7 @@ import {
   Settings,
   Key,
   Shield,
+  BookOpen,
   PanelLeftClose,
   PanelLeft,
   Menu,
@@ -58,6 +59,7 @@ const capabilitiesNav: NavItem[] = [
 
 const bottomNav: NavItem[] = [
   { label: 'Analytics', href: ROUTES.analytics.overview, icon: BarChart3 },
+  { label: 'Shared Context', href: ROUTES.sharedContext, icon: BookOpen },
   { label: 'Settings', href: ROUTES.settings.general, icon: Settings },
 ];
 
@@ -197,7 +199,7 @@ export function Sidebar() {
 
         <Separator className="bg-border/60" />
 
-        <NavGroup label="Capabilities" items={capabilitiesNav} pathname={pathname} collapsed={collapsed} />
+        <NavGroup label="Integrations" items={capabilitiesNav} pathname={pathname} collapsed={collapsed} />
 
         <Separator className="bg-border/60" />
 

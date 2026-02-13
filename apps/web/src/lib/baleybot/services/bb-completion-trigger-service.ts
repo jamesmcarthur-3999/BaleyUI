@@ -69,7 +69,8 @@ export async function getTriggersForSource(
   const triggers = await db.query.baleybotTriggers.findMany({
     where: and(
       eq(baleybotTriggers.sourceBaleybotId, sourceBaleybotId),
-      eq(baleybotTriggers.enabled, true)
+      eq(baleybotTriggers.enabled, true),
+      notDeleted(baleybotTriggers)
     ),
   });
 
@@ -231,6 +232,7 @@ async function executeTriggeredBB(
     const ctx: ExecutorContext = {
       workspaceId: targetBB.workspaceId,
       baleybotId: targetBB.id,
+      baleybotName: targetBB.name,
       availableTools: new Map(),
       workspacePolicies: null,
       triggeredBy: 'other_bb',
@@ -404,10 +406,13 @@ export async function enableTrigger(triggerId: string): Promise<void> {
 }
 
 /**
- * Delete a trigger
+ * Soft-delete a trigger
  */
 export async function deleteTrigger(triggerId: string): Promise<void> {
-  await db.delete(baleybotTriggers).where(eq(baleybotTriggers.id, triggerId));
+  await db
+    .update(baleybotTriggers)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(eq(baleybotTriggers.id, triggerId));
 
-  log.info(` Deleted trigger ${triggerId}`);
+  log.info(`Deleted trigger ${triggerId}`);
 }

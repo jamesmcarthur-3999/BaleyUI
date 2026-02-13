@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { FormFieldGroup } from '@/components/ui/form-field-group';
 import { useToast } from '@/components/ui/use-toast';
 import { trpc } from '@/lib/trpc/client';
 import { Save, Copy, Check } from 'lucide-react';
@@ -108,25 +109,25 @@ export default function GeneralSettingsPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
+            <FormFieldGroup
+              label="Name"
+              error={form.formState.errors.name?.message}
+            >
               <Input
-                id="name"
                 placeholder="e.g., My Company, Personal Projects"
                 {...form.register('name')}
               />
-              {form.formState.errors.name && (
-                <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
-              )}
-            </div>
+            </FormFieldGroup>
 
             <div className="flex justify-end">
               <Button
                 type="submit"
-                disabled={updateMutation.isPending || !isDirty}
+                disabled={!isDirty}
+                loading={updateMutation.isPending}
+                loadingText="Saving..."
               >
                 <Save className="mr-2 h-4 w-4" />
-                {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+                Save Changes
               </Button>
             </div>
           </form>

@@ -26,6 +26,9 @@ export * from './useDirtyState';
 export * from './useNavigationGuard';
 export * from './useHistory';
 
+// File hooks
+export * from './useFileReader';
+
 // Accessibility hooks
 export * from './useGridNavigation';
 export * from './useFocusTrap';

@@ -32,10 +32,13 @@ import {
   configureWebSearch,
 } from '@/lib/baleybot/tools/built-in/implementations';
 import { initializeBuiltInToolServices, getWorkspaceTavilyKey } from '@/lib/baleybot/services';
-import { getPreferredModel } from '@/lib/baleybot/executor';
+import { getPreferredModel, buildInputWithSharedContext } from '@/lib/baleybot/executor';
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
 import { validateApiKey } from '@/lib/api/validate-api-key';
 import { processBBCompletion } from '@/lib/baleybot/services/bb-completion-trigger-service';
+import { processError } from '@/lib/baleybot/services/error-resolution-service';
+import { analyzeSuccessfulExecution } from '@/lib/baleybot/services/post-execution-analysis';
+import { getErrorResolution } from '@/lib/errors/error-resolution-map';
 import { apiErrors, createErrorResponse } from '@/lib/api/error-response';
 import { getAuthenticatedWorkspace } from '@/lib/auth/workspace-lookup';
 import { loadExecutionTools } from '@/lib/baleybot/services/execution-tools-loader';
@@ -304,13 +307,17 @@ export async function POST(
             model,
           });
 
+          // Enrich input with workspace shared context
+          const inputString = typeof input === 'string' ? input : input ? JSON.stringify(input) : '';
+          const enrichedInput = await buildInputWithSharedContext(workspaceId, inputString);
+
           // Stream execution with tools
           const generator = streamBALExecution(baleybot.balCode, {
             model,
             apiKey,
             timeout: 60000,
             signal: req.signal,
-            input: typeof input === 'string' ? input : input ? JSON.stringify(input) : undefined,
+            input: enrichedInput || undefined,
             availableTools,
           });
 
@@ -484,6 +491,38 @@ export async function POST(
             });
           }
 
+          // Error resolution pipeline (async, non-blocking)
+          if (finalStatus === 'failed' && error) {
+            processError({
+              workspaceId,
+              sourceType: 'execution',
+              sourceId: execution.id,
+              baleybotId,
+              baleybotName: baleybot.name,
+              balCode: baleybot.balCode,
+              input,
+              output,
+              error,
+              durationMs: duration,
+              segments,
+            }).catch((err) => log.warn('Error resolution failed', { executionId: execution.id, error: err instanceof Error ? err.message : String(err) }));
+          }
+
+          // Success analysis pipeline (async, non-blocking)
+          if (finalStatus === 'completed') {
+            analyzeSuccessfulExecution({
+              workspaceId,
+              baleybotId,
+              baleybotName: baleybot.name,
+              balCode: baleybot.balCode,
+              executionId: execution.id,
+              input,
+              output,
+              durationMs: duration,
+              segments,
+            }).catch((err) => log.warn('Post-execution analysis failed', { executionId: execution.id, error: err instanceof Error ? err.message : String(err) }));
+          }
+
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
@@ -535,8 +574,30 @@ export async function POST(
             });
           });
 
-          // Send error event
-          sendEvent({ type: 'error', error: errorMessage });
+          // Error resolution pipeline (async, non-blocking)
+          processError({
+            workspaceId,
+            sourceType: 'execution',
+            sourceId: execution.id,
+            baleybotId,
+            baleybotName: baleybot.name,
+            balCode: baleybot.balCode,
+            input,
+            error: errorMessage,
+            durationMs: duration,
+            segments,
+          }).catch(() => {});
+
+          // Send error event with resolution hint
+          const resolution = getErrorResolution(errorMessage);
+          sendEvent({
+            type: 'error',
+            error: errorMessage,
+            ...(resolution && {
+              actionUrl: resolution.actionUrl,
+              actionLabel: resolution.actionLabel,
+            }),
+          });
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({

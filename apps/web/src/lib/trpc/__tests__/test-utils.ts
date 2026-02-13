@@ -42,6 +42,8 @@ export interface MockDb {
     scheduledTasks: MockQueryBuilder<MockScheduledTask>;
     tools: MockQueryBuilder<MockTool>;
     blocks: MockQueryBuilder<MockBlock>;
+    recommendations: MockQueryBuilder<MockRecommendation>;
+    sharedContext: MockQueryBuilder<MockSharedContextEntry>;
   };
   insert: Mock;
   update: Mock;
@@ -365,6 +367,48 @@ export interface MockBlock {
 }
 
 /**
+ * Mock recommendation entity.
+ */
+export interface MockRecommendation {
+  id: string;
+  workspaceId: string;
+  sourceType: string;
+  sourceBaleybotId: string | null;
+  sourceExecutionId: string | null;
+  targetBaleybotId: string | null;
+  targetType: string;
+  title: string;
+  description: string;
+  severity: string;
+  proposedAction: unknown;
+  status: string;
+  decidedBy: string | null;
+  decidedAt: Date | null;
+  decisionNote: string | null;
+  confidence: number | null;
+  metadata: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Mock shared context entry entity.
+ */
+export interface MockSharedContextEntry {
+  id: string;
+  workspaceId: string;
+  key: string;
+  value: string;
+  description: string | null;
+  category: string | null;
+  isActive: boolean;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
  * Create a mock database instance for testing.
  * All query methods are pre-configured as Vitest mocks.
  */
@@ -408,6 +452,8 @@ export function createMockDb(): MockDb {
       scheduledTasks: createQueryBuilder<MockScheduledTask>(),
       tools: createQueryBuilder<MockTool>(),
       blocks: createQueryBuilder<MockBlock>(),
+      recommendations: createQueryBuilder<MockRecommendation>(),
+      sharedContext: createQueryBuilder<MockSharedContextEntry>(),
     },
     insert: vi.fn().mockReturnValue(createChainableMock()),
     update: vi.fn().mockReturnValue(createChainableMock()),

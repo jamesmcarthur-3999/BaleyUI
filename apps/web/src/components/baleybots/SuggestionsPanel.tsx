@@ -18,7 +18,6 @@ import {
   ChevronRight,
   Sparkles,
   TrendingUp,
-  Loader2,
   Check,
   X,
 } from 'lucide-react';
@@ -317,15 +316,10 @@ export function SuggestionsPanel({
                         <Button
                           size="sm"
                           onClick={() => handleAccept(suggestion)}
-                          disabled={
-                            isApplying || acceptingId === suggestion.id
-                          }
+                          disabled={isApplying}
+                          loading={acceptingId === suggestion.id}
                         >
-                          {acceptingId === suggestion.id ? (
-                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                          ) : (
-                            <Check className="h-4 w-4 mr-1" />
-                          )}
+                          <Check className="h-4 w-4 mr-1" />
                           Accept
                         </Button>
                         <Button

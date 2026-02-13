@@ -214,5 +214,21 @@
       "Return success=false with a clear text reason on failure.",
       "Do not invent side effects not implied by instructions."
     ]
+  },
+  "context_processor_v1": {
+    "id": "context_processor_v1",
+    "output": {
+      "entries": "array<object>",
+      "summary": "string",
+      "skippedReasons": "array<string>"
+    },
+    "rules": [
+      "Return 1-20 entries per processing run.",
+      "Each entry object must include: key (string), value (string), category (string), description (string).",
+      "Category should be descriptive. Prefer: general, domain_knowledge, coding_standards, safety_rules, brand_voice — but use your judgment if content warrants a different label.",
+      "Keys should be concise labels (2-8 words). Values should be clear, actionable text.",
+      "summary should be 1-2 sentences describing what was extracted.",
+      "skippedReasons should list any content intentionally not extracted, with brief explanation."
+    ]
   }
 }

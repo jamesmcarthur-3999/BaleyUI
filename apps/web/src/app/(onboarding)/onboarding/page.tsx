@@ -6,7 +6,7 @@ import { useUser } from '@clerk/nextjs';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { FormFieldGroup } from '@/components/ui/form-field-group';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Loader2,
@@ -16,10 +16,18 @@ import {
   Globe,
   ArrowRight,
   Check,
+  Key,
 } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ROUTES } from '@/lib/routes';
 
-type Step = 'welcome' | 'create';
+type Step = 'welcome' | 'create' | 'connect-ai';
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -28,10 +36,14 @@ export default function OnboardingPage() {
   const [workspaceName, setWorkspaceName] = useState('');
   const [step, setStep] = useState<Step>('welcome');
   const [isCreating, setIsCreating] = useState(false);
+  const [aiProvider, setAiProvider] = useState<'openai' | 'anthropic'>('openai');
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [isConnectingAI, setIsConnectingAI] = useState(false);
 
   const utils = trpc.useUtils();
   const { data: workspaceCheck, isLoading: isChecking } = trpc.workspaces.checkWorkspace.useQuery();
   const createWorkspace = trpc.workspaces.create.useMutation();
+  const createConnection = trpc.connections.create.useMutation();
 
   if (workspaceCheck?.hasWorkspace) {
     router.push(ROUTES.dashboard);
@@ -51,10 +63,10 @@ export default function OnboardingPage() {
       // Invalidate the checkWorkspace cache so WorkspaceGuard sees the new workspace
       await utils.workspaces.checkWorkspace.invalidate();
       toast({
-        title: 'Welcome to BaleyUI!',
-        description: 'Your workspace is ready. Create your first BaleyBot!',
+        title: 'Workspace created!',
+        description: 'Now let\u2019s connect an AI provider.',
       });
-      router.push(ROUTES.baleybots.list);
+      setStep('connect-ai');
     } catch (error) {
       toast({
         title: 'Setup Failed',
@@ -64,6 +76,39 @@ export default function OnboardingPage() {
     } finally {
       setIsCreating(false);
     }
+  };
+
+  const handleConnectAI = async () => {
+    setIsConnectingAI(true);
+    try {
+      await createConnection.mutateAsync({
+        type: aiProvider,
+        name: aiProvider === 'openai' ? 'OpenAI' : 'Anthropic',
+        config: { apiKey: aiApiKey.trim() },
+        initialStatus: 'connected',
+      });
+      toast({
+        title: 'AI provider connected!',
+        description: `${aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'} is ready to use.`,
+      });
+      router.push(ROUTES.baleybots.list);
+    } catch (error) {
+      toast({
+        title: 'Connection Failed',
+        description: error instanceof Error ? error.message : 'Could not connect. Check your API key.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsConnectingAI(false);
+    }
+  };
+
+  const handleSkipAI = () => {
+    toast({
+      title: 'Skipped AI setup',
+      description: "You'll need to connect an AI provider before creating your first BaleyBot.",
+    });
+    router.push(ROUTES.baleybots.list);
   };
 
   if (isChecking) {
@@ -127,75 +172,143 @@ export default function OnboardingPage() {
     );
   }
 
-  return (
-    <div className="w-full max-w-md mx-4 space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="text-center space-y-2">
-        <div className="inline-flex items-center justify-center mb-2">
-          <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
-            <Sparkles className="h-6 w-6 text-primary" />
+  if (step === 'create') {
+    return (
+      <div className="w-full max-w-md mx-4 space-y-6 animate-fade-in">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center justify-center mb-2">
+            <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Sparkles className="h-6 w-6 text-primary" />
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight">Name your workspace</h2>
+          <p className="text-sm text-muted-foreground">
+            A workspace holds your BaleyBots, connections, and data.
+            You can always rename it later.
+          </p>
+        </div>
+
+        {/* Form */}
+        <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
+          <FormFieldGroup label="Workspace Name">
+            <Input
+              placeholder={defaultName}
+              value={workspaceName}
+              onChange={(e) => setWorkspaceName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreate();
+              }}
+              autoFocus
+              className="h-12 text-base"
+            />
+          </FormFieldGroup>
+
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-shrink-0"
+              onClick={() => setStep('welcome')}
+            >
+              Back
+            </Button>
+            <Button
+              className="flex-1 gap-2"
+              onClick={handleCreate}
+              variant="premium"
+              loading={isCreating}
+              loadingText="Creating..."
+            >
+              Create Workspace
+              <ArrowRight className="h-4 w-4" />
+            </Button>
           </div>
         </div>
-        <h2 className="text-2xl font-bold tracking-tight">Name your workspace</h2>
-        <p className="text-sm text-muted-foreground">
-          A workspace holds your BaleyBots, connections, and data.
-          You can always rename it later.
-        </p>
-      </div>
 
-      {/* Form */}
-      <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
-        <div className="space-y-2">
-          <Label htmlFor="workspace-name">Workspace Name</Label>
-          <Input
-            id="workspace-name"
-            placeholder={defaultName}
-            value={workspaceName}
-            onChange={(e) => setWorkspaceName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleCreate();
-            }}
-            autoFocus
-            className="h-12 text-base"
-          />
+        {/* Progress indicator */}
+        <div className="flex items-center justify-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-primary" />
+          <div className="h-2 w-2 rounded-full bg-primary" />
+          <div className="h-2 w-2 rounded-full bg-muted" />
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'connect-ai') {
+    return (
+      <div className="w-full max-w-md mx-4 space-y-6 animate-fade-in">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center justify-center mb-2">
+            <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Key className="h-6 w-6 text-primary" />
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight">Connect an AI provider</h2>
+          <p className="text-sm text-muted-foreground">
+            BaleyBots need an AI provider to work. You can always add more later.
+          </p>
         </div>
 
-        <div className="flex gap-3">
+        {/* Provider Selection + API Key Form */}
+        <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
+          <FormFieldGroup label="Provider">
+            <Select value={aiProvider} onValueChange={(v) => setAiProvider(v as 'openai' | 'anthropic')}>
+              <SelectTrigger className="h-12">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="openai">OpenAI</SelectItem>
+                <SelectItem value="anthropic">Anthropic</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormFieldGroup>
+
+          <FormFieldGroup label="API Key" required>
+            <Input
+              type="password"
+              placeholder={aiProvider === 'openai' ? 'sk-...' : 'sk-ant-...'}
+              value={aiApiKey}
+              onChange={(e) => setAiApiKey(e.target.value)}
+              className="h-12 font-mono text-sm"
+            />
+          </FormFieldGroup>
+
           <Button
-            variant="outline"
-            className="flex-shrink-0"
-            onClick={() => setStep('welcome')}
-          >
-            Back
-          </Button>
-          <Button
-            className="flex-1 gap-2"
-            onClick={handleCreate}
-            disabled={isCreating}
+            className="w-full gap-2"
             variant="premium"
+            onClick={handleConnectAI}
+            loading={isConnectingAI}
+            loadingText="Connecting..."
+            disabled={!aiApiKey.trim()}
           >
-            {isCreating ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Creating...
-              </>
-            ) : (
-              <>
-                Create Workspace
-                <ArrowRight className="h-4 w-4" />
-              </>
-            )}
+            Connect & Continue
+            <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
-      </div>
 
-      {/* Progress indicator */}
-      <div className="flex items-center justify-center gap-2">
-        <div className="h-2 w-2 rounded-full bg-primary" />
-        <div className="h-2 w-2 rounded-full bg-primary" />
+        {/* Skip link */}
+        <div className="text-center">
+          <button
+            className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors"
+            onClick={handleSkipAI}
+          >
+            Skip for now
+          </button>
+        </div>
+
+        {/* Progress indicator - 3 dots */}
+        <div className="flex items-center justify-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-primary" />
+          <div className="h-2 w-2 rounded-full bg-primary" />
+          <div className="h-2 w-2 rounded-full bg-primary" />
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  return null;
 }
 
 function FeatureRow({

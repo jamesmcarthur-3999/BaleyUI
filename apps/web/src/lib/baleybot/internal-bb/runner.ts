@@ -617,6 +617,20 @@ export const toolExecutorOutputSchema = z.preprocess(
   })
 );
 
+// Context Processor — extracts structured context from raw content
+const contextProcessorEntrySchema = z.object({
+  key: z.string().min(1).catch('Untitled'),
+  value: z.string().min(1).catch(''),
+  category: z.string().min(1).catch('general'),
+  description: z.string().catch(''),
+}).passthrough();
+
+export const contextProcessorOutputSchema = z.object({
+  entries: z.array(contextProcessorEntrySchema).catch([]),
+  summary: z.string().catch(''),
+  skippedReasons: z.array(z.string()).catch([]),
+});
+
 export const testInterfaceDesignerOutputSchema = z.object({
   mode: z.enum(['chat', 'form', 'hybrid', 'file', 'webhook']).catch('chat'),
   components: z.array(z.object({
@@ -644,6 +658,7 @@ export type BalGeneratorOutput = z.infer<typeof balGeneratorOutputSchema>;
 export type PatternLearnerOutput = z.infer<typeof patternLearnerOutputSchema>;
 export type ExecutionReviewerOutput = z.infer<typeof executionReviewerOutputSchema>;
 export type ToolExecutorOutput = z.infer<typeof toolExecutorOutputSchema>;
+export type ContextProcessorOutput = z.infer<typeof contextProcessorOutputSchema>;
 
 export async function runCreatorActionAdvisor(
   input: string,
@@ -786,6 +801,18 @@ export async function runToolExecutor(
     botName: 'tool_executor',
     input,
     schema: toolExecutorOutputSchema,
+    options,
+  });
+}
+
+export async function runContextProcessor(
+  input: string,
+  options?: InternalBBRunOptions<ContextProcessorOutput>
+): Promise<ContextProcessorOutput> {
+  return runInternalBB({
+    botName: 'context_processor',
+    input,
+    schema: contextProcessorOutputSchema,
     options,
   });
 }

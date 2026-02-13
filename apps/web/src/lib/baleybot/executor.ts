@@ -29,6 +29,7 @@ import type {
 import { buildAvailableTools } from './tools/core-tool-adapter';
 import {
   resolveProviderConfig,
+  MissingCredentialsError,
   type AIProviderType,
 } from './services/ai-credentials-service';
 import { calculateCost as calculateExecutionCost } from './cost/usage-tracker';
@@ -135,6 +136,8 @@ export interface ExecutorContext {
   workspaceId: string;
   /** BaleyBot ID (for trigger processing after completion) */
   baleybotId?: string;
+  /** BaleyBot name (for human-readable context in post-execution hooks) */
+  baleybotName?: string;
   /** Available tools for the workspace (with actual functions) */
   availableTools: Map<string, RuntimeToolDefinition>;
   /** Workspace policies for tool governance */
@@ -343,6 +346,42 @@ export function getPreferredModel(balCode: string): string {
 }
 
 // ============================================================================
+// SHARED CONTEXT ENRICHMENT
+// ============================================================================
+
+/**
+ * Enrich user input with workspace-scoped shared context entries.
+ * Returns the original input unchanged if no active entries exist.
+ */
+export async function buildInputWithSharedContext(
+  workspaceId: string,
+  userInput: string
+): Promise<string> {
+  const { db, sharedContext, eq, and } = await import('@baleyui/db');
+
+  const entries = await db.query.sharedContext.findMany({
+    where: and(
+      eq(sharedContext.workspaceId, workspaceId),
+      eq(sharedContext.isActive, true)
+    ),
+  });
+
+  if (entries.length === 0) return userInput;
+
+  const contextBlock = entries
+    .map((e) => {
+      const meta = e.fileMetadata as { fileName?: string } | null;
+      const sourceHint = e.contentType === 'file' && meta?.fileName
+        ? ` (from: ${meta.fileName})`
+        : '';
+      return `- ${e.key}${sourceHint}: ${e.value}`;
+    })
+    .join('\n');
+
+  return `[Shared Context]\n${contextBlock}\n\n[User Input]\n${userInput}`;
+}
+
+// ============================================================================
 // MAIN EXECUTOR
 // ============================================================================
 
@@ -386,6 +425,12 @@ export async function executeBaleybot(
     });
   }
 
+  if (!providerConfig) {
+    throw new MissingCredentialsError(
+      'No AI provider configured. Connect an AI provider (OpenAI or Anthropic) in Integrations to start using BaleyBots.'
+    );
+  }
+
   // Get the model from BAL code, but override if we had to fall back to a different provider
   let model = getPreferredModel(balCode);
   if (actualProvider && actualProvider !== preferredProvider) {
@@ -415,11 +460,17 @@ export async function executeBaleybot(
   });
 
   try {
+    // Enrich input with workspace shared context (skip for internal BBs — they
+    // do their own context enrichment and we don't want to dilute their prompts)
+    const enrichedInput = ctx.triggeredBy === 'internal'
+      ? input
+      : await buildInputWithSharedContext(ctx.workspaceId, input);
+
     // Note: Using type assertion because we pass extended options (onToolCallApproval)
     // that the SDK's public BALExecutionOptions doesn't expose.
     // input, model, providerConfig, and availableTools are all now properly typed.
     const executionOptions = {
-      input, // Now properly typed - passed through to executeBAL
+      input: enrichedInput,
       model,
       providerConfig,
       availableTools: buildAvailableTools(ctx.availableTools),
@@ -632,6 +683,48 @@ export async function executeBaleybot(
         executionId,
         error: alertErr instanceof Error ? alertErr.message : 'Unknown error',
       });
+    }
+  }
+
+  // Error resolution pipeline (non-blocking, never throws)
+  if (status === 'failed' && ctx.baleybotId && ctx.triggeredBy !== 'internal') {
+    try {
+      const { processError } = await import('./services/error-resolution-service');
+      void processError({
+        workspaceId: ctx.workspaceId,
+        sourceType: 'execution',
+        sourceId: executionId,
+        baleybotId: ctx.baleybotId,
+        baleybotName: ctx.baleybotName ?? '',
+        balCode,
+        input,
+        output,
+        error: error ?? 'Unknown error',
+        durationMs,
+        segments,
+      });
+    } catch {
+      logger.warn('Error resolution failed (non-fatal)', { executionId });
+    }
+  }
+
+  // Success analysis pipeline (non-blocking, never throws)
+  if (status === 'completed' && ctx.baleybotId && ctx.triggeredBy !== 'internal') {
+    try {
+      const { analyzeSuccessfulExecution } = await import('./services/post-execution-analysis');
+      void analyzeSuccessfulExecution({
+        workspaceId: ctx.workspaceId,
+        baleybotId: ctx.baleybotId,
+        baleybotName: ctx.baleybotName ?? '',
+        balCode,
+        executionId,
+        input,
+        output,
+        durationMs,
+        segments,
+      });
+    } catch {
+      logger.warn('Post-execution analysis failed (non-fatal)', { executionId });
     }
   }
 

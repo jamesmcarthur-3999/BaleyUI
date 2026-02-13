@@ -53,6 +53,7 @@ BaleyBots: list_baleybots, get_baleybot, get_execution, list_recent_executions
 Analytics: get_analytics_summary
 Workspace: get_workspace_info, update_workspace
 Approvals: list_approval_patterns, revoke_approval_pattern
+Intelligence: review_execution (analyze execution for issues), diagnose_failure (deep root cause analysis), suggest_approval_patterns (suggest auto-approval patterns)
 General: web_search, fetch_url, spawn_baleybot, send_notification, store_memory, request_user_input
 
 ## Tool Usage Guidelines
@@ -84,6 +85,7 @@ export const INTERNAL_BALEYBOTS: Record<string, InternalBaleybotDef> = {
       `    "get_analytics_summary",`,
       `    "get_workspace_info", "update_workspace",`,
       `    "list_approval_patterns", "revoke_approval_pattern",`,
+      `    "review_execution", "diagnose_failure", "suggest_approval_patterns",`,
       `    "web_search", "fetch_url", "spawn_baleybot", "send_notification",`,
       `    "store_memory", "schedule_task", "request_user_input"`,
       `  }`,
@@ -233,6 +235,8 @@ export interface InternalExecutionOptions {
   injectedTools?: Map<string, RuntimeToolDefinition>;
   /** Abort signal — when aborted, execution should terminate */
   signal?: AbortSignal;
+  /** Multi-modal file attachments (images, PDFs, etc.) */
+  attachments?: Array<{ data: string; mimeType: string }>;
 }
 
 const INTERNAL_DEFAULT_MODEL: Record<'openai' | 'anthropic' | 'ollama', string> = {
@@ -408,6 +412,7 @@ export async function executeInternalBaleybot(
     // Execute through standard path
     const ctx: ExecutorContext = {
       workspaceId,
+      baleybotName: internalBB.name,
       availableTools: allTools,
       workspacePolicies: null,
       triggeredBy: options.triggeredBy || 'internal',

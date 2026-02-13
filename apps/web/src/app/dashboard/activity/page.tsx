@@ -5,24 +5,16 @@ import Link from 'next/link';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { FilterBar } from '@/components/ui/filter-bar';
 import { ROUTES } from '@/lib/routes';
 import { formatTimeAgo, formatDuration } from '@/lib/format';
 import {
   Activity,
   ArrowRight,
   Loader2,
-  Search,
 } from 'lucide-react';
 import { PageShell } from '@/components/layout/page-shell';
 
@@ -88,39 +80,38 @@ export default function ActivityPage() {
   return (
     <PageShell
       title="Activity"
-      description="View all BaleyBot executions and their results"
+      description="View all BaleyBot runs and their results"
     >
         {/* Filters */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Filter by bot name..."
-              value={botFilter}
-              onChange={(e) => setBotFilter(e.target.value)}
-              className="pl-9"
-              aria-label="Filter by bot name"
-            />
-          </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[140px]" aria-label="Filter by execution status">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="failed">Failed</SelectItem>
-              <SelectItem value="running">Running</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <FilterBar>
+          <FilterBar.Search
+            value={botFilter}
+            onChange={setBotFilter}
+            placeholder="Filter by bot name..."
+            className="max-w-sm"
+            aria-label="Filter by bot name"
+          />
+          <FilterBar.Select
+            value={statusFilter}
+            onValueChange={setStatusFilter}
+            options={[
+              { value: 'all', label: 'All Status' },
+              { value: 'completed', label: 'Completed' },
+              { value: 'failed', label: 'Failed' },
+              { value: 'running', label: 'Running' },
+              { value: 'pending', label: 'Pending' },
+              { value: 'cancelled', label: 'Cancelled' },
+            ]}
+            className="w-[140px]"
+            aria-label="Filter by status"
+            placeholder="Status"
+          />
+        </FilterBar>
 
         {/* Activity List */}
         <Card>
           <CardHeader>
-            <CardTitle>Recent Executions</CardTitle>
+            <CardTitle>Recent Runs</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading && !cursor ? (

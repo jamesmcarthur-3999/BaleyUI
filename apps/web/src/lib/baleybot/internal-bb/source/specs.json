@@ -430,5 +430,34 @@
       "contract_json_v1",
       "tool_executor_policy"
     ]
+  },
+  {
+    "id": "context_processor",
+    "description": "Analyzes raw content and extracts structured shared context entries",
+    "icon": "\ud83d\udccb",
+    "model": "anthropic:balanced",
+    "contractId": "context_processor_v1",
+    "role": "Context Processor",
+    "tools": ["web_search", "fetch_url"],
+    "inputs": [
+      "raw content (pasted text, file content, images, PDFs, or documentation)",
+      "content metadata (source filename, content type)",
+      "existing workspace context entry keys for deduplication"
+    ],
+    "decisionPolicy": [
+      "Analyze the raw content and extract discrete knowledge items useful for AI agents.",
+      "Each entry should be a self-contained piece of knowledge.",
+      "Choose the most appropriate category for each entry.",
+      "Keys should be concise, descriptive labels.",
+      "Values should be clear, actionable text that an AI agent can apply during execution.",
+      "If content references URLs or external standards, use fetch_url or web_search to gather more detail.",
+      "For long documents, extract the most impactful items (max 20 entries per run)."
+    ],
+    "uncertaintyPolicy": "When content is ambiguous, prefer fewer broader entries over many narrow ones. Include confidence notes in the summary when uncertain.",
+    "skills": [
+      "concise_reasoning",
+      "contract_json_v1",
+      "context_processor_policy"
+    ]
   }
 ]

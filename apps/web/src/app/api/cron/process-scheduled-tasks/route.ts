@@ -26,6 +26,7 @@ import {
 import { executeBALCode } from '@baleyui/sdk';
 import { parseCronExpression } from './cron-utils';
 import { createLogger } from '@/lib/logger';
+import { processError } from '@/lib/baleybot/services/error-resolution-service';
 import { requireEnv } from '@/lib/env';
 import { getWorkspaceAICredentials } from '@/lib/baleybot/services';
 import { apiErrors, createErrorResponse } from '@/lib/api/error-response';
@@ -260,22 +261,34 @@ async function processScheduledTask(task: ScheduledTask): Promise<TaskResult> {
 
     log.error('Scheduled task failed', { taskId: task.id, error: errorMessage });
 
-    // Update task with failure
-    await db
-      .update(scheduledTasks)
-      .set({
-        status: task.cronExpression ? 'pending' : 'failed', // Recurring tasks stay pending
-        lastRunAt: new Date(),
-        lastRunStatus: 'failed',
-        lastRunError: errorMessage,
-        runCount: (task.runCount ?? 0) + 1,
-      })
-      .where(eq(scheduledTasks.id, task.id));
+    // Error resolution pipeline (async, non-blocking)
+    processError({
+      workspaceId: task.workspaceId,
+      sourceType: 'scheduled_task',
+      sourceId: task.id,
+      baleybotId: task.baleybotId,
+      error: errorMessage,
+      durationMs,
+    }).catch(() => {});
 
-    // If recurring, reschedule for next run
-    if (task.cronExpression) {
-      await rescheduleRecurringTask(task);
-    }
+    // Update task with failure — use transaction to ensure atomic status + reschedule
+    await withTransaction(async (tx) => {
+      await tx
+        .update(scheduledTasks)
+        .set({
+          status: task.cronExpression ? 'pending' : 'failed', // Recurring tasks stay pending
+          lastRunAt: new Date(),
+          lastRunStatus: 'failed',
+          lastRunError: errorMessage,
+          runCount: (task.runCount ?? 0) + 1,
+        })
+        .where(eq(scheduledTasks.id, task.id));
+
+      // If recurring, reschedule for next run (within same transaction)
+      if (task.cronExpression) {
+        await rescheduleRecurringTask(task, tx);
+      }
+    });
 
     return {
       taskId: task.id,

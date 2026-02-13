@@ -16,7 +16,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Info, Shield, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { Info, Shield, ShieldCheck, ShieldAlert } from 'lucide-react';
 import type { ToolCallDetails, PatternDefinition } from './ApprovalPrompt';
 
 interface ApproveAndRememberDialogProps {
@@ -281,10 +281,7 @@ export function ApproveAndRememberDialog({
           >
             Cancel
           </Button>
-          <Button onClick={handleConfirm} disabled={isProcessing}>
-            {isProcessing ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : null}
+          <Button onClick={handleConfirm} loading={isProcessing}>
             Approve &amp; Create Pattern
           </Button>
         </DialogFooter>

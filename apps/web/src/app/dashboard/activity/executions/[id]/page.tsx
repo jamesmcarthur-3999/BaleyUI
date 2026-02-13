@@ -69,7 +69,7 @@ export default function ExecutionDetailPage() {
   if (!execution) {
     return (
       <div className="container py-10">
-        <h1 className="text-2xl font-bold mb-4">Execution not found</h1>
+        <h1 className="text-2xl font-bold mb-4">Run not found</h1>
         <Button onClick={() => router.push(ROUTES.activity.list)}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Activity
@@ -126,7 +126,7 @@ export default function ExecutionDetailPage() {
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">
             <StatusIcon />
-            <h1 className="text-2xl font-bold">Execution Details</h1>
+            <h1 className="text-2xl font-bold">Run Details</h1>
             <StatusBadge
               status={
                 execution.status as
@@ -292,7 +292,7 @@ export default function ExecutionDetailPage() {
           <TabsContent value="segments" className="mt-6">
             <Card>
               <CardHeader>
-                <CardTitle>Execution Segments</CardTitle>
+                <CardTitle>Run Segments</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2 max-h-96 overflow-y-auto">

@@ -16,6 +16,8 @@ import { scheduledTasksRouter } from './scheduled-tasks';
 import { adminRouter } from './admin';
 import { usersRouter } from './users';
 import { teamRouter } from './team';
+import { recommendationsRouter } from './recommendations';
+import { sharedContextRouter } from './shared-context';
 
 export const appRouter = router({
   workspaces: workspacesRouter,
@@ -35,6 +37,8 @@ export const appRouter = router({
   admin: adminRouter,
   users: usersRouter,
   team: teamRouter,
+  recommendations: recommendationsRouter,
+  sharedContext: sharedContextRouter,
 });
 
 export type AppRouter = typeof appRouter;

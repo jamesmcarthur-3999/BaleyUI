@@ -6,17 +6,10 @@ import { useRouter } from 'next/navigation';
 import { trpc } from '@/lib/trpc/client';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { FilterBar } from '@/components/ui/filter-bar';
 import {
   Table,
   TableBody,
@@ -112,6 +105,15 @@ export default function BaleybotsListPage() {
     staleTime: 5 * 60 * 1000,
   });
   const baleybots = baleybotsData?.items;
+
+  // Check if workspace has any AI provider connections
+  const { data: connectionsList } = trpc.connections.list.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000,
+  });
+  const AI_PROVIDERS = new Set(['openai', 'anthropic', 'ollama']);
+  const hasAIProvider = connectionsList?.some(
+    (c: { type: string }) => AI_PROVIDERS.has(c.type)
+  ) ?? false;
 
   const { data: inspectedBot, isLoading: isLoadingInspectedBot } =
     trpc.baleybots.get.useQuery(
@@ -433,84 +435,56 @@ export default function BaleybotsListPage() {
 
           <section className="space-y-4">
             <div className="rounded-2xl border border-border/60 bg-card p-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                <div className="relative flex-1">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Search by bot name or description"
-                    className="pl-9"
-                  />
-                </div>
-
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-full md:w-[150px]">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All status</SelectItem>
-                    <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="paused">Paused</SelectItem>
-                    <SelectItem value="error">Error</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Select value={sortMode} onValueChange={(value) => setSortMode(value as SortMode)}>
-                  <SelectTrigger className="w-full md:w-[170px]">
-                    <SelectValue placeholder="Sort" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="recent">Recently updated</SelectItem>
-                    <SelectItem value="name">Name (A-Z)</SelectItem>
-                    <SelectItem value="runs">Most runs</SelectItem>
-                    <SelectItem value="last_executed">Last executed</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <div className="flex items-center gap-1 rounded-lg border border-border p-1">
-                  <Button
-                    variant={viewMode === 'list' ? 'default' : 'ghost'}
-                    size="icon"
-                    onClick={() => setViewMode('list')}
-                    aria-label="List view"
-                    className="h-8 w-8"
-                  >
-                    <List className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant={viewMode === 'cards' ? 'default' : 'ghost'}
-                    size="icon"
-                    onClick={() => setViewMode('cards')}
-                    aria-label="Card view"
-                    className="h-8 w-8"
-                  >
-                    <LayoutGrid className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>
-                  Showing <span className="font-medium text-foreground">{filteredBots.length}</span> of{' '}
-                  <span className="font-medium text-foreground">{allBots.length}</span>
-                </span>
-                {(searchQuery || statusFilter !== 'all' || smartView !== 'all') && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => {
-                      setSearchQuery('');
-                      setStatusFilter('all');
-                      setSmartView('all');
-                    }}
-                  >
-                    Clear filters
-                  </Button>
-                )}
-              </div>
+              <FilterBar>
+                <FilterBar.Search
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                  placeholder="Search by bot name or description"
+                />
+                <FilterBar.Select
+                  value={statusFilter}
+                  onValueChange={setStatusFilter}
+                  options={[
+                    { value: 'all', label: 'All status' },
+                    { value: 'draft', label: 'Draft' },
+                    { value: 'active', label: 'Active' },
+                    { value: 'paused', label: 'Paused' },
+                    { value: 'error', label: 'Error' },
+                  ]}
+                  className="w-full md:w-[150px]"
+                  placeholder="Status"
+                />
+                <FilterBar.Select
+                  value={sortMode}
+                  onValueChange={(value) => setSortMode(value as SortMode)}
+                  options={[
+                    { value: 'recent', label: 'Recently updated' },
+                    { value: 'name', label: 'Name (A-Z)' },
+                    { value: 'runs', label: 'Most runs' },
+                    { value: 'last_executed', label: 'Last executed' },
+                  ]}
+                  className="w-full md:w-[170px]"
+                  placeholder="Sort"
+                />
+                <FilterBar.ViewToggle
+                  value={viewMode}
+                  onChange={(v) => setViewMode(v as ViewMode)}
+                  options={[
+                    { value: 'list', icon: List, label: 'List view' },
+                    { value: 'cards', icon: LayoutGrid, label: 'Card view' },
+                  ]}
+                />
+              </FilterBar>
+              <FilterBar.Results
+                showing={filteredBots.length}
+                total={allBots.length}
+                hasFilters={!!(searchQuery || statusFilter !== 'all' || smartView !== 'all')}
+                onClearFilters={() => {
+                  setSearchQuery('');
+                  setStatusFilter('all');
+                  setSmartView('all');
+                }}
+              />
             </div>
 
             {selectedBots.length > 0 && (
@@ -723,16 +697,30 @@ export default function BaleybotsListPage() {
                 </div>
               )
             ) : allBots.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border bg-card px-6 py-10">
-                <EmptyState
-                  icon={Bot}
-                  title="No BaleyBots yet"
-                  description="Start with one sentence above and we will guide you from draft to first successful run."
-                  action={{
-                    label: 'Create your first BaleyBot',
-                    href: ROUTES.baleybots.create,
-                  }}
-                />
+              <div className="space-y-4">
+                {!hasAIProvider && (
+                  <div className="flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                    <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">Connect an AI provider to start building</p>
+                      <p className="text-xs text-muted-foreground">BaleyBots need an AI provider like OpenAI or Anthropic to work.</p>
+                    </div>
+                    <Button size="sm" asChild>
+                      <Link href={ROUTES.capabilities.connections}>Set Up</Link>
+                    </Button>
+                  </div>
+                )}
+                <div className="rounded-2xl border border-dashed border-border bg-card px-6 py-10">
+                  <EmptyState
+                    icon={Bot}
+                    title="No BaleyBots yet"
+                    description="Start with one sentence above and we will guide you from draft to first successful run."
+                    action={{
+                      label: 'Create your first BaleyBot',
+                      href: ROUTES.baleybots.create,
+                    }}
+                  />
+                </div>
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-border bg-card px-6 py-10">

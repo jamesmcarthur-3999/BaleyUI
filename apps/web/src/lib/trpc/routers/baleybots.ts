@@ -5,6 +5,7 @@ import {
   baleybotExecutions,
   baleybotTriggers,
   connections,
+  sharedContext,
   eq,
   lt,
   and,
@@ -721,6 +722,7 @@ export const baleybotsRouter = router({
         const executorCtx: ExecutorContext = {
           workspaceId: ctx.workspace.id,
           baleybotId: input.id,
+          baleybotName: baleybot.name,
           availableTools: runtimeTools,
           workspacePolicies: null,
           triggeredBy: (input.triggeredBy as ExecutorContext['triggeredBy']) || 'manual',
@@ -1058,8 +1060,24 @@ export const baleybotsRouter = router({
         conversationHistory: input.conversationHistory,
       });
 
+      // Fetch active shared context for creator bot awareness
+      const sharedContextEntries = await ctx.db.query.sharedContext.findMany({
+        where: and(
+          eq(sharedContext.workspaceId, ctx.workspace.id),
+          eq(sharedContext.isActive, true)
+        ),
+      });
+
       // Build input for creator_bot (non-streaming path)
       const contextParts: string[] = [];
+
+      if (sharedContextEntries.length > 0) {
+        const formatted = sharedContextEntries
+          .map((e) => `- ${e.key}: ${e.value}`)
+          .join('\n');
+        contextParts.push(`Workspace Knowledge & Standards:\n${formatted}`);
+      }
+
       if (creatorContext.context.availableTools.length > 0) {
         contextParts.push(`Available tools: ${creatorContext.context.availableTools.map(t => t.name).join(', ')}`);
       }

@@ -840,6 +840,9 @@ export const baleybots = pgTable(
     index('baleybots_status_idx').on(table.status),
     index('baleybots_lifecycle_stage_idx').on(table.lifecycleStage),
     index('baleybots_deleted_at_idx').on(table.deletedAt),
+    uniqueIndex('baleybots_workspace_name_internal_idx')
+      .on(table.workspaceId, table.name)
+      .where(sql`${table.isInternal} = true`),
   ]
 );
 
@@ -936,6 +939,9 @@ export const baleybotTriggers = pgTable(
     // Conditions (optional)
     condition: text('condition'), // Optional condition expression
 
+    // Soft delete
+    deletedAt: timestamp('deleted_at'),
+
     // Metadata
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -944,6 +950,7 @@ export const baleybotTriggers = pgTable(
     index('baleybot_triggers_workspace_idx').on(table.workspaceId),
     index('baleybot_triggers_source_idx').on(table.sourceBaleybotId),
     index('baleybot_triggers_target_idx').on(table.targetBaleybotId),
+    index('baleybot_triggers_deleted_at_idx').on(table.deletedAt),
   ]
 );
 
@@ -1230,6 +1237,81 @@ export const companionConversations = pgTable(
 );
 
 // ============================================================================
+// RECOMMENDATIONS (actionable findings from internal BaleyBots)
+// ============================================================================
+
+export const recommendations = pgTable(
+  'recommendations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    sourceType: varchar('source_type', { length: 50 }).notNull(),
+    sourceBaleybotId: uuid('source_baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'set null' }),
+    sourceExecutionId: uuid('source_execution_id')
+      .references(() => baleybotExecutions.id, { onDelete: 'set null' }),
+    targetBaleybotId: uuid('target_baleybot_id')
+      .references(() => baleybots.id, { onDelete: 'set null' }),
+    targetType: varchar('target_type', { length: 50 }).notNull(),
+    title: varchar('title', { length: 500 }).notNull(),
+    description: text('description').notNull(),
+    severity: varchar('severity', { length: 20 }).notNull().default('info'),
+    proposedAction: jsonb('proposed_action'),
+    status: varchar('status', { length: 20 }).notNull().default('pending'),
+    decidedBy: varchar('decided_by', { length: 255 }),
+    decidedAt: timestamp('decided_at'),
+    decisionNote: text('decision_note'),
+    confidence: doublePrecision('confidence'),
+    metadata: jsonb('metadata'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('recommendations_workspace_idx').on(table.workspaceId),
+    index('recommendations_status_idx').on(table.status),
+    index('recommendations_target_bb_idx').on(table.targetBaleybotId),
+    index('recommendations_source_type_idx').on(table.sourceType),
+    index('recommendations_ws_status_idx').on(table.workspaceId, table.status),
+    index('recommendations_created_idx').on(table.createdAt),
+  ]
+);
+
+// ============================================================================
+// SHARED CONTEXT (workspace-scoped knowledge for BB execution)
+// ============================================================================
+
+export const sharedContext = pgTable(
+  'shared_context',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    key: varchar('key', { length: 255 }).notNull(),
+    value: text('value').notNull(),
+    description: text('description'),
+    category: varchar('category', { length: 100 }).default('general'),
+    contentType: varchar('content_type', { length: 20 }).default('text').notNull(),
+    // 'text' = manual entry, 'file' = uploaded file with extracted text
+    fileMetadata: jsonb('file_metadata'),
+    // When contentType='file': { fileName, fileType, fileSizeBytes, uploadedAt }
+    isActive: boolean('is_active').default(true).notNull(),
+    createdBy: varchar('created_by', { length: 255 }),
+    updatedBy: varchar('updated_by', { length: 255 }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('shared_context_ws_key_idx').on(table.workspaceId, table.key),
+    index('shared_context_workspace_idx').on(table.workspaceId),
+    index('shared_context_category_idx').on(table.category),
+    index('shared_context_active_idx').on(table.isActive),
+  ]
+);
+
+// ============================================================================
 // BALEYBOT METRICS (for analytics tracking)
 // ============================================================================
 
@@ -1500,6 +1582,8 @@ export const baleybotsRelations = relations(baleybots, ({ one, many }) => ({
   // Trigger relations (BB completion chains)
   triggeredBy: many(baleybotTriggers, { relationName: 'triggeredBy' }),
   triggeredTargets: many(baleybotTriggers, { relationName: 'triggeredTargets' }),
+  // Recommendations targeting this BB
+  recommendationsReceived: many(recommendations, { relationName: 'recommendationTarget' }),
 }));
 
 export const baleybotUsageRelations = relations(baleybotUsage, ({ one }) => ({
@@ -1727,6 +1811,32 @@ export const workspacesRelations = relations(workspaces, ({ many, one }) => ({
   notifications: many(notifications),
   scheduledTasks: many(scheduledTasks),
   companionConversations: many(companionConversations),
+  recommendations: many(recommendations),
+  sharedContext: many(sharedContext),
+}));
+
+export const recommendationsRelations = relations(recommendations, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [recommendations.workspaceId],
+    references: [workspaces.id],
+  }),
+  sourceBaleybot: one(baleybots, {
+    fields: [recommendations.sourceBaleybotId],
+    references: [baleybots.id],
+    relationName: 'recommendationSource',
+  }),
+  targetBaleybot: one(baleybots, {
+    fields: [recommendations.targetBaleybotId],
+    references: [baleybots.id],
+    relationName: 'recommendationTarget',
+  }),
+}));
+
+export const sharedContextRelations = relations(sharedContext, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [sharedContext.workspaceId],
+    references: [workspaces.id],
+  }),
 }));
 
 export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
