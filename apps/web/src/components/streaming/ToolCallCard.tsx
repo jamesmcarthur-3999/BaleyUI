@@ -5,10 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LoadingDots } from '@/components/ui/loading-dots';
-import { ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, Play } from 'lucide-react';
+import { ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StreamingJSON } from './StreamingJSON';
-import type { ToolCallStatus } from '@/lib/streaming/types/state';
+
+/** Tool call status aligned with SDK's ToolCallSegment['status'] */
+export type ToolCallStatus = 'running' | 'completed' | 'failed';
 
 export interface ToolCall {
   id: string;
@@ -35,27 +37,17 @@ const statusConfig: Record<
     icon: React.ComponentType<{ className?: string }>;
   }
 > = {
-  streaming_args: {
-    label: 'Streaming',
-    variant: 'secondary',
-    icon: Loader2,
-  },
-  args_complete: {
-    label: 'Ready',
-    variant: 'outline',
-    icon: Play,
-  },
-  executing: {
-    label: 'Executing',
+  running: {
+    label: 'Running',
     variant: 'connected',
     icon: Loader2,
   },
-  complete: {
+  completed: {
     label: 'Complete',
     variant: 'connected',
     icon: CheckCircle2,
   },
-  error: {
+  failed: {
     label: 'Error',
     variant: 'error',
     icon: XCircle,
@@ -68,7 +60,7 @@ export function ToolCallCard({ toolCall, className }: ToolCallCardProps) {
 
   const config = statusConfig[toolCall.status];
   const Icon = config.icon;
-  const isLoading = toolCall.status === 'streaming_args' || toolCall.status === 'executing';
+  const isLoading = toolCall.status === 'running';
 
   const duration =
     toolCall.startTime && toolCall.endTime
@@ -84,8 +76,8 @@ export function ToolCallCard({ toolCall, className }: ToolCallCardProps) {
               className={cn(
                 'h-4 w-4 flex-shrink-0',
                 isLoading && 'animate-spin',
-                toolCall.status === 'complete' && 'text-green-600',
-                toolCall.status === 'error' && 'text-red-600'
+                toolCall.status === 'completed' && 'text-green-600',
+                toolCall.status === 'failed' && 'text-red-600'
               )}
             />
             <CardTitle className="text-sm font-mono truncate">{toolCall.toolName}</CardTitle>
@@ -117,7 +109,7 @@ export function ToolCallCard({ toolCall, className }: ToolCallCardProps) {
               <ChevronRight className="h-3 w-3 mr-1" />
             )}
             Arguments
-            {toolCall.status === 'streaming_args' && (
+            {toolCall.status === 'running' && !toolCall.parsedArguments && (
               <LoadingDots size="sm" className="ml-2" />
             )}
           </Button>
@@ -126,14 +118,14 @@ export function ToolCallCard({ toolCall, className }: ToolCallCardProps) {
             <div className="mt-2 p-3 bg-muted/50 rounded-md overflow-auto max-h-60">
               <StreamingJSON
                 json={toolCall.arguments}
-                isStreaming={toolCall.status === 'streaming_args'}
+                isStreaming={toolCall.status === 'running' && !toolCall.parsedArguments}
               />
             </div>
           )}
         </div>
 
         {/* Result Section */}
-        {(toolCall.result || toolCall.error) && (
+        {(toolCall.result != null || toolCall.error) && (
           <div>
             <Button
               variant="ghost"
@@ -168,7 +160,7 @@ export function ToolCallCard({ toolCall, className }: ToolCallCardProps) {
         )}
 
         {/* Loading state for execution */}
-        {toolCall.status === 'executing' && !toolCall.result && !toolCall.error && (
+        {toolCall.status === 'running' && toolCall.parsedArguments && !toolCall.result && !toolCall.error && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <LoadingDots size="sm" />
             <span>Executing tool...</span>

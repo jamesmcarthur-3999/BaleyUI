@@ -47,20 +47,74 @@ await withTransaction(async (tx) => {
 });
 ```
 
-### BaleyBot Streaming Events
-Types are re-exported from `@/lib/streaming/types/events` (source: @baleybots/core).
+### Streaming Architecture (SDK-Aligned)
 
-**Key event field names:**
-- `text_delta`: `{ type, content }`
-- `tool_call_stream_start`: `{ type, id, toolName }`
-- `tool_call_arguments_delta`: `{ type, id, argumentsDelta }`
-- `tool_call_stream_complete`: `{ type, id, toolName, arguments }`
-- `tool_execution_start`: `{ type, id, toolName, arguments }`
-- `tool_execution_output`: `{ type, id, toolName, result, error? }`
-- `tool_execution_stream`: `{ type, toolName, nestedEvent, childBotName?, toolCallId? }`
-- `done`: `{ type, reason, agent_id, parent_agent_id?, timestamp, duration_ms, ... }`
+**The canonical streaming system uses `@baleybots/chat`'s `StreamSegment` types and `reduceStreamEvent()` reducer.** Do NOT build custom stream accumulators or invent new streaming state types.
 
-**DoneReason values:** `turn_yielded`, `out_of_iterations`, `max_tokens_reached`, `error`, `interrupted`, `no_applicable_tools`, `max_depth_reached`, `graceful_shutdown`
+**Pipeline:** SSE events → `ServerStreamEvent` wrapper → `reduceStreamEvent()` → `StreamSegmentState` → `SegmentRenderer`
+
+#### State Management
+```typescript
+// Use AppStreamState (wraps SDK's StreamSegmentState)
+import { streamReducer, createInitialAppStreamState, type AppStreamState } from '@/hooks/useStreamState';
+
+const [state, dispatch] = useReducer(streamReducer, createInitialAppStreamState());
+
+// Start stream
+dispatch({ type: 'START_STREAM', botId, botName });
+
+// Process each SSE event
+dispatch({ type: 'PROCESS_EVENT', event: serverStreamEvent });
+
+// Access segments for rendering
+const { segments, isDone, fullTextContent } = state.segmentState;
+```
+
+#### UI Rendering
+```typescript
+// Use the unified chat component library
+import { SegmentRenderer, ChatThread, ChatBubble, CREATOR_CONFIG, COMPANION_CONFIG } from '@/components/chat';
+
+// Render segments directly
+<SegmentRenderer segments={state.segmentState.segments} config={CREATOR_CONFIG} />
+
+// Or use full chat thread
+<ChatThread messages={messages} config={COMPANION_CONFIG} />
+```
+
+#### SDK Segment Types (9 types)
+| Segment | Type | Status Values | Key Fields |
+|---------|------|---------------|------------|
+| `TextSegment` | `'text'` | — | `content`, `isStreaming` |
+| `ToolCallSegment` | `'tool_call'` | `'running' \| 'completed' \| 'failed'` | `name`, `args`, `result`, `error` |
+| `ReasoningSegment` | `'reasoning'` | — | `content`, `isStreaming` |
+| `SpawnAgentSegment` | `'spawn_agent'` | `'running' \| 'completed' \| 'failed'` | `goal`, `childSegments`, `agentType` |
+| `SequentialThinkingSegment` | `'sequential_thinking'` | `'running' \| 'completed'` | `thoughts: ThoughtItem[]` |
+| `DSLPipelineSegment` | `'dsl_pipeline'` | `'streaming' \| 'parsing' \| 'running' \| 'completed' \| 'failed'` | `definedBots`, `code` |
+| `StructuredOutputSegment` | `'structured_output'` | — | `content`, `isStreaming` |
+| `ErrorSegment` | `'error'` | — | `message`, `details` |
+| `DoneSegment` | `'done'` | — | `reason`, `duration_ms`, `reasonDisplay` |
+
+**IMPORTANT:** Tool call status values are `'running'` / `'completed'` / `'failed'` (NOT the old `'executing'` / `'complete'` / `'error'`).
+
+#### Chat Component Library (`@/components/chat`)
+| Export | Purpose |
+|--------|---------|
+| `ChatThread` | Full scrollable message list with auto-scroll |
+| `ChatBubble` | Single message wrapper (avatar, copy, retry) |
+| `SegmentRenderer` | Renders `StreamSegment[]` with filtering and grouping |
+| `CREATOR_CONFIG` | Full-page config (all segment types enabled) |
+| `COMPANION_CONFIG` | Floating panel config (text, tool_call, error only) |
+| `getToolLabel()` | Human-readable tool labels ("Searching the web for X") |
+| `deriveSegments()` | Extract renderable segments from `StreamSegmentState` |
+| `textToSegments()` | Convert plain text to `TextSegment[]` for stored messages |
+
+#### Legacy Compatibility
+Old `StreamState` / `ToolCallState` / `ToolCallStatus` types in `@/lib/streaming/types/state` are **deprecated but still exported** for backward compat. Adapters available:
+- `toOldToolCallStatus()` — converts SDK status to legacy status
+- `getToolCallStates()` — extracts legacy `ToolCallState[]` from SDK segments
+
+**Do NOT use legacy types for new features.** They will be removed once all consumers migrate.
 
 ### Streaming UI Performance
 - Use RAF batching + direct DOM manipulation
@@ -79,7 +133,10 @@ Types are re-exported from `@/lib/streaming/types/events` (source: @baleybots/co
 | Connection Tools | `apps/web/src/lib/baleybot/tools/connection-derived/` |
 | Services | `apps/web/src/lib/baleybot/services/` |
 | Internal BaleyBots | `apps/web/src/lib/baleybot/internal-baleybots.ts` |
+| **Chat Components** | `apps/web/src/components/chat/` (unified library) |
+| **Stream Reducer** | `apps/web/src/hooks/useStreamState.ts` (SDK-aligned) |
 | Stream Events | `apps/web/src/lib/streaming/types/events.ts` (re-exports from @baleybots/core) |
+| Stream Types (legacy) | `apps/web/src/lib/streaming/types/state.ts` (deprecated, use SDK) |
 | Connections | `apps/web/src/lib/connections/` |
 
 ## Built-in Tools Reference
@@ -192,6 +249,23 @@ pnpm lint              # ESLint
 
 ## Common Tasks
 
+### Build a Streaming Feature
+
+Any feature that displays real-time BaleyBot execution output follows this pattern:
+
+1. **State:** Use `AppStreamState` + `streamReducer` from `@/hooks/useStreamState`
+2. **Events:** Feed `ServerStreamEvent`s via `dispatch({ type: 'PROCESS_EVENT', event })`
+3. **Segments:** Read `state.segmentState.segments` — this is the ordered `StreamSegment[]`
+4. **Render:** Use `<SegmentRenderer segments={...} config={...} />` from `@/components/chat`
+5. **Config:** Pick `CREATOR_CONFIG` (all segments) or `COMPANION_CONFIG` (minimal), or define custom
+6. **Tool labels:** They're automatic — `SegmentRenderer` uses `getToolLabel()` internally
+7. **Stored messages:** Convert text to segments with `textToSegments(content)` for consistency
+
+**Do NOT:**
+- Build a custom reducer that accumulates text/toolCalls separately (the SDK handles interleaving)
+- Use the old `StreamState` type for new features
+- Invent new segment types — extend `SystemBlock` or contribute to the SDK
+
 ### Add a Database Table
 1. Add table definition in `packages/db/src/schema.ts`
 2. Add relations if needed
@@ -218,6 +292,13 @@ pnpm lint              # ESLint
 | `AGENTS.md` | Task assignments |
 | `docs/getting-started.md` | Quick-start guide |
 | `docs/reference/` | BAL language, type system, events, design system |
+| `docs/reference/STREAMING_EVENT_SCHEMA.md` | SSE event format (raw events from SDK) |
 | `docs/guides/` | Developer guide, testing |
 | `docs/plans/` | Implementation plans |
 | `docs/architecture/` | Technical deep-dives |
+
+### Streaming Reference Hierarchy
+1. **This file (CLAUDE.md)** — How to use the streaming system (SDK-aligned)
+2. **`@baleybots/chat` types** — Canonical `StreamSegment` types, `reduceStreamEvent()`
+3. **`@/components/chat/`** — React rendering layer for segments
+4. **`docs/reference/STREAMING_EVENT_SCHEMA.md`** — Raw SSE event format (if building server-side)

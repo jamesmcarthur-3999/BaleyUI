@@ -7,7 +7,7 @@
 export { StreamingText } from './StreamingText';
 export { StreamingJSON } from './StreamingJSON';
 export { ToolCallCard } from './ToolCallCard';
-export type { ToolCall } from './ToolCallCard';
+export type { ToolCall, ToolCallStatus } from './ToolCallCard';
 export { StreamMetrics } from './StreamMetrics';
 export type { StreamMetrics as StreamMetricsType } from './StreamMetrics';
 export { StreamStatus } from './StreamStatus';

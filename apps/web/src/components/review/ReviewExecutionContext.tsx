@@ -3,7 +3,19 @@
 import { createContext, useContext, useState, useRef } from 'react';
 import type { ReactNode } from 'react';
 import type { GraphRuntimeEvent } from '@/lib/streaming/types/events';
-import type { ToolCallState } from '@/lib/streaming/types/state';
+import type { ToolCallStatus } from '@/components/streaming/ToolCallCard';
+
+export interface ToolCallState {
+  id: string;
+  toolName: string;
+  status: ToolCallStatus;
+  arguments: string;
+  parsedArguments?: unknown;
+  result?: unknown;
+  error?: string;
+  startTime: number;
+  endTime?: number;
+}
 import { streamPostSSE } from '@/lib/streaming/client-post-sse';
 
 // ============================================================================
@@ -207,7 +219,7 @@ export function ReviewExecutionProvider({
                 toolCallsRef.current[tcId] = {
                   id: tcId,
                   toolName,
-                  status: 'streaming_args',
+                  status: 'running',
                   arguments: '',
                   startTime: Date.now(),
                 };
@@ -249,7 +261,7 @@ export function ReviewExecutionProvider({
                 }
                 toolCallsRef.current[tcId] = {
                   ...toolCallsRef.current[tcId],
-                  status: 'args_complete',
+                  status: 'running',
                   parsedArguments: parsed,
                 };
                 setState((prev) => ({
@@ -265,7 +277,7 @@ export function ReviewExecutionProvider({
               if (tcId && toolCallsRef.current[tcId]) {
                 toolCallsRef.current[tcId] = {
                   ...toolCallsRef.current[tcId],
-                  status: 'executing',
+                  status: 'running',
                 };
                 setState((prev) => ({
                   ...prev,
@@ -281,7 +293,7 @@ export function ReviewExecutionProvider({
                 const hasError = !!event.error;
                 toolCallsRef.current[tcId] = {
                   ...toolCallsRef.current[tcId],
-                  status: hasError ? 'error' : 'complete',
+                  status: hasError ? 'failed' : 'completed',
                   result: hasError ? undefined : event.result,
                   error: hasError ? (event.error as string) : undefined,
                   endTime: Date.now(),

@@ -10,7 +10,19 @@ import type { ToolCall } from '@/components/streaming/ToolCallCard';
 import { streamPostSSE } from '@/lib/streaming/client-post-sse';
 import { cn } from '@/lib/utils';
 import type { BotCapabilities } from '@/lib/baleybot/capabilities';
-import type { ToolCallState } from '@/lib/streaming/types/state';
+import type { ToolCallStatus } from '@/components/streaming/ToolCallCard';
+
+interface ToolCallState {
+  id: string;
+  toolName: string;
+  status: ToolCallStatus;
+  arguments: string;
+  parsedArguments?: unknown;
+  result?: unknown;
+  error?: string;
+  startTime: number;
+  endTime?: number;
+}
 
 // ============================================================================
 // TYPES
@@ -173,7 +185,7 @@ export function AdaptiveTestSurface({
               toolName: (event.toolName as string) ?? '',
               arguments: '',
               parsedArguments: undefined,
-              status: 'streaming_args',
+              status: 'running',
               startTime: Date.now(),
             };
             collectedToolCalls[eventId] = tc;
@@ -193,7 +205,7 @@ export function AdaptiveTestSurface({
           if (event.type === 'tool_call_stream_complete' && eventId) {
             const existing = collectedToolCalls[eventId];
             if (existing) {
-              existing.status = 'args_complete';
+              existing.status = 'running';
               existing.arguments = (event.arguments as string) ?? existing.arguments;
               try {
                 existing.parsedArguments = JSON.parse(existing.arguments);
@@ -206,7 +218,7 @@ export function AdaptiveTestSurface({
           if (event.type === 'tool_execution_start' && eventId) {
             const existing = collectedToolCalls[eventId];
             if (existing) {
-              existing.status = 'executing';
+              existing.status = 'running';
               setToolCalls((prev) => ({ ...prev, [eventId]: { ...existing } }));
             }
             return;
@@ -215,7 +227,7 @@ export function AdaptiveTestSurface({
           if (event.type === 'tool_execution_output' && eventId) {
             const existing = collectedToolCalls[eventId];
             if (existing) {
-              existing.status = event.error ? 'error' : 'complete';
+              existing.status = event.error ? 'failed' : 'completed';
               existing.result = event.result;
               existing.error = event.error as string | undefined;
               existing.endTime = Date.now();

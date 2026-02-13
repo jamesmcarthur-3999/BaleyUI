@@ -6,7 +6,7 @@ import { LoadingDots } from '@/components/ui/loading-dots';
 import { StatusIndicator } from '@/components/ui/status-indicator';
 import { AlertCircle, CheckCircle2, Loader2, Wifi, WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { StreamStatus as StreamStatusType } from '@/lib/streaming/types/state';
+import type { AppStreamStatus as StreamStatusType } from '@/hooks/useStreamState';
 
 interface StreamStatusProps {
   status: StreamStatusType;

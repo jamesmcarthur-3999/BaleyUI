@@ -38,7 +38,8 @@ export interface ToolCallState {
   arguments?: unknown;
   result?: unknown;
   error?: string;
-  status: 'streaming' | 'executing' | 'completed' | 'error';
+  /** SDK-aligned: 'running' | 'completed' | 'failed' */
+  status: 'running' | 'completed' | 'failed';
 }
 
 export interface UseExecutionTimelineOptions {
@@ -168,7 +169,7 @@ export function useExecutionTimeline(
                 {
                   id: streamEvent.id,
                   toolName: streamEvent.toolName,
-                  status: 'streaming',
+                  status: 'running',
                 },
               ];
             }
@@ -176,7 +177,7 @@ export function useExecutionTimeline(
             if (streamEvent.type === 'tool_call_stream_complete') {
               updated.toolCalls = updated.toolCalls.map((tc) =>
                 tc.id === streamEvent.id
-                  ? { ...tc, arguments: streamEvent.arguments, status: 'executing' as const }
+                  ? { ...tc, arguments: streamEvent.arguments, status: 'running' as const }
                   : tc
               );
             }
@@ -188,7 +189,7 @@ export function useExecutionTimeline(
                       ...tc,
                       result: streamEvent.result,
                       error: streamEvent.error,
-                      status: streamEvent.error ? ('error' as const) : ('completed' as const),
+                      status: streamEvent.error ? ('failed' as const) : ('completed' as const),
                     }
                   : tc
               );

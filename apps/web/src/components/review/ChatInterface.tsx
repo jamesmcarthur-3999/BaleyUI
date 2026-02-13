@@ -2,14 +2,13 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useReviewExecution } from './ReviewExecutionContext';
-import type { ReviewMessage, ReviewContentBlock } from './ReviewExecutionContext';
+import type { ReviewMessage, ReviewContentBlock, ToolCallState } from './ReviewExecutionContext';
 import { ToolCallCard } from '@/components/streaming/ToolCallCard';
 import type { ToolCall } from '@/components/streaming/ToolCallCard';
 import { StreamdownMarkdown } from '@/components/shared/StreamdownMarkdown';
 import { Button } from '@/components/ui/button';
 import { Send, Bot, User, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { ToolCallState } from '@/lib/streaming/types/state';
 
 interface ChatInterfaceProps {
   className?: string;
