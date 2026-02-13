@@ -1,13 +1,26 @@
 /**
  * Streaming State Types
  *
- * Types for managing streaming UI state.
+ * MIGRATION NOTE: The canonical streaming representation is now SDK's
+ * StreamSegmentState from @baleybots/chat, used via AppStreamState in
+ * useStreamState.ts. These types remain for backward compatibility with
+ * existing consumers (ToolCallCard, ChatInterface, AdaptiveTestSurface, etc.)
+ *
+ * New code should use:
+ *   - AppStreamState from '@/hooks/useStreamState' (app-level state)
+ *   - StreamSegmentState from '@baleybots/chat' (SDK segment state)
+ *   - ToolCallSegment from '@baleybots/chat' (instead of ToolCallState)
+ *
+ * @deprecated Prefer SDK types from @baleybots/chat for new features.
  */
 
+import type { StreamSegment, ToolCallSegment } from '@baleybots/chat';
+
 // ============================================================================
-// Tool Call State
+// Tool Call State (backward-compat)
 // ============================================================================
 
+/** @deprecated Use ToolCallSegment['status'] from @baleybots/chat instead */
 export type ToolCallStatus =
   | 'streaming_args'
   | 'args_complete'
@@ -15,17 +28,17 @@ export type ToolCallStatus =
   | 'complete'
   | 'error';
 
+/** @deprecated Use ToolCallSegment from @baleybots/chat instead */
 export interface ToolCallState {
   id: string;
   toolName: string;
   status: ToolCallStatus;
-  arguments: string; // Raw accumulated arguments
-  parsedArguments?: unknown; // Parsed when complete
+  arguments: string;
+  parsedArguments?: unknown;
   result?: unknown;
   error?: string;
   startTime: number;
   endTime?: number;
-  // For nested bot streams
   nestedStream?: NestedStreamState;
 }
 
@@ -40,24 +53,19 @@ export interface NestedStreamState {
 // ============================================================================
 
 export interface StreamMetrics {
-  /** Time to first token in milliseconds */
   ttft: number | null;
-  /** Tokens received per second */
   tokensPerSecond: number | null;
-  /** Total tokens received */
   totalTokens: number;
-  /** Request start time */
   startTime: number | null;
-  /** First token time */
   firstTokenTime: number | null;
-  /** Completion time */
   endTime: number | null;
 }
 
 // ============================================================================
-// Overall Stream State
+// Overall Stream State (backward-compat)
 // ============================================================================
 
+/** @deprecated Use AppStreamStatus from '@/hooks/useStreamState' instead */
 export type StreamStatus =
   | 'idle'
   | 'connecting'
@@ -66,29 +74,22 @@ export type StreamStatus =
   | 'error'
   | 'cancelled';
 
+/** @deprecated Use AppStreamState from '@/hooks/useStreamState' instead */
 export interface StreamState {
   status: StreamStatus;
-  /** Accumulated text content */
   text: string;
-  /** Accumulated reasoning/thinking content */
   reasoning: string;
-  /** Structured JSON output */
   structuredOutput: unknown;
-  /** Whether structured output is complete */
   structuredOutputComplete: boolean;
-  /** Tool calls with their states */
   toolCalls: ToolCallState[];
-  /** Streaming metrics */
   metrics: StreamMetrics;
-  /** Error if status is 'error' */
   error: Error | null;
-  /** Bot info */
   botId: string | null;
   botName: string | null;
 }
 
 // ============================================================================
-// Initial State Factory
+// Initial State Factory (backward-compat)
 // ============================================================================
 
 export function createInitialStreamState(): StreamState {
@@ -122,4 +123,40 @@ export function createInitialMetrics(): StreamMetrics {
     firstTokenTime: null,
     endTime: null,
   };
+}
+
+// ============================================================================
+// SDK ↔ Legacy Adapters
+// ============================================================================
+
+/**
+ * Convert SDK ToolCallSegment status to legacy ToolCallStatus.
+ * For backward compatibility with components that haven't migrated yet.
+ */
+export function toOldToolCallStatus(status: ToolCallSegment['status']): ToolCallStatus {
+  switch (status) {
+    case 'running': return 'executing';
+    case 'completed': return 'complete';
+    case 'failed': return 'error';
+  }
+}
+
+/**
+ * Extract legacy ToolCallState[] from SDK segments.
+ * For backward compatibility with components that expect ToolCallState.
+ */
+export function getToolCallStates(segments: StreamSegment[]): ToolCallState[] {
+  return segments
+    .filter((s): s is ToolCallSegment => s.type === 'tool_call')
+    .map(seg => ({
+      id: seg.toolCallId,
+      toolName: seg.name,
+      status: toOldToolCallStatus(seg.status),
+      arguments: seg.rawArgs ?? (seg.args ? JSON.stringify(seg.args) : ''),
+      parsedArguments: seg.args,
+      result: seg.result,
+      error: seg.error,
+      startTime: seg.timestamp,
+      endTime: seg.status !== 'running' ? seg.timestamp : undefined,
+    }));
 }
