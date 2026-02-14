@@ -518,17 +518,17 @@ importers:
         specifier: 1.0.0-alpha.71
         version: 1.0.0-alpha.71
       '@baleybots/chat':
-        specifier: 0.0.1-alpha.115
-        version: 0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(@baleybots/core@0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(zod@4.3.6)
+        specifier: workspace:*
+        version: link:../chat
       '@baleybots/core':
-        specifier: 0.0.1-alpha.115
-        version: 0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
+        specifier: workspace:*
+        version: link:../core
       '@baleybots/mcp':
-        specifier: 0.0.1-alpha.115
-        version: 0.0.1-alpha.115(@baleybots/core@0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+        specifier: workspace:*
+        version: link:../mcp
       '@baleybots/tools':
-        specifier: 0.0.1-alpha.115
-        version: 0.0.1-alpha.115(@baleybots/core@0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(zod@4.3.6)
+        specifier: workspace:*
+        version: link:../tools
       '@xterm/headless':
         specifier: ^5.5.0
         version: 5.5.0
@@ -553,9 +553,9 @@ importers:
       marked-terminal:
         specifier: ^7.3.0
         version: 7.3.0(marked@11.2.0)
-      ollama-ai-provider:
-        specifier: ^1.0.0
-        version: 1.2.0(zod@4.3.6)
+      ollama-ai-provider-v2:
+        specifier: ^3.3.0
+        version: 3.3.0(ai@6.0.69(zod@4.3.6))(zod@4.3.6)
       react:
         specifier: ^19.1.0
         version: 19.2.3
@@ -633,9 +633,9 @@ importers:
       msw:
         specifier: ^2.11.6
         version: 2.12.8(@types/node@24.10.10)(typescript@5.9.3)
-      ollama-ai-provider:
-        specifier: ^1.0.0
-        version: 1.2.0(zod@4.3.6)
+      ollama-ai-provider-v2:
+        specifier: ^3.3.0
+        version: 3.3.0(ai@6.0.69(zod@4.3.6))(zod@4.3.6)
       react:
         specifier: ^19.0.0
         version: 19.2.3
@@ -934,6 +934,12 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
+  '@ai-sdk/provider-utils@4.0.15':
+    resolution: {integrity: sha512-8XiKWbemmCbvNN0CLR9u3PQiet4gtEVIrX4zzLxnCj06AwsEDJwJVBbKrEI4t6qE8XRSIvU2irka0dcpziKW6w==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
   '@ai-sdk/provider@1.1.3':
     resolution: {integrity: sha512-qZMxYJ0qqX/RfnuIaab+zp8UAeJn/ygXXAffR5I4N0n1IrvA6qBsjc8hXLmBiMV2zoXlifkacF7sEFnYnjBcqg==}
     engines: {node: '>=18'}
@@ -948,6 +954,10 @@ packages:
 
   '@ai-sdk/provider@3.0.7':
     resolution: {integrity: sha512-VkPLrutM6VdA924/mG8OS+5frbVTcu6e046D2bgDo00tehBANR1QBJ/mPcZ9tXMFOsVcm6SQArOregxePzTFPw==}
+    engines: {node: '>=18'}
+
+  '@ai-sdk/provider@3.0.8':
+    resolution: {integrity: sha512-oGMAgGoQdBXbZqNG0Ze56CHjDZ1IDYOwGYxYjO5KLSlz5HiNQ9udIXsPZ61VWaHGZ5XW/jyjmr6t2xz2jGVwbQ==}
     engines: {node: '>=18'}
 
   '@ai-sdk/react@2.0.116':
@@ -1076,41 +1086,6 @@ packages:
 
   '@baleybots/auth@1.0.0-alpha.71':
     resolution: {integrity: sha512-QBtVOFayuTJInzo/aOYmC3T0/vvRD0nBD33QsEMZZLrI5mexF7wiCd1SzOCTiEXeFgEKXYcPYSVQ0H4UkhPJfQ==, tarball: https://npm.pkg.github.com/download/@baleybots/auth/1.0.0-alpha.71/55f9cf665f0cab6b76119cd2932a91db3183fcf9}
-
-  '@baleybots/chat@0.0.1-alpha.115':
-    resolution: {integrity: sha512-ivN/QyPfoMZxW5iZArfPX/N9YdXimYek/bwh/BberKvDHKucBhrW1jDMHS0+/Mf4DQx/09v4jl5SK0cckErgqw==, tarball: https://npm.pkg.github.com/download/@baleybots/chat/0.0.1-alpha.115/9ac746cbc7b68034e732389776378447882519f4}
-    engines: {node: '>=18.0.0', typescript: '>=5.0.0'}
-    peerDependencies:
-      '@ai-sdk/anthropic': ^2.0.49
-      '@ai-sdk/openai': ^1.0.0
-      '@baleybots/core': '>=0.0.1-alpha.100'
-      ai: ^6.0.0
-      zod: ^4.3.6
-
-  '@baleybots/core@0.0.1-alpha.115':
-    resolution: {integrity: sha512-LiDCax0KZ1Lq8XIAXMX4TyZe5E9GeGpLOurrUNOs3PETE6Tl77B/MC3op9L5BJh23YPwYR/kvysH6i8ToT1I7w==, tarball: https://npm.pkg.github.com/download/@baleybots/core/0.0.1-alpha.115/a3d96cc1135fefb094c37584b4f34cd0685662f5}
-    engines: {node: '>=18.0.0', typescript: '>=5.0.0'}
-    peerDependencies:
-      '@ai-sdk/anthropic': ^3.0.0
-      '@ai-sdk/openai': ^3.0.0
-      ai: ^6.0.0
-      ollama-ai-provider: ^1.0.0
-      ws: ^8.18.0
-      zod: ^4.3.6
-
-  '@baleybots/mcp@0.0.1-alpha.115':
-    resolution: {integrity: sha512-1Y3DUc7AoS1KliScGUSYDVxInn67ZMLUqJ3b6uD53RaUUmaGvZEOWNhDBfQ2j9deYEoK72F7ldg+mmvcKTbSsA==, tarball: https://npm.pkg.github.com/download/@baleybots/mcp/0.0.1-alpha.115/4a7a46b45f5ae914a32959bef0a8a7df4738505c}
-    engines: {node: '>=18.0.0', typescript: '>=5.0.0'}
-    peerDependencies:
-      '@baleybots/core': '>=0.0.1-alpha.100'
-      zod: ^4.3.6
-
-  '@baleybots/tools@0.0.1-alpha.115':
-    resolution: {integrity: sha512-jca+r5Cb6aX8xrhxkt/7lSX2PvL9alenQMmXDfTglgclKI/rk6s88+sHGLrSYFYo8Z3RRLTGZFCiG25cQIdzzw==, tarball: https://npm.pkg.github.com/download/@baleybots/tools/0.0.1-alpha.115/ba47977f5b0af050ed829e71e9f4ddad87d07406}
-    engines: {node: '>=18.0.0', typescript: '>=5.0.0'}
-    peerDependencies:
-      '@baleybots/core': '>=0.0.1-alpha.100'
-      zod: ^4.3.6
 
   '@bcoe/v8-coverage@1.0.2':
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
@@ -4284,9 +4259,6 @@ packages:
 
   '@types/node@20.19.27':
     resolution: {integrity: sha512-N2clP5pJhB2YnZJ3PIHFk5RkygRX5WO/5f0WC08tp0wd+sv0rsJk3MqWn3CbNmT2J505a5336jaQj4ph1AdMug==}
-
-  '@types/node@22.19.11':
-    resolution: {integrity: sha512-BH7YwL6rA93ReqeQS1c4bsPpcfOmJasG+Fkr6Y59q83f9M1WcBRHR2vM+P9eOisYRcN3ujQoiZY8uk5W+1WL8w==}
 
   '@types/node@22.19.3':
     resolution: {integrity: sha512-1N9SBnWYOJTrNZCdh/yJE+t910Y128BoyY+zBLWhL3r0TYzlTmFdXrPwHL9DyFZmlEXNQQolTZh3KHV31QDhyA==}
@@ -7747,14 +7719,12 @@ packages:
   obug@2.1.1:
     resolution: {integrity: sha512-uTqF9MuPraAQ+IsnPf366RG4cP9RtUi7MLO1N3KEc+wb0a6yKpeL0lmk2IB1jY5KHPAlTc6T/JRdC/YqxHNwkQ==}
 
-  ollama-ai-provider@1.2.0:
-    resolution: {integrity: sha512-jTNFruwe3O/ruJeppI/quoOUxG7NA6blG3ZyQj3lei4+NnJo7bi3eIRWqlVpRlu/mbzbFXeJSBuYQWF6pzGKww==}
+  ollama-ai-provider-v2@3.3.0:
+    resolution: {integrity: sha512-5NcxitHWm/8HGuuEp306NtmRJmW3hKfK1Y/cmexn5B34H1vwAQuIph1ehg3N8ru67cemW5rndSeq9zB7yicNrw==}
     engines: {node: '>=18'}
     peerDependencies:
-      zod: ^3.0.0
-    peerDependenciesMeta:
-      zod:
-        optional: true
+      ai: ^5.0.0 || ^6.0.0
+      zod: ^4.0.16
 
   on-exit-leak-free@2.1.2:
     resolution: {integrity: sha512-0eJJY6hXLGf1udHwfNftBqH+g73EU4B504nZeKpz1sYRKafAghwxEJunB2O7rDZkL4PGfsMVnTXZ2EjibbqcsA==}
@@ -7865,9 +7835,6 @@ packages:
   parseurl@1.3.3:
     resolution: {integrity: sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==}
     engines: {node: '>= 0.8'}
-
-  partial-json@0.1.7:
-    resolution: {integrity: sha512-Njv/59hHaokb/hRUjce3Hdv12wd60MtM9Z5Olmn+nehe0QDAsRtRbJPvJ0Z91TusF0SuZRIvnM+S4l6EIP8leA==}
 
   patch-console@2.0.0:
     resolution: {integrity: sha512-0YNdUceMdaQwoKce1gatDScmMo5pu/tfABfnzEqeG0gtTmd7mh/WcwgUjtAeOU7N8nFFlbQBnFK2gXW5fGvmMA==}
@@ -9997,6 +9964,13 @@ snapshots:
       eventsource-parser: 3.0.6
       zod: 4.3.6
 
+  '@ai-sdk/provider-utils@4.0.15(zod@4.3.6)':
+    dependencies:
+      '@ai-sdk/provider': 3.0.8
+      '@standard-schema/spec': 1.1.0
+      eventsource-parser: 3.0.6
+      zod: 4.3.6
+
   '@ai-sdk/provider@1.1.3':
     dependencies:
       json-schema: 0.4.0
@@ -10010,6 +9984,10 @@ snapshots:
       json-schema: 0.4.0
 
   '@ai-sdk/provider@3.0.7':
+    dependencies:
+      json-schema: 0.4.0
+
+  '@ai-sdk/provider@3.0.8':
     dependencies:
       json-schema: 0.4.0
 
@@ -10174,42 +10152,6 @@ snapshots:
       simple-oauth2: 5.1.0
     transitivePeerDependencies:
       - supports-color
-
-  '@baleybots/chat@0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(@baleybots/core@0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/anthropic': 2.0.58(zod@4.3.6)
-      '@ai-sdk/openai': 1.3.24(zod@4.3.6)
-      '@baleybots/core': 0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
-      ai: 6.0.69(zod@4.3.6)
-      zod: 4.3.6
-
-  '@baleybots/core@0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/anthropic': 2.0.58(zod@4.3.6)
-      '@ai-sdk/openai': 1.3.24(zod@4.3.6)
-      '@baleybots/auth': 1.0.0-alpha.71
-      '@cfworker/json-schema': 4.1.1
-      ai: 6.0.69(zod@4.3.6)
-      ollama-ai-provider: 1.2.0(zod@4.3.6)
-      ws: 8.19.0
-      zod: 4.3.6
-    transitivePeerDependencies:
-      - supports-color
-
-  '@baleybots/mcp@0.0.1-alpha.115(@baleybots/core@0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(@cfworker/json-schema@4.1.1)(zod@4.3.6)':
-    dependencies:
-      '@baleybots/core': 0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
-      '@modelcontextprotocol/sdk': 1.25.3(@cfworker/json-schema@4.1.1)(hono@4.11.1)(zod@4.3.6)
-      zod: 4.3.6
-    transitivePeerDependencies:
-      - '@cfworker/json-schema'
-      - hono
-      - supports-color
-
-  '@baleybots/tools@0.0.1-alpha.115(@baleybots/core@0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(zod@4.3.6)':
-    dependencies:
-      '@baleybots/core': 0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
-      zod: 4.3.6
 
   '@bcoe/v8-coverage@1.0.2': {}
 
@@ -13415,10 +13357,6 @@ snapshots:
       undici-types: 5.26.5
 
   '@types/node@20.19.27':
-    dependencies:
-      undici-types: 6.21.0
-
-  '@types/node@22.19.11':
     dependencies:
       undici-types: 6.21.0
 
@@ -16717,7 +16655,7 @@ snapshots:
 
   jest-worker@27.5.1:
     dependencies:
-      '@types/node': 22.19.11
+      '@types/node': 20.19.27
       merge-stream: 2.0.0
       supports-color: 8.1.1
 
@@ -17673,12 +17611,11 @@ snapshots:
 
   obug@2.1.1: {}
 
-  ollama-ai-provider@1.2.0(zod@4.3.6):
+  ollama-ai-provider-v2@3.3.0(ai@6.0.69(zod@4.3.6))(zod@4.3.6):
     dependencies:
-      '@ai-sdk/provider': 1.1.3
-      '@ai-sdk/provider-utils': 2.2.8(zod@4.3.6)
-      partial-json: 0.1.7
-    optionalDependencies:
+      '@ai-sdk/provider': 3.0.8
+      '@ai-sdk/provider-utils': 4.0.15(zod@4.3.6)
+      ai: 6.0.69(zod@4.3.6)
       zod: 4.3.6
 
   on-exit-leak-free@2.1.2: {}
@@ -17800,8 +17737,6 @@ snapshots:
       entities: 6.0.1
 
   parseurl@1.3.3: {}
-
-  partial-json@0.1.7: {}
 
   patch-console@2.0.0: {}
 
