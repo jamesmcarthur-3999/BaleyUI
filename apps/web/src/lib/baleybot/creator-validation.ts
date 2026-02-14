@@ -6,8 +6,10 @@
  * then executes them against the bot via executeInternalBaleybot.
  */
 
-import { runTestGenerator } from './internal-bb/runner';
-import { executeInternalBaleybot } from './internal-baleybots';
+import {
+  runTestGenerator,
+  runTestOrchestrator,
+} from './internal-bb/runner';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('creator-validation');
@@ -114,7 +116,7 @@ export async function runQuickValidation(args: {
 
         // Execute with per-test timeout
         const testResult = await Promise.race([
-          executeInternalBaleybot('test_orchestrator', testInput, {
+          runTestOrchestrator(testInput, {
             userWorkspaceId: args.workspaceId,
             triggeredBy: 'internal',
           }),
@@ -123,8 +125,8 @@ export async function runQuickValidation(args: {
           ),
         ]);
 
-        // Basic pass check: if we got output without error, count as pass
-        if (testResult.output !== null && testResult.output !== undefined) {
+        // Basic pass check: parsed orchestrator output indicates successful execution.
+        if (testResult !== null && testResult !== undefined) {
           passedCount++;
         } else {
           failedTests.push({ name: test.name, error: 'No output produced' });
