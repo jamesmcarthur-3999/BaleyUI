@@ -26,7 +26,10 @@ import { generateTailwindTheme } from '@/lib/design-packages/tailwind-theme';
 import { DEFAULT_COMPONENT_SET } from '@/lib/design-packages/component-registry';
 import { formatDesignBrief } from '@/lib/design-packages/component-registry';
 import { MissingCredentialsError } from '@/lib/baleybot/services/ai-credentials-service';
-import { normalizeOutputCandidate } from '@/lib/baleybot/internal-bb/runner';
+import {
+  normalizeOutputCandidate,
+  runDesignAnalyzer,
+} from '@/lib/baleybot/internal-bb/runner';
 import { inArray } from 'drizzle-orm';
 
 const log = createLogger('design-calibration-stream');
@@ -324,8 +327,7 @@ export async function POST(req: NextRequest) {
                 if (!asset) return { error: 'Asset not found' };
 
                 try {
-                  const { output } = await executeInternalBaleybot(
-                    'design_analyzer',
+                  const output = await runDesignAnalyzer(
                     `Analyze this uploaded brand asset "${asset.fileName}" for design attributes. Focus: ${args.focus ?? 'full'}. Extract colors (HSL), typography, mood, and brand identity.`,
                     {
                       userWorkspaceId: workspace.id,
