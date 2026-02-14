@@ -45,6 +45,7 @@ interface CachedCatalogData {
 
 const catalogCache = new Map<string, CachedCatalogData>();
 const CATALOG_CACHE_TTL = 60_000; // 60 seconds
+const CATALOG_CACHE_MAX_SIZE = 100; // Max workspaces to cache
 
 /**
  * Invalidate the tool catalog cache for a workspace.
@@ -130,6 +131,11 @@ export async function loadExecutionTools(input: LoadToolsInput): Promise<LoadToo
       loadMCPConnections(workspaceId),
       loadWorkspaceTools(workspaceId),
     ]);
+    // Evict oldest entry if cache is full
+    if (catalogCache.size >= CATALOG_CACHE_MAX_SIZE) {
+      const oldestKey = catalogCache.keys().next().value;
+      if (oldestKey) catalogCache.delete(oldestKey);
+    }
     catalogCache.set(workspaceId, { dbConnections, mcpConns, workspaceTools, timestamp: Date.now() });
   }
 

@@ -315,6 +315,10 @@ export const connectionsRouter = router({
         `);
       }
 
+      // Invalidate tool catalog cache so new connection is immediately available
+      const { invalidateToolCatalogCache } = await import('@/lib/baleybot/services/execution-tools-loader');
+      invalidateToolCatalogCache(ctx.workspace.id);
+
       return connection;
     }),
 
@@ -385,6 +389,10 @@ export const connectionsRouter = router({
       }
 
       const deleted = await softDelete(connections, input.id, ctx.userId ?? 'system:api-key');
+
+      // Invalidate tool catalog cache so deleted connection is no longer available
+      const { invalidateToolCatalogCache } = await import('@/lib/baleybot/services/execution-tools-loader');
+      invalidateToolCatalogCache(ctx.workspace.id);
 
       return deleted;
     }),

@@ -90,6 +90,10 @@ export const toolsRouter = router({
           })
           .returning();
 
+        // Invalidate tool catalog cache so new tool is immediately available
+        const { invalidateToolCatalogCache } = await import('@/lib/baleybot/services/execution-tools-loader');
+        invalidateToolCatalogCache(ctx.workspace.id);
+
         return tool;
       } catch (error: unknown) {
         // Handle unique constraint violation
@@ -168,6 +172,10 @@ export const toolsRouter = router({
 
       const tool = await updateWithLock(tools, id, version, updates);
 
+      // Invalidate tool catalog cache on tool update
+      const { invalidateToolCatalogCache } = await import('@/lib/baleybot/services/execution-tools-loader');
+      invalidateToolCatalogCache(ctx.workspace.id);
+
       return tool;
     }),
 
@@ -195,6 +203,10 @@ export const toolsRouter = router({
 
       // API key auth has null userId - use fallback for audit trail
       await softDelete(tools, input.id, ctx.userId ?? 'system:api-key');
+
+      // Invalidate tool catalog cache on tool deletion
+      const { invalidateToolCatalogCache } = await import('@/lib/baleybot/services/execution-tools-loader');
+      invalidateToolCatalogCache(ctx.workspace.id);
 
       return { success: true };
     }),

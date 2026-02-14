@@ -34,6 +34,8 @@ export interface VirtualListResult {
   virtualItems: VirtualItem[];
   /** Scroll to a specific index */
   scrollToIndex: (index: number, align?: 'start' | 'center' | 'end') => void;
+  /** Record actual measured height for an item (triggers re-render if different from estimate) */
+  measureItem?: (index: number, height: number) => void;
 }
 
 export function useVirtualList({
@@ -153,7 +155,7 @@ export function useVariableVirtualList({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(400);
-  const [measuredHeights] = useState<Map<number, number>>(new Map());
+  const [measuredHeights, setMeasuredHeights] = useState<Map<number, number>>(new Map());
 
   // Get height for an item (measured or estimated)
   const getHeight = (index: number): number => {
@@ -269,10 +271,23 @@ export function useVariableVirtualList({
     });
   };
 
+  // Record actual height after rendering (only re-renders if height changed)
+  const measureItem = (index: number, height: number) => {
+    const rounded = Math.ceil(height);
+    if (measuredHeights.get(index) !== rounded) {
+      setMeasuredHeights((prev) => {
+        const next = new Map(prev);
+        next.set(index, rounded);
+        return next;
+      });
+    }
+  };
+
   return {
     containerRef: containerRef as RefObject<HTMLDivElement>,
     totalHeight,
     virtualItems,
     scrollToIndex,
+    measureItem,
   };
 }

@@ -28,7 +28,7 @@
     "id": "bal_generator",
     "description": "Converts natural language descriptions into BAL code",
     "icon": "\ud83d\udcdd",
-    "model": "anthropic:fast",
+    "model": "anthropic:balanced",
     "maxTokens": 32768,
     "contractId": "bal_generator_v1",
     "role": "BAL Code Generator",

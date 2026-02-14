@@ -62,7 +62,7 @@ export function ChatThread({
   // Use virtual scrolling for long conversations
   const shouldVirtualize = messages.length > VIRTUALIZE_THRESHOLD;
 
-  const { containerRef, totalHeight, virtualItems, scrollToIndex } = useVariableVirtualList({
+  const { containerRef, totalHeight, virtualItems, scrollToIndex, measureItem } = useVariableVirtualList({
     itemCount: messages.length,
     estimatedItemHeight: 100,
     getItemHeight: shouldVirtualize
@@ -151,6 +151,11 @@ export function ChatThread({
           return (
             <div
               key={msg.id}
+              ref={(el) => {
+                if (el && measureItem) {
+                  measureItem(item.index, el.getBoundingClientRect().height);
+                }
+              }}
               style={{
                 position: 'absolute',
                 top: item.start + 16, /* top padding */
