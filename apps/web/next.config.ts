@@ -51,14 +51,26 @@ const nextConfig: NextConfig = {
     return config;
   },
   async headers() {
+    const isDev = process.env.NODE_ENV === 'development';
+
     // CSP directives — allows Vercel analytics and inline styles (Next.js requires them)
+    // In dev, better-auth's betterFetch uses absolute http://localhost:* URLs which
+    // don't match 'self' in some Next.js dev server configurations.
+    const connectSrc = [
+      "'self'",
+      'https://*.neon.tech',
+      'wss://*.neon.tech',
+      'https://*.public.blob.vercel-storage.com',
+      ...(isDev ? ['http://localhost:*'] : []),
+    ].join(' ');
+
     const cspDirectives = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "img-src 'self' data: blob: https://*.public.blob.vercel-storage.com",
       "font-src 'self' https://fonts.gstatic.com",
-      "connect-src 'self' https://*.neon.tech wss://*.neon.tech https://*.public.blob.vercel-storage.com",
+      `connect-src ${connectSrc}`,
       "frame-src 'self' https://challenges.cloudflare.com",
       "object-src 'none'",
       "base-uri 'self'",
