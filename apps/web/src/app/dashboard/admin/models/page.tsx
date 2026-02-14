@@ -44,14 +44,6 @@ function formatCost(cost: string | null | undefined): string {
   return `$${n.toFixed(2)}`;
 }
 
-function formatDate(date: Date | string | null): string {
-  if (!date) return '-';
-  return new Date(date).toLocaleDateString();
-}
-
-type CapabilityKey = 'reasoning' | 'vision' | 'toolUse' | 'streaming' | 'structuredOutput';
-type QualityKey = 'codeGeneration' | 'creativeWriting' | 'analysis';
-
 function CapabilityIcon({ value }: { value: boolean | undefined }) {
   if (value) return <Check className="h-3.5 w-3.5 text-emerald-500" />;
   return <X className="h-3.5 w-3.5 text-muted-foreground/40" />;
