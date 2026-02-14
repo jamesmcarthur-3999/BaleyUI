@@ -131,7 +131,7 @@ export function ConversationThread({
     <div className={cn('flex-1 overflow-hidden flex flex-col', className)}>
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 py-4 space-y-5"
+        className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-5"
         role="log"
         aria-live="polite"
         aria-label="Conversation"

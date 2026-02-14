@@ -63,7 +63,7 @@ export function ChatThread({
   }
 
   return (
-    <div ref={scrollRef} className={cn('flex-1 overflow-y-auto', className)}>
+    <div ref={scrollRef} className={cn('flex-1 overflow-y-auto overflow-x-hidden', className)}>
       <div className={cn(
           'py-4 space-y-1',
           config.variant === 'full-page' ? 'max-w-3xl mx-auto' : 'px-3',

@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { Bot, User, Copy, Check, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { SegmentRenderer } from './blocks/SegmentRenderer';
+import { AttachmentThumbnails } from './AttachmentThumbnails';
 import { textToSegments } from './utils/derive-segments';
 import type { ChatMessage, ChatConfig } from './types';
 
@@ -59,8 +60,15 @@ export function ChatBubble({ message, config, onRetry, className }: ChatBubblePr
       )}>
         {/* User messages: plain text bubble */}
         {isUser ? (
-          <div className="inline-block max-w-[85%] px-4 py-2.5 rounded-2xl rounded-tr-md bg-primary text-primary-foreground text-[0.9375rem] leading-relaxed shadow-md shadow-primary/10">
-            {message.content}
+          <div className="inline-block max-w-[85%]">
+            <div className="px-4 py-2.5 rounded-2xl rounded-tr-md bg-primary text-primary-foreground text-[0.9375rem] leading-relaxed shadow-md shadow-primary/10 break-all">
+              {message.content}
+            </div>
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="mt-1.5">
+                <AttachmentThumbnails attachments={message.attachments} compact />
+              </div>
+            )}
           </div>
         ) : (
           /* Assistant messages: segment-based rendering */

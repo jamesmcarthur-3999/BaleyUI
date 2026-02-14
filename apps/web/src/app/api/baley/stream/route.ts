@@ -75,6 +75,17 @@ const baleyStreamBodySchema = z
           .optional(),
       })
       .optional(),
+    // File attachments (images, PDFs uploaded via /api/uploads)
+    attachments: z
+      .array(
+        z.object({
+          fileName: z.string(),
+          mimeType: z.string(),
+          downloadUrl: z.string().url(),
+        })
+      )
+      .max(5)
+      .optional(),
     // Creator mode fields (presence = creator mode)
     creatorContext: z
       .object({
@@ -526,6 +537,27 @@ export async function POST(req: NextRequest) {
         const pendingSpawnNames = new Map<string, string>();
 
         try {
+          // Fetch uploaded attachments and convert to base64 for multimodal input
+          const fetchedAttachments: Array<{ data: string; mimeType: string }> = [];
+          if (input.attachments && input.attachments.length > 0) {
+            for (const att of input.attachments) {
+              try {
+                const response = await fetch(att.downloadUrl);
+                const buffer = await response.arrayBuffer();
+                const base64 = Buffer.from(buffer).toString('base64');
+                fetchedAttachments.push({
+                  data: base64,
+                  mimeType: att.mimeType,
+                });
+              } catch (err) {
+                log.warn('Failed to fetch attachment', {
+                  fileName: att.fileName,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
+            }
+          }
+
           const { output, executionId } = await executeInternalBaleybot(
             'baley',
             messageForBB,
@@ -535,6 +567,7 @@ export async function POST(req: NextRequest) {
               injectedTools: allTools,
               triggeredBy: 'internal',
               signal: req.signal,
+              attachments: fetchedAttachments.length > 0 ? fetchedAttachments : undefined,
               onSegment: (segment: BaleybotStreamEvent) => {
                 // --------------------------------------------------------
                 // Channel 1: Wrap every event as stream_event

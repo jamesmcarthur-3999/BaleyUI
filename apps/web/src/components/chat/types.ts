@@ -8,6 +8,22 @@
 import type { StreamSegment } from '@baleybots/chat';
 
 // ============================================================================
+// ATTACHMENTS
+// ============================================================================
+
+export interface ChatAttachment {
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  /** Public blob URL (for display) */
+  url: string;
+  /** Blob download URL (for server-side fetch) */
+  downloadUrl: string;
+  /** Client-only object URL for image preview (not persisted) */
+  localPreviewUrl?: string;
+}
+
+// ============================================================================
 // MESSAGE
 // ============================================================================
 
@@ -20,6 +36,8 @@ export interface ChatMessage {
   segments?: StreamSegment[];
   timestamp: Date;
   status?: 'sending' | 'streaming' | 'complete' | 'error';
+  /** File attachments (images, PDFs) */
+  attachments?: ChatAttachment[];
   /** Optional metadata (tokens, model, duration) */
   meta?: {
     model?: string;

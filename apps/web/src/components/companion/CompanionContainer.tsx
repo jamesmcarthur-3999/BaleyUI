@@ -289,7 +289,7 @@ export function CompanionContainer({
         className={cn(
           'w-full sm:w-96 glass-panel',
           'rounded-2xl elevation-3',
-          'flex flex-col',
+          'flex flex-col relative',
           'max-h-[80vh]',
           'animate-companion-panel-enter'
         )}
@@ -341,13 +341,13 @@ export function CompanionContainer({
           <ModeSwitcher mode={mode} onModeChange={handleModeChange} />
         </div>
 
-        {/* Content Area */}
-        <div className="flex-1 overflow-auto min-h-[300px]">
+        {/* Content Area — not a scroll container; ChatThread handles scrolling */}
+        <div className="flex-1 min-h-0 overflow-hidden">
           {children}
 
           {/* Placeholder content when no children */}
           {!children && mode === 'chat' && (
-            <div className="h-full flex flex-col items-center justify-center text-center p-6">
+            <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-center p-6">
               <MessageCircle className="h-12 w-12 text-muted-foreground mb-4" />
               <h4 className="font-medium">Chat Mode</h4>
               <p className="text-sm text-muted-foreground mt-1">
@@ -357,7 +357,7 @@ export function CompanionContainer({
           )}
 
           {!children && mode === 'command' && (
-            <div className="h-full flex flex-col items-center justify-center text-center p-6">
+            <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-center p-6">
               <Command className="h-12 w-12 text-muted-foreground mb-4" />
               <h4 className="font-medium">Command Palette</h4>
               <p className="text-sm text-muted-foreground mt-1">
@@ -371,8 +371,8 @@ export function CompanionContainer({
           )}
         </div>
 
-        {/* Footer with settings */}
-        <div className="p-2 flex items-center justify-end opacity-0 hover:opacity-100 transition-opacity duration-200">
+        {/* Footer with settings — absolute so it doesn't consume layout space */}
+        <div className="absolute bottom-1 right-1 opacity-0 hover:opacity-100 transition-opacity duration-200 z-10">
           <Button variant="ghost" size="sm" className="gap-1.5 text-xs">
             <Settings className="h-3.5 w-3.5" />
             Settings

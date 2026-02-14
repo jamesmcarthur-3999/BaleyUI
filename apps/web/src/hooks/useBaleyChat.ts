@@ -23,7 +23,7 @@ import {
   createInitialAppStreamState,
   type AppStreamState,
 } from '@/hooks/useStreamState';
-import type { ChatMessage } from '@/components/chat';
+import type { ChatMessage, ChatAttachment } from '@/components/chat';
 import type { StreamSegment } from '@baleybots/chat';
 import { finalizeSegments, getTextContent } from '@baleybots/chat';
 import type { ServerStreamEvent } from '@/lib/streaming/types';
@@ -112,7 +112,7 @@ export function useBaleyChat(config?: UseBaleyConfig) {
   // send — main entry point for sending a message
   // --------------------------------------------------------------------------
 
-  const send = useCallback(async (message: string) => {
+  const send = useCallback(async (message: string, attachments?: ChatAttachment[]) => {
     if (isStreaming) return;
 
     // Add user message
@@ -120,6 +120,7 @@ export function useBaleyChat(config?: UseBaleyConfig) {
       id: `user-${Date.now()}`,
       role: 'user',
       content: message,
+      attachments: attachments && attachments.length > 0 ? attachments : undefined,
       timestamp: new Date(),
       status: 'complete',
     };
@@ -161,6 +162,14 @@ export function useBaleyChat(config?: UseBaleyConfig) {
             critical: health.criticalActions ?? 0,
           },
         },
+        // Include attachment metadata for multimodal processing
+        ...(attachments && attachments.length > 0 && {
+          attachments: attachments.map(a => ({
+            fileName: a.fileName,
+            mimeType: a.mimeType,
+            downloadUrl: a.downloadUrl,
+          })),
+        }),
       };
 
       // Add creator context if in creator mode

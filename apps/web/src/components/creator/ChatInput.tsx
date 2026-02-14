@@ -1,9 +1,12 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Lightbulb, Loader2, Send } from 'lucide-react';
+import { Lightbulb, Loader2, Send, Paperclip, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { CreationStatus } from '@/lib/baleybot/creator-types';
+import type { ChatAttachment } from '@/components/chat';
+import { AttachmentThumbnails } from '@/components/chat';
+import { useFileUpload } from '@/hooks/useFileUpload';
 import { cn } from '@/lib/utils';
 
 export interface ChatQuickPrompt {
@@ -17,7 +20,7 @@ interface ChatInputProps {
   /** Current state for contextual placeholder */
   status: CreationStatus;
   /** Callback when message sent */
-  onSend: (message: string) => void;
+  onSend: (message: string, attachments?: ChatAttachment[]) => void;
   /** Disable input */
   disabled?: boolean;
   /** Optional guided quick prompts */
@@ -58,6 +61,7 @@ function getPlaceholder(status: CreationStatus): string {
  * - Send button with loading state
  * - Glow effect when focused or has content
  * - Auto-focus on mount when status is 'empty'
+ * - File upload via paperclip button or drag-and-drop
  */
 export function ChatInput({
   status,
@@ -71,12 +75,24 @@ export function ChatInput({
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const {
+    pendingAttachments,
+    uploading,
+    isDragging,
+    fileInputRef,
+    handleFileUpload,
+    removePendingAttachment,
+    clearPendingAttachments,
+    dragHandlers,
+  } = useFileUpload();
+
   const MAX_LENGTH = 2000;
   const isProcessing = status === 'building' || status === 'running';
   const isDisabled = disabled || status === 'running';
   const hasContent = value.trim().length > 0;
+  const hasAttachments = pendingAttachments.length > 0;
   const isOverLimit = value.length > MAX_LENGTH;
-  const showGlow = isFocused || hasContent;
+  const showGlow = isFocused || hasContent || hasAttachments;
 
   // Auto-focus on mount when status is 'empty'
   useEffect(() => {
@@ -103,9 +119,10 @@ export function ChatInput({
 
   const handleSend = () => {
     const trimmedValue = value.trim();
-    if (!trimmedValue || isDisabled || isOverLimit) return;
+    if ((!trimmedValue && !hasAttachments) || isDisabled || isOverLimit) return;
 
-    onSend(trimmedValue);
+    const attachments = clearPendingAttachments();
+    onSend(trimmedValue, attachments.length > 0 ? attachments : undefined);
     setValue('');
 
     // Reset textarea height after clearing
@@ -151,7 +168,17 @@ export function ChatInput({
   const showQuickPrompts = quickPrompts.length > 0 && !hasContent && !isProcessing;
 
   return (
-    <div className={cn('w-full', className)}>
+    <div className={cn('w-full relative', className)} {...dragHandlers}>
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm border-2 border-dashed border-primary/40 rounded-2xl">
+          <div className="flex flex-col items-center gap-2 text-primary">
+            <Upload className="h-6 w-6" />
+            <span className="text-xs font-medium">Drop files to upload</span>
+          </div>
+        </div>
+      )}
+
       {showQuickPrompts && (
         <div className="mb-2.5 rounded-2xl border border-border/50 bg-background/70 px-3 py-2.5">
           <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
@@ -177,6 +204,31 @@ export function ChatInput({
         </div>
       )}
 
+      {/* Pending attachment thumbnails */}
+      {hasAttachments && (
+        <div className="mb-2">
+          <AttachmentThumbnails
+            attachments={pendingAttachments}
+            onRemove={removePendingAttachment}
+          />
+        </div>
+      )}
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,.pdf"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files) {
+            handleFileUpload(e.target.files);
+          }
+          e.target.value = '';
+        }}
+      />
+
       <div
         className={cn(
           'relative flex items-end gap-2 rounded-[1.35rem] border bg-background/90 transition-all duration-300',
@@ -192,6 +244,23 @@ export function ChatInput({
           isDisabled && 'opacity-60'
         )}
       >
+        {/* Paperclip button */}
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          disabled={uploading || isDisabled}
+          onClick={() => fileInputRef.current?.click()}
+          aria-label="Attach files"
+          className="shrink-0 h-9 w-9 rounded-xl text-muted-foreground hover:text-foreground"
+        >
+          {uploading ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Paperclip className="h-4 w-4" aria-hidden="true" />
+          )}
+        </Button>
+
         <textarea
           ref={textareaRef}
           value={value}
@@ -217,15 +286,15 @@ export function ChatInput({
         <Button
           type="button"
           size="icon"
-          variant={hasContent ? 'default' : 'ghost'}
-          disabled={!hasContent || isDisabled || isOverLimit}
+          variant={(hasContent || hasAttachments) ? 'default' : 'ghost'}
+          disabled={(!hasContent && !hasAttachments) || isDisabled || isOverLimit}
           onClick={handleSend}
           aria-label={isProcessing ? 'Sending message' : 'Send message'}
           className={cn(
             'shrink-0 rounded-xl transition-all',
             // Slightly larger on mobile for easier tapping (Phase 4.5)
             'min-h-11 min-w-11 h-11 w-11 sm:h-11 sm:w-11',
-            hasContent && !isDisabled && 'bg-primary hover:bg-primary/90'
+            (hasContent || hasAttachments) && !isDisabled && 'bg-primary hover:bg-primary/90'
           )}
         >
           {isProcessing ? (

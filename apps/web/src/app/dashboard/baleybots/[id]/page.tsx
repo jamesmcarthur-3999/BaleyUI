@@ -535,7 +535,7 @@ export default function BaleybotPage() {
   /**
    * Handle sending a message to the Creator Bot
    */
-  const handleSendMessage = async (message: string) => {
+  const handleSendMessage = async (message: string, _attachments?: unknown) => {
     // Concurrency guard — prevent overlapping sends
     if (isSendingRef.current) return;
     isSendingRef.current = true;

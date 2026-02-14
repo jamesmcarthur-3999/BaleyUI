@@ -43,7 +43,7 @@ export function ThinkingToggle({ segment, className }: ThinkingToggleProps) {
 
       {expanded && !segment.isStreaming && (
         <div className="mt-1.5 px-3 py-2.5 rounded-xl bg-primary/[0.03] border border-primary/[0.06] text-xs animate-content-enter">
-          <p className="whitespace-pre-wrap text-muted-foreground leading-relaxed max-h-48 overflow-y-auto">
+          <p className="whitespace-pre-wrap break-words text-muted-foreground leading-relaxed max-h-48 overflow-y-auto">
             {segment.content}
           </p>
         </div>

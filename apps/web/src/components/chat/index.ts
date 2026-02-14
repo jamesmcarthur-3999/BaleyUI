@@ -1,10 +1,11 @@
 // Types
-export type { ChatMessage, ChatConfig, SystemBlock, RenderableSegment } from './types';
+export type { ChatMessage, ChatAttachment, ChatConfig, SystemBlock, RenderableSegment } from './types';
 export { CREATOR_CONFIG, COMPANION_CONFIG } from './types';
 
 // Components
 export { ChatThread } from './ChatThread';
 export { ChatBubble } from './ChatBubble';
+export { AttachmentThumbnails } from './AttachmentThumbnails';
 export { SegmentRenderer } from './blocks/SegmentRenderer';
 export { ToolCallChip } from './blocks/ToolCallChip';
 export { ToolCallGroup } from './blocks/ToolCallGroup';

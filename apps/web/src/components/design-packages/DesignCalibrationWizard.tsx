@@ -11,6 +11,9 @@ import {
 import { DesignTokenStreamParser } from '@/lib/design-packages/token-stream-parser';
 import { checkContrast } from '@/lib/design-packages/css-variables';
 import { StreamdownMarkdown } from '@/components/shared/StreamdownMarkdown';
+import { AttachmentThumbnails } from '@/components/chat';
+import type { ChatAttachment } from '@/components/chat';
+import { useFileUpload } from '@/hooks/useFileUpload';
 import { cn } from '@/lib/utils';
 
 /** Local tool call state for the calibration wizard's streaming UI */
@@ -35,22 +38,12 @@ import {
   Undo2,
   Redo2,
   Paperclip,
-  FileText,
   Upload,
 } from 'lucide-react';
 
 // ============================================================================
 // Types
 // ============================================================================
-
-interface UploadedAsset {
-  id: string;
-  fileName: string;
-  mimeType: string;
-  fileSize: number;
-  blobUrl: string;
-  localPreviewUrl?: string;
-}
 
 interface ContentBlock {
   type: 'text' | 'tool_call' | 'error';
@@ -65,7 +58,7 @@ interface DesignMessage {
   blocks: ContentBlock[];
   toolCallStates: Record<string, ToolCallState>;
   timestamp: number;
-  attachments?: UploadedAsset[];
+  attachments?: ChatAttachment[];
 }
 
 interface DesignCalibrationWizardProps {
@@ -136,12 +129,43 @@ export function DesignCalibrationWizard({
     Array<{ componentName: string; action: string }>
   >([]);
 
-  // File upload state
+  // File upload state (shared hook)
   const [sessionId] = useState(() => crypto.randomUUID());
-  const [pendingAttachments, setPendingAttachments] = useState<UploadedAsset[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Maps blob URL → DB asset ID (needed for the design-calibration stream endpoint)
+  const assetIdMapRef = useRef(new Map<string, string>());
+  const {
+    pendingAttachments,
+    uploading,
+    isDragging,
+    fileInputRef,
+    handleFileUpload,
+    removePendingAttachment,
+    clearPendingAttachments,
+    dragHandlers,
+  } = useFileUpload({
+    uploadUrl: '/api/design-calibration/upload',
+    maxFiles: 10,
+    extraFormData: { sessionId },
+    parseResponse: (json: unknown, files: File[]) => {
+      const { assets } = json as {
+        assets: Array<{ id: string; fileName: string; mimeType: string; fileSize: number; blobUrl: string }>;
+      };
+      return assets.map((a, i): ChatAttachment => {
+        // Track URL → DB ID mapping for stream endpoint
+        assetIdMapRef.current.set(a.blobUrl, a.id);
+        return {
+          fileName: a.fileName,
+          mimeType: a.mimeType,
+          fileSize: a.fileSize,
+          url: a.blobUrl,
+          downloadUrl: a.blobUrl,
+          localPreviewUrl: files[i]?.type.startsWith('image/')
+            ? URL.createObjectURL(files[i]!)
+            : undefined,
+        };
+      });
+    },
+  });
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const isSendingRef = useRef(false);
@@ -214,77 +238,6 @@ export function DesignCalibrationWizard({
       ? 'active' as const
       : 'placeholder' as const;
 
-  // ── File Upload ──────────────────────────────────────────
-
-  const ALLOWED_UPLOAD_TYPES = new Set([
-    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'application/pdf',
-  ]);
-  const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
-
-  const handleFileUpload = async (files: FileList | File[]) => {
-    const fileArray = Array.from(files);
-    if (fileArray.length === 0) return;
-
-    // Client-side validation
-    for (const file of fileArray) {
-      if (!ALLOWED_UPLOAD_TYPES.has(file.type)) {
-        alert(`"${file.name}" is not a supported file type. Use images or PDFs.`);
-        return;
-      }
-      if (file.size > MAX_UPLOAD_SIZE) {
-        alert(`"${file.name}" is too large. Maximum 10MB per file.`);
-        return;
-      }
-    }
-
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('sessionId', sessionId);
-      for (const file of fileArray) {
-        formData.append('files', file);
-      }
-
-      const res = await fetch('/api/design-calibration/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: 'Upload failed' }));
-        throw new Error(err.message ?? 'Upload failed');
-      }
-
-      const { assets } = await res.json() as {
-        assets: Array<{ id: string; fileName: string; mimeType: string; fileSize: number; blobUrl: string }>;
-      };
-
-      // Create local preview URLs for images
-      const newAssets: UploadedAsset[] = assets.map((a, i) => ({
-        ...a,
-        localPreviewUrl: fileArray[i]?.type.startsWith('image/')
-          ? URL.createObjectURL(fileArray[i]!)
-          : undefined,
-      }));
-
-      setPendingAttachments((prev) => [...prev, ...newAssets]);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const removePendingAttachment = (id: string) => {
-    setPendingAttachments((prev) => {
-      const removed = prev.find((a) => a.id === id);
-      if (removed?.localPreviewUrl) {
-        URL.revokeObjectURL(removed.localPreviewUrl);
-      }
-      return prev.filter((a) => a.id !== id);
-    });
-  };
-
   // ── Send Message ────────────────────────────────────────
 
   const sendMessage = async (text: string) => {
@@ -292,10 +245,13 @@ export function DesignCalibrationWizard({
     if ((!trimmed && pendingAttachments.length === 0) || isSendingRef.current) return;
     isSendingRef.current = true;
 
-    // Capture and clear pending attachments
-    const attachments = pendingAttachments.length > 0 ? [...pendingAttachments] : undefined;
-    const attachmentIds = attachments?.map(a => a.id);
-    setPendingAttachments([]);
+    // Capture and clear pending attachments via shared hook
+    const cleared = clearPendingAttachments();
+    const attachments = cleared.length > 0 ? cleared : undefined;
+    // Map back to DB asset IDs for the design-calibration stream endpoint
+    const attachmentIds = attachments
+      ?.map(a => assetIdMapRef.current.get(a.url))
+      .filter((id): id is string => !!id);
     setInputValue('');
 
     // Build display content — include attachment names if sending with files
@@ -757,23 +713,7 @@ export function DesignCalibrationWizard({
         {/* Right: Chat */}
         <div
           className="relative flex h-full w-[420px] shrink-0 flex-col border-l border-border bg-card/40"
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={(e) => {
-            // Only set false if leaving the container
-            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-              setIsDragging(false);
-            }
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-            if (e.dataTransfer.files.length > 0) {
-              handleFileUpload(e.dataTransfer.files);
-            }
-          }}
+          {...dragHandlers}
         >
           {/* Drag overlay */}
           {isDragging && (
@@ -800,24 +740,8 @@ export function DesignCalibrationWizard({
                     <div>
                       <p className="text-[13px] leading-relaxed whitespace-pre-line">{msg.content}</p>
                       {msg.attachments && msg.attachments.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {msg.attachments.map((att) => (
-                            <div
-                              key={att.id}
-                              className="flex items-center gap-1.5 rounded-lg bg-primary-foreground/10 px-2 py-1"
-                            >
-                              {att.mimeType.startsWith('image/') && att.localPreviewUrl ? (
-                                <img
-                                  src={att.localPreviewUrl}
-                                  alt={att.fileName}
-                                  className="h-6 w-6 rounded object-cover"
-                                />
-                              ) : (
-                                <FileText className="h-4 w-4 shrink-0 opacity-70" />
-                              )}
-                              <span className="text-[10px] max-w-[80px] truncate">{att.fileName}</span>
-                            </div>
-                          ))}
+                        <div className="mt-2">
+                          <AttachmentThumbnails attachments={msg.attachments} compact />
                         </div>
                       )}
                     </div>
@@ -938,33 +862,10 @@ export function DesignCalibrationWizard({
 
             {/* Pending attachment thumbnails */}
             {pendingAttachments.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {pendingAttachments.map((att) => (
-                  <div
-                    key={att.id}
-                    className="group flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-2 py-1"
-                  >
-                    {att.mimeType.startsWith('image/') && att.localPreviewUrl ? (
-                      <img
-                        src={att.localPreviewUrl}
-                        alt={att.fileName}
-                        className="h-6 w-6 rounded object-cover"
-                      />
-                    ) : (
-                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <span className="text-[10px] max-w-[80px] truncate text-muted-foreground">
-                      {att.fileName}
-                    </span>
-                    <button
-                      onClick={() => removePendingAttachment(att.id)}
-                      className="rounded-full p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <AttachmentThumbnails
+                attachments={pendingAttachments}
+                onRemove={removePendingAttachment}
+              />
             )}
 
             {/* Input row */}

@@ -9,6 +9,7 @@ import type {
   CreatorMessage,
   CreationStatus,
 } from '@/lib/baleybot/creator-types';
+import type { ChatAttachment } from '@/components/chat';
 import type { ConnectionAction } from './ConnectionActionCard';
 
 interface Execution {
@@ -32,7 +33,7 @@ interface AgentActivityEvent {
 interface LeftPanelProps {
   messages: CreatorMessage[];
   status: CreationStatus;
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string, attachments?: ChatAttachment[]) => void;
   isCreatorDisabled: boolean;
   executions?: Execution[];
   onExecutionClick?: (id: string) => void;
