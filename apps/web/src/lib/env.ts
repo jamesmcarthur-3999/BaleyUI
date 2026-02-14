@@ -47,6 +47,7 @@ const envSchema = z.object({
 
   // Admin
   ADMIN_USER_IDS: z.string().optional(),
+  ADMIN_USER_EMAILS: z.string().optional(),
   RATE_LIMIT_DISABLED: z.enum(['true', 'false']).optional(),
 
   // Monitoring (Sentry)

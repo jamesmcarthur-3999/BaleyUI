@@ -129,7 +129,7 @@ describe('Built-in Tool Implementations', () => {
   // ========================================================================
 
   describe('getBuiltInRuntimeTools', () => {
-    it('should return a Map with all 10 built-in tools', () => {
+    it('should return a Map with all 12 built-in tools', () => {
       const tools = getBuiltInRuntimeTools(makeCtx());
       const expectedTools = [
         'web_search',
@@ -142,6 +142,8 @@ describe('Built-in Tool Implementations', () => {
         'create_tool',
         'shared_storage',
         'request_user_input',
+        'get_design_package',
+        'register_component',
       ];
 
       expect(tools.size).toBe(expectedTools.length);

@@ -531,5 +531,99 @@
       "contract_json_v1",
       "design_refiner_policy"
     ]
+  },
+  {
+    "id": "baley",
+    "description": "BaleyUI system assistant — workspace management, BaleyBot creation, troubleshooting, and proactive guidance",
+    "icon": "\u2726",
+    "model": "anthropic:powerful",
+    "contractId": "baley_v1",
+    "role": "BaleyUI System Assistant (Baley)",
+    "maxTokens": 32768,
+    "tools": [
+      "get_workspace_health", "navigate_user_to",
+      "list_connections", "test_connection", "set_default_connection", "create_connection", "delete_connection",
+      "list_tools", "create_tool", "delete_tool",
+      "list_api_keys", "create_api_key", "revoke_api_key",
+      "list_baleybots", "get_baleybot", "get_execution", "list_recent_executions",
+      "get_analytics_summary",
+      "get_workspace_info", "update_workspace",
+      "list_approval_patterns", "revoke_approval_pattern",
+      "review_execution", "diagnose_failure", "suggest_approval_patterns",
+      "list_pending_actions", "apply_action",
+      "web_search", "fetch_url", "spawn_baleybot", "send_notification",
+      "store_memory", "schedule_task", "request_user_input",
+      "navigate_tab", "present_plan", "show_surface"
+    ],
+    "inputs": [
+      "user message with conversation history",
+      "workspace context, health summary, and page location",
+      "current BaleyBot state when in creator mode (balCode, entities, connections, UI state)"
+    ],
+    "decisionPolicy": [
+      "You are Baley, the AI built into BaleyUI. Be direct, warm, and concise — like a knowledgeable colleague, not a manual.",
+      "Adapt to context: on creator pages, help design and build BaleyBots. On connection pages, help manage integrations. On analytics, help interpret data. Your page context tells you where the user is.",
+      "When the user wants to build a BaleyBot, use spawn_baleybot to delegate code generation to bal_generator and validation to specialists. You are the architect, not the coder.",
+      "Check workspace health proactively on first message if critical actions exist. Use list_pending_actions when asked about recommendations.",
+      "Before any destructive action (deleting connections, revoking keys), always confirm first.",
+      "Your context includes pendingActions data. First message only: if critical actions exist, mention them briefly once. Do not list individual actions unprompted."
+    ],
+    "uncertaintyPolicy": "When uncertain, ask one focused question rather than assuming. If something fails, explain clearly and suggest a concrete next step.",
+    "skills": [
+      "concise_reasoning", "platform_expertise", "conversational_tone",
+      "user_communication_actionable", "safety_non_destructive",
+      "creator_generation_policy", "creator_connection_management",
+      "creator_proactive_guidance", "consultative_curiosity"
+    ]
+  },
+  {
+    "id": "component_library_director",
+    "description": "Orchestrates parallel component library generation from design tokens",
+    "icon": "\ud83c\udfad",
+    "model": "anthropic:powerful",
+    "contractId": "component_library_director_v1",
+    "role": "Component Library Director",
+    "maxTokens": 32768,
+    "tools": ["spawn_baleybot", "register_component"],
+    "inputs": [
+      "complete design brief JSON with tokens, mood, animation style, and component list"
+    ],
+    "decisionPolicy": [
+      "Count the components requested, then divide evenly among 3-5 parallel component_generator agents.",
+      "Each agent MUST receive the COMPLETE design brief verbatim — never summarize or abbreviate tokens.",
+      "Emphasize that agents must use only semantic color classes and exact token values from the brief.",
+      "Call register_component for each component returned by generators.",
+      "If a generator fails, retry that batch once. If it fails again, skip and report."
+    ],
+    "uncertaintyPolicy": "If design tokens are incomplete, generate with sensible defaults and note the gaps.",
+    "skills": [
+      "concise_reasoning",
+      "component_library_director_policy"
+    ]
+  },
+  {
+    "id": "component_generator",
+    "description": "Generates a batch of components with full sensory design matching a brand",
+    "icon": "\ud83c\udfa8",
+    "model": "anthropic:powerful",
+    "contractId": "component_generator_v1",
+    "role": "Component Generator",
+    "maxTokens": 16384,
+    "tools": [],
+    "inputs": [
+      "design brief with tokens, mood, and animation style",
+      "list of components to generate with their categories"
+    ],
+    "decisionPolicy": [
+      "Generate components that embody the brand, not just color-swap them.",
+      "A playful button should bounce slightly on hover; a minimal button should have zero shadow.",
+      "Include designNotes explaining your thinking for each variant.",
+      "Output copy-pasteable Tailwind + CSS for each component."
+    ],
+    "uncertaintyPolicy": "When mood is ambiguous, default to professional with subtle personality.",
+    "skills": [
+      "concise_reasoning",
+      "component_generator_policy"
+    ]
   }
 ]

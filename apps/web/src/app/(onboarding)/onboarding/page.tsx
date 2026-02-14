@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { authClient } from '@/lib/auth/client';
 import { trpc } from '@/lib/trpc/client';
@@ -47,8 +47,13 @@ export default function OnboardingPage() {
   const createWorkspace = trpc.workspaces.create.useMutation();
   const createConnection = trpc.connections.create.useMutation();
 
+  useEffect(() => {
+    if (workspaceCheck?.hasWorkspace) {
+      router.push(ROUTES.dashboard);
+    }
+  }, [workspaceCheck?.hasWorkspace, router]);
+
   if (workspaceCheck?.hasWorkspace) {
-    router.push(ROUTES.dashboard);
     return null;
   }
 

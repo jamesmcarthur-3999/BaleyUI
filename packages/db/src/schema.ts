@@ -8,6 +8,7 @@ import {
   integer,
   timestamp,
   decimal,
+  numeric,
   doublePrecision,
   uniqueIndex,
   index,
@@ -26,6 +27,10 @@ export const user = pgTable(
     name: varchar('name', { length: 255 }),
     emailVerified: boolean('email_verified').default(false).notNull(),
     image: varchar('image', { length: 2000 }),
+    role: varchar('role', { length: 50 }).default('user'),
+    banned: boolean('banned').default(false),
+    banReason: text('ban_reason'),
+    banExpires: timestamp('ban_expires'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
     // Custom fields
@@ -1696,6 +1701,57 @@ export const subscriptions = pgTable(
 );
 
 // ============================================================================
+// AI MODELS (model library)
+// ============================================================================
+
+export const aiModels = pgTable('ai_models', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  modelId: varchar('model_id', { length: 128 }).notNull().unique(),
+  provider: varchar('provider', { length: 32 }).notNull(),
+  displayName: varchar('display_name', { length: 64 }).notNull(),
+  family: varchar('family', { length: 64 }).notNull(),
+  version: varchar('version', { length: 32 }),
+  tier: varchar('tier', { length: 16 }).notNull(),
+  contextWindow: integer('context_window'),
+  maxOutputTokens: integer('max_output_tokens'),
+  inputCostPer1mTokens: numeric('input_cost_per_1m_tokens'),
+  outputCostPer1mTokens: numeric('output_cost_per_1m_tokens'),
+  cachedInputCostPer1mTokens: numeric('cached_input_cost_per_1m_tokens'),
+  capabilities: jsonb('capabilities').$type<{
+    reasoning?: boolean;
+    vision?: boolean;
+    toolUse?: boolean;
+    streaming?: boolean;
+    structuredOutput?: boolean;
+    codeGeneration?: 'basic' | 'good' | 'excellent';
+    creativeWriting?: 'basic' | 'good' | 'excellent';
+    analysis?: 'basic' | 'good' | 'excellent';
+  }>(),
+  sdkSupported: boolean('sdk_supported').notNull().default(true),
+  apiAvailability: jsonb('api_availability').$type<{
+    openai?: { available: boolean; deprecationDate?: string; sunsetDate?: string };
+    anthropic?: { available: boolean; deprecationDate?: string; sunsetDate?: string };
+    ollama?: { available: boolean; tags?: string[] };
+  }>(),
+  isLatest: boolean('is_latest').notNull().default(false),
+  isDefault: boolean('is_default').notNull().default(false),
+  releasedAt: timestamp('released_at'),
+  deprecatedAt: timestamp('deprecated_at'),
+  sunsetAt: timestamp('sunset_at'),
+  lastVerifiedAt: timestamp('last_verified_at'),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('ai_models_provider_idx').on(table.provider),
+  index('ai_models_tier_idx').on(table.tier),
+  index('ai_models_family_idx').on(table.family),
+  index('ai_models_deprecated_idx').on(table.deprecatedAt),
+]);
+
+// No relations needed - aiModels is a standalone reference table
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 
@@ -2014,10 +2070,45 @@ export const sharedContextRelations = relations(sharedContext, ({ one }) => ({
   }),
 }));
 
-export const designPackagesRelations = relations(designPackages, ({ one }) => ({
+export const designPackagesRelations = relations(designPackages, ({ one, many }) => ({
   workspace: one(workspaces, {
     fields: [designPackages.workspaceId],
     references: [workspaces.id],
+  }),
+  assets: many(designPackageAssets),
+}));
+
+// ============================================================================
+// DESIGN PACKAGE ASSETS (uploaded brand files for calibration)
+// ============================================================================
+
+export const designPackageAssets = pgTable('design_package_assets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'cascade' }).notNull(),
+  designPackageId: uuid('design_package_id').references(() => designPackages.id, { onDelete: 'set null' }),
+  sessionId: varchar('session_id', { length: 255 }).notNull(),
+  blobUrl: text('blob_url').notNull(),
+  blobDownloadUrl: text('blob_download_url').notNull(),
+  fileName: varchar('file_name', { length: 500 }).notNull(),
+  mimeType: varchar('mime_type', { length: 255 }).notNull(),
+  fileSize: integer('file_size').notNull(),
+  uploadedBy: varchar('uploaded_by', { length: 255 }),
+  deletedAt: timestamp('deleted_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('dpa_workspace_idx').on(table.workspaceId),
+  index('dpa_session_idx').on(table.sessionId),
+  index('dpa_package_idx').on(table.designPackageId),
+]);
+
+export const designPackageAssetsRelations = relations(designPackageAssets, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [designPackageAssets.workspaceId],
+    references: [workspaces.id],
+  }),
+  designPackage: one(designPackages, {
+    fields: [designPackageAssets.designPackageId],
+    references: [designPackages.id],
   }),
 }));
 

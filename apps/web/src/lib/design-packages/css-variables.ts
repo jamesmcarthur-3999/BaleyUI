@@ -99,6 +99,58 @@ export function hslToHex(hsl: string): string {
   return `#${f(0)}${f(8)}${f(4)}`;
 }
 
+/**
+ * Calculate relative luminance from an HSL string.
+ * Uses the W3C formula: https://www.w3.org/TR/WCAG20/#relativeluminancedef
+ */
+export function relativeLuminance(hsl: string): number {
+  const parsed = parseHSL(hsl);
+  if (!parsed) return 0;
+  const { h, s, l } = parsed;
+  // Convert HSL to sRGB
+  const sNorm = s / 100;
+  const lNorm = l / 100;
+  const a = sNorm * Math.min(lNorm, 1 - lNorm);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    return lNorm - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+  };
+  const [rs, gs, bs] = [f(0), f(8), f(4)];
+  // Linearize
+  const linearize = (c: number) =>
+    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  return 0.2126 * linearize(rs!) + 0.7152 * linearize(gs!) + 0.0722 * linearize(bs!);
+}
+
+/**
+ * Calculate WCAG contrast ratio between two HSL color strings.
+ * Returns a ratio >= 1 (e.g., 4.5 for AA normal text, 7 for AAA).
+ */
+export function calculateContrastRatio(fg: string, bg: string): number {
+  const l1 = relativeLuminance(fg);
+  const l2 = relativeLuminance(bg);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
+ * Check WCAG AA compliance for a foreground/background pair.
+ * Returns { ratio, passesAA, passesAAA }.
+ */
+export function checkContrast(fg: string, bg: string): {
+  ratio: number;
+  passesAA: boolean;
+  passesAAA: boolean;
+} {
+  const ratio = calculateContrastRatio(fg, bg);
+  return {
+    ratio: Math.round(ratio * 10) / 10,
+    passesAA: ratio >= 4.5,
+    passesAAA: ratio >= 7,
+  };
+}
+
 /** Convert hex to HSL string */
 export function hexToHSL(hex: string): string {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);

@@ -8,6 +8,8 @@ import {
   runDesignCalibrationStream,
   type DesignCalibrationCallbacks,
 } from '@/lib/design-packages/calibration-streaming';
+import { DesignTokenStreamParser } from '@/lib/design-packages/token-stream-parser';
+import { checkContrast } from '@/lib/design-packages/css-variables';
 import { StreamdownMarkdown } from '@/components/shared/StreamdownMarkdown';
 import { cn } from '@/lib/utils';
 
@@ -30,11 +32,25 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  Undo2,
+  Redo2,
+  Paperclip,
+  FileText,
+  Upload,
 } from 'lucide-react';
 
 // ============================================================================
 // Types
 // ============================================================================
+
+interface UploadedAsset {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  blobUrl: string;
+  localPreviewUrl?: string;
+}
 
 interface ContentBlock {
   type: 'text' | 'tool_call' | 'error';
@@ -49,6 +65,7 @@ interface DesignMessage {
   blocks: ContentBlock[];
   toolCallStates: Record<string, ToolCallState>;
   timestamp: number;
+  attachments?: UploadedAsset[];
 }
 
 interface DesignCalibrationWizardProps {
@@ -72,6 +89,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   web_search: 'Searching for brand info',
   set_design_package: 'Updating preview',
   save_design_package: 'Saving design',
+  analyze_brand_asset: 'Analyzing brand asset',
 };
 
 const BASE_PROMPTS = [
@@ -83,11 +101,11 @@ const BASE_PROMPTS = [
 const WELCOME_MESSAGE: DesignMessage = {
   id: 'welcome',
   role: 'assistant',
-  content: "Hey! I'm here to help you create a design system. You can:\n\n- **Paste a website URL** and I'll extract its design language\n- **Describe your brand** and I'll generate a theme\n- **Pick a preset** to start from\n\nWhat would you like to do?",
+  content: "Hey! I'm here to help you create a design system. You can:\n\n- **Paste a website URL** and I'll extract its design language\n- **Describe your brand** and I'll generate a theme\n- **Upload brand assets** (logos, style guides, PDFs) and I'll analyze them\n- **Pick a preset** to start from\n\nWhat would you like to do?",
   blocks: [
     {
       type: 'text',
-      text: "Hey! I'm here to help you create a design system. You can:\n\n- **Paste a website URL** and I'll extract its design language\n- **Describe your brand** and I'll generate a theme\n- **Pick a preset** to start from\n\nWhat would you like to do?",
+      text: "Hey! I'm here to help you create a design system. You can:\n\n- **Paste a website URL** and I'll extract its design language\n- **Describe your brand** and I'll generate a theme\n- **Upload brand assets** (logos, style guides, PDFs) and I'll analyze them\n- **Pick a preset** to start from\n\nWhat would you like to do?",
     },
   ],
   toolCallStates: {},
@@ -111,6 +129,19 @@ export function DesignCalibrationWizard({
   const [savedPackageId, setSavedPackageId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [showSavedBanner, setShowSavedBanner] = useState(true);
+  const [componentGenState, setComponentGenState] = useState<
+    'idle' | 'generating' | 'complete' | 'error'
+  >('idle');
+  const [generatedComponents, setGeneratedComponents] = useState<
+    Array<{ componentName: string; action: string }>
+  >([]);
+
+  // File upload state
+  const [sessionId] = useState(() => crypto.randomUUID());
+  const [pendingAttachments, setPendingAttachments] = useState<UploadedAsset[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const isSendingRef = useRef(false);
@@ -123,6 +154,43 @@ export function DesignCalibrationWizard({
   const currentBlocksRef = useRef<ContentBlock[]>([]);
   const [, forceUpdate] = useState(0);
   const rafRef = useRef<number>(0);
+
+  // Incremental color morphing
+  const tokenParserRef = useRef(new DesignTokenStreamParser());
+  const previewContainerRef = useRef<HTMLDivElement | null>(null);
+  const morphTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Undo/redo history
+  const historyRef = useRef<DesignPackageData[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < historyRef.current.length - 1;
+
+  const pushHistory = (data: DesignPackageData) => {
+    // Truncate any redo history beyond current index
+    historyRef.current = historyRef.current.slice(0, historyIndex + 1);
+    historyRef.current.push(data);
+    setHistoryIndex(historyRef.current.length - 1);
+  };
+
+  const handleUndo = () => {
+    if (!canUndo) return;
+    const newIdx = historyIndex - 1;
+    setHistoryIndex(newIdx);
+    setPackageData(historyRef.current[newIdx]!);
+  };
+
+  const handleRedo = () => {
+    if (!canRedo) return;
+    const newIdx = historyIndex + 1;
+    setHistoryIndex(newIdx);
+    setPackageData(historyRef.current[newIdx]!);
+  };
+
+  // WCAG contrast check (primary on background)
+  const contrastInfo = packageData
+    ? checkContrast(packageData.colors.light.primary, packageData.colors.light.background)
+    : null;
 
   // Scroll ref
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -146,23 +214,105 @@ export function DesignCalibrationWizard({
       ? 'active' as const
       : 'placeholder' as const;
 
+  // ── File Upload ──────────────────────────────────────────
+
+  const ALLOWED_UPLOAD_TYPES = new Set([
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'application/pdf',
+  ]);
+  const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
+
+  const handleFileUpload = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+
+    // Client-side validation
+    for (const file of fileArray) {
+      if (!ALLOWED_UPLOAD_TYPES.has(file.type)) {
+        alert(`"${file.name}" is not a supported file type. Use images or PDFs.`);
+        return;
+      }
+      if (file.size > MAX_UPLOAD_SIZE) {
+        alert(`"${file.name}" is too large. Maximum 10MB per file.`);
+        return;
+      }
+    }
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('sessionId', sessionId);
+      for (const file of fileArray) {
+        formData.append('files', file);
+      }
+
+      const res = await fetch('/api/design-calibration/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Upload failed' }));
+        throw new Error(err.message ?? 'Upload failed');
+      }
+
+      const { assets } = await res.json() as {
+        assets: Array<{ id: string; fileName: string; mimeType: string; fileSize: number; blobUrl: string }>;
+      };
+
+      // Create local preview URLs for images
+      const newAssets: UploadedAsset[] = assets.map((a, i) => ({
+        ...a,
+        localPreviewUrl: fileArray[i]?.type.startsWith('image/')
+          ? URL.createObjectURL(fileArray[i]!)
+          : undefined,
+      }));
+
+      setPendingAttachments((prev) => [...prev, ...newAssets]);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removePendingAttachment = (id: string) => {
+    setPendingAttachments((prev) => {
+      const removed = prev.find((a) => a.id === id);
+      if (removed?.localPreviewUrl) {
+        URL.revokeObjectURL(removed.localPreviewUrl);
+      }
+      return prev.filter((a) => a.id !== id);
+    });
+  };
+
   // ── Send Message ────────────────────────────────────────
 
   const sendMessage = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || isSendingRef.current) return;
+    if ((!trimmed && pendingAttachments.length === 0) || isSendingRef.current) return;
     isSendingRef.current = true;
 
+    // Capture and clear pending attachments
+    const attachments = pendingAttachments.length > 0 ? [...pendingAttachments] : undefined;
+    const attachmentIds = attachments?.map(a => a.id);
+    setPendingAttachments([]);
     setInputValue('');
+
+    // Build display content — include attachment names if sending with files
+    const displayContent = trimmed || (attachments
+      ? `Uploaded ${attachments.length} file${attachments.length > 1 ? 's' : ''}`
+      : '');
+    const messageForApi = trimmed || 'Please analyze the uploaded brand assets and create a design system from them.';
 
     // Add user message
     const userMsg: DesignMessage = {
       id: nextMsgId(),
       role: 'user',
-      content: trimmed,
-      blocks: [{ type: 'text', text: trimmed }],
+      content: displayContent,
+      blocks: [{ type: 'text', text: displayContent }],
       toolCallStates: {},
       timestamp: Date.now(),
+      attachments,
     };
     setMessages((prev) => [...prev, userMsg]);
 
@@ -223,6 +373,37 @@ export function DesignCalibrationWizard({
         const tc = toolCallsRef.current[id];
         if (tc) {
           tc.arguments += delta;
+
+          // Incremental color morphing: parse tokens from set_design_package JSON as it streams
+          if (tc.toolName === 'set_design_package') {
+            const tokens = tokenParserRef.current.feed(delta);
+            const container = previewContainerRef.current;
+            if (tokens.length > 0 && container) {
+              tokens.forEach((token, i) => {
+                if (token.cssVariable) {
+                  // Stagger tokens 35ms apart for cascade ripple effect
+                  const timer = setTimeout(() => {
+                    container.style.setProperty(token.cssVariable!, token.value);
+                  }, i * 35);
+                  morphTimersRef.current.push(timer);
+                }
+                // Handle Google Fonts injection during streaming
+                if (token.path === 'typography.googleFontsUrl' && token.value) {
+                  const finalUrl = token.value.includes('display=')
+                    ? token.value
+                    : `${token.value}${token.value.includes('?') ? '&' : '?'}display=swap`;
+                  if (!document.querySelector(`link[href="${finalUrl}"]`)) {
+                    const link = document.createElement('link');
+                    link.rel = 'stylesheet';
+                    link.href = finalUrl;
+                    link.dataset.designPackageFonts = 'true';
+                    document.head.appendChild(link);
+                  }
+                }
+              });
+            }
+          }
+
           scheduleRender();
         }
       },
@@ -261,12 +442,48 @@ export function DesignCalibrationWizard({
       },
 
       onDesignPreviewUpdate: (data) => {
+        // Clear stagger timers
+        morphTimersRef.current.forEach(clearTimeout);
+        morphTimersRef.current = [];
+        // Clear inline styles so the <style> tag from packageToCSSString takes over
+        const container = previewContainerRef.current;
+        if (container) {
+          container.style.cssText = '';
+          // Re-apply the base inline styles that AppScaffoldPreview sets
+          container.style.backgroundColor = 'hsl(var(--background))';
+          container.style.color = 'hsl(var(--foreground))';
+        }
+        // Reset parser for next tool call
+        tokenParserRef.current.reset();
         setPackageData(data);
+        pushHistory(data);
       },
 
       onDesignSaved: (packageId) => {
         setSavedPackageId(packageId);
         onComplete(packageId);
+      },
+
+      onComponentGenerationStarted: () => {
+        setComponentGenState('generating');
+      },
+
+      onComponentRegistered: (component) => {
+        setGeneratedComponents((prev) => [
+          ...prev,
+          {
+            componentName: String((component as Record<string, unknown>).componentName ?? 'Unknown'),
+            action: String((component as Record<string, unknown>).action ?? 'created'),
+          },
+        ]);
+      },
+
+      onComponentGenerationComplete: () => {
+        setComponentGenState('complete');
+      },
+
+      onComponentGenerationError: () => {
+        setComponentGenState('error');
       },
 
       onError: (message) => {
@@ -296,6 +513,9 @@ export function DesignCalibrationWizard({
         outputAccRef.current = '';
         toolCallsRef.current = {};
         currentBlocksRef.current = [];
+        tokenParserRef.current.reset();
+        morphTimersRef.current.forEach(clearTimeout);
+        morphTimersRef.current = [];
         setIsStreaming(false);
         isSendingRef.current = false;
         abortControllerRef.current = null;
@@ -305,9 +525,11 @@ export function DesignCalibrationWizard({
     try {
       await runDesignCalibrationStream(
         {
-          message: trimmed,
+          message: messageForApi,
           conversationHistory,
           existingPackageData: packageData ?? undefined,
+          attachmentIds: attachmentIds?.length ? attachmentIds : undefined,
+          sessionId,
         },
         callbacks,
         abortController.signal,
@@ -326,6 +548,7 @@ export function DesignCalibrationWizard({
 
   const handlePresetSelect = (preset: typeof DESIGN_PRESETS[number]) => {
     setPackageData(preset.data);
+    pushHistory(preset.data);
     const presetMsg: DesignMessage = {
       id: nextMsgId(),
       role: 'assistant',
@@ -432,6 +655,33 @@ export function DesignCalibrationWizard({
           </h2>
         </div>
         <div className="flex items-center gap-2">
+          {/* WCAG Contrast Indicator — only show when contrast fails */}
+          {contrastInfo && !contrastInfo.passesAA && (
+            <span className="rounded-full border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive">
+              AA &#10007; {contrastInfo.ratio}:1
+            </span>
+          )}
+          {/* Undo/Redo */}
+          {packageData && !savedPackageId && (
+            <>
+              <button
+                onClick={handleUndo}
+                disabled={!canUndo || isStreaming}
+                className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30"
+                title="Undo"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={handleRedo}
+                disabled={!canRedo || isStreaming}
+                className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30"
+                title="Redo"
+              >
+                <Redo2 className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
           {packageData && !savedPackageId && (
             <button
               onClick={() => sendMessage('Save this design package')}
@@ -467,6 +717,7 @@ export function DesignCalibrationWizard({
               data={packageData}
               brandName={existingPackage?.name ?? 'Your App'}
               state={scaffoldState}
+              containerRef={(el) => { previewContainerRef.current = el; }}
             />
 
             {/* Preset chips when no package data */}
@@ -504,7 +755,34 @@ export function DesignCalibrationWizard({
         </div>
 
         {/* Right: Chat */}
-        <div className="flex h-full w-[420px] shrink-0 flex-col border-l border-border bg-card/40">
+        <div
+          className="relative flex h-full w-[420px] shrink-0 flex-col border-l border-border bg-card/40"
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={(e) => {
+            // Only set false if leaving the container
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setIsDragging(false);
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            if (e.dataTransfer.files.length > 0) {
+              handleFileUpload(e.dataTransfer.files);
+            }
+          }}
+        >
+          {/* Drag overlay */}
+          {isDragging && (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-primary/5 backdrop-blur-sm border-2 border-dashed border-primary/40 rounded-lg">
+              <Upload className="h-8 w-8 text-primary/60" />
+              <p className="text-sm font-medium text-primary/80">Drop brand assets here</p>
+              <p className="text-xs text-muted-foreground">Images, logos, PDFs</p>
+            </div>
+          )}
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
             {/* Finalized messages */}
@@ -519,7 +797,30 @@ export function DesignCalibrationWizard({
                   )}
                 >
                   {msg.role === 'user' ? (
-                    <p className="text-[13px] leading-relaxed whitespace-pre-line">{msg.content}</p>
+                    <div>
+                      <p className="text-[13px] leading-relaxed whitespace-pre-line">{msg.content}</p>
+                      {msg.attachments && msg.attachments.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {msg.attachments.map((att) => (
+                            <div
+                              key={att.id}
+                              className="flex items-center gap-1.5 rounded-lg bg-primary-foreground/10 px-2 py-1"
+                            >
+                              {att.mimeType.startsWith('image/') && att.localPreviewUrl ? (
+                                <img
+                                  src={att.localPreviewUrl}
+                                  alt={att.fileName}
+                                  className="h-6 w-6 rounded object-cover"
+                                />
+                              ) : (
+                                <FileText className="h-4 w-4 shrink-0 opacity-70" />
+                              )}
+                              <span className="text-[10px] max-w-[80px] truncate">{att.fileName}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     renderBlocks(msg.blocks, msg.toolCallStates, false)
                   )}
@@ -571,10 +872,47 @@ export function DesignCalibrationWizard({
                 </button>
               </div>
             )}
+
+            {/* Component generation progress */}
+            {componentGenState !== 'idle' && (
+              <div className="rounded-2xl border border-border bg-muted/40 p-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-medium">
+                  {componentGenState === 'generating' ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                      <span>Building component library...</span>
+                    </>
+                  ) : componentGenState === 'complete' ? (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                      <span>{generatedComponents.length} components ready!</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                      <span>Component generation had issues</span>
+                    </>
+                  )}
+                </div>
+                {generatedComponents.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {generatedComponents.map((c, i) => (
+                      <span
+                        key={i}
+                        className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary animate-in fade-in slide-in-from-bottom-1 duration-300"
+                        style={{ animationDelay: `${i * 50}ms`, animationFillMode: 'backwards' }}
+                      >
+                        {c.componentName}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Quick prompts + input */}
-          <div className="border-t border-border px-4 pt-3 pb-3 space-y-2">
+          <div className="shrink-0 border-t border-border px-4 pt-3 pb-3 space-y-2">
             {/* Quick prompts */}
             {!isStreaming && !savedPackageId && (
               <div className="flex flex-wrap gap-1.5">
@@ -598,8 +936,68 @@ export function DesignCalibrationWizard({
               </div>
             )}
 
-            {/* Input */}
+            {/* Pending attachment thumbnails */}
+            {pendingAttachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {pendingAttachments.map((att) => (
+                  <div
+                    key={att.id}
+                    className="group flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-2 py-1"
+                  >
+                    {att.mimeType.startsWith('image/') && att.localPreviewUrl ? (
+                      <img
+                        src={att.localPreviewUrl}
+                        alt={att.fileName}
+                        className="h-6 w-6 rounded object-cover"
+                      />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="text-[10px] max-w-[80px] truncate text-muted-foreground">
+                      {att.fileName}
+                    </span>
+                    <button
+                      onClick={() => removePendingAttachment(att.id)}
+                      className="rounded-full p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Input row */}
             <div className="flex gap-2">
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,.pdf"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files) {
+                    handleFileUpload(e.target.files);
+                  }
+                  e.target.value = '';
+                }}
+              />
+
+              {/* Paperclip button */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || isStreaming || !!savedPackageId}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-input bg-background text-muted-foreground transition-all hover:text-foreground hover:bg-muted disabled:opacity-40"
+                title="Attach brand assets"
+              >
+                {uploading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Paperclip className="h-3.5 w-3.5" />
+                )}
+              </button>
+
               <input
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
@@ -616,14 +1014,14 @@ export function DesignCalibrationWizard({
                       ? 'Waiting for response...'
                       : packageData
                         ? 'Describe changes or say "save it"...'
-                        : 'Paste a URL or describe your brand...'
+                        : 'Paste a URL, describe your brand, or attach files...'
                 }
                 className="flex-1 rounded-xl border border-input bg-background px-3.5 py-2 text-sm outline-none ring-ring transition-shadow placeholder:text-muted-foreground focus:ring-2"
                 disabled={isStreaming || !!savedPackageId}
               />
               <button
                 onClick={() => sendMessage(inputValue)}
-                disabled={!inputValue.trim() || isStreaming || !!savedPackageId}
+                disabled={(!inputValue.trim() && pendingAttachments.length === 0) || isStreaming || !!savedPackageId}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-40"
               >
                 <Send className="h-3.5 w-3.5" />

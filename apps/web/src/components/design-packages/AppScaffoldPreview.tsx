@@ -23,6 +23,7 @@ import {
   AlertTriangle,
   Folder,
   Moon,
+  Palette,
   Sun,
 } from 'lucide-react';
 
@@ -35,6 +36,8 @@ interface AppScaffoldPreviewProps {
   brandName?: string;
   className?: string;
   state?: ScaffoldState;
+  /** Ref callback to access the inner container for direct CSS variable manipulation during streaming */
+  containerRef?: (el: HTMLDivElement | null) => void;
 }
 
 /* ─── Static Data ───────────────────────────────────────── */
@@ -104,6 +107,7 @@ export function AppScaffoldPreview({
   brandName = 'Your App',
   className,
   state: stateProp,
+  containerRef,
 }: AppScaffoldPreviewProps) {
   const uid = useId().replace(/:/g, '');
   const cid = `scaffold-${uid}`;
@@ -130,6 +134,25 @@ export function AppScaffoldPreview({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
+
+  // Clean placeholder — no greyed-out scaffold, just a minimal empty state
+  if (state === 'placeholder') {
+    return (
+      <div className={cn('relative rounded-2xl shadow-2xl ring-1 ring-black/[0.08] overflow-hidden', className)}>
+        <div className="flex items-center justify-center bg-muted/30 py-32">
+          <div className="text-center space-y-3 px-8">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
+              <Palette className="h-7 w-7 text-primary" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">Your design will appear here</p>
+              <p className="text-xs text-muted-foreground">Paste a URL, describe your brand, or pick a preset</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const slug = brandName.toLowerCase().replace(/\s+/g, '');
   const CW = 560;
@@ -161,18 +184,6 @@ export function AppScaffoldPreview({
     <div className={cn('relative rounded-2xl shadow-2xl ring-1 ring-black/[0.08] overflow-hidden', className)}>
       <style dangerouslySetInnerHTML={{ __html: css + '\n' + fontCss + '\n' + transitionStyles }} />
 
-      {/* Placeholder overlay */}
-      {state === 'placeholder' && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-muted/60 backdrop-blur-[2px]">
-          <div className="text-center space-y-2 px-8">
-            <div className="text-3xl">🎨</div>
-            <p className="text-sm font-medium text-muted-foreground">
-              Your design preview will appear here
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* Loading overlay with exit animation */}
       {(state === 'loading' || showLoadingOverlay) && (
         <div
@@ -186,10 +197,10 @@ export function AppScaffoldPreview({
 
       <div
         id={cid}
+        ref={containerRef}
         className={cn(
           'transition-colors duration-500',
           isDark ? 'dark' : '',
-          state === 'placeholder' && 'grayscale opacity-50',
         )}
         style={{ backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
       >

@@ -1,7 +1,7 @@
 ---
 id: consultative_curiosity
 version: 5
-appliesTo: creator_bot
+appliesTo: creator_bot, baley
 section: reasoning
 ---
 Your job is to build the best solution to the user's actual problem, not just the first thing that sounds right.

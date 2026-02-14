@@ -17,6 +17,10 @@ export interface DesignPackageData {
   borderRadius: string; // e.g. "0.75rem"
   mood: DesignMood;
   animationStyle: AnimationStyle;
+  /** AI-generated component library (populated after save) */
+  componentRegistry?: ComponentRegistry;
+  /** Deterministic Tailwind theme tokens (populated after save) */
+  tailwindTheme?: TailwindThemeTokens;
 }
 
 export type DesignMood = 'playful' | 'professional' | 'minimal' | 'elegant' | 'bold';
@@ -45,6 +49,83 @@ export interface ColorPalette {
   error: string;
   info: string;
 }
+
+// ============================================================================
+// Component Library Types
+// ============================================================================
+
+export type ComponentCategory =
+  | 'action'
+  | 'layout'
+  | 'form'
+  | 'data'
+  | 'feedback'
+  | 'navigation'
+  | 'overlay';
+
+export interface ComponentAnimations {
+  hover?: string;
+  focus?: string;
+  active?: string;
+  enter?: string;
+}
+
+export interface TypographyOverrides {
+  weight?: string;
+  letterSpacing?: string;
+  textTransform?: string;
+}
+
+export interface ComponentVariant {
+  name: string;
+  classes: string;
+  usage: string;
+  animations?: ComponentAnimations;
+  customCSS?: string;
+  typographyOverrides?: TypographyOverrides;
+  designNotes?: string;
+}
+
+export interface ComponentDefinition {
+  name: string;
+  category: ComponentCategory;
+  variants: ComponentVariant[];
+  source: 'theme-generated' | 'bb-contributed';
+  contributedBy?: string;
+}
+
+export interface ComponentRegistry {
+  version: 1;
+  generatedAt: string;
+  generationMethod: 'parallel-agents' | 'manual';
+  components: ComponentDefinition[];
+}
+
+// ============================================================================
+// Tailwind Theme Tokens
+// ============================================================================
+
+export interface TailwindThemeTokens {
+  cssVariables: { light: Record<string, string>; dark: Record<string, string> };
+  colorUtilities: Record<string, string>;
+  borderRadius: {
+    none: string;
+    sm: string;
+    md: string;
+    lg: string;
+    xl: string;
+    full: string;
+  };
+  fontFamily: { sans: string; heading?: string };
+  googleFontsLink?: string;
+  defaultShadow: string;
+  defaultTransition: string;
+  defaultHoverScale: string;
+}
+
+// ============================================================================
+// Source Resources & Package
+// ============================================================================
 
 export interface SourceResource {
   name: string;

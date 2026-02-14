@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SECTION_ORDER = ['reasoning', 'tool_selection', 'user_communication', 'safety', 'output_rules'];
-const VALID_TIERS = new Set(['fast', 'balanced', 'powerful']);
+const VALID_TIERS = new Set(['fast', 'balanced', 'powerful', 'ultra']);
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));

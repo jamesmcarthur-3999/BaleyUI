@@ -14,6 +14,8 @@ import type {
   SendNotificationResult,
   ScheduleTaskResult,
   StoreMemoryResult,
+  GetDesignPackageResult,
+  RegisterComponentResult,
 } from './index';
 
 // Re-export BuiltInToolContext for use by catalog-service
@@ -29,6 +31,8 @@ import {
   CREATE_TOOL_SCHEMA,
   SHARED_STORAGE_SCHEMA,
   REQUEST_USER_INPUT_SCHEMA,
+  GET_DESIGN_PACKAGE_SCHEMA,
+  REGISTER_COMPONENT_SCHEMA,
   BUILT_IN_TOOLS_METADATA,
 } from './index';
 import type { RequestUserInputResult } from './request-user-input';
@@ -444,6 +448,150 @@ async function requestUserInputImpl(
 }
 
 // ============================================================================
+// GET DESIGN PACKAGE
+// ============================================================================
+
+import { db, designPackages, eq, and, isNull } from '@baleyui/db';
+import { generateTailwindTheme } from '@/lib/design-packages/tailwind-theme';
+import { formatDesignBrief, createEmptyRegistry, upsertComponent } from '@/lib/design-packages/component-registry';
+import type { DesignPackageData, ComponentDefinition, ComponentCategory, ComponentRegistry } from '@/lib/design-packages/types';
+
+interface GetDesignPackageArgs {
+  package_id?: string;
+  format?: 'brief' | 'full' | 'tailwind_only' | 'registry_only';
+}
+
+async function getDesignPackageImpl(
+  args: GetDesignPackageArgs,
+  ctx: BuiltInToolContext
+): Promise<GetDesignPackageResult> {
+  const format = args.format ?? 'brief';
+
+  // Fetch package: by ID or workspace default
+  const pkg = args.package_id
+    ? await db.query.designPackages.findFirst({
+        where: and(
+          eq(designPackages.id, args.package_id),
+          eq(designPackages.workspaceId, ctx.workspaceId),
+          isNull(designPackages.deletedAt)
+        ),
+      })
+    : await db.query.designPackages.findFirst({
+        where: and(
+          eq(designPackages.workspaceId, ctx.workspaceId),
+          eq(designPackages.isDefault, true),
+          isNull(designPackages.deletedAt)
+        ),
+      });
+
+  if (!pkg) {
+    return { found: false, format, content: 'No design package found for this workspace.' };
+  }
+
+  const data = pkg.packageData as DesignPackageData;
+  const theme = data.tailwindTheme ?? generateTailwindTheme(data);
+  const registry = data.componentRegistry ?? createEmptyRegistry();
+
+  switch (format) {
+    case 'brief':
+      return {
+        found: true,
+        format,
+        content: formatDesignBrief(pkg.name, data, theme, registry),
+      };
+    case 'full':
+      return {
+        found: true,
+        format,
+        content: { ...data, tailwindTheme: theme, componentRegistry: registry },
+      };
+    case 'tailwind_only':
+      return { found: true, format, content: theme as unknown as Record<string, unknown> };
+    case 'registry_only':
+      return { found: true, format, content: registry as unknown as Record<string, unknown> };
+    default:
+      return { found: true, format, content: formatDesignBrief(pkg.name, data, theme, registry) };
+  }
+}
+
+// ============================================================================
+// REGISTER COMPONENT
+// ============================================================================
+
+interface RegisterComponentArgs {
+  name: string;
+  category: string;
+  variants: Array<{
+    name: string;
+    classes: string;
+    usage?: string;
+    animations?: Record<string, string>;
+    customCSS?: string;
+    typographyOverrides?: Record<string, string>;
+    designNotes?: string;
+  }>;
+}
+
+async function registerComponentImpl(
+  args: RegisterComponentArgs,
+  ctx: BuiltInToolContext
+): Promise<RegisterComponentResult> {
+  // Find workspace default design package
+  const pkg = await db.query.designPackages.findFirst({
+    where: and(
+      eq(designPackages.workspaceId, ctx.workspaceId),
+      eq(designPackages.isDefault, true),
+      isNull(designPackages.deletedAt)
+    ),
+  });
+
+  if (!pkg) {
+    throw new Error('No default design package found. Create and save a design package first.');
+  }
+
+  const data = pkg.packageData as DesignPackageData;
+  const registry = data.componentRegistry ?? createEmptyRegistry();
+
+  const existingIdx = registry.components.findIndex(
+    (c) => c.name.toLowerCase() === args.name.toLowerCase()
+  );
+  const action: 'created' | 'updated' = existingIdx >= 0 ? 'updated' : 'created';
+
+  const component: ComponentDefinition = {
+    name: args.name,
+    category: args.category as ComponentCategory,
+    variants: args.variants.map((v) => ({
+      name: v.name,
+      classes: v.classes,
+      usage: v.usage ?? '',
+      ...(v.animations ? { animations: v.animations } : {}),
+      ...(v.customCSS ? { customCSS: v.customCSS } : {}),
+      ...(v.typographyOverrides ? { typographyOverrides: v.typographyOverrides } : {}),
+      ...(v.designNotes ? { designNotes: v.designNotes } : {}),
+    })),
+    source: 'bb-contributed',
+    contributedBy: ctx.baleybotId,
+  };
+
+  const updatedRegistry = upsertComponent(registry, component);
+  const updatedData: DesignPackageData = {
+    ...data,
+    componentRegistry: updatedRegistry,
+  };
+
+  await db
+    .update(designPackages)
+    .set({
+      packageData: updatedData as unknown as DesignPackageData,
+      updatedAt: new Date(),
+      version: pkg.version + 1,
+    })
+    .where(eq(designPackages.id, pkg.id));
+
+  return { success: true, componentName: args.name, action };
+}
+
+// ============================================================================
 // EXPORT: Create RuntimeToolDefinition for executor
 // ============================================================================
 
@@ -617,6 +765,22 @@ export function getBuiltInRuntimeTools(
     'Ask the user a question and wait for their response',
     REQUEST_USER_INPUT_SCHEMA as Record<string, unknown>,
     wrapImpl<RequestUserInputArgs>(requestUserInputImpl),
+    ctx
+  ));
+
+  tools.set('get_design_package', createRuntimeTool(
+    'get_design_package',
+    'Retrieve the workspace design package with tokens, components, and theme',
+    GET_DESIGN_PACKAGE_SCHEMA as Record<string, unknown>,
+    wrapImpl<GetDesignPackageArgs>(getDesignPackageImpl),
+    ctx
+  ));
+
+  tools.set('register_component', createRuntimeTool(
+    'register_component',
+    'Register or update a UI component in the workspace component registry',
+    REGISTER_COMPONENT_SCHEMA as Record<string, unknown>,
+    wrapImpl<RegisterComponentArgs>(registerComponentImpl),
     ctx
   ));
 

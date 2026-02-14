@@ -5,7 +5,10 @@
  */
 
 // Streaming hooks
-export * from './useStreamState';
+// NOTE: useStreamState is NOT barrel-exported because it imports @baleybots/chat,
+// which transitively pulls in @baleybots/auth → express → fs. This breaks any
+// 'use client' page that imports from @/hooks. Import it directly when needed:
+//   import { streamReducer, ... } from '@/hooks/useStreamState';
 export * from './useVisibilityReconnect';
 export * from './useExecutionStream';
 export * from './useExecutionTimeline';

@@ -33,6 +33,7 @@ import {
   Trash2,
   Star,
   MoreHorizontal,
+  Download,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -78,6 +79,31 @@ export function DesignPackagesTab() {
     toast({ title: editingPackage ? 'Design package updated' : 'Design package created' });
   };
 
+  const downloadFile = (filename: string, content: string) => {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExport = async (id: string, format: 'css' | 'tailwind' | 'json') => {
+    try {
+      const procedure = format === 'css'
+        ? utils.designPackages.exportCSS
+        : format === 'tailwind'
+          ? utils.designPackages.exportTailwind
+          : utils.designPackages.exportJSON;
+      const result = await procedure.fetch({ id });
+      downloadFile(result.filename, result.content);
+      toast({ title: `Exported as ${format.toUpperCase()}` });
+    } catch {
+      toast({ title: 'Export failed', variant: 'destructive' });
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 p-1">
@@ -102,7 +128,7 @@ export function DesignPackagesTab() {
         />
 
         <Dialog open={wizardOpen} onOpenChange={setWizardOpen}>
-          <DialogContent size="xl" className="h-[85vh] max-h-[900px] max-w-7xl p-0 overflow-hidden">
+          <DialogContent size="xl" className="h-[85vh] max-h-[900px] max-w-7xl p-0 overflow-hidden [&>button.absolute]:hidden">
             <DialogTitle className="sr-only">Design Calibration</DialogTitle>
             <DesignCalibrationWizard
               onComplete={handleWizardComplete}
@@ -203,6 +229,18 @@ export function DesignPackagesTab() {
                         Set as Default
                       </DropdownMenuItem>
                     )}
+                    <DropdownMenuItem onClick={() => handleExport(pkg.id, 'css')}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Export CSS
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleExport(pkg.id, 'tailwind')}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Export Tailwind
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleExport(pkg.id, 'json')}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Export JSON
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => setDeleteId(pkg.id)}
                       className="text-destructive"
@@ -244,7 +282,7 @@ export function DesignPackagesTab() {
           }
         }}
       >
-        <DialogContent size="xl" className="h-[85vh] max-h-[900px] max-w-7xl p-0 overflow-hidden">
+        <DialogContent size="xl" className="h-[85vh] max-h-[900px] max-w-7xl p-0 overflow-hidden [&>button.absolute]:hidden">
           <DialogTitle className="sr-only">
             {editingPackage ? 'Edit Design Package' : 'Create Design Package'}
           </DialogTitle>

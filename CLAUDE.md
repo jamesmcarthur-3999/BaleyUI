@@ -39,6 +39,40 @@ BaleyUI builds **AI-controlled systems**, not hard-coded software. Every feature
 - See: `docs/plans/2026-02-03-tool-ecosystem-complete-implementation.md`
 - Prompt: `docs/plans/execution-prompt.md`
 
+### Future Work: SSO Activation (GitHub + Google)
+
+**Status:** Code complete, waiting on OAuth credentials from user.
+
+The SSO code is fully wired and conditional — buttons only appear when `NEXT_PUBLIC_AUTH_*` flags are set to `"true"`.
+
+**Files already implemented:**
+- `apps/web/src/lib/auth/server.ts` — conditional `socialProviders` config
+- `apps/web/src/app/(auth)/sign-in/[[...sign-in]]/page.tsx` — social sign-in buttons
+- `apps/web/src/app/(auth)/sign-up/[[...sign-up]]/page.tsx` — social sign-up buttons
+- `apps/web/.env.example` — documents all 6 env vars
+
+**To activate (when ready):**
+
+1. **GitHub OAuth App** — Create at https://github.com/settings/developers
+   - Callback URL: `https://baley-ui-web.vercel.app/api/auth/callback/github`
+
+2. **Google OAuth** — Create at https://console.cloud.google.com/apis/credentials
+   - Callback URL: `https://baley-ui-web.vercel.app/api/auth/callback/google`
+
+3. **Add env vars to Vercel:**
+   ```bash
+   printf 'YOUR_GITHUB_CLIENT_ID' | vercel env add GITHUB_CLIENT_ID preview
+   printf 'YOUR_GITHUB_CLIENT_SECRET' | vercel env add GITHUB_CLIENT_SECRET preview
+   printf 'YOUR_GOOGLE_CLIENT_ID' | vercel env add GOOGLE_CLIENT_ID preview
+   printf 'YOUR_GOOGLE_CLIENT_SECRET' | vercel env add GOOGLE_CLIENT_SECRET preview
+   printf 'true' | vercel env add NEXT_PUBLIC_AUTH_GITHUB preview
+   printf 'true' | vercel env add NEXT_PUBLIC_AUTH_GOOGLE preview
+   ```
+
+4. Redeploy: `vercel --prod` (or push to main)
+
+**Note:** `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and `NEXT_PUBLIC_BETTER_AUTH_URL` are already set on Vercel for preview.
+
 ## Critical Patterns
 
 ### React 19 - No Manual Memoization

@@ -22,6 +22,8 @@ export interface DesignCalibrationStreamConfig {
     timestamp: number;
   }>;
   existingPackageData?: DesignPackageData;
+  attachmentIds?: string[];
+  sessionId?: string;
 }
 
 export interface DesignCalibrationCallbacks {
@@ -35,6 +37,11 @@ export interface DesignCalibrationCallbacks {
   // Design-specific events
   onDesignPreviewUpdate: (data: DesignPackageData) => void;
   onDesignSaved: (packageId: string) => void;
+  // Component generation events
+  onComponentGenerationStarted?: () => void;
+  onComponentRegistered?: (component: Record<string, unknown>) => void;
+  onComponentGenerationComplete?: () => void;
+  onComponentGenerationError?: (message: string) => void;
   onError: (message: string) => void;
   onDone: () => void;
 }
@@ -59,7 +66,9 @@ interface DesignStreamEvent {
   data?: DesignPackageData;
   // design_saved
   packageId?: string;
-  // design_error
+  // component_registered
+  component?: Record<string, unknown>;
+  // design_error / component_generation_error
   message?: string;
   // timestamp on all events
   timestamp?: number;
@@ -80,6 +89,8 @@ export async function runDesignCalibrationStream(
       message: config.message,
       conversationHistory: config.conversationHistory,
       existingPackageData: config.existingPackageData,
+      attachmentIds: config.attachmentIds,
+      sessionId: config.sessionId,
     },
     signal,
     onEvent: (event) => {
@@ -139,6 +150,24 @@ export async function runDesignCalibrationStream(
           if (event.packageId) {
             callbacks.onDesignSaved(event.packageId);
           }
+          break;
+        }
+        case 'component_generation_started': {
+          callbacks.onComponentGenerationStarted?.();
+          break;
+        }
+        case 'component_registered': {
+          if (event.component) {
+            callbacks.onComponentRegistered?.(event.component);
+          }
+          break;
+        }
+        case 'component_generation_complete': {
+          callbacks.onComponentGenerationComplete?.();
+          break;
+        }
+        case 'component_generation_error': {
+          callbacks.onComponentGenerationError?.(event.message ?? 'Component generation failed');
           break;
         }
         case 'design_error': {

@@ -61,6 +61,18 @@ export interface BALExecutionOptions {
   signal?: AbortSignal;
 
   /**
+   * Multimodal input (images, files) to pass alongside text.
+   * When present, the text `input` is used as the text part and
+   * these attachments are included as additional content parts.
+   * The interpreter's Baleybot.process() already accepts UnifiedMessageInput.
+   */
+  multimodalInput?: {
+    text: string;
+    images?: Array<{ data: string; mediaType: string }>;
+    file?: { data: string; mimeType: string };
+  };
+
+  /**
    * Custom tools to make available during execution.
    * These are merged with built-in tools (web_search, sequential_think).
    * Each tool must have: name, description, inputSchema (JSON Schema), function.
@@ -303,7 +315,9 @@ export async function executeBALCode(
 
     // Execute with onToken callback for real-time streaming
     const effectiveInput = options.input || compiledRuntime.runInput || 'Execute your task based on your goal.';
-    const result = await executable.process(effectiveInput, {
+    // Use multimodal input when attachments are present (Baleybot.process accepts string | UnifiedMessageInput)
+    const processInput = options.multimodalInput ?? effectiveInput;
+    const result = await executable.process(processInput, {
       signal: abortController.signal,
       onToken: (botName: string, event: BaleybotStreamEvent) => {
         onEvent?.({ type: 'token', botName, event });
@@ -470,8 +484,10 @@ export async function* streamBALExecution(
       });
     };
 
+    const streamProcessInput = options.multimodalInput
+      ?? (options.input || compiled.runInput || 'Execute your task based on your goal.');
     const processPromise = executable
-      .process(options.input || compiled.runInput || 'Execute your task based on your goal.', {
+      .process(streamProcessInput, {
         signal,
         onToken: (botName: string, event: BaleybotStreamEvent) => {
           eventQueue.push({ botName, event });

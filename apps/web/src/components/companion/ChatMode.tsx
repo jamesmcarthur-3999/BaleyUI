@@ -53,7 +53,7 @@ export function ChatMode({
 
   // Filter out empty assistant placeholders (show typing indicator instead)
   const visibleMessages = messages.filter(
-    (m) => m.role !== 'assistant' || m.content || (m.segments && m.segments.length > 0)
+    (m) => m.role !== 'assistant' || m.content || (m.segments && m.segments.length > 0) || m.status === 'streaming'
   );
   const lastVisible = visibleMessages[visibleMessages.length - 1];
   const isWaitingForResponse = isLoading && lastVisible?.role !== 'assistant';

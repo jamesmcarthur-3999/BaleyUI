@@ -19,6 +19,7 @@ import { teamRouter } from './team';
 import { recommendationsRouter } from './recommendations';
 import { sharedContextRouter } from './shared-context';
 import { designPackagesRouter } from './design-packages';
+import { modelsRouter } from './models';
 
 export const appRouter = router({
   workspaces: workspacesRouter,
@@ -41,6 +42,7 @@ export const appRouter = router({
   recommendations: recommendationsRouter,
   sharedContext: sharedContextRouter,
   designPackages: designPackagesRouter,
+  models: modelsRouter,
 });
 
 export type AppRouter = typeof appRouter;

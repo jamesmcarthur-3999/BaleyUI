@@ -131,13 +131,25 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
 });
 
 /**
- * System admin procedure - requires authentication and admin user ID (from ADMIN_USER_IDS env).
+ * System admin procedure - requires authentication and admin user ID or email.
+ * Checks ADMIN_USER_IDS (by user ID) and ADMIN_USER_EMAILS (by email).
  * Overrides workspace context with the system workspace.
  */
 export const systemAdminProcedure = authenticatedProcedure.use(async ({ ctx, next }) => {
   const adminUserIds = (process.env.ADMIN_USER_IDS || '').split(',').map((id) => id.trim()).filter(Boolean);
+  const adminEmails = (process.env.ADMIN_USER_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
 
-  if (!adminUserIds.includes(ctx.userId)) {
+  let isAdmin = adminUserIds.includes(ctx.userId);
+
+  if (!isAdmin && adminEmails.length > 0) {
+    const { user } = await import('@baleyui/db');
+    const [dbUser] = await ctx.db.select({ email: user.email }).from(user).where(eq(user.id, ctx.userId));
+    if (dbUser?.email && adminEmails.includes(dbUser.email.toLowerCase())) {
+      isAdmin = true;
+    }
+  }
+
+  if (!isAdmin) {
     throw new TRPCError({
       code: 'FORBIDDEN',
       message: 'Admin access required',

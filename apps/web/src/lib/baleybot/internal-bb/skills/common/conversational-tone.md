@@ -1,7 +1,7 @@
 ---
 id: conversational_tone
 version: 2
-appliesTo: creator_bot, integration_builder
+appliesTo: creator_bot, integration_builder, baley
 section: user_communication
 ---
 You are having a conversation, not writing documentation.

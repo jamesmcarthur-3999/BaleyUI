@@ -2,15 +2,15 @@
  * Design Calibration Stream API Route
  *
  * SSE endpoint that runs Baley with design-specific context and injected tools
- * (set_design_package, save_design_package). Baley orchestrates the design BBs
- * (analyzer, generator, refiner) conversationally via spawn_baleybot.
+ * (set_design_package, save_design_package, analyze_brand_asset). Baley orchestrates
+ * the design BBs (analyzer, generator, refiner) conversationally via spawn_baleybot.
  */
 
 import { auth } from '@/lib/auth/server';
 import { headers } from 'next/headers';
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { db, designPackages } from '@baleyui/db';
+import { db, designPackages, designPackageAssets, eq, and, isNull } from '@baleyui/db';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { createLogger } from '@/lib/logger';
 import { apiErrors } from '@/lib/api/error-response';
@@ -18,7 +18,11 @@ import { getAuthenticatedWorkspace } from '@/lib/auth/workspace-lookup';
 import { executeInternalBaleybot, type InternalExecutionOptions } from '@/lib/baleybot/internal-baleybots';
 import type { RuntimeToolDefinition } from '@/lib/baleybot/executor';
 import type { DesignPackageData } from '@/lib/design-packages/types';
+import { generateTailwindTheme } from '@/lib/design-packages/tailwind-theme';
+import { DEFAULT_COMPONENT_SET } from '@/lib/design-packages/component-registry';
+import { formatDesignBrief } from '@/lib/design-packages/component-registry';
 import { MissingCredentialsError } from '@/lib/baleybot/services/ai-credentials-service';
+import { inArray } from 'drizzle-orm';
 
 const log = createLogger('design-calibration-stream');
 
@@ -51,6 +55,8 @@ const requestBodySchema = z.object({
     .max(100)
     .optional(),
   existingPackageData: packageDataSchema.optional(),
+  attachmentIds: z.array(z.string().uuid()).max(20).optional(),
+  sessionId: z.string().max(255).optional(),
 });
 
 export const runtime = 'nodejs';
@@ -67,34 +73,60 @@ function sanitizeStreamError(message: string): string {
     .trim();
 }
 
-const DESIGN_CALIBRATION_CONTEXT = `You are in Design Calibration mode. Help the user create a design system for their brand.
-
-Your workflow:
-1. Ask what brand to design for (URL, description, or uploaded assets)
-2. When the user provides a URL, spawn the design_analyzer to extract brand attributes:
-   spawn_baleybot("design_analyzer", "Analyze [URL] — fetch with format:'html' to get CSS data")
-3. Take the analyzer output and spawn design_generator to create a full design package:
-   spawn_baleybot("design_generator", "Generate from: [analyzer output JSON]")
-4. Call set_design_package(generatedData) to update the live preview
-5. Ask what the user wants to change
-6. For refinements, spawn design_refiner:
-   spawn_baleybot("design_refiner", "Current: [packageData JSON]\\nFeedback: [user request]")
-7. Call set_design_package(refinedData) to update the preview
-8. When the user is happy, call save_design_package to persist it
-
-You can also use web_search to find brand guidelines and fetch_url to examine websites.
-Keep responses concise and conversational. Show enthusiasm when the design comes together.
-
-IMPORTANT: When calling set_design_package, the data MUST be a complete DesignPackageData object with this exact shape:
-{
-  "colors": { "light": { "background": "HSL", "foreground": "HSL", ... }, "dark": { ... } },
-  "typography": { "fontFamily": "string", "fontFamilyHeading": "string (optional)", "googleFontsUrl": "string (optional)" },
-  "borderRadius": "string (e.g., 0.75rem)",
-  "mood": "playful|professional|minimal|elegant|bold",
-  "animationStyle": "playful|professional|minimal"
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
-Color values must be HSL strings without the hsl() wrapper, e.g. "262 83% 58%".
-Required color keys: background, foreground, card, cardForeground, primary, primaryForeground, secondary, secondaryForeground, muted, mutedForeground, accent, accentForeground, destructive, destructiveForeground, border, input, ring, success, warning, error, info.`;
+
+const DESIGN_CALIBRATION_CONTEXT = `You are a design system creator. Turn the user's brand into a complete design package.
+
+You have design_analyzer, design_generator, and design_refiner bots (via spawn_baleybot).
+You also have fetch_url, web_search, set_design_package (live preview), save_design_package (persist), and analyze_brand_asset (vision analysis of uploaded files).
+
+ADAPT TO THE USER:
+- URL or detailed description -> generate immediately, don't ask clarifying questions
+- Vague input ("make something cool") -> ask ONE focused question, then generate
+- Preset selected -> acknowledge and ask what to change, don't regenerate from scratch
+- Refinements -> use design_refiner, not design_generator
+- Uploaded brand assets -> use analyze_brand_asset to inspect them before generating
+
+If the user has uploaded brand assets, they are listed with IDs in the message.
+Use analyze_brand_asset(assetId, focus) to have the design_analyzer BaleyBot inspect images/PDFs.
+Always analyze uploaded assets before generating a design package from them.
+
+WORKFLOW:
+- spawn_baleybot("design_analyzer", "Analyze [URL] — fetch with format:'html' to get CSS data") to extract brand attributes
+- spawn_baleybot("design_generator", "Generate from: [analyzer output JSON]") to create a full package
+- spawn_baleybot("design_refiner", "Current: [packageData JSON]\\nFeedback: [user feedback]") for refinements
+- Call set_design_package(data) after generating or refining to update the live preview
+- Call save_design_package when the user is happy
+
+RULES:
+- Always call set_design_package() after generating or refining
+- Color values: HSL without hsl() wrapper (e.g., "262 83% 58%")
+- All 21 color keys required in both light and dark palettes: background, foreground, card, cardForeground, primary, primaryForeground, secondary, secondaryForeground, muted, mutedForeground, accent, accentForeground, destructive, destructiveForeground, border, input, ring, success, warning, error, info
+- Keep messages SHORT (1-2 sentences). Let the preview do the talking
+- Show enthusiasm when the design comes together
+
+set_design_package data shape:
+{
+  "data": {
+    "colors": { "light": { ...21 HSL keys... }, "dark": { ...21 HSL keys... } },
+    "typography": { "fontFamily": "string", "fontFamilyHeading": "string (optional)", "googleFontsUrl": "string (optional)" },
+    "borderRadius": "string (e.g., 0.75rem)",
+    "mood": "playful|professional|minimal|elegant|bold",
+    "animationStyle": "playful|professional|minimal"
+  }
+}`;
+
+interface FetchedAsset {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  base64: string;
+}
 
 export async function POST(req: NextRequest) {
   const requestId = req.headers.get('x-request-id') ?? undefined;
@@ -165,6 +197,37 @@ export async function POST(req: NextRequest) {
         );
 
         try {
+          // Fetch uploaded asset content if attachmentIds provided
+          const uploadedAssets: FetchedAsset[] = [];
+          if (input.attachmentIds && input.attachmentIds.length > 0) {
+            const assetRows = await db.query.designPackageAssets.findMany({
+              where: and(
+                eq(designPackageAssets.workspaceId, workspace.id),
+                inArray(designPackageAssets.id, input.attachmentIds),
+              ),
+            });
+
+            for (const row of assetRows) {
+              try {
+                const response = await fetch(row.blobDownloadUrl);
+                const buffer = await response.arrayBuffer();
+                const base64 = Buffer.from(buffer).toString('base64');
+                uploadedAssets.push({
+                  id: row.id,
+                  fileName: row.fileName,
+                  mimeType: row.mimeType,
+                  fileSize: row.fileSize,
+                  base64,
+                });
+              } catch (err) {
+                log.warn('Failed to fetch asset content', {
+                  assetId: row.id,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
+            }
+          }
+
           // Build conversation context for Baley
           const historyText = input.conversationHistory
             ?.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
@@ -174,10 +237,20 @@ export async function POST(req: NextRequest) {
             ? `\n\nCurrent design package data:\n${JSON.stringify(input.existingPackageData, null, 2)}`
             : '';
 
+          // Append uploaded asset context to the input
+          const assetContext = uploadedAssets.length > 0
+            ? '\n\nUploaded brand assets:\n' +
+              uploadedAssets.map(a =>
+                `- Asset ${a.id}: "${a.fileName}" (${a.mimeType}, ${formatFileSize(a.fileSize)})`
+              ).join('\n') +
+              '\nUse analyze_brand_asset to examine these files before generating.'
+            : '';
+
           const fullInput = [
             historyText ? `Previous conversation:\n${historyText}\n\n` : '',
             `User: ${input.message}`,
             existingPackageContext,
+            assetContext,
           ].filter(Boolean).join('');
 
           // Injected tools
@@ -212,6 +285,49 @@ export async function POST(req: NextRequest) {
             },
           });
 
+          // Inject analyze_brand_asset tool — delegates to design_analyzer BB with multimodal input
+          if (uploadedAssets.length > 0) {
+            injectedTools.set('analyze_brand_asset', {
+              name: 'analyze_brand_asset',
+              description: 'Analyze an uploaded brand asset (image or PDF) for design attributes using the design_analyzer BaleyBot. Returns colors, typography, mood, and brand identity.',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  assetId: { type: 'string', description: 'Asset ID from the uploaded files list' },
+                  focus: {
+                    type: 'string',
+                    enum: ['colors', 'typography', 'mood', 'layout', 'full'],
+                    description: 'What aspect to focus analysis on (default: full)',
+                  },
+                },
+                required: ['assetId'],
+              },
+              function: async (args: Record<string, unknown>) => {
+                const asset = uploadedAssets.find(a => a.id === String(args.assetId));
+                if (!asset) return { error: 'Asset not found' };
+
+                try {
+                  const { output } = await executeInternalBaleybot(
+                    'design_analyzer',
+                    `Analyze this uploaded brand asset "${asset.fileName}" for design attributes. Focus: ${args.focus ?? 'full'}. Extract colors (HSL), typography, mood, and brand identity.`,
+                    {
+                      userWorkspaceId: workspace.id,
+                      attachments: [{ data: asset.base64, mimeType: asset.mimeType }],
+                      signal: AbortSignal.timeout(60_000),
+                    }
+                  );
+                  return output;
+                } catch (err) {
+                  log.error('analyze_brand_asset failed', {
+                    assetId: asset.id,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                  return { error: `Failed to analyze asset: ${err instanceof Error ? err.message : 'Unknown error'}` };
+                }
+              },
+            });
+          }
+
           injectedTools.set('save_design_package', {
             name: 'save_design_package',
             description: 'Save the current design package to the workspace database',
@@ -229,15 +345,22 @@ export async function POST(req: NextRequest) {
               try {
                 const packageData = packageDataSchema.parse(args.packageData);
 
+                // Generate Tailwind theme tokens deterministically
+                const tailwindTheme = generateTailwindTheme(packageData as unknown as DesignPackageData);
+                const enrichedData = {
+                  ...packageData,
+                  tailwindTheme,
+                } as unknown as DesignPackageData;
+
                 const [pkg] = await db
                   .insert(designPackages)
                   .values({
                     workspaceId: workspace.id,
                     name: String(args.name),
                     description: args.description ? String(args.description) : null,
-                    packageData: packageData as unknown as DesignPackageData,
+                    packageData: enrichedData,
                     sourceType: 'ai_generated',
-                    isDefault: Boolean(args.isDefault),
+                    isDefault: true,
                     createdBy: userId,
                     updatedBy: userId,
                   })
@@ -247,13 +370,83 @@ export async function POST(req: NextRequest) {
                   return { success: false, error: 'Failed to save design package' };
                 }
 
+                // Link uploaded assets to the saved package
+                if (input.sessionId) {
+                  await db.update(designPackageAssets)
+                    .set({ designPackageId: pkg.id })
+                    .where(and(
+                      eq(designPackageAssets.workspaceId, workspace.id),
+                      eq(designPackageAssets.sessionId, input.sessionId),
+                      isNull(designPackageAssets.designPackageId),
+                    ));
+                }
+
                 sendEvent({
                   type: 'design_saved',
                   packageId: pkg.id,
                   timestamp: Date.now(),
                 });
 
-                return { success: true, packageId: pkg.id, message: 'Design package saved' };
+                // Trigger component library generation in the background
+                sendEvent({
+                  type: 'component_generation_started',
+                  timestamp: Date.now(),
+                });
+
+                // Build a design brief for the component generators
+                const designBrief = formatDesignBrief(
+                  String(args.name),
+                  packageData as unknown as DesignPackageData,
+                  tailwindTheme,
+                );
+                const componentList = DEFAULT_COMPONENT_SET
+                  .map((cat) => `${cat.category}: ${cat.components.join(', ')}`)
+                  .join('\n');
+
+                const directorInput = [
+                  'Generate a component library for this design system.',
+                  '',
+                  designBrief,
+                  '',
+                  '## Components to Generate',
+                  componentList,
+                ].join('\n');
+
+                // Fire and forget — component generation runs in parallel
+                executeInternalBaleybot('component_library_director', directorInput, {
+                  userWorkspaceId: workspace.id,
+                  onSegment: (event) => {
+                    const evt = event as unknown as Record<string, unknown>;
+                    // Forward relevant events to the client
+                    if (evt.type === 'tool_execution_output') {
+                      const result = evt.result as Record<string, unknown> | undefined;
+                      if (result?.componentName) {
+                        sendEvent({
+                          type: 'component_registered',
+                          component: result,
+                          timestamp: Date.now(),
+                        });
+                      }
+                    }
+                  },
+                  signal: AbortSignal.timeout(120_000),
+                }).then(() => {
+                  sendEvent({
+                    type: 'component_generation_complete',
+                    timestamp: Date.now(),
+                  });
+                }).catch((err) => {
+                  log.error('Component generation failed', {
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                  sendEvent({
+                    type: 'component_generation_error',
+                    message: 'Component generation failed — you can regenerate later',
+                    timestamp: Date.now(),
+                  });
+                });
+
+                return { success: true, packageId: pkg.id, message: 'Design package saved. Component library generation started.' };
               } catch (err) {
                 const msg = err instanceof Error ? err.message : 'Failed to save';
                 return { success: false, error: msg };

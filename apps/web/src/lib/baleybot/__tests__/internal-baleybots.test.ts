@@ -98,9 +98,9 @@ describe('internal-baleybots', () => {
       }
     });
 
-    it('has exactly 22 internal bots', () => {
+    it('has exactly 24 internal bots', () => {
       const definedBots = Object.keys(INTERNAL_BALEYBOTS);
-      expect(definedBots).toHaveLength(22);
+      expect(definedBots).toHaveLength(24);
     });
 
     it.each(ALL_INTERNAL_BOTS)('%s has required fields (name, description, icon, balCode)', (botName) => {

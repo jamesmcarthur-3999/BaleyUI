@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { X, Cpu, Zap, Wrench, Braces, Plus, Target } from 'lucide-react';
+import { trpc } from '@/lib/trpc/client';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { SchemaBuilder } from '@/components/baleybot/SchemaBuilder';
 import { cn } from '@/lib/utils';
@@ -20,12 +21,8 @@ interface NodeEditorProps {
   presentationMode?: BuilderPresentationMode;
 }
 
-const AVAILABLE_MODELS = [
-  { value: 'openai:gpt-4o', label: 'GPT-4o' },
-  { value: 'openai:gpt-4o-mini', label: 'GPT-4o Mini' },
-  { value: 'anthropic:claude-sonnet-4-20250514', label: 'Claude Sonnet' },
-  { value: 'anthropic:claude-3-5-haiku-20241022', label: 'Claude Haiku' },
-];
+const TIER_LABELS: Record<string, string> = { ultra: 'Ultra', powerful: 'Powerful', balanced: 'Balanced', fast: 'Fast' };
+const PROVIDER_LABELS: Record<string, string> = { anthropic: 'Anthropic', openai: 'OpenAI', ollama: 'Ollama' };
 
 /** Tools that require user approval before executing */
 const APPROVAL_TOOLS = new Set(['schedule_task', 'create_agent', 'create_tool']);
@@ -113,6 +110,12 @@ export function NodeEditor({
   const runtimeTools = node.data.tools ?? [];
   const approvalTools = node.data.canRequest ?? [];
   const outputSchema = node.data.output ?? {};
+
+  // Fetch available models filtered by workspace connections
+  const { data: modelsByProvider } = trpc.models.forWorkspace.useQuery(undefined, {
+    staleTime: 60_000,
+  });
+
 
   // Compute connected tools not in BUILTIN_TOOLS (MCP, DB, custom from suggestions)
   const connectedTools = [...new Set(toolSuggestions)].filter(
@@ -369,12 +372,19 @@ export function NodeEditor({
                     'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50'
                   )}
                 >
-                  <option value="">Default (GPT-4o Mini)</option>
-                  {AVAILABLE_MODELS.map((model) => (
-                    <option key={model.value} value={model.value}>
-                      {model.label}
-                    </option>
-                  ))}
+                  <option value="">Default (GPT Mini)</option>
+                  {modelsByProvider
+                    ? Object.entries(modelsByProvider).map(([provider, models]) => (
+                        <optgroup key={provider} label={PROVIDER_LABELS[provider] ?? provider}>
+                          {models.map((model) => (
+                            <option key={model.modelId} value={`${model.provider}:${model.modelId}`}>
+                              {model.displayName} · {TIER_LABELS[model.tier] ?? model.tier}
+                              {model.inputCostPer1mTokens ? ` · ~$${model.inputCostPer1mTokens}` : ''}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))
+                    : null}
                 </select>
               </div>
             )}

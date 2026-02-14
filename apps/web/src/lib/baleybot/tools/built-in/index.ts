@@ -205,6 +205,71 @@ export const CREATE_TOOL_SCHEMA = {
 import { REQUEST_USER_INPUT_SCHEMA } from './request-user-input';
 export { REQUEST_USER_INPUT_SCHEMA };
 
+export const GET_DESIGN_PACKAGE_SCHEMA = {
+  type: 'object',
+  properties: {
+    package_id: {
+      type: 'string',
+      description: 'Design package ID. If omitted, returns the workspace default.',
+    },
+    format: {
+      type: 'string',
+      enum: ['brief', 'full', 'tailwind_only', 'registry_only'],
+      description: 'Output format: brief (concise guide ~2000 tokens), full (complete JSON), tailwind_only (theme tokens), registry_only (component library)',
+      default: 'brief',
+    },
+  },
+  required: [],
+} as const;
+
+export const REGISTER_COMPONENT_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: {
+      type: 'string',
+      description: 'Component name (e.g., "Button", "Card")',
+    },
+    category: {
+      type: 'string',
+      enum: ['action', 'layout', 'form', 'data', 'feedback', 'navigation', 'overlay'],
+      description: 'Component category',
+    },
+    variants: {
+      type: 'array',
+      description: 'Component variants with classes, usage, animations, and design notes',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Variant name (e.g., "default", "outline")' },
+          classes: { type: 'string', description: 'Tailwind classes' },
+          usage: { type: 'string', description: 'When to use this variant' },
+          animations: {
+            type: 'object',
+            properties: {
+              hover: { type: 'string' },
+              focus: { type: 'string' },
+              active: { type: 'string' },
+              enter: { type: 'string' },
+            },
+          },
+          customCSS: { type: 'string', description: 'Additional CSS beyond Tailwind' },
+          typographyOverrides: {
+            type: 'object',
+            properties: {
+              weight: { type: 'string' },
+              letterSpacing: { type: 'string' },
+              textTransform: { type: 'string' },
+            },
+          },
+          designNotes: { type: 'string', description: 'Design reasoning' },
+        },
+        required: ['name', 'classes'],
+      },
+    },
+  },
+  required: ['name', 'category', 'variants'],
+} as const;
+
 export const SHARED_STORAGE_SCHEMA = {
   type: 'object',
   properties: {
@@ -423,6 +488,37 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
       { input: { question: 'Which database should I query?', options: ['Production', 'Staging'] }, description: 'Ask user to choose a database' },
     ],
   },
+  {
+    name: 'get_design_package',
+    description: 'Retrieve the workspace design package with color tokens, typography, component library, and Tailwind theme. Returns a formatted brief by default, or raw JSON. Use this to build UI that matches the workspace brand.',
+    inputSchema: GET_DESIGN_PACKAGE_SCHEMA as Record<string, unknown>,
+    category: 'information',
+    dangerLevel: 'safe',
+    approvalRequired: false,
+    capabilities: ['read'],
+    capability: 'read',
+    requirements: [],
+    tags: ['design', 'theme', 'brand', 'colors', 'components', 'tailwind'],
+    examples: [
+      { input: {}, description: 'Get the workspace default design package as a brief' },
+      { input: { format: 'tailwind_only' }, description: 'Get just the Tailwind theme tokens' },
+    ],
+  },
+  {
+    name: 'register_component',
+    description: 'Register or update a UI component in the workspace design package component registry. Components include Tailwind classes, animations, and design notes.',
+    inputSchema: REGISTER_COMPONENT_SCHEMA as Record<string, unknown>,
+    category: 'storage',
+    dangerLevel: 'safe',
+    approvalRequired: false,
+    capabilities: ['write'],
+    capability: 'write',
+    requirements: [],
+    tags: ['design', 'component', 'registry', 'ui', 'tailwind'],
+    examples: [
+      { input: { name: 'Button', category: 'action', variants: [{ name: 'default', classes: 'rounded-md bg-primary px-4 py-2 text-primary-foreground', usage: 'Primary CTA' }] }, description: 'Register a Button component' },
+    ],
+  },
 ];
 
 // ============================================================================
@@ -475,6 +571,18 @@ export interface CreateToolResult {
 }
 
 export type { RequestUserInputResult } from './request-user-input';
+
+export interface GetDesignPackageResult {
+  found: boolean;
+  format: string;
+  content: string | Record<string, unknown>;
+}
+
+export interface RegisterComponentResult {
+  success: boolean;
+  componentName: string;
+  action: 'created' | 'updated';
+}
 
 // ============================================================================
 // TOOL CONTEXT (passed to tool implementations)

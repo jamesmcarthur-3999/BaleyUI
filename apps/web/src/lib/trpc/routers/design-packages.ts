@@ -15,6 +15,8 @@ import {
   runDesignRefiner,
 } from '@/lib/baleybot/internal-bb/runner';
 import type { DesignPackageData } from '@/lib/design-packages/types';
+import { packageToCSS, packageToCSSString } from '@/lib/design-packages/css-variables';
+import { generateTailwindTheme } from '@/lib/design-packages/tailwind-theme';
 
 const colorPaletteInput = z.object({
   background: z.string(),
@@ -369,6 +371,85 @@ export const designPackagesRouter = router({
         .returning();
 
       return deleted;
+    }),
+
+  /**
+   * Export design package as CSS custom properties file.
+   */
+  exportCSS: protectedProcedure
+    .input(z.object({ id: uuidSchema }))
+    .query(async ({ ctx, input }) => {
+      const pkg = await ctx.db.query.designPackages.findFirst({
+        where: and(
+          eq(designPackages.id, input.id),
+          eq(designPackages.workspaceId, ctx.workspace.id),
+          isNull(designPackages.deletedAt)
+        ),
+      });
+
+      if (!pkg) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Design package not found' });
+      }
+
+      const data = pkg.packageData as DesignPackageData;
+      const lightCSS = packageToCSSString(data, 'root', 'light');
+      const darkCSS = packageToCSSString(data, 'root', 'dark');
+
+      return {
+        filename: `${pkg.name.toLowerCase().replace(/\s+/g, '-')}-design-tokens.css`,
+        content: `/* ${pkg.name} — Design Tokens */\n/* Generated ${new Date().toISOString()} */\n\n/* Light Mode */\n:root {\n${lightCSS.replace(/#root \{/, '').replace(/\}$/, '')}\n}\n\n/* Dark Mode */\n.dark {\n${darkCSS.replace(/#root \{/, '').replace(/\}$/, '')}\n}\n`,
+      };
+    }),
+
+  /**
+   * Export design package as Tailwind theme extension.
+   */
+  exportTailwind: protectedProcedure
+    .input(z.object({ id: uuidSchema }))
+    .query(async ({ ctx, input }) => {
+      const pkg = await ctx.db.query.designPackages.findFirst({
+        where: and(
+          eq(designPackages.id, input.id),
+          eq(designPackages.workspaceId, ctx.workspace.id),
+          isNull(designPackages.deletedAt)
+        ),
+      });
+
+      if (!pkg) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Design package not found' });
+      }
+
+      const data = pkg.packageData as DesignPackageData;
+      const theme = data.tailwindTheme ?? generateTailwindTheme(data);
+
+      return {
+        filename: `${pkg.name.toLowerCase().replace(/\s+/g, '-')}-tailwind-theme.json`,
+        content: JSON.stringify(theme, null, 2),
+      };
+    }),
+
+  /**
+   * Export design package as raw JSON (full data + registry).
+   */
+  exportJSON: protectedProcedure
+    .input(z.object({ id: uuidSchema }))
+    .query(async ({ ctx, input }) => {
+      const pkg = await ctx.db.query.designPackages.findFirst({
+        where: and(
+          eq(designPackages.id, input.id),
+          eq(designPackages.workspaceId, ctx.workspace.id),
+          isNull(designPackages.deletedAt)
+        ),
+      });
+
+      if (!pkg) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Design package not found' });
+      }
+
+      return {
+        filename: `${pkg.name.toLowerCase().replace(/\s+/g, '-')}-design-package.json`,
+        content: JSON.stringify(pkg.packageData, null, 2),
+      };
     }),
 
   /**

@@ -543,6 +543,8 @@ export interface ExecuteOptions {
   onApprovalNeeded?: (request: ApprovalRequest) => Promise<ApprovalResponse>;
   /** AbortSignal for cancellation */
   signal?: AbortSignal;
+  /** Multi-modal file attachments (base64 data + MIME type) */
+  attachments?: Array<{ data: string; mimeType: string; fileName?: string }>;
 }
 
 /**

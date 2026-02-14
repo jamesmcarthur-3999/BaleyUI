@@ -25,56 +25,11 @@ const logger = createLogger('internal-baleybots');
 export type InternalBaleybotDef = GeneratedInternalBaleybotDef;
 
 /**
- * Baley system prompt — defined manually because:
- * - Conversational (no output schema)
- * - Tools are injected at runtime (30+ companion tools), not declared in BAL
- */
-const BALEY_GOAL = `You are Baley, the AI assistant built into BaleyUI. Be direct, warm, and concise — respond in 1-3 natural sentences like a knowledgeable colleague, not a manual. Never use markdown headers, bullet lists, or numbered steps unless the user explicitly asks for structured output. Match the user's energy — if they send something casual and short, keep your reply casual and short.
-
-BaleyBots are AI agents defined in BAL with entities, goals, models, and tools composed via chain, parallel, if/else, and loop.
-
-When the user asks for help or seems stuck, check workspace health first. When creating connections, gather credentials conversationally — never echo them back. Before any destructive action (deleting connections, revoking keys), always confirm first.
-
-Your context includes pendingActions data:
-- First message only: if critical actions exist, mention them briefly once.
-- Do not list individual actions unprompted. Use list_pending_actions when the user asks.
-- If only info/warning actions exist, do not mention them proactively.
-- On /dashboard/actions, the user already sees the list — help explain or batch-apply instead.
-- Before applying any recommendation, describe what it does and confirm.
-
-When uncertain, ask one focused question rather than assuming. If something fails, explain clearly and suggest a concrete next step.`;
-
-/**
  * All internal BaleyBot definitions.
  * These are seeded into the database on app startup.
  */
 export const INTERNAL_BALEYBOTS: Record<string, InternalBaleybotDef> = {
   ...GENERATED_INTERNAL_BALEYBOTS,
-  baley: {
-    name: 'baley',
-    description: 'BaleyUI system assistant — workspace management, troubleshooting, and proactive guidance',
-    icon: '✦',
-    balCode: [
-      `baley {`,
-      `  "goal": ${JSON.stringify(BALEY_GOAL)},`,
-      `  "model": "anthropic:claude-sonnet-4-20250514",`,
-      `  "tools": {`,
-      `    "get_workspace_health", "navigate_user_to",`,
-      `    "list_connections", "test_connection", "set_default_connection", "create_connection", "delete_connection",`,
-      `    "list_tools", "create_tool", "delete_tool",`,
-      `    "list_api_keys", "create_api_key", "revoke_api_key",`,
-      `    "list_baleybots", "get_baleybot", "get_execution", "list_recent_executions",`,
-      `    "get_analytics_summary",`,
-      `    "get_workspace_info", "update_workspace",`,
-      `    "list_approval_patterns", "revoke_approval_pattern",`,
-      `    "review_execution", "diagnose_failure", "suggest_approval_patterns",`,
-      `    "list_pending_actions", "apply_action",`,
-      `    "web_search", "fetch_url", "spawn_baleybot", "send_notification",`,
-      `    "store_memory", "schedule_task", "request_user_input"`,
-      `  }`,
-      `}`,
-    ].join('\n'),
-  },
 };
 
 // ============================================================================
@@ -248,7 +203,7 @@ export interface InternalExecutionOptions {
 const INTERNAL_DEFAULT_MODEL: Record<'openai' | 'anthropic' | 'ollama', string> = {
   openai: 'openai:gpt-5-mini',
   anthropic: 'anthropic:claude-sonnet-4-20250514',
-  ollama: 'ollama:llama3.1',
+  ollama: 'ollama:llama3.2',
 };
 
 function applyInternalContractCompatibility(name: string, balCode: string): string {
@@ -449,6 +404,7 @@ export async function executeInternalBaleybot(
     const result = await executeBaleybot(runtimeBalCode, fullInput, ctx, {
       onSegment: options.onSegment,
       signal,
+      attachments: options.attachments,
     });
 
     // Update execution record (including usage data for analytics)

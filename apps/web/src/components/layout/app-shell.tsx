@@ -16,7 +16,7 @@ import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { ActionsIndicator } from '@/components/actions/ActionsIndicator';
 import { Sidebar } from './sidebar';
 import { useBreadcrumbs } from './breadcrumb-context';
-import { useCompanionChat } from '@/hooks/useCompanionChat';
+import { useBaleyChat } from '@/hooks/useBaleyChat';
 import { cn } from '@/lib/utils';
 
 interface AppShellProps {
@@ -28,7 +28,7 @@ function AppShell({ children }: AppShellProps) {
   const { breadcrumbs } = useBreadcrumbs();
   const pathname = usePathname();
   const isBaleybotDetail = pathname?.startsWith('/dashboard/baleybots/');
-  const companion = useCompanionChat();
+  const companion = useBaleyChat();
 
   return (
     <div className="flex h-screen bg-gradient-hero">

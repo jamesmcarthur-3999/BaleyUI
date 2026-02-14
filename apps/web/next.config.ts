@@ -18,7 +18,7 @@ const nextConfig: NextConfig = {
   // Explicitly pin tracing root to this monorepo to avoid Next.js inferring
   // a parent directory when unrelated lockfiles exist on the host machine.
   outputFileTracingRoot: workspaceRoot,
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.resolve = config.resolve || {};
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
@@ -31,6 +31,23 @@ const nextConfig: NextConfig = {
       ...(config.infrastructureLogging || {}),
       level: 'error',
     };
+
+    // @baleybots/core's adapters barrel loads platform/node (fs/promises, child_process)
+    // at import time. These modules are never executed client-side — only the platform/browser
+    // adapter runs in the browser. Provide empty fallbacks so webpack doesn't fail.
+    // NOTE: The @baleybots/auth → express chain was fixed upstream (baleybots/baleybots#37),
+    // but core's own platform/node code still needs these fallbacks.
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...(config.resolve.fallback || {}),
+        fs: false,
+        net: false,
+        tls: false,
+        child_process: false,
+        'fs/promises': false,
+      };
+    }
+
     return config;
   },
   async headers() {
@@ -39,9 +56,9 @@ const nextConfig: NextConfig = {
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "img-src 'self' data: blob:",
+      "img-src 'self' data: blob: https://*.public.blob.vercel-storage.com",
       "font-src 'self' https://fonts.gstatic.com",
-      "connect-src 'self' https://*.neon.tech wss://*.neon.tech",
+      "connect-src 'self' https://*.neon.tech wss://*.neon.tech https://*.public.blob.vercel-storage.com",
       "frame-src 'self' https://challenges.cloudflare.com",
       "object-src 'none'",
       "base-uri 'self'",

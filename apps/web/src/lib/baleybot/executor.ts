@@ -338,9 +338,9 @@ export function getPreferredModel(balCode: string): string {
       }
     }
 
-    return 'openai:gpt-4o-mini'; // Default fallback
+    return 'openai:gpt-5-mini'; // Default fallback
   } catch {
-    return 'openai:gpt-4o-mini';
+    return 'openai:gpt-5-mini';
   }
 }
 
@@ -487,11 +487,31 @@ export async function executeBaleybot(
       ? input
       : `[Shared Context]\n${prefetchedContextBlock}\n\n[User Input]\n${input}`;
 
-    // Note: Using type assertion because we pass extended options (onToolCallApproval)
-    // that the SDK's public BALExecutionOptions doesn't expose.
+    // Build multimodal input if attachments are present
+    const multimodalInput = options?.attachments?.length
+      ? {
+          text: enrichedInput,
+          images: options.attachments
+            .filter(a => a.mimeType.startsWith('image/'))
+            .map(a => ({
+              data: a.data,
+              mediaType: a.mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+            })),
+          file: options.attachments.find(a => a.mimeType === 'application/pdf')
+            ? {
+                data: options.attachments.find(a => a.mimeType === 'application/pdf')!.data,
+                mimeType: 'application/pdf' as const,
+              }
+            : undefined,
+        }
+      : undefined;
+
+    // Note: Using type assertion because we pass extended options (onToolCallApproval,
+    // multimodalInput) that the SDK's public BALExecutionOptions doesn't fully expose.
     // input, model, providerConfig, and availableTools are all now properly typed.
     const executionOptions = {
       input: enrichedInput,
+      multimodalInput,
       model,
       providerConfig,
       availableTools: buildAvailableTools(ctx.availableTools),
