@@ -43,6 +43,7 @@ import type { BaleybotStreamEvent } from '@baleybots/core';
 import type { RuntimeToolDefinition } from '@/lib/baleybot/executor';
 import { normalizeOutputCandidate } from '@/lib/baleybot/internal-bb/runner';
 import { MissingCredentialsError } from '@/lib/baleybot/services/ai-credentials-service';
+import { reportPlatformError } from '@/lib/platform-bugs/report';
 
 const log = createLogger('baley-stream');
 
@@ -769,6 +770,17 @@ export async function POST(req: NextRequest) {
               message: sanitizeStreamError(rawMessage),
               timestamp: Date.now(),
             });
+
+            // Report platform bugs (not user errors)
+            reportPlatformError({
+              errorMessage: rawMessage,
+              stackTrace: error instanceof Error ? error.stack : undefined,
+              source: 'streaming',
+              category: 'streaming_error',
+              route: '/api/baley/stream',
+              workspaceId: workspace.id,
+              environment: process.env.NODE_ENV ?? 'production',
+            }).catch(() => {});
           }
 
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));

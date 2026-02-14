@@ -24,6 +24,10 @@ export interface UsageRecord {
   toolCalls: number;
   durationMs: number;
   model?: string;
+  /** Tokens written to Anthropic prompt cache (first call) */
+  cacheCreationInputTokens?: number;
+  /** Tokens read from Anthropic prompt cache (subsequent calls) */
+  cacheReadInputTokens?: number;
 }
 
 export interface UsageSummary {
@@ -72,19 +76,29 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
 };
 
 /**
- * Calculate estimated cost for token usage
+ * Calculate estimated cost for token usage.
+ * When cache metrics are provided, cached tokens are priced at 10% of input
+ * (Anthropic prompt caching: cache reads cost 90% less).
  */
 export function calculateCost(
   tokenInput: number,
   tokenOutput: number,
-  model?: string
+  model?: string,
+  cacheMetrics?: { cacheCreationInputTokens?: number; cacheReadInputTokens?: number }
 ): number {
   const pricing = MODEL_PRICING[model ?? ''] ?? MODEL_PRICING.default!;
 
-  const inputCost = (tokenInput / 1_000_000) * pricing.input;
+  // Cache reads are 10% of input price; cache writes are 25% more expensive
+  const cacheReadTokens = cacheMetrics?.cacheReadInputTokens ?? 0;
+  const cacheWriteTokens = cacheMetrics?.cacheCreationInputTokens ?? 0;
+  const uncachedInput = Math.max(0, tokenInput - cacheReadTokens - cacheWriteTokens);
+
+  const inputCost = (uncachedInput / 1_000_000) * pricing.input;
+  const cacheReadCost = (cacheReadTokens / 1_000_000) * pricing.input * 0.1;
+  const cacheWriteCost = (cacheWriteTokens / 1_000_000) * pricing.input * 1.25;
   const outputCost = (tokenOutput / 1_000_000) * pricing.output;
 
-  return inputCost + outputCost;
+  return inputCost + cacheReadCost + cacheWriteCost + outputCost;
 }
 
 // ============================================================================
@@ -95,7 +109,10 @@ export function calculateCost(
  * Record usage for an execution
  */
 export async function recordUsage(usage: UsageRecord): Promise<string> {
-  const estimatedCost = calculateCost(usage.tokenInput, usage.tokenOutput, usage.model);
+  const estimatedCost = calculateCost(usage.tokenInput, usage.tokenOutput, usage.model, {
+    cacheCreationInputTokens: usage.cacheCreationInputTokens,
+    cacheReadInputTokens: usage.cacheReadInputTokens,
+  });
 
   const [record] = await db
     .insert(baleybotUsage)
@@ -138,6 +155,8 @@ export async function recordUsageFromExecution(
   let apiCalls = 0;
   let toolCalls = 0;
   let model: string | undefined;
+  let cacheCreationInputTokens = 0;
+  let cacheReadInputTokens = 0;
 
   // Extract usage from segments
   for (const segment of segments) {
@@ -147,6 +166,8 @@ export async function recordUsageFromExecution(
       const usage = seg.usage as Record<string, number>;
       tokenInput += usage.inputTokens ?? 0;
       tokenOutput += usage.outputTokens ?? 0;
+      cacheCreationInputTokens += usage.cacheCreationInputTokens ?? 0;
+      cacheReadInputTokens += usage.cacheReadInputTokens ?? 0;
       apiCalls += 1;
     }
 
@@ -189,6 +210,8 @@ export async function recordUsageFromExecution(
     toolCalls,
     durationMs,
     model,
+    cacheCreationInputTokens: cacheCreationInputTokens || undefined,
+    cacheReadInputTokens: cacheReadInputTokens || undefined,
   });
 }
 

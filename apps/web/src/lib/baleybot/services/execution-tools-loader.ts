@@ -33,6 +33,28 @@ import { createLogger } from '@/lib/logger';
 const log = createLogger('execution-tools-loader');
 
 // ============================================================================
+// WORKSPACE TOOL CATALOG CACHE
+// ============================================================================
+
+interface CachedCatalogData {
+  dbConnections: DatabaseConnectionInput[];
+  mcpConns: MCPConnectionInput[];
+  workspaceTools: WorkspaceTool[];
+  timestamp: number;
+}
+
+const catalogCache = new Map<string, CachedCatalogData>();
+const CATALOG_CACHE_TTL = 60_000; // 60 seconds
+
+/**
+ * Invalidate the tool catalog cache for a workspace.
+ * Call this when connections or tools are created/deleted.
+ */
+export function invalidateToolCatalogCache(workspaceId: string): void {
+  catalogCache.delete(workspaceId);
+}
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
@@ -91,12 +113,25 @@ function decryptDatabaseConfig(config: ConnectionConfig): DatabaseConnectionConf
 export async function loadExecutionTools(input: LoadToolsInput): Promise<LoadToolsResult> {
   const { workspaceId, toolCtx, declaredTools } = input;
 
-  // Fetch database connections, MCP connections, and workspace tools in parallel
-  const [dbConnections, mcpConns, workspaceTools] = await Promise.all([
-    loadDatabaseConnections(workspaceId),
-    loadMCPConnections(workspaceId),
-    loadWorkspaceTools(workspaceId),
-  ]);
+  // Use cached catalog data if available (avoids 3 DB queries per execution)
+  const cached = catalogCache.get(workspaceId);
+  let dbConnections: DatabaseConnectionInput[];
+  let mcpConns: MCPConnectionInput[];
+  let workspaceTools: WorkspaceTool[];
+
+  if (cached && Date.now() - cached.timestamp < CATALOG_CACHE_TTL) {
+    dbConnections = cached.dbConnections;
+    mcpConns = cached.mcpConns;
+    workspaceTools = cached.workspaceTools;
+  } else {
+    // Fetch database connections, MCP connections, and workspace tools in parallel
+    [dbConnections, mcpConns, workspaceTools] = await Promise.all([
+      loadDatabaseConnections(workspaceId),
+      loadMCPConnections(workspaceId),
+      loadWorkspaceTools(workspaceId),
+    ]);
+    catalogCache.set(workspaceId, { dbConnections, mcpConns, workspaceTools, timestamp: Date.now() });
+  }
 
   // Build catalog context
   const catalogCtx: CatalogContext = {

@@ -215,13 +215,15 @@ async function fetchUrlImpl(
 interface SpawnBaleybotArgs {
   baleybot: string;
   input?: unknown;
+  model?: 'fast' | 'balanced' | 'powerful';
 }
 
 // This will be injected at runtime with actual execution capability
 type SpawnBaleybotExecutor = (
   baleybotIdOrName: string,
   input: unknown,
-  ctx: BuiltInToolContext
+  ctx: BuiltInToolContext,
+  options?: { modelTierOverride?: string }
 ) => Promise<SpawnBaleybotResult>;
 
 let spawnBaleybotExecutor: SpawnBaleybotExecutor | null = null;
@@ -238,7 +240,7 @@ async function spawnBaleybotImpl(
     throw new Error('spawn_baleybot executor not configured');
   }
 
-  return spawnBaleybotExecutor(args.baleybot, args.input, ctx);
+  return spawnBaleybotExecutor(args.baleybot, args.input, ctx, args.model ? { modelTierOverride: args.model } : undefined);
 }
 
 // ============================================================================

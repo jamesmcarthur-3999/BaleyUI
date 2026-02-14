@@ -3,7 +3,7 @@
     "id": "creator_action_advisor",
     "description": "Suggests the most relevant next creator actions based on workflow context",
     "icon": "\ud83e\udde9",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "creator_action_advisor_v2",
     "role": "Creator Action Advisor",
     "inputs": [
@@ -28,7 +28,7 @@
     "id": "bal_generator",
     "description": "Converts natural language descriptions into BAL code",
     "icon": "\ud83d\udcdd",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "maxTokens": 32768,
     "contractId": "bal_generator_v1",
     "role": "BAL Code Generator",
@@ -55,7 +55,7 @@
     "id": "pattern_learner",
     "description": "Analyzes tool approvals and suggests patterns for auto-approval",
     "icon": "\ud83e\udde0",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "pattern_learner_v1",
     "role": "Approval Pattern Learning Assistant",
     "inputs": [
@@ -71,7 +71,7 @@
     "uncertaintyPolicy": "When uncertain, mark higher risk and recommend manual approval.",
     "skills": [
       "concise_reasoning",
-      "platform_expertise",
+      "platform_expertise_slim",
       "safety_non_destructive",
       "contract_json_v1"
     ]
@@ -80,7 +80,7 @@
     "id": "execution_reviewer",
     "description": "Reviews BaleyBot executions and suggests improvements",
     "icon": "\ud83d\udd0d",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "execution_reviewer_v1",
     "role": "BaleyBot Review Agent",
     "inputs": [
@@ -96,7 +96,7 @@
     "uncertaintyPolicy": "If evidence is weak, lower confidence and request additional execution context.",
     "skills": [
       "concise_reasoning",
-      "platform_expertise",
+      "platform_expertise_slim",
       "user_communication_actionable",
       "contract_json_v1"
     ]
@@ -172,7 +172,7 @@
     "id": "connection_advisor",
     "description": "Advises on connection requirements and configuration for a BaleyBot",
     "icon": "\ud83d\udd0c",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "connection_advisor_v2",
     "role": "Connection Advisor",
     "inputs": [
@@ -197,7 +197,7 @@
     "id": "test_orchestrator",
     "description": "Topology-aware test orchestrator that designs tests based on BB structure (single, chain, parallel)",
     "icon": "\ud83d\udd2c",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "test_orchestrator_v1",
     "role": "Topology-Aware Test Orchestrator",
     "inputs": [
@@ -219,7 +219,7 @@
     "id": "test_generator",
     "description": "Generates test cases from a BaleyBot goal and structure",
     "icon": "\ud83e\uddea",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "test_generator_v1",
     "role": "Test Case Generator",
     "inputs": [
@@ -240,7 +240,7 @@
     "id": "deployment_advisor",
     "description": "Advises on triggers, scheduling, and activation for a BaleyBot",
     "icon": "\ud83d\ude80",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "deployment_advisor_v1",
     "role": "Deployment Advisor",
     "inputs": [
@@ -253,7 +253,7 @@
     ],
     "uncertaintyPolicy": "If launch confidence is low, emphasize manual trigger with explicit readiness gaps.",
     "skills": [
-      "platform_expertise",
+      "platform_expertise_slim",
       "user_communication_actionable",
       "contract_json_v1"
     ]
@@ -308,7 +308,7 @@
     "id": "integration_builder",
     "description": "Conversational integration guide that helps users deploy and connect BaleyBots to external systems",
     "icon": "\ud83d\udd17",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "integration_builder_v2",
     "role": "Integration Builder",
     "maxTokens": 16384,
@@ -339,7 +339,7 @@
     "id": "test_interface_designer",
     "description": "Analyzes BAL code and designs the optimal test interface for a BaleyBot",
     "icon": "\ud83c\udfaf",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "test_interface_designer_v1",
     "role": "Test Interface Designer",
     "inputs": [
@@ -361,7 +361,7 @@
     "uncertaintyPolicy": "When the bot's purpose is ambiguous or spans multiple categories, default to chat mode — it's the most flexible and lets users discover the right interaction pattern themselves.",
     "skills": [
       "concise_reasoning",
-      "platform_expertise",
+      "platform_expertise_slim",
       "contract_json_v1",
       "test_interface_designer_policy"
     ]
@@ -392,7 +392,7 @@
     "id": "context_processor",
     "description": "Analyzes raw content and extracts structured shared context entries",
     "icon": "\ud83d\udccb",
-    "model": "anthropic:balanced",
+    "model": "anthropic:fast",
     "contractId": "context_processor_v1",
     "role": "Context Processor",
     "tools": ["web_search", "fetch_url"],
@@ -421,7 +421,7 @@
     "id": "design_analyzer",
     "description": "Analyzes uploaded brand resources (images, PDFs, URLs, text) and extracts design attributes",
     "icon": "🎨",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "design_analyzer_v1",
     "role": "Design Analyzer",
     "tools": ["fetch_url", "web_search"],
@@ -449,7 +449,7 @@
     "id": "design_generator",
     "description": "Synthesizes a complete design package with light and dark modes from extracted design attributes",
     "icon": "🖌️",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "design_generator_v1",
     "role": "Design Generator",
     "inputs": [
@@ -477,7 +477,7 @@
     "id": "design_refiner",
     "description": "Applies natural language feedback to modify an existing design package while preserving coherence",
     "icon": "✨",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "design_refiner_v1",
     "role": "Design Refiner",
     "inputs": [
@@ -572,7 +572,7 @@
     "id": "component_library_director",
     "description": "Orchestrates parallel component library generation from design tokens",
     "icon": "\ud83c\udfad",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "component_library_director_v1",
     "role": "Component Library Director",
     "maxTokens": 32768,
@@ -597,7 +597,7 @@
     "id": "component_generator",
     "description": "Generates a batch of components with full sensory design matching a brand",
     "icon": "\ud83c\udfa8",
-    "model": "anthropic:powerful",
+    "model": "anthropic:fast",
     "contractId": "component_generator_v1",
     "role": "Component Generator",
     "maxTokens": 16384,

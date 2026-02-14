@@ -394,7 +394,8 @@ describe('Built-in Tool Implementations', () => {
       expect(mockExecutor).toHaveBeenCalledWith(
         'helper-bot',
         'do something',
-        ctx
+        ctx,
+        undefined
       );
     });
 
@@ -418,7 +419,7 @@ describe('Built-in Tool Implementations', () => {
       const tool = getTool('spawn_baleybot', ctx);
       await tool.function({ baleybot: 'bot-name' });
 
-      expect(mockExecutor).toHaveBeenCalledWith('bot-name', undefined, ctx);
+      expect(mockExecutor).toHaveBeenCalledWith('bot-name', undefined, ctx, undefined);
     });
   });
 

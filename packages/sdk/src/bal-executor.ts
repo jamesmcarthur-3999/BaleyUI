@@ -240,45 +240,7 @@ export async function executeBALCode(
     // Emit parsing event
     onEvent?.({ type: 'parsing', message: 'Parsing BAL code...' });
 
-    // Compile first to get structure
-    const compiled = compileBALCode(code, options);
-
-    if (compiled.errors && compiled.errors.length > 0) {
-      const error = compiled.errors.join('; ');
-      onEvent?.({ type: 'error', error });
-      return {
-        status: 'error',
-        error,
-        errorContext: { phase: 'compilation' },
-        duration: Date.now() - startTime,
-      };
-    }
-
-    // Emit compiled event
-    onEvent?.({
-      type: 'compiled',
-      entities: compiled.entities,
-      structure: compiled.structure,
-    });
-
-    // Note: Even if compiled.structure is null, executeBAL now handles
-    // single-entity BAL by auto-executing that entity. We no longer return
-    // early here - let executeBAL handle the execution logic.
-
-    // Check for cancellation
-    if (abortController.signal.aborted) {
-      cleanup();
-      return {
-        status: abortReason === 'timeout' ? 'timeout' : 'cancelled',
-        error: abortReason === 'timeout' ? `Execution timed out after ${timeout}ms` : undefined,
-        entities: compiled.entities,
-        structure: compiled.structure,
-        duration: Date.now() - startTime,
-      };
-    }
-
-    // Build config with provider configuration and input
-    // Prefer providerConfig over apiKey when both are provided
+    // Build full config upfront — compile once, use for both validation and execution
     const resolvedProviderConfig = options.providerConfig
       ?? (options.apiKey ? { apiKey: options.apiKey } : undefined);
 
@@ -286,35 +248,66 @@ export async function executeBALCode(
       model: options.model || 'gpt-4o-mini',
       providerConfig: resolvedProviderConfig,
       availableTools: getAvailableTools(options),
-      input: options.input, // Forward runtime input to executeBAL
+      input: options.input,
     };
 
-    // Emit started event (show runtime input if provided, else runInput from BAL code)
-    onEvent?.({ type: 'started', input: options.input || compiled.runInput });
+    let compiledRuntime: ReturnType<typeof compileBAL>;
+    try {
+      compiledRuntime = compileBAL(code, config);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      onEvent?.({ type: 'error', error: errorMsg });
+      return {
+        status: 'error',
+        error: errorMsg,
+        errorContext: { phase: 'compilation' },
+        duration: Date.now() - startTime,
+      };
+    }
 
-    // Compile to get executable with streaming support
-    const compiledRuntime = compileBAL(code, config);
-    const executable = compiledRuntime.executable;
+    const { entityNames, pipelineStructure, runInput, executable } = compiledRuntime;
+
+    // Emit compiled event
+    onEvent?.({
+      type: 'compiled',
+      entities: entityNames,
+      structure: pipelineStructure,
+    });
+
+    // Check for cancellation
+    if (abortController.signal.aborted) {
+      cleanup();
+      return {
+        status: abortReason === 'timeout' ? 'timeout' : 'cancelled',
+        error: abortReason === 'timeout' ? `Execution timed out after ${timeout}ms` : undefined,
+        entities: entityNames,
+        structure: pipelineStructure,
+        duration: Date.now() - startTime,
+      };
+    }
+
+    // Emit started event (show runtime input if provided, else runInput from BAL code)
+    onEvent?.({ type: 'started', input: options.input || runInput });
 
     if (!executable) {
       cleanup();
       const noExecResult = {
         status: 'parsed',
         message: 'No composition to execute',
-        entities: compiled.entities,
+        entities: entityNames,
       };
       onEvent?.({ type: 'completed', result: noExecResult });
       return {
         status: 'success',
         result: noExecResult,
-        entities: compiled.entities,
-        structure: compiled.structure,
+        entities: entityNames,
+        structure: pipelineStructure,
         duration: Date.now() - startTime,
       };
     }
 
     // Execute with onToken callback for real-time streaming
-    const effectiveInput = options.input || compiledRuntime.runInput || 'Execute your task based on your goal.';
+    const effectiveInput = options.input || runInput || 'Execute your task based on your goal.';
     // Use multimodal input when attachments are present (Baleybot.process accepts string | UnifiedMessageInput)
     const processInput = options.multimodalInput ?? effectiveInput;
     const result = await executable.process(processInput, {
@@ -333,8 +326,8 @@ export async function executeBALCode(
     return {
       status: 'success',
       result,
-      entities: compiled.entities,
-      structure: compiled.structure,
+      entities: entityNames,
+      structure: pipelineStructure,
       duration: Date.now() - startTime,
     };
   } catch (error) {
@@ -397,29 +390,37 @@ export async function* streamBALExecution(
   try {
     yield { type: 'parsing', message: 'Parsing BAL code...' };
 
-    // Compile first
-    const compiled = compileBALCode(code, options);
+    // Build full config upfront — compile once
+    const resolvedProviderConfig = options.providerConfig
+      ?? (options.apiKey ? { apiKey: options.apiKey } : undefined);
+    const config: BALConfig = {
+      model: options.model || 'gpt-4o-mini',
+      providerConfig: resolvedProviderConfig,
+      availableTools: getAvailableTools(options),
+      input: options.input,
+    };
 
-    if (compiled.errors && compiled.errors.length > 0) {
-      const error = compiled.errors.join('; ');
-      yield { type: 'error', error };
+    let compiledRuntime: ReturnType<typeof compileBAL>;
+    try {
+      compiledRuntime = compileBAL(code, config);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      yield { type: 'error', error: errorMsg };
       return {
         status: 'error',
-        error,
+        error: errorMsg,
         errorContext: { phase: 'compilation' },
         duration: Date.now() - startTime,
       };
     }
 
+    const { entityNames, pipelineStructure, runInput, executable } = compiledRuntime;
+
     yield {
       type: 'compiled',
-      entities: compiled.entities,
-      structure: compiled.structure,
+      entities: entityNames,
+      structure: pipelineStructure,
     };
-
-    // Note: Even if compiled.structure is null, executeBAL now handles
-    // single-entity BAL by auto-executing that entity. We no longer return
-    // early here - let executeBAL handle the execution logic.
 
     // Check cancellation/timeout
     if (signal?.aborted || timedOut) {
@@ -431,20 +432,8 @@ export async function* streamBALExecution(
     }
 
     // Emit started event (show runtime input if provided, else runInput from BAL code)
-    yield { type: 'started', input: options.input || compiled.runInput };
+    yield { type: 'started', input: options.input || runInput };
 
-    // Stream token/progress events by executing from the compiled processable.
-    const resolvedProviderConfig = options.providerConfig
-      ?? (options.apiKey ? { apiKey: options.apiKey } : undefined);
-    const config: BALConfig = {
-      model: options.model || 'gpt-4o-mini',
-      providerConfig: resolvedProviderConfig,
-      availableTools: getAvailableTools(options),
-      input: options.input,
-    };
-
-    const compiledRuntime = compileBAL(code, config);
-    const executable = compiledRuntime.executable;
     if (!executable) {
       if (timeoutId) clearTimeout(timeoutId);
       yield {
@@ -452,17 +441,17 @@ export async function* streamBALExecution(
         result: {
           status: 'parsed',
           message: 'Code parsed successfully. No composition to execute.',
-          entities: compiled.entities,
+          entities: entityNames,
         },
       };
       return {
         status: 'success',
         result: {
           status: 'parsed',
-          entities: compiled.entities,
+          entities: entityNames,
         },
-        entities: compiled.entities,
-        structure: compiled.structure,
+        entities: entityNames,
+        structure: pipelineStructure,
         duration: Date.now() - startTime,
       };
     }
@@ -485,7 +474,7 @@ export async function* streamBALExecution(
     };
 
     const streamProcessInput = options.multimodalInput
-      ?? (options.input || compiled.runInput || 'Execute your task based on your goal.');
+      ?? (options.input || runInput || 'Execute your task based on your goal.');
     const processPromise = executable
       .process(streamProcessInput, {
         signal,
@@ -538,8 +527,8 @@ export async function* streamBALExecution(
     return {
       status: 'success',
       result: finalResult,
-      entities: compiled.entities,
-      structure: compiled.structure,
+      entities: entityNames,
+      structure: pipelineStructure,
       duration: Date.now() - startTime,
     };
   } catch (error) {

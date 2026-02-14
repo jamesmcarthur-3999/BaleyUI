@@ -391,10 +391,29 @@ export async function executeInternalBaleybot(
       name,
       internalBB.balCode
     );
-    const runtimeBalCode = rewriteModelProvidersForAvailability(
+    let runtimeBalCode = rewriteModelProvidersForAvailability(
       compatibilityPatchedCode,
       aiProviders
     );
+
+    // Inject additional tool names into the BAL tools block so the SDK
+    // interpreter gives the bot access to them. Without this, injected tools
+    // are in availableTools but not declared in BAL, so the interpreter skips them.
+    if (options.injectedTools && options.injectedTools.size > 0) {
+      const injectedNames = [...options.injectedTools.keys()];
+      // Find existing tools already declared in BAL to avoid duplicates
+      const newNames = injectedNames.filter(
+        (n) => !runtimeBalCode.includes(`"${n}"`)
+      );
+      if (newNames.length > 0) {
+        // Insert before the closing brace of the tools block: "tools": { ..., "new1", "new2" }
+        const additions = newNames.map((n) => `"${n}"`).join(', ');
+        runtimeBalCode = runtimeBalCode.replace(
+          /("tools"\s*:\s*\{[^}]*)(})/,
+          `$1, ${additions}$2`
+        );
+      }
+    }
 
     // Use caller's signal, or default to 2-minute timeout to prevent indefinite hangs
     const signal = options.signal ?? AbortSignal.timeout(120_000);

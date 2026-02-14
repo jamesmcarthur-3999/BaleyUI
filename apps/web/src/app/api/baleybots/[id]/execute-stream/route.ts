@@ -41,6 +41,7 @@ import { processBBCompletion } from '@/lib/baleybot/services/bb-completion-trigg
 import { processError } from '@/lib/baleybot/services/error-resolution-service';
 import { analyzeSuccessfulExecution } from '@/lib/baleybot/services/post-execution-analysis';
 import { getErrorResolution } from '@/lib/errors/error-resolution-map';
+import { reportPlatformError } from '@/lib/platform-bugs/report';
 import { apiErrors, createErrorResponse } from '@/lib/api/error-response';
 import { getAuthenticatedWorkspace } from '@/lib/auth/workspace-lookup';
 import { loadExecutionTools } from '@/lib/baleybot/services/execution-tools-loader';
@@ -604,6 +605,24 @@ export async function POST(
             durationMs: duration,
             segments,
           }).catch(() => {});
+
+          // Platform bug tracking: report non-user errors (async, non-blocking)
+          if (
+            !(err instanceof MissingCredentialsError) &&
+            !(err instanceof z.ZodError) &&
+            !errorMessage.includes('rate limit')
+          ) {
+            reportPlatformError({
+              errorMessage,
+              stackTrace: err instanceof Error ? err.stack : undefined,
+              source: 'streaming',
+              category: 'streaming_error',
+              route: `/api/baleybots/${baleybotId}/execute-stream`,
+              workspaceId,
+              environment: process.env.NODE_ENV ?? 'production',
+              metadata: { executionId: execution.id, baleybotId },
+            }).catch(() => {});
+          }
 
           // Send error event with resolution hint
           const resolution = getErrorResolution(errorMessage);

@@ -93,6 +93,11 @@ export const SPAWN_BALEYBOT_SCHEMA = {
     input: {
       description: 'Input to pass to the BaleyBot',
     },
+    model: {
+      type: 'string',
+      enum: ['fast', 'balanced', 'powerful'],
+      description: 'Optional model tier override. Use "powerful" for complex reasoning tasks that need a stronger model than the bot\'s default.',
+    },
   },
   required: ['baleybot'],
 } as const;

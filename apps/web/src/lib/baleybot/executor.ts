@@ -622,6 +622,8 @@ export async function executeBaleybot(
   let tokensOutput = 0;
   let apiCalls = 0;
   let toolCallCount = 0;
+  let cacheCreationInputTokens = 0;
+  let cacheReadInputTokens = 0;
 
   for (const segment of segments) {
     const seg = segment as Record<string, unknown>;
@@ -629,6 +631,8 @@ export async function executeBaleybot(
       const usage = seg.usage as Record<string, number>;
       tokensInput += usage.inputTokens ?? 0;
       tokensOutput += usage.outputTokens ?? 0;
+      cacheCreationInputTokens += usage.cacheCreationInputTokens ?? 0;
+      cacheReadInputTokens += usage.cacheReadInputTokens ?? 0;
       apiCalls += 1;
     }
     if (seg.type === 'tool_use_start') {
@@ -638,7 +642,10 @@ export async function executeBaleybot(
 
   const totalTokens = tokensInput + tokensOutput;
   const estimatedCost = totalTokens > 0
-    ? calculateExecutionCost(tokensInput, tokensOutput, model)
+    ? calculateExecutionCost(tokensInput, tokensOutput, model, {
+        cacheCreationInputTokens,
+        cacheReadInputTokens,
+      })
     : undefined;
 
   // ============================================================================

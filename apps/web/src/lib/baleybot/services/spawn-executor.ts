@@ -18,6 +18,7 @@ import { getBuiltInRuntimeTools } from '../tools/built-in/implementations';
 import type { WorkspacePolicies as FullWorkspacePolicies } from '../types';
 import type { BaleybotStreamEvent } from '@baleybots/core';
 import { getOrCreateSystemWorkspace } from '@/lib/system-workspace';
+import { getDefaultModelForTier } from '@/lib/models/model-registry';
 import { createLogger } from '@/lib/logger';
 
 // ============================================================================
@@ -126,7 +127,8 @@ function validateToolsAgainstPolicies(
 export type SpawnBaleybotExecutor = (
   baleybotIdOrName: string,
   input: unknown,
-  ctx: BuiltInToolContext
+  ctx: BuiltInToolContext,
+  options?: { modelTierOverride?: string }
 ) => Promise<SpawnBaleybotResult>;
 
 /**
@@ -307,7 +309,8 @@ export function createSpawnBaleybotExecutor(options?: {
   async function spawnBaleybot(
     baleybotIdOrName: string,
     input: unknown,
-    ctx: BuiltInToolContext
+    ctx: BuiltInToolContext,
+    spawnOptions?: { modelTierOverride?: string }
   ): Promise<SpawnBaleybotResult> {
     const startTime = Date.now();
     const spawnCtx = ctx as SpawnContext;
@@ -379,6 +382,26 @@ export function createSpawnBaleybotExecutor(options?: {
     );
 
     try {
+      // Apply model tier override if requested
+      let balCode = targetBB.balCode;
+      if (spawnOptions?.modelTierOverride) {
+        // Extract current provider from BAL code (e.g., "anthropic" from "anthropic:claude-haiku-...")
+        const modelMatch = balCode.match(/"model"\s*:\s*"([^":]+):/);
+        const provider = modelMatch?.[1] as 'openai' | 'anthropic' | 'ollama' | undefined;
+        if (provider) {
+          const resolvedModel = await getDefaultModelForTier(provider, spawnOptions.modelTierOverride);
+          if (resolvedModel) {
+            balCode = balCode.replace(
+              /"model"\s*:\s*"[^"]+"/g,
+              `"model": "${resolvedModel}"`
+            );
+            log.info(`Model override applied: tier=${spawnOptions.modelTierOverride} → ${resolvedModel}`, {
+              baleybotName: targetBB.name,
+            });
+          }
+        }
+      }
+
       // Create executor context for the spawned BB
       const nestedCtx: SpawnContext = {
         workspaceId: ctx.workspaceId,
@@ -409,7 +432,7 @@ export function createSpawnBaleybotExecutor(options?: {
 
       // Execute the BaleyBot with optional streaming callback
       const result = await executeBaleybot(
-        targetBB.balCode,
+        balCode,
         inputStr,
         executorContext,
         {
