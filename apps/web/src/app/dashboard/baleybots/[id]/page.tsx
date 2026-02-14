@@ -9,6 +9,7 @@ import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDial
 import type {
   TestCase,
 } from '@/components/creator';
+import type { ChatAttachment } from '@/components/chat';
 
 // Dynamic import to avoid bundling @baleybots/core server-only modules in client
 const VisualEditor = dynamic(
@@ -535,7 +536,8 @@ export default function BaleybotPage() {
   /**
    * Handle sending a message to the Creator Bot
    */
-  const handleSendMessage = async (message: string, _attachments?: unknown) => {
+  // TODO: Forward attachments to runCreatorStream once the creator stream endpoint supports multimodal
+  const handleSendMessage = async (message: string, _attachments?: ChatAttachment[]) => {
     // Concurrency guard — prevent overlapping sends
     if (isSendingRef.current) return;
     isSendingRef.current = true;

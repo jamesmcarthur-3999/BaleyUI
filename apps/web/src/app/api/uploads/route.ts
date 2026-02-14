@@ -23,7 +23,6 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/png',
   'image/gif',
   'image/webp',
-  'image/svg+xml',
   'application/pdf',
 ]);
 
@@ -90,7 +89,8 @@ export async function POST(req: NextRequest) {
     }> = [];
 
     for (const file of files) {
-      const blobPath = `chat-uploads/${workspace.id}/${Date.now()}-${file.name}`;
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const blobPath = `chat-uploads/${workspace.id}/${crypto.randomUUID()}-${safeName}`;
       const blob = await put(blobPath, file, {
         access: 'public',
         contentType: file.type,

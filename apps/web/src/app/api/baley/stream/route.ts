@@ -540,10 +540,32 @@ export async function POST(req: NextRequest) {
           // Fetch uploaded attachments and convert to base64 for multimodal input
           const fetchedAttachments: Array<{ data: string; mimeType: string }> = [];
           if (input.attachments && input.attachments.length > 0) {
+            const MAX_ATTACHMENT_FETCH_SIZE = 10 * 1024 * 1024; // 10MB
             for (const att of input.attachments) {
               try {
-                const response = await fetch(att.downloadUrl);
+                // Validate URL points to Vercel Blob storage to prevent SSRF
+                const parsedUrl = new URL(att.downloadUrl);
+                if (
+                  !parsedUrl.hostname.endsWith('.public.blob.vercel-storage.com') &&
+                  !parsedUrl.hostname.endsWith('.vercel-storage.com')
+                ) {
+                  log.warn('Rejected non-blob download URL', { url: att.downloadUrl, fileName: att.fileName });
+                  continue;
+                }
+
+                const response = await fetch(att.downloadUrl, {
+                  signal: AbortSignal.timeout(30_000), // 30s timeout
+                });
+                const contentLength = parseInt(response.headers.get('content-length') ?? '0', 10);
+                if (contentLength > MAX_ATTACHMENT_FETCH_SIZE) {
+                  log.warn('Attachment too large for processing', { fileName: att.fileName, size: contentLength });
+                  continue;
+                }
                 const buffer = await response.arrayBuffer();
+                if (buffer.byteLength > MAX_ATTACHMENT_FETCH_SIZE) {
+                  log.warn('Attachment exceeded size limit', { fileName: att.fileName, size: buffer.byteLength });
+                  continue;
+                }
                 const base64 = Buffer.from(buffer).toString('base64');
                 fetchedAttachments.push({
                   data: base64,

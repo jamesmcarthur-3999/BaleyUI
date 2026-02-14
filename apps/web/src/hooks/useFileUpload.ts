@@ -21,6 +21,8 @@ export interface UseFileUploadOptions {
   /** Custom response parser — transforms API JSON to ChatAttachment[].
    *  If omitted, expects `{ uploads: [...] }` shape from /api/uploads. */
   parseResponse?: (json: unknown, files: File[]) => ChatAttachment[];
+  /** Error handler (default: console.error). Use to show toasts or custom UI. */
+  onError?: (message: string) => void;
 }
 
 export interface UseFileUploadReturn {
@@ -33,6 +35,7 @@ export interface UseFileUploadReturn {
   clearPendingAttachments: () => ChatAttachment[];
   dragHandlers: {
     onDragOver: (e: DragEvent) => void;
+    onDragEnter: (e: DragEvent) => void;
     onDragLeave: () => void;
     onDrop: (e: DragEvent) => void;
   };
@@ -47,7 +50,6 @@ const DEFAULT_ALLOWED_TYPES = new Set([
   'image/png',
   'image/gif',
   'image/webp',
-  'image/svg+xml',
   'application/pdf',
 ]);
 
@@ -66,34 +68,39 @@ export function useFileUpload(options?: UseFileUploadOptions): UseFileUploadRetu
     allowedTypes = DEFAULT_ALLOWED_TYPES,
     extraFormData,
     parseResponse,
+    onError = (msg: string) => console.error('[useFileUpload]', msg),
   } = options ?? {};
 
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
+  const uploadingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFileUpload = async (files: FileList | File[]) => {
     const fileArray = Array.from(files);
     if (fileArray.length === 0) return;
+    if (uploadingRef.current) return; // Prevent concurrent uploads
 
     // Client-side validation
     for (const file of fileArray) {
       if (!allowedTypes.has(file.type)) {
-        alert(`"${file.name}" is not a supported file type. Use images or PDFs.`);
+        onError(`"${file.name}" is not a supported file type. Use images or PDFs.`);
         return;
       }
       if (file.size > maxFileSize) {
-        alert(`"${file.name}" is too large. Maximum ${maxFileSize / 1024 / 1024}MB per file.`);
+        onError(`"${file.name}" is too large. Maximum ${maxFileSize / 1024 / 1024}MB per file.`);
         return;
       }
     }
 
     if (pendingAttachments.length + fileArray.length > maxFiles) {
-      alert(`Maximum ${maxFiles} files allowed.`);
+      onError(`Maximum ${maxFiles} files allowed.`);
       return;
     }
 
+    uploadingRef.current = true;
     setUploading(true);
     try {
       const formData = new FormData();
@@ -132,19 +139,23 @@ export function useFileUpload(options?: UseFileUploadOptions): UseFileUploadRetu
           }>;
         };
 
-        // Create local preview URLs for images
-        newAttachments = uploads.map((u, i) => ({
-          ...u,
-          localPreviewUrl: fileArray[i]?.type.startsWith('image/')
-            ? URL.createObjectURL(fileArray[i]!)
-            : undefined,
-        }));
+        // Create local preview URLs for images (match by name, not index)
+        newAttachments = uploads.map((u) => {
+          const matchingFile = fileArray.find(f => f.name === u.fileName);
+          return {
+            ...u,
+            localPreviewUrl: matchingFile?.type.startsWith('image/')
+              ? URL.createObjectURL(matchingFile)
+              : undefined,
+          };
+        });
       }
 
       setPendingAttachments((prev) => [...prev, ...newAttachments]);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Upload failed');
+      onError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
+      uploadingRef.current = false;
       setUploading(false);
     }
   };
@@ -160,23 +171,34 @@ export function useFileUpload(options?: UseFileUploadOptions): UseFileUploadRetu
   };
 
   const clearPendingAttachments = (): ChatAttachment[] => {
-    const current = [...pendingAttachments];
-    setPendingAttachments([]);
-    return current;
+    let captured: ChatAttachment[] = [];
+    setPendingAttachments((prev) => {
+      captured = [...prev];
+      return [];
+    });
+    return captured;
   };
 
   const dragHandlers = {
     onDragOver: (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
+    },
+    onDragEnter: (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current++;
       setIsDragging(true);
     },
     onDragLeave: () => {
-      setIsDragging(false);
+      dragCounterRef.current--;
+      if (dragCounterRef.current === 0) {
+        setIsDragging(false);
+      }
     },
     onDrop: (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      dragCounterRef.current = 0;
       setIsDragging(false);
       if (e.dataTransfer?.files) {
         handleFileUpload(e.dataTransfer.files);

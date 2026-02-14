@@ -53,6 +53,7 @@ export function AttachmentThumbnails({
           {onRemove && (
             <button
               onClick={() => onRemove(att.url)}
+              aria-label={`Remove ${att.fileName}`}
               className="rounded-full p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted transition-all"
             >
               <X className={cn(compact ? 'h-2.5 w-2.5' : 'h-3 w-3')} />
