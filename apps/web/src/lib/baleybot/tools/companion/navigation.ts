@@ -1,45 +1,14 @@
 /**
  * Navigation & Context Tools for Baley
+ *
+ * Valid routes and labels are derived from the PAGE_REGISTRY in routes.ts
+ * — no hardcoded route sets here.
  */
 
 import type { RuntimeToolDefinition } from '../../executor';
 import type { CompanionToolContext } from './index';
 import { db, connections, notDeleted, eq, and } from '@baleyui/db';
-
-/** Valid dashboard routes derived from actual page.tsx files */
-const VALID_DASHBOARD_ROUTES = new Set([
-  '/dashboard',
-  '/dashboard/baleybots',
-  '/dashboard/baleybots/library',
-  '/dashboard/actions',
-  '/dashboard/activity',
-  '/dashboard/analytics',
-  '/dashboard/connections',
-  '/dashboard/tools',
-  '/dashboard/shared-context',
-  '/dashboard/capabilities/connections',
-  '/dashboard/capabilities/api-keys',
-  '/dashboard/capabilities/tools',
-  '/dashboard/settings',
-  '/dashboard/settings/general',
-  '/dashboard/settings/profile',
-  '/dashboard/settings/api-keys',
-  '/dashboard/settings/approvals',
-  '/dashboard/settings/team',
-  '/dashboard/settings/workspace',
-  '/dashboard/admin',
-  '/dashboard/admin/users',
-  '/dashboard/admin/sessions',
-  '/dashboard/admin/baleybots',
-]);
-
-/** Dynamic routes that accept a trailing ID segment */
-const DYNAMIC_ROUTE_PREFIXES = [
-  '/dashboard/baleybots/',
-  '/dashboard/activity/executions/',
-  '/dashboard/admin/users/',
-  '/dashboard/admin/baleybots/',
-];
+import { getPageInfo, getValidDashboardPaths } from '@/lib/routes';
 
 function stripQueryString(path: string): string {
   const idx = path.indexOf('?');
@@ -48,39 +17,15 @@ function stripQueryString(path: string): string {
 
 function isValidDashboardPath(path: string): boolean {
   const pathOnly = stripQueryString(path);
-  if (VALID_DASHBOARD_ROUTES.has(pathOnly)) return true;
-  return DYNAMIC_ROUTE_PREFIXES.some((prefix) => pathOnly.startsWith(prefix));
+  const { static: staticPaths, dynamicPrefixes } = getValidDashboardPaths();
+  if (staticPaths.has(pathOnly)) return true;
+  return dynamicPrefixes.some((prefix) => pathOnly.startsWith(prefix));
 }
 
-/** Human-readable label for a dashboard path */
+/** Human-readable label for a dashboard path, derived from PAGE_REGISTRY */
 function labelForPath(path: string): string {
   const pathOnly = stripQueryString(path);
-  const labels: Record<string, string> = {
-    '/dashboard': 'Dashboard',
-    '/dashboard/baleybots': 'BaleyBots',
-    '/dashboard/baleybots/library': 'Bot Library',
-    '/dashboard/actions': 'Actions',
-    '/dashboard/activity': 'Activity',
-    '/dashboard/analytics': 'Analytics',
-    '/dashboard/connections': 'Connections',
-    '/dashboard/tools': 'Tools',
-    '/dashboard/shared-context': 'Shared Context',
-    '/dashboard/capabilities/connections': 'Connections',
-    '/dashboard/capabilities/api-keys': 'API Keys',
-    '/dashboard/capabilities/tools': 'Tools',
-    '/dashboard/settings': 'Settings',
-    '/dashboard/settings/general': 'General Settings',
-    '/dashboard/settings/profile': 'Profile',
-    '/dashboard/settings/api-keys': 'API Keys',
-    '/dashboard/settings/approvals': 'Approvals',
-    '/dashboard/settings/team': 'Team',
-    '/dashboard/settings/workspace': 'Workspace',
-    '/dashboard/admin': 'Admin',
-    '/dashboard/admin/users': 'User Management',
-    '/dashboard/admin/sessions': 'Sessions',
-    '/dashboard/admin/baleybots': 'Bot Management',
-  };
-  return labels[pathOnly] ?? pathOnly.split('/').pop() ?? 'Page';
+  return getPageInfo(pathOnly)?.label ?? pathOnly.split('/').pop() ?? 'Page';
 }
 
 export function buildNavigationTools(
@@ -151,7 +96,7 @@ export function buildNavigationTools(
   tools.set('navigate_user_to', {
     name: 'navigate_user_to',
     description:
-      'Navigate the user to a specific page in BaleyUI. Shows a confirmation chip — the user must approve. Use dashboard paths like "/dashboard/baleybots", "/dashboard/capabilities/connections", "/dashboard/settings/general", etc.',
+      'Navigate the user to a specific dashboard page. Shows a confirmation chip the user must approve. Use /dashboard/baleybots/new to start building a new bot, /dashboard/capabilities/connections for connection setup, /dashboard/activity for execution history, /dashboard/actions for AI recommendations, /dashboard/analytics for usage stats, /dashboard/settings/general for workspace config. Always include a reason explaining why this navigation helps.',
     inputSchema: {
       type: 'object',
       properties: {

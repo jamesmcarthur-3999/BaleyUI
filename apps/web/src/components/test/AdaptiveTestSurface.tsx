@@ -252,7 +252,9 @@ export function AdaptiveTestSurface({
             setError({
               message: typeof event.error === 'string'
                 ? event.error
-                : (event.error as Record<string, unknown>)?.message as string ?? String(event.error ?? 'Execution failed'),
+                : event.error != null
+                  ? (event.error as Record<string, unknown>).message as string ?? String(event.error)
+                  : 'Execution failed',
               actionUrl: event.actionUrl as string | undefined,
               actionLabel: event.actionLabel as string | undefined,
             });

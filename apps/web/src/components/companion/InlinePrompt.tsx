@@ -243,6 +243,7 @@ export function InlinePrompt({
       setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
       setIsLoading(false);
+      textareaRef.current?.focus();
     }
   };
 

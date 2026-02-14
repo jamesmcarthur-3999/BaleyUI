@@ -5,16 +5,20 @@ import {
   eq,
   and,
   desc,
+  asc,
   notDeleted,
   updateWithLock,
   baleybotExecutions,
   user,
   session,
   workspaces,
+  platformBugs,
+  aiModels,
   db,
   sql,
   gt,
   lt,
+  ne,
 } from '@baleyui/db';
 import { TRPCError } from '@trpc/server';
 import { INTERNAL_BALEYBOTS } from '@/lib/baleybot/internal-baleybots';
@@ -582,6 +586,274 @@ export const adminRouter = router({
       totalExpired: totalExpiredResult[0]?.count ?? 0,
       usersWithNoSessions: usersWithNoSessionsResult[0]?.count ?? 0,
       avgSessionAgeSeconds: avgSessionAgeResult[0]?.avgAge ?? 0,
+    };
+  }),
+
+  // ============================================================================
+  // PLATFORM BUG TRACKING
+  // ============================================================================
+
+  listPlatformBugs: systemAdminProcedure
+    .input(
+      z.object({
+        status: z.enum(['new', 'acknowledged', 'filed', 'resolved', 'wontfix']).optional(),
+        severity: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+        category: z.string().optional(),
+        environment: z.string().optional(),
+        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0),
+      }).optional()
+    )
+    .query(async ({ input }) => {
+      const { status, severity, category, environment, limit = 50, offset = 0 } = input ?? {};
+
+      const conditions = [notDeleted(platformBugs)];
+      if (status) conditions.push(eq(platformBugs.status, status));
+      if (severity) conditions.push(eq(platformBugs.severity, severity));
+      if (category) conditions.push(eq(platformBugs.category, category));
+      if (environment) conditions.push(eq(platformBugs.environment, environment));
+
+      const where = and(...conditions);
+
+      const [bugs, countResult] = await Promise.all([
+        db
+          .select()
+          .from(platformBugs)
+          .where(where)
+          .orderBy(desc(platformBugs.lastSeenAt))
+          .limit(limit)
+          .offset(offset),
+        db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(platformBugs)
+          .where(where),
+      ]);
+
+      return {
+        bugs,
+        total: countResult[0]?.count ?? 0,
+      };
+    }),
+
+  getPlatformBug: systemAdminProcedure
+    .input(z.object({ id: uuidSchema }))
+    .query(async ({ input }) => {
+      const bug = await db.query.platformBugs.findFirst({
+        where: and(
+          eq(platformBugs.id, input.id),
+          notDeleted(platformBugs)
+        ),
+      });
+
+      if (!bug) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Platform bug not found' });
+      }
+
+      return bug;
+    }),
+
+  updatePlatformBugStatus: systemAdminProcedure
+    .input(
+      z.object({
+        id: uuidSchema,
+        version: versionSchema,
+        status: z.enum(['acknowledged', 'filed', 'resolved', 'wontfix']),
+        resolution: z.string().max(5000).optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const updates: Record<string, unknown> = {
+        status: input.status,
+        updatedAt: new Date(),
+      };
+
+      if (input.status === 'resolved') {
+        updates.resolvedAt = new Date();
+        if (input.resolution) {
+          updates.resolution = input.resolution;
+        }
+      }
+
+      await updateWithLock(platformBugs, input.id, input.version, updates);
+      return { success: true };
+    }),
+
+  createGithubIssue: systemAdminProcedure
+    .input(z.object({ id: uuidSchema, version: versionSchema }))
+    .mutation(async ({ input }) => {
+      const bug = await db.query.platformBugs.findFirst({
+        where: and(
+          eq(platformBugs.id, input.id),
+          notDeleted(platformBugs)
+        ),
+      });
+
+      if (!bug) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Platform bug not found' });
+      }
+
+      if (bug.githubIssueUrl) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitHub issue already exists' });
+      }
+
+      // Build issue body
+      const issueTitle = bug.title ?? `[${bug.severity}] ${bug.category}: ${bug.errorMessage.slice(0, 80)}`;
+      const issueBody = [
+        `## Platform Bug Report`,
+        ``,
+        `**Category:** ${bug.category}`,
+        `**Severity:** ${bug.severity}`,
+        `**Source:** ${bug.source}`,
+        `**Environment:** ${bug.environment}`,
+        `**Occurrences:** ${bug.occurrenceCount}`,
+        `**First seen:** ${bug.firstSeenAt.toISOString()}`,
+        `**Last seen:** ${bug.lastSeenAt.toISOString()}`,
+        ``,
+        `### Error Message`,
+        '```',
+        bug.errorMessage.slice(0, 2000),
+        '```',
+        bug.stackTrace ? `\n### Stack Trace\n\`\`\`\n${bug.stackTrace.slice(0, 3000)}\n\`\`\`` : '',
+        bug.rootCause ? `\n### Root Cause (AI Analysis)\n${bug.rootCause}` : '',
+        bug.suggestedFix ? `\n### Suggested Fix (AI Analysis)\n${bug.suggestedFix}` : '',
+        ``,
+        `---`,
+        `*Auto-filed by BaleyUI platform bug tracking*`,
+      ].join('\n');
+
+      // Call gh CLI to create issue
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+
+      try {
+        const { stdout } = await execAsync(
+          `gh issue create --title ${JSON.stringify(issueTitle.slice(0, 256))} --body ${JSON.stringify(issueBody)} --label "platform-bug,${bug.severity}"`,
+          { timeout: 15000 }
+        );
+
+        // Parse the URL from gh output
+        const urlMatch = stdout.trim().match(/https:\/\/github\.com\/[^\s]+/);
+        const issueUrl = urlMatch?.[0] ?? stdout.trim();
+        const numberMatch = issueUrl.match(/\/issues\/(\d+)/);
+        const issueNumber = numberMatch?.[1] ? parseInt(numberMatch[1], 10) : null;
+
+        await updateWithLock(platformBugs, input.id, input.version, {
+          githubIssueUrl: issueUrl,
+          githubIssueNumber: issueNumber,
+          status: 'filed',
+          updatedAt: new Date(),
+        });
+
+        return { success: true, issueUrl, issueNumber };
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Failed to create GitHub issue: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    }),
+
+  // ============================================================================
+  // MODEL LIBRARY
+  // ============================================================================
+
+  listModels: systemAdminProcedure
+    .input(
+      z.object({
+        provider: z.string().optional(),
+        tier: z.string().optional(),
+        limit: z.number().int().min(1).max(200).default(100),
+        offset: z.number().int().min(0).default(0),
+      }).optional()
+    )
+    .query(async ({ input }) => {
+      const { provider, tier, limit = 100, offset = 0 } = input ?? {};
+
+      const conditions = [];
+      if (provider) conditions.push(eq(aiModels.provider, provider));
+      if (tier) conditions.push(eq(aiModels.tier, tier));
+
+      const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const [models, countResult] = await Promise.all([
+        db
+          .select()
+          .from(aiModels)
+          .where(where)
+          .orderBy(asc(aiModels.provider), asc(aiModels.tier), asc(aiModels.displayName))
+          .limit(limit)
+          .offset(offset),
+        db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(aiModels)
+          .where(where),
+      ]);
+
+      return {
+        models,
+        total: countResult[0]?.count ?? 0,
+      };
+    }),
+
+  getModelStats: systemAdminProcedure.query(async () => {
+    const [totalResult, providerCounts, tierCounts, deprecatedResult] = await Promise.all([
+      db.select({ count: sql<number>`count(*)::int` }).from(aiModels),
+      db
+        .select({
+          provider: aiModels.provider,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(aiModels)
+        .groupBy(aiModels.provider)
+        .orderBy(asc(aiModels.provider)),
+      db
+        .select({
+          tier: aiModels.tier,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(aiModels)
+        .groupBy(aiModels.tier)
+        .orderBy(asc(aiModels.tier)),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(aiModels)
+        .where(sql`${aiModels.deprecatedAt} IS NOT NULL`),
+    ]);
+
+    return {
+      total: totalResult[0]?.count ?? 0,
+      byProvider: providerCounts,
+      byTier: tierCounts,
+      deprecated: deprecatedResult[0]?.count ?? 0,
+    };
+  }),
+
+  getPlatformBugStats: systemAdminProcedure.query(async () => {
+    const base = notDeleted(platformBugs);
+
+    const [
+      totalResult,
+      newResult,
+      criticalResult,
+      highResult,
+      todayResult,
+    ] = await Promise.all([
+      db.select({ count: sql<number>`count(*)::int` }).from(platformBugs).where(base),
+      db.select({ count: sql<number>`count(*)::int` }).from(platformBugs).where(and(base, eq(platformBugs.status, 'new'))),
+      db.select({ count: sql<number>`count(*)::int` }).from(platformBugs).where(and(base, eq(platformBugs.severity, 'critical'), ne(platformBugs.status, 'resolved'), ne(platformBugs.status, 'wontfix'))),
+      db.select({ count: sql<number>`count(*)::int` }).from(platformBugs).where(and(base, eq(platformBugs.severity, 'high'), ne(platformBugs.status, 'resolved'), ne(platformBugs.status, 'wontfix'))),
+      db.select({ count: sql<number>`count(*)::int` }).from(platformBugs).where(
+        and(base, gt(platformBugs.firstSeenAt, new Date(Date.now() - 24 * 60 * 60 * 1000)))
+      ),
+    ]);
+
+    return {
+      total: totalResult[0]?.count ?? 0,
+      new: newResult[0]?.count ?? 0,
+      critical: criticalResult[0]?.count ?? 0,
+      high: highResult[0]?.count ?? 0,
+      last24h: todayResult[0]?.count ?? 0,
     };
   }),
 });

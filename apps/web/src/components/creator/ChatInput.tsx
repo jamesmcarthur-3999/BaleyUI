@@ -87,8 +87,8 @@ export function ChatInput({
   } = useFileUpload();
 
   const MAX_LENGTH = 2000;
+  const isHardDisabled = disabled;
   const isProcessing = status === 'building' || status === 'running';
-  const isDisabled = disabled || status === 'running';
   const hasContent = value.trim().length > 0;
   const hasAttachments = pendingAttachments.length > 0;
   const isOverLimit = value.length > MAX_LENGTH;
@@ -119,15 +119,16 @@ export function ChatInput({
 
   const handleSend = () => {
     const trimmedValue = value.trim();
-    if ((!trimmedValue && !hasAttachments) || isDisabled || isOverLimit) return;
+    if ((!trimmedValue && !hasAttachments) || isHardDisabled || isProcessing || isOverLimit) return;
 
     const attachments = clearPendingAttachments();
     onSend(trimmedValue, attachments.length > 0 ? attachments : undefined);
     setValue('');
 
-    // Reset textarea height after clearing
+    // Reset textarea height after clearing and re-focus for sequential chat
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
+      textareaRef.current.focus();
     }
   };
 
@@ -148,13 +149,14 @@ export function ChatInput({
   };
 
   const handleQuickPrompt = (quickPrompt: ChatQuickPrompt) => {
-    if (isDisabled || isProcessing) return;
+    if (isHardDisabled || isProcessing) return;
 
     if ((quickPrompt.mode ?? 'insert') === 'send') {
       const next = quickPrompt.prompt.trim();
       if (!next || next.length > MAX_LENGTH) return;
       onSend(next);
       setValue('');
+      textareaRef.current?.focus();
       return;
     }
 
@@ -241,7 +243,7 @@ export function ChatInput({
           showGlow
             ? 'border-primary/40 shadow-[0_10px_35px_-25px_hsl(var(--primary)/0.7)]'
             : 'border-border/70',
-          isDisabled && 'opacity-60'
+          (isHardDisabled || isProcessing) && 'opacity-60'
         )}
       >
         {/* Paperclip button */}
@@ -249,7 +251,7 @@ export function ChatInput({
           type="button"
           size="icon"
           variant="ghost"
-          disabled={uploading || isDisabled}
+          disabled={uploading || isHardDisabled || isProcessing}
           onClick={() => fileInputRef.current?.click()}
           aria-label="Attach files"
           className="shrink-0 h-9 w-9 rounded-xl text-muted-foreground hover:text-foreground"
@@ -268,7 +270,8 @@ export function ChatInput({
           onKeyDown={handleKeyDown}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          disabled={isDisabled}
+          disabled={isHardDisabled}
+          aria-busy={isProcessing}
           placeholder={getPlaceholder(status)}
           rows={1}
           aria-label="Message to BaleyBot creator"
@@ -287,14 +290,14 @@ export function ChatInput({
           type="button"
           size="icon"
           variant={(hasContent || hasAttachments) ? 'default' : 'ghost'}
-          disabled={(!hasContent && !hasAttachments) || isDisabled || isOverLimit}
+          disabled={(!hasContent && !hasAttachments) || isHardDisabled || isProcessing || isOverLimit}
           onClick={handleSend}
           aria-label={isProcessing ? 'Sending message' : 'Send message'}
           className={cn(
             'shrink-0 rounded-xl transition-all',
             // Slightly larger on mobile for easier tapping (Phase 4.5)
             'min-h-11 min-w-11 h-11 w-11 sm:h-11 sm:w-11',
-            (hasContent || hasAttachments) && !isDisabled && 'bg-primary hover:bg-primary/90'
+            (hasContent || hasAttachments) && !isHardDisabled && !isProcessing && 'bg-primary hover:bg-primary/90'
           )}
         >
           {isProcessing ? (

@@ -218,6 +218,7 @@ export function DesignCalibrationWizard({
 
   // Scroll ref
   const scrollRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLInputElement>(null);
   const scrollToBottom = () => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({
@@ -253,6 +254,8 @@ export function DesignCalibrationWizard({
       ?.map(a => assetIdMapRef.current.get(a.url))
       .filter((id): id is string => !!id);
     setInputValue('');
+    // Re-focus input so the user can keep typing
+    chatInputRef.current?.focus();
 
     // Build display content — include attachment names if sending with files
     const displayContent = trimmed || (attachments
@@ -601,7 +604,7 @@ export function DesignCalibrationWizard({
   // ── Layout ───────────────────────────────────────────────
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-1 min-h-0 flex-col">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border bg-card/50 px-5 py-3">
         <div className="flex items-center gap-2">
@@ -665,7 +668,7 @@ export function DesignCalibrationWizard({
       </div>
 
       {/* Two-panel layout */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left: Preview */}
         <div className="flex-1 min-w-0 overflow-y-auto bg-muted/30 p-5">
           <div className="mx-auto max-w-5xl">
@@ -712,7 +715,7 @@ export function DesignCalibrationWizard({
 
         {/* Right: Chat */}
         <div
-          className="relative flex h-full w-[420px] shrink-0 flex-col border-l border-border bg-card/40"
+          className="relative flex w-[420px] shrink-0 flex-col overflow-hidden border-l border-border bg-card/40"
           {...dragHandlers}
         >
           {/* Drag overlay */}
@@ -835,8 +838,8 @@ export function DesignCalibrationWizard({
             )}
           </div>
 
-          {/* Quick prompts + input */}
-          <div className="shrink-0 border-t border-border px-4 pt-3 pb-3 space-y-2">
+          {/* Quick prompts + input — pinned to bottom */}
+          <div className="mt-auto shrink-0 border-t border-border bg-card/40 px-4 pt-3 pb-3 space-y-2">
             {/* Quick prompts */}
             {!isStreaming && !savedPackageId && (
               <div className="flex flex-wrap gap-1.5">
@@ -900,12 +903,13 @@ export function DesignCalibrationWizard({
               </button>
 
               <input
+                ref={chatInputRef}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    sendMessage(inputValue);
+                    if (!isStreaming) sendMessage(inputValue);
                   }
                 }}
                 placeholder={
@@ -917,8 +921,12 @@ export function DesignCalibrationWizard({
                         ? 'Describe changes or say "save it"...'
                         : 'Paste a URL, describe your brand, or attach files...'
                 }
-                className="flex-1 rounded-xl border border-input bg-background px-3.5 py-2 text-sm outline-none ring-ring transition-shadow placeholder:text-muted-foreground focus:ring-2"
-                disabled={isStreaming || !!savedPackageId}
+                className={cn(
+                  "flex-1 rounded-xl border border-input bg-background px-3.5 py-2 text-sm outline-none ring-ring transition-shadow placeholder:text-muted-foreground focus:ring-2",
+                  isStreaming && !savedPackageId && "opacity-60"
+                )}
+                disabled={!!savedPackageId}
+                aria-busy={isStreaming}
               />
               <button
                 onClick={() => sendMessage(inputValue)}

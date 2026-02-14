@@ -128,7 +128,7 @@ export function DesignPackagesTab() {
         />
 
         <Dialog open={wizardOpen} onOpenChange={setWizardOpen}>
-          <DialogContent size="xl" className="h-[85vh] max-h-[900px] max-w-7xl p-0 overflow-hidden [&>button.absolute]:hidden">
+          <DialogContent size="xl" className="flex flex-col h-[85vh] max-h-[900px] max-w-7xl p-0 overflow-hidden [&>button.absolute]:hidden">
             <DialogTitle className="sr-only">Design Calibration</DialogTitle>
             <DesignCalibrationWizard
               onComplete={handleWizardComplete}
@@ -282,7 +282,7 @@ export function DesignPackagesTab() {
           }
         }}
       >
-        <DialogContent size="xl" className="h-[85vh] max-h-[900px] max-w-7xl p-0 overflow-hidden [&>button.absolute]:hidden">
+        <DialogContent size="xl" className="flex flex-col h-[85vh] max-h-[900px] max-w-7xl p-0 overflow-hidden [&>button.absolute]:hidden">
           <DialogTitle className="sr-only">
             {editingPackage ? 'Edit Design Package' : 'Create Design Package'}
           </DialogTitle>

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { trpc } from '@/lib/trpc/client';
-import { Shield, Loader2, LayoutDashboard, Users, Monitor, Bot } from 'lucide-react';
+import { Shield, Loader2, LayoutDashboard, Users, Monitor, Bot, Bug, Cpu } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ROUTES } from '@/lib/routes';
 
@@ -12,6 +12,8 @@ const adminTabs = [
   { label: 'Users', href: ROUTES.admin.users, icon: Users },
   { label: 'Sessions', href: ROUTES.admin.sessions, icon: Monitor },
   { label: 'BaleyBots', href: ROUTES.admin.baleybots, icon: Bot },
+  { label: 'Platform Issues', href: ROUTES.admin.platformIssues, icon: Bug },
+  { label: 'Models', href: ROUTES.admin.models, icon: Cpu },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

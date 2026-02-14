@@ -44,6 +44,7 @@ import type { RuntimeToolDefinition } from '@/lib/baleybot/executor';
 import { normalizeOutputCandidate } from '@/lib/baleybot/internal-bb/runner';
 import { MissingCredentialsError } from '@/lib/baleybot/services/ai-credentials-service';
 import { reportPlatformError } from '@/lib/platform-bugs/report';
+import { getPageInfo } from '@/lib/routes';
 
 const log = createLogger('baley-stream');
 
@@ -368,7 +369,16 @@ export async function POST(req: NextRequest) {
 
     // Always include page context + health summary
     if (input.context?.currentPage) {
-      contextParts.push(`User is currently on page: ${input.context.currentPage}`);
+      const pageInfo = getPageInfo(input.context.currentPage);
+      if (pageInfo) {
+        contextParts.push([
+          `Current page: ${pageInfo.label} (${input.context.currentPage})`,
+          `What's here: ${pageInfo.description}`,
+          `You can help with: ${pageInfo.baleyHints.join('; ')}`,
+        ].join('\n'));
+      } else {
+        contextParts.push(`User is currently on page: ${input.context.currentPage}`);
+      }
     }
     if (input.context?.healthSummary) {
       contextParts.push(`Workspace health: ${input.context.healthSummary}`);

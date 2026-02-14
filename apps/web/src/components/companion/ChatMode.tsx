@@ -63,6 +63,7 @@ export function ChatMode({
     const attachments = clearPendingAttachments();
     onSendMessage?.(input.trim(), attachments.length > 0 ? attachments : undefined);
     setInput('');
+    textareaRef.current?.focus();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -162,10 +163,11 @@ export function ChatMode({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={placeholder}
-              disabled={isLoading}
+              aria-busy={isLoading}
               className={cn(
                 'min-h-[44px] max-h-[120px] resize-none',
-                'border-0 bg-transparent shadow-none focus-visible:ring-0'
+                'border-0 bg-transparent shadow-none focus-visible:ring-0',
+                isLoading && 'opacity-60'
               )}
               rows={1}
             />

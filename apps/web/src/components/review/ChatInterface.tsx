@@ -254,9 +254,12 @@ export function ChatInterface({ className }: ChatInterfaceProps) {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Type a message..."
-          className="flex-1 resize-none bg-transparent text-sm focus:outline-none min-h-[36px] max-h-[120px] py-2"
+          className={cn(
+            "flex-1 resize-none bg-transparent text-sm focus:outline-none min-h-[36px] max-h-[120px] py-2",
+            state.isExecuting && "opacity-60"
+          )}
           rows={1}
-          disabled={state.isExecuting}
+          aria-busy={state.isExecuting}
         />
         {state.isExecuting ? (
           <Button

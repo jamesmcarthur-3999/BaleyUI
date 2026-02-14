@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
+import { PlatformErrorBoundary } from '@/components/PlatformErrorBoundary';
 
 /**
  * Force dynamic rendering for all routes.
@@ -44,7 +45,9 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${plusJakarta.variable} font-sans antialiased`}>
-        <Providers>{children}</Providers>
+        <PlatformErrorBoundary>
+          <Providers>{children}</Providers>
+        </PlatformErrorBoundary>
       </body>
     </html>
   );

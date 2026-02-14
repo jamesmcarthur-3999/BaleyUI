@@ -664,7 +664,7 @@ export default function BaleybotPage() {
 
   // Derived values that depend on isSaving from persistence hook
   const canSave = hasContent && !!balCode && !!name && !isSaving && !isStreaming;
-  const isInputDisabled = isStreaming || isSaving;
+  const isInputDisabled = isSaving;
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- available for explicit launch prep panel
   const handleGenerateLaunchKit = async () => {
