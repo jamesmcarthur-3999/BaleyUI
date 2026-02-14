@@ -231,7 +231,7 @@ async function createExecutionRecord(
     .values({
       baleybotId,
       status: 'running',
-      input: input as Record<string, unknown>,
+      input: (input ?? null) as Record<string, unknown> | null,
       triggeredBy: 'other_bb',
       triggerSource,
       startedAt: new Date(),
@@ -326,11 +326,14 @@ export function createSpawnBaleybotExecutor(options?: {
     }
 
     // When spawning from the system workspace (internal BBs), prefer system versions
-    // to prevent user-created BBs from shadowing internal ones
+    // to prevent user-created BBs from shadowing internal ones. Also prefer
+    // system versions for internal callers (userId === "system") even when
+    // they execute with a user workspace context.
     const systemWorkspaceId = await getOrCreateSystemWorkspace();
     const isSystemContext = ctx.workspaceId === systemWorkspaceId;
+    const isInternalCaller = ctx.userId === 'system';
     const targetBB = await lookupBaleybot(baleybotIdOrName, ctx.workspaceId, {
-      preferSystem: isSystemContext,
+      preferSystem: isSystemContext || isInternalCaller,
     });
 
     if (!targetBB) {
@@ -410,6 +413,7 @@ export function createSpawnBaleybotExecutor(options?: {
         baleybotId: targetBB.id,
         executionId,
         userId: ctx.userId,
+        _spawnOutputs: ctx._spawnOutputs,
         spawnDepth: currentDepth + 1,
         maxSpawnDepth: maxDepth,
         parentExecutionId: ctx.executionId,
@@ -430,7 +434,11 @@ export function createSpawnBaleybotExecutor(options?: {
       };
 
       // Convert input to string (executor expects string input)
-      const inputStr = typeof input === 'string' ? input : JSON.stringify(input);
+      const inputStr = typeof input === 'string'
+        ? input
+        : input == null
+          ? ''
+          : (JSON.stringify(input) ?? '');
 
       // Execute the BaleyBot with optional streaming callback
       const result = await executeBaleybot(
@@ -479,11 +487,12 @@ export function createSpawnBaleybotExecutor(options?: {
         ctx._spawnOutputs.set(targetBB.name, result.output);
       }
 
-      // Return a human-readable summary instead of raw JSON
+      // Return raw structured output for machine-readability plus a concise summary for UX.
       const summary = buildSpawnSummary(targetBB.name, result.output);
 
       return {
-        output: summary,
+        output: result.output,
+        summary,
         executionId,
         durationMs,
       };

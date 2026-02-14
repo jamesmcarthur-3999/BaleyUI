@@ -269,6 +269,139 @@ describe('SpawnBaleybotExecutor', () => {
     });
   });
 
+  describe('spawn result payload', () => {
+    it('returns structured output plus a summary field', async () => {
+      const { db } = await import('@baleyui/db');
+
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'safe-bot',
+          balCode: 'bot { "tools": ["web_search"] }',
+        })
+      );
+
+      const executor = createSpawnBaleybotExecutor({
+        getPolicies: async () => null,
+      });
+
+      const ctx = {
+        workspaceId: 'ws-1',
+        baleybotId: 'parent',
+        executionId: 'exec-1',
+        userId: 'user-1',
+      };
+
+      const result = await executor('safe-bot', { task: 'analyze' }, ctx);
+
+      // output now carries the child BB payload directly (mocked as "success")
+      expect(result.output).toBe('success');
+      // summary remains available for concise human-readable UX
+      expect(result.summary).toContain('spawn_baleybot(safe-bot)');
+    });
+  });
+
+  describe('robustness guards', () => {
+    it('prefers system BaleyBots for internal callers to avoid name shadowing', async () => {
+      const { db } = await import('@baleyui/db');
+      const { executeBaleybot } = await import('../../executor');
+
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValueOnce(
+        mockBB({
+          id: 'sys-bal-generator',
+          name: 'bal_generator',
+          balCode: 'system-bal-code',
+        })
+      );
+
+      const executor = createSpawnBaleybotExecutor({
+        getPolicies: async () => null,
+      });
+
+      await executor(
+        'bal_generator',
+        { task: 'build bot' },
+        {
+          workspaceId: 'user-workspace',
+          baleybotId: 'parent',
+          executionId: 'exec-1',
+          userId: 'system',
+        }
+      );
+
+      const firstCall = vi.mocked(executeBaleybot).mock.calls[0];
+      expect(firstCall?.[0]).toBe('system-bal-code');
+    });
+
+    it('propagates _spawnOutputs into nested spawn contexts', async () => {
+      const { db } = await import('@baleyui/db');
+
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'safe-bot',
+          balCode: 'bot { "tools": [] }',
+        })
+      );
+
+      let capturedCtx: { _spawnOutputs?: Map<string, unknown> } | undefined;
+      const executor = createSpawnBaleybotExecutor({
+        getPolicies: async () => null,
+        getTools: (ctx) => {
+          capturedCtx = ctx;
+          return new Map();
+        },
+      });
+
+      const spawnOutputs = new Map<string, unknown>();
+
+      await executor(
+        'safe-bot',
+        { task: 'delegate' },
+        {
+          workspaceId: 'ws-1',
+          baleybotId: 'parent',
+          executionId: 'exec-1',
+          userId: 'user-1',
+          _spawnOutputs: spawnOutputs,
+        }
+      );
+
+      expect(capturedCtx?._spawnOutputs).toBe(spawnOutputs);
+    });
+
+    it('passes empty-string input when spawn input is undefined', async () => {
+      const { db } = await import('@baleyui/db');
+      const { executeBaleybot } = await import('../../executor');
+
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'safe-bot',
+          balCode: 'bot { "tools": [] }',
+        })
+      );
+
+      const executor = createSpawnBaleybotExecutor({
+        getPolicies: async () => null,
+      });
+
+      await executor(
+        'safe-bot',
+        undefined,
+        {
+          workspaceId: 'ws-1',
+          baleybotId: 'parent',
+          executionId: 'exec-1',
+          userId: 'user-1',
+        }
+      );
+
+      const firstCall = vi.mocked(executeBaleybot).mock.calls[0];
+      expect(firstCall?.[1]).toBe('');
+    });
+  });
+
   describe('spawn depth limit', () => {
     it('should prevent excessive spawn depth', async () => {
       const { db } = await import('@baleyui/db');

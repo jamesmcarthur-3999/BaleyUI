@@ -640,9 +640,14 @@ export async function POST(req: NextRequest) {
                       const toolCallId = String(e.id ?? '');
                       const botName = pendingSpawnNames.get(toolCallId);
                       if (botName) {
-                        const result = e.result as { output?: unknown };
-                        if (result.output) {
+                        const result = e.result as {
+                          output?: unknown;
+                          structuredOutput?: unknown;
+                        };
+                        if (Object.prototype.hasOwnProperty.call(result, 'output')) {
                           spawnResults.set(botName, result.output);
+                        } else if (Object.prototype.hasOwnProperty.call(result, 'structuredOutput')) {
+                          spawnResults.set(botName, result.structuredOutput);
                         }
                         pendingSpawnNames.delete(toolCallId);
                       }

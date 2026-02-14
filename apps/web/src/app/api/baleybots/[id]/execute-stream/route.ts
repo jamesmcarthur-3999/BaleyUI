@@ -300,6 +300,9 @@ export async function POST(
           const { runtimeTools } = await loadExecutionTools({
             workspaceId,
             toolCtx,
+            onChildSegment: (childEvent) => {
+              sendEvent(childEvent as unknown as BALExecutionEvent);
+            },
           });
 
           // Convert to format expected by SDK

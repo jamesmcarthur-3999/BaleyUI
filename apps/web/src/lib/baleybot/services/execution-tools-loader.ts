@@ -17,6 +17,7 @@ import {
 import { decrypt } from '@/lib/encryption';
 import type { DatabaseConnectionConfig, MCPConnectionConfig } from '@/lib/connections/providers';
 import type { ConnectionConfig } from '@/lib/types';
+import type { BaleybotStreamEvent } from '@baleybots/core';
 import {
   getRuntimeTools,
   type CatalogContext,
@@ -64,6 +65,8 @@ export interface LoadToolsInput {
   toolCtx: BuiltInToolContext;
   /** Tool names declared in the BAL code's "tools" set (if parsed) */
   declaredTools?: string[];
+  /** Optional callback for nested spawn stream events */
+  onChildSegment?: (event: BaleybotStreamEvent) => void;
 }
 
 export interface LoadToolsResult {
@@ -112,7 +115,7 @@ function decryptDatabaseConfig(config: ConnectionConfig): DatabaseConnectionConf
  * Returns a Map of runtime tools ready for the executor.
  */
 export async function loadExecutionTools(input: LoadToolsInput): Promise<LoadToolsResult> {
-  const { workspaceId, toolCtx, declaredTools } = input;
+  const { workspaceId, toolCtx, declaredTools, onChildSegment } = input;
 
   // Use cached catalog data if available (avoids 3 DB queries per execution)
   const cached = catalogCache.get(workspaceId);
@@ -163,14 +166,68 @@ export async function loadExecutionTools(input: LoadToolsInput): Promise<LoadToo
   };
 
   // Get combined runtime tools
-  const runtimeTools = await getRuntimeTools(catalogCtx, runtimeCtx);
+  const baseRuntimeTools = await getRuntimeTools(catalogCtx, runtimeCtx);
 
   // Add workspace custom tools as NL-powered tools
   for (const tool of workspaceTools) {
-    if (!runtimeTools.has(tool.name)) {
-      runtimeTools.set(tool.name, createNLPoweredTool(tool));
+    if (!baseRuntimeTools.has(tool.name)) {
+      baseRuntimeTools.set(tool.name, createNLPoweredTool(tool));
     }
   }
+
+  const { getBuiltInRuntimeTools } = await import('../tools/built-in/implementations');
+  const { BUILT_IN_TOOLS_METADATA, SPAWN_BALEYBOT_SCHEMA } = await import('../tools/built-in');
+  const { createSpawnBaleybotExecutor } = await import('./spawn-executor');
+
+  const buildScopedRuntimeTools = (
+    scopedToolCtx: BuiltInToolContext
+  ): Map<string, RuntimeToolDefinition> => {
+    const scopedTools = new Map<string, RuntimeToolDefinition>(baseRuntimeTools);
+
+    // Re-bind built-in tools to this execution scope so nested spawns carry
+    // correct execution IDs, depth state, and side-channel references.
+    const scopedBuiltIns = getBuiltInRuntimeTools(scopedToolCtx);
+    for (const [toolName, toolDef] of scopedBuiltIns) {
+      scopedTools.set(toolName, toolDef);
+    }
+
+    const spawnMeta = BUILT_IN_TOOLS_METADATA.find(
+      (tool) => tool.name === 'spawn_baleybot'
+    );
+    const spawnExecutor = createSpawnBaleybotExecutor({
+      getTools: buildScopedRuntimeTools,
+      onChildSegment,
+    });
+    const existingSpawn = scopedTools.get('spawn_baleybot');
+    scopedTools.set('spawn_baleybot', {
+      name: 'spawn_baleybot',
+      description:
+        existingSpawn?.description ??
+        'Execute another BaleyBot and return its result',
+      inputSchema:
+        (existingSpawn?.inputSchema as Record<string, unknown>) ??
+        (SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>),
+      function: async (
+        args: Record<string, unknown>,
+        executionOptions?: { toolCallId?: string }
+      ) =>
+        spawnExecutor(String(args.baleybot), args.input, scopedToolCtx, {
+          modelTierOverride:
+            typeof args.model === 'string' ? args.model : undefined,
+          toolCallId: executionOptions?.toolCallId,
+        }),
+      needsApproval:
+        existingSpawn?.needsApproval ?? spawnMeta?.approvalRequired ?? false,
+      category:
+        existingSpawn?.category ?? spawnMeta?.category ?? 'orchestration',
+      dangerLevel:
+        existingSpawn?.dangerLevel ?? spawnMeta?.dangerLevel ?? 'safe',
+    });
+
+    return scopedTools;
+  };
+
+  const runtimeTools = buildScopedRuntimeTools(toolCtx);
 
   // Filter to only declared tools if specified (but always keep built-in tools)
   if (declaredTools && declaredTools.length > 0) {

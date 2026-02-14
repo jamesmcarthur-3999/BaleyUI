@@ -10,6 +10,7 @@ import { getOrCreateSystemWorkspace } from '@/lib/system-workspace';
 import { executeBaleybot, type ExecutorContext, type RuntimeToolDefinition } from './executor';
 import { createLogger } from '@/lib/logger';
 import type { BaleybotStreamEvent } from '@baleybots/core';
+import type { BuiltInToolContext } from './tools/built-in';
 import {
   GENERATED_INTERNAL_BALEYBOTS,
   type GeneratedInternalBaleybotDef,
@@ -339,7 +340,7 @@ export async function executeInternalBaleybot(
       tavilyApiKey: process.env.TAVILY_API_KEY,
     });
 
-    const toolCtx = {
+    const toolCtx: BuiltInToolContext = {
       workspaceId,
       baleybotId: internalBB.id,
       executionId: execution.id,
@@ -349,33 +350,75 @@ export async function executeInternalBaleybot(
 
     // Load ALL tool categories (built-in + DB + MCP + workspace) for full parity
     const { loadExecutionTools } = await import('./services/execution-tools-loader');
-    const { runtimeTools } = await loadExecutionTools({ workspaceId, toolCtx });
+    const { runtimeTools: baseRuntimeTools } = await loadExecutionTools({
+      workspaceId,
+      toolCtx,
+    });
+    const { getBuiltInRuntimeTools } = await import(
+      './tools/built-in/implementations'
+    );
 
-    // If streaming, replace the default spawn_baleybot with a streaming-aware version
-    if (options.onSegment) {
-      const { createSpawnBaleybotExecutor } = await import('./services/spawn-executor');
-      const { SPAWN_BALEYBOT_SCHEMA } = await import('./tools/built-in');
-      const streamingSpawnExecutor = createSpawnBaleybotExecutor({
-        onChildSegment: options.onSegment,
-        getTools: () => runtimeTools,
-      });
-      runtimeTools.set('spawn_baleybot', {
-        name: 'spawn_baleybot',
-        description: 'Execute another BaleyBot and return its result',
-        inputSchema: SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>,
-        function: async (args: Record<string, unknown>) =>
-          streamingSpawnExecutor(String(args.baleybot), args.input, toolCtx),
-      });
-    }
+    let createStreamingSpawnTool:
+      | ((scopedToolCtx: BuiltInToolContext) => RuntimeToolDefinition)
+      | null = null;
 
-    const allTools = runtimeTools;
+    const buildScopedRuntimeTools = (
+      scopedToolCtx: BuiltInToolContext
+    ): Map<string, RuntimeToolDefinition> => {
+      const scopedTools = new Map<string, RuntimeToolDefinition>(
+        baseRuntimeTools
+      );
 
-    // Injected tools override built-in tools of the same name
-    if (options.injectedTools) {
-      for (const [name, tool] of options.injectedTools) {
-        allTools.set(name, tool);
+      // Re-bind built-in tools to the current execution scope so nested spawns
+      // get correct execution IDs, depth tracking, and side-channel state.
+      const scopedBuiltIns = getBuiltInRuntimeTools(scopedToolCtx);
+      for (const [toolName, toolDef] of scopedBuiltIns) {
+        scopedTools.set(toolName, toolDef);
       }
+
+      // In streaming mode, use a spawn tool that forwards child segments.
+      if (createStreamingSpawnTool) {
+        scopedTools.set('spawn_baleybot', createStreamingSpawnTool(scopedToolCtx));
+      }
+
+      // Injected tools override built-ins/custom tools of the same name.
+      if (options.injectedTools) {
+        for (const [toolName, tool] of options.injectedTools) {
+          scopedTools.set(toolName, tool);
+        }
+      }
+
+      return scopedTools;
+    };
+
+    if (options.onSegment) {
+      const { createSpawnBaleybotExecutor } = await import(
+        './services/spawn-executor'
+      );
+      const { SPAWN_BALEYBOT_SCHEMA } = await import('./tools/built-in');
+
+      createStreamingSpawnTool = (
+        scopedToolCtx: BuiltInToolContext
+      ): RuntimeToolDefinition => {
+        const streamingSpawnExecutor = createSpawnBaleybotExecutor({
+          onChildSegment: options.onSegment,
+          getTools: buildScopedRuntimeTools,
+        });
+        return {
+          name: 'spawn_baleybot',
+          description: 'Execute another BaleyBot and return its result',
+          inputSchema: SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>,
+          function: async (args: Record<string, unknown>) =>
+            streamingSpawnExecutor(
+              String(args.baleybot),
+              args.input,
+              scopedToolCtx
+            ),
+        };
+      };
     }
+
+    const allTools = buildScopedRuntimeTools(toolCtx);
 
     // Execute through standard path
     const ctx: ExecutorContext = {

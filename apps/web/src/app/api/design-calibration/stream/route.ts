@@ -26,6 +26,7 @@ import { generateTailwindTheme } from '@/lib/design-packages/tailwind-theme';
 import { DEFAULT_COMPONENT_SET } from '@/lib/design-packages/component-registry';
 import { formatDesignBrief } from '@/lib/design-packages/component-registry';
 import { MissingCredentialsError } from '@/lib/baleybot/services/ai-credentials-service';
+import { normalizeOutputCandidate } from '@/lib/baleybot/internal-bb/runner';
 import { inArray } from 'drizzle-orm';
 
 const log = createLogger('design-calibration-stream');
@@ -103,6 +104,7 @@ COMMUNICATING WITH THE DESIGN BOTS:
 - design_analyzer: "Analyze [URL] — fetch with format:'html' to get CSS data"
 - design_generator: "Generate from: [attributes or description JSON]"
 - design_refiner: "Current: [packageData JSON]\\nFeedback: [user feedback]"
+- spawn_baleybot returns the child BB payload in result.output as structured JSON. Use it directly.
 
 ADAPT TO THE USER:
 - URL or detailed description -> generate immediately, don't ask clarifying questions
@@ -169,6 +171,8 @@ export async function POST(req: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         let lastEmitAt = Date.now();
+        const spawnOutputs = new Map<string, unknown>();
+        let previewUpdated = false;
 
         const sendEvent = (event: Record<string, unknown>) => {
           lastEmitAt = Date.now();
@@ -284,6 +288,7 @@ export async function POST(req: NextRequest) {
             function: async (args: Record<string, unknown>) => {
               try {
                 const parsed = packageDataSchema.parse(args.data);
+                previewUpdated = true;
                 sendEvent({
                   type: 'design_preview_update',
                   data: parsed,
@@ -474,9 +479,43 @@ export async function POST(req: NextRequest) {
             signal: AbortSignal.timeout(300_000),
             userWorkspaceId: workspace.id,
             context: DESIGN_CALIBRATION_CONTEXT,
+            _spawnOutputs: spawnOutputs,
           };
 
           await executeInternalBaleybot('baley', fullInput, executionOptions);
+
+          // Robust fallback: if delegation succeeded but Baley didn't call
+          // set_design_package, apply the latest specialist output directly.
+          if (!previewUpdated) {
+            const fallbackRaw =
+              spawnOutputs.get('design_refiner') ??
+              spawnOutputs.get('design_generator');
+            const normalizedFallback = normalizeOutputCandidate(fallbackRaw);
+
+            if (normalizedFallback && typeof normalizedFallback === 'object') {
+              const parsedFallback = packageDataSchema.safeParse(
+                normalizedFallback
+              );
+              if (parsedFallback.success) {
+                sendEvent({
+                  type: 'design_preview_update',
+                  data: parsedFallback.data,
+                  timestamp: Date.now(),
+                });
+                log.info('Applied fallback design preview from specialist output', {
+                  workspaceId: workspace.id,
+                  source: spawnOutputs.has('design_refiner')
+                    ? 'design_refiner'
+                    : 'design_generator',
+                });
+              } else {
+                log.warn('Specialist output could not be parsed as design package', {
+                  workspaceId: workspace.id,
+                  issues: parsedFallback.error.issues.slice(0, 3),
+                });
+              }
+            }
+          }
 
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           clearInterval(heartbeat);

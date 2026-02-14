@@ -544,6 +544,7 @@ export interface FetchUrlResult {
 
 export interface SpawnBaleybotResult {
   output: unknown;
+  summary?: string;
   executionId: string;
   durationMs: number;
 }
