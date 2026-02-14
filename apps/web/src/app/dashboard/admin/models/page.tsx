@@ -5,6 +5,7 @@ import { trpc } from '@/lib/trpc/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/components/ui/use-toast';
 import {
   Cpu,
   ChevronLeft,
@@ -12,6 +13,7 @@ import {
   Check,
   X,
   AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -62,9 +64,11 @@ function QualityBadge({ value }: { value: string | undefined }) {
 const PAGE_SIZE = 50;
 
 export default function AdminModelsPage() {
+  const { toast } = useToast();
   const [providerFilter, setProviderFilter] = useState<string | undefined>();
   const [tierFilter, setTierFilter] = useState<string | undefined>();
   const [page, setPage] = useState(0);
+  const utils = trpc.useUtils();
 
   const { data: stats } = trpc.admin.getModelStats.useQuery();
   const { data, isLoading } = trpc.admin.listModels.useQuery({
@@ -78,6 +82,17 @@ export default function AdminModelsPage() {
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
+  const seedModels = trpc.admin.seedModels.useMutation({
+    onSuccess: (result) => {
+      toast({ title: `Seeded ${result.count} models` });
+      utils.admin.listModels.invalidate();
+      utils.admin.getModelStats.invalidate();
+    },
+    onError: (err) => {
+      toast({ title: 'Failed to seed models', description: err.message, variant: 'destructive' });
+    },
+  });
+
   const providers = stats?.byProvider ?? [];
   const tiers = stats?.byTier ?? [];
 
@@ -85,13 +100,26 @@ export default function AdminModelsPage() {
     <div className="space-y-4">
       {/* Stats bar */}
       {stats && (
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          <span>{stats.total} models</span>
-          {stats.deprecated > 0 && (
-            <span className="flex items-center gap-1">
-              <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-              {stats.deprecated} deprecated
-            </span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            <span>{stats.total} models</span>
+            {stats.deprecated > 0 && (
+              <span className="flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                {stats.deprecated} deprecated
+              </span>
+            )}
+          </div>
+          {stats.total > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => seedModels.mutate()}
+              disabled={seedModels.isPending}
+            >
+              <RefreshCw className={cn('h-4 w-4 mr-1', seedModels.isPending && 'animate-spin')} />
+              Reseed
+            </Button>
           )}
         </div>
       )}
@@ -146,9 +174,20 @@ export default function AdminModelsPage() {
             <div className="p-8 text-center">
               <Cpu className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
               <p className="text-muted-foreground">No models found</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Models are seeded into the ai_models table.
+              <p className="text-xs text-muted-foreground mt-1 mb-4">
+                The ai_models table is empty. Seed it with the current model catalog.
               </p>
+              <Button
+                onClick={() => seedModels.mutate()}
+                disabled={seedModels.isPending}
+              >
+                {seedModels.isPending ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Cpu className="h-4 w-4 mr-2" />
+                )}
+                Seed Model Library
+              </Button>
             </div>
           ) : (
             <div className="overflow-x-auto">

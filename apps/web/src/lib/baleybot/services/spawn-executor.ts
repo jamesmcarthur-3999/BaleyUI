@@ -391,8 +391,10 @@ export function createSpawnBaleybotExecutor(options?: {
         if (provider) {
           const resolvedModel = await getDefaultModelForTier(provider, spawnOptions.modelTierOverride);
           if (resolvedModel) {
+            // Replace only the first model occurrence (the spawned entity's model)
+            // Using /g would override ALL entities in multi-entity compositions
             balCode = balCode.replace(
-              /"model"\s*:\s*"[^"]+"/g,
+              /"model"\s*:\s*"[^"]+"/,
               `"model": "${resolvedModel}"`
             );
             log.info(`Model override applied: tier=${spawnOptions.modelTierOverride} → ${resolvedModel}`, {

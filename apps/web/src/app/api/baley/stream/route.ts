@@ -781,16 +781,23 @@ export async function POST(req: NextRequest) {
               timestamp: Date.now(),
             });
 
-            // Report platform bugs (not user errors)
-            reportPlatformError({
-              errorMessage: rawMessage,
-              stackTrace: error instanceof Error ? error.stack : undefined,
-              source: 'streaming',
-              category: 'streaming_error',
-              route: '/api/baley/stream',
-              workspaceId: workspace.id,
-              environment: process.env.NODE_ENV ?? 'production',
-            }).catch(() => {});
+            // Report platform bugs (filter out user errors like missing credentials, rate limits)
+            if (
+              !(error instanceof MissingCredentialsError) &&
+              !(error instanceof z.ZodError) &&
+              !rawMessage.includes('rate limit') &&
+              !rawMessage.includes('API key')
+            ) {
+              reportPlatformError({
+                errorMessage: rawMessage,
+                stackTrace: error instanceof Error ? error.stack : undefined,
+                source: 'streaming',
+                category: 'streaming_error',
+                route: '/api/baley/stream',
+                workspaceId: workspace.id,
+                environment: process.env.NODE_ENV ?? 'production',
+              }).catch(() => {});
+            }
           }
 
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));

@@ -721,16 +721,18 @@ export const adminRouter = router({
         `*Auto-filed by BaleyUI platform bug tracking*`,
       ].join('\n');
 
-      // Call gh CLI to create issue
-      const { exec } = await import('child_process');
+      // Call gh CLI to create issue (use execFile to prevent shell injection)
+      const { execFile } = await import('child_process');
       const { promisify } = await import('util');
-      const execAsync = promisify(exec);
+      const execFileAsync = promisify(execFile);
 
       try {
-        const { stdout } = await execAsync(
-          `gh issue create --title ${JSON.stringify(issueTitle.slice(0, 256))} --body ${JSON.stringify(issueBody)} --label "platform-bug,${bug.severity}"`,
-          { timeout: 15000 }
-        );
+        const { stdout } = await execFileAsync('gh', [
+          'issue', 'create',
+          '--title', issueTitle.slice(0, 256),
+          '--body', issueBody,
+          '--label', `platform-bug,${bug.severity}`,
+        ], { timeout: 15000 });
 
         // Parse the URL from gh output
         const urlMatch = stdout.trim().match(/https:\/\/github\.com\/[^\s]+/);
@@ -827,6 +829,220 @@ export const adminRouter = router({
       byTier: tierCounts,
       deprecated: deprecatedResult[0]?.count ?? 0,
     };
+  }),
+
+  seedModels: systemAdminProcedure.mutation(async () => {
+    // Check if already seeded
+    const existing = await db.select({ count: sql<number>`count(*)::int` }).from(aiModels);
+    if ((existing[0]?.count ?? 0) > 0) {
+      // Clear and reseed
+      await db.delete(aiModels);
+    }
+
+    const models: Array<typeof aiModels.$inferInsert> = [
+      // ── OpenAI ──
+      {
+        modelId: 'o3',
+        provider: 'openai',
+        displayName: 'o3',
+        family: 'o-series',
+        version: null,
+        tier: 'ultra',
+        contextWindow: 200_000,
+        maxOutputTokens: 100_000,
+        inputCostPer1mTokens: '2.00',
+        outputCostPer1mTokens: '8.00',
+        capabilities: { reasoning: true, vision: true, toolUse: true, streaming: true, structuredOutput: true, codeGeneration: 'excellent', analysis: 'excellent' },
+        sdkSupported: true,
+        isLatest: true,
+        isDefault: false,
+      },
+      {
+        modelId: 'o4-mini',
+        provider: 'openai',
+        displayName: 'o4 Mini',
+        family: 'o-series',
+        version: null,
+        tier: 'balanced',
+        contextWindow: 200_000,
+        maxOutputTokens: 100_000,
+        inputCostPer1mTokens: '1.10',
+        outputCostPer1mTokens: '4.40',
+        capabilities: { reasoning: true, vision: true, toolUse: true, streaming: true, structuredOutput: true, codeGeneration: 'excellent', analysis: 'excellent' },
+        sdkSupported: true,
+        isLatest: true,
+        isDefault: false,
+      },
+      {
+        modelId: 'gpt-5',
+        provider: 'openai',
+        displayName: 'GPT-5',
+        family: 'gpt-5',
+        version: null,
+        tier: 'powerful',
+        contextWindow: 128_000,
+        maxOutputTokens: 16_384,
+        inputCostPer1mTokens: '2.00',
+        outputCostPer1mTokens: '8.00',
+        capabilities: { reasoning: false, vision: true, toolUse: true, streaming: true, structuredOutput: true, codeGeneration: 'excellent', creativeWriting: 'excellent', analysis: 'excellent' },
+        sdkSupported: true,
+        isLatest: true,
+        isDefault: false,
+      },
+      {
+        modelId: 'gpt-5-mini',
+        provider: 'openai',
+        displayName: 'GPT-5 Mini',
+        family: 'gpt-5',
+        version: null,
+        tier: 'fast',
+        contextWindow: 128_000,
+        maxOutputTokens: 16_384,
+        inputCostPer1mTokens: '0.15',
+        outputCostPer1mTokens: '0.60',
+        capabilities: { reasoning: false, vision: true, toolUse: true, streaming: true, structuredOutput: true, codeGeneration: 'good', creativeWriting: 'good', analysis: 'good' },
+        sdkSupported: true,
+        isLatest: true,
+        isDefault: true,
+      },
+      {
+        modelId: 'gpt-4.1',
+        provider: 'openai',
+        displayName: 'GPT-4.1',
+        family: 'gpt-4.1',
+        version: null,
+        tier: 'balanced',
+        contextWindow: 1_047_576,
+        maxOutputTokens: 32_768,
+        inputCostPer1mTokens: '2.00',
+        outputCostPer1mTokens: '8.00',
+        capabilities: { reasoning: false, vision: true, toolUse: true, streaming: true, structuredOutput: true, codeGeneration: 'excellent', creativeWriting: 'good', analysis: 'excellent' },
+        sdkSupported: true,
+        isLatest: true,
+        isDefault: false,
+      },
+      {
+        modelId: 'gpt-4.1-mini',
+        provider: 'openai',
+        displayName: 'GPT-4.1 Mini',
+        family: 'gpt-4.1',
+        version: null,
+        tier: 'fast',
+        contextWindow: 1_047_576,
+        maxOutputTokens: 32_768,
+        inputCostPer1mTokens: '0.40',
+        outputCostPer1mTokens: '1.60',
+        capabilities: { reasoning: false, vision: true, toolUse: true, streaming: true, structuredOutput: true, codeGeneration: 'good', creativeWriting: 'good', analysis: 'good' },
+        sdkSupported: true,
+        isLatest: true,
+        isDefault: false,
+      },
+      // ── Anthropic ──
+      {
+        modelId: 'claude-opus-4-20250514',
+        provider: 'anthropic',
+        displayName: 'Claude Opus 4',
+        family: 'claude-4',
+        version: '20250514',
+        tier: 'ultra',
+        contextWindow: 200_000,
+        maxOutputTokens: 32_000,
+        inputCostPer1mTokens: '15.00',
+        outputCostPer1mTokens: '75.00',
+        cachedInputCostPer1mTokens: '1.50',
+        capabilities: { reasoning: true, vision: true, toolUse: true, streaming: true, structuredOutput: true, codeGeneration: 'excellent', creativeWriting: 'excellent', analysis: 'excellent' },
+        sdkSupported: true,
+        isLatest: true,
+        isDefault: false,
+      },
+      {
+        modelId: 'claude-sonnet-4-20250514',
+        provider: 'anthropic',
+        displayName: 'Claude Sonnet 4',
+        family: 'claude-4',
+        version: '20250514',
+        tier: 'powerful',
+        contextWindow: 200_000,
+        maxOutputTokens: 16_000,
+        inputCostPer1mTokens: '3.00',
+        outputCostPer1mTokens: '15.00',
+        cachedInputCostPer1mTokens: '0.30',
+        capabilities: { reasoning: false, vision: true, toolUse: true, streaming: true, structuredOutput: true, codeGeneration: 'excellent', creativeWriting: 'excellent', analysis: 'excellent' },
+        sdkSupported: true,
+        isLatest: true,
+        isDefault: true,
+      },
+      {
+        modelId: 'claude-haiku-4-5-20251001',
+        provider: 'anthropic',
+        displayName: 'Claude Haiku 4.5',
+        family: 'claude-4',
+        version: '20251001',
+        tier: 'fast',
+        contextWindow: 200_000,
+        maxOutputTokens: 8_192,
+        inputCostPer1mTokens: '0.80',
+        outputCostPer1mTokens: '4.00',
+        cachedInputCostPer1mTokens: '0.08',
+        capabilities: { reasoning: false, vision: true, toolUse: true, streaming: true, structuredOutput: true, codeGeneration: 'good', creativeWriting: 'good', analysis: 'good' },
+        sdkSupported: true,
+        isLatest: true,
+        isDefault: false,
+      },
+      // ── Ollama (local) ──
+      {
+        modelId: 'llama3.2',
+        provider: 'ollama',
+        displayName: 'Llama 3.2',
+        family: 'llama',
+        version: '3.2',
+        tier: 'balanced',
+        contextWindow: 128_000,
+        maxOutputTokens: 4_096,
+        inputCostPer1mTokens: '0',
+        outputCostPer1mTokens: '0',
+        capabilities: { reasoning: false, vision: false, toolUse: true, streaming: true, structuredOutput: false, codeGeneration: 'good', creativeWriting: 'basic', analysis: 'good' },
+        sdkSupported: true,
+        isLatest: true,
+        isDefault: true,
+      },
+      {
+        modelId: 'mistral',
+        provider: 'ollama',
+        displayName: 'Mistral',
+        family: 'mistral',
+        version: null,
+        tier: 'fast',
+        contextWindow: 32_000,
+        maxOutputTokens: 4_096,
+        inputCostPer1mTokens: '0',
+        outputCostPer1mTokens: '0',
+        capabilities: { reasoning: false, vision: false, toolUse: false, streaming: true, structuredOutput: false, codeGeneration: 'basic', creativeWriting: 'good', analysis: 'basic' },
+        sdkSupported: true,
+        isLatest: true,
+        isDefault: false,
+      },
+      {
+        modelId: 'codellama',
+        provider: 'ollama',
+        displayName: 'Code Llama',
+        family: 'codellama',
+        version: null,
+        tier: 'balanced',
+        contextWindow: 16_000,
+        maxOutputTokens: 4_096,
+        inputCostPer1mTokens: '0',
+        outputCostPer1mTokens: '0',
+        capabilities: { reasoning: false, vision: false, toolUse: false, streaming: true, structuredOutput: false, codeGeneration: 'excellent', analysis: 'basic' },
+        sdkSupported: true,
+        isLatest: true,
+        isDefault: false,
+      },
+    ];
+
+    await db.insert(aiModels).values(models);
+
+    return { success: true, count: models.length };
   }),
 
   getPlatformBugStats: systemAdminProcedure.query(async () => {

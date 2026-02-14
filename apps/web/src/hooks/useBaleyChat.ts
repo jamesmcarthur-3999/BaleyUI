@@ -542,15 +542,13 @@ export function useBaleyChat(config?: UseBaleyConfig) {
   // approveNavigation — user approves a pending navigation request
   // --------------------------------------------------------------------------
 
-  const approveNavigation = useCallback((navId: string) => {
-    setPendingNavigations((prev) => {
-      const nav = prev.find((n) => n.id === navId);
-      if (nav) {
-        router.push(nav.path);
-      }
-      return prev.filter((n) => n.id !== navId);
-    });
-  }, [router]);
+  const approveNavigation = (navId: string) => {
+    const nav = pendingNavigations.find((n) => n.id === navId);
+    setPendingNavigations((prev) => prev.filter((n) => n.id !== navId));
+    if (nav) {
+      router.push(nav.path);
+    }
+  };
 
   // --------------------------------------------------------------------------
   // dismissNavigation — user dismisses a pending navigation request
