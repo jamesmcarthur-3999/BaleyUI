@@ -16,7 +16,7 @@ vi.mock('@baleyui/db', () => ({
     insert: vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({
         returning: vi.fn().mockResolvedValue([
-          { id: 'bb-internal-1', name: 'creator_bot', balCode: 'creator_bot {}' },
+          { id: 'bb-internal-1', name: 'baley', balCode: 'baley {}' },
         ]),
       }),
     }),
@@ -59,7 +59,6 @@ const ALL_INTERNAL_BOTS = [
   'connection_advisor',
   'context_processor',
   'creator_action_advisor',
-  'creator_bot',
   'deployment_advisor',
   'design_analyzer',
   'design_generator',
@@ -86,21 +85,15 @@ const BOTS_PARSEABLE_NOW = ['context_processor', 'nl_to_sql_postgres', 'nl_to_sq
 
 describe('internal-baleybots', () => {
   describe('INTERNAL_BALEYBOTS', () => {
-    it('defines creator_bot', () => {
-      expect(INTERNAL_BALEYBOTS.creator_bot).toBeDefined();
-      expect(INTERNAL_BALEYBOTS.creator_bot!.name).toBe('creator_bot');
-      expect(INTERNAL_BALEYBOTS.creator_bot!.balCode).toContain('creator_bot');
-    });
-
     it('defines all internal bots', () => {
       for (const name of ALL_INTERNAL_BOTS) {
         expect(INTERNAL_BALEYBOTS[name], `Missing internal bot: ${name}`).toBeDefined();
       }
     });
 
-    it('has exactly 24 internal bots', () => {
+    it('has exactly 23 internal bots', () => {
       const definedBots = Object.keys(INTERNAL_BALEYBOTS);
-      expect(definedBots).toHaveLength(24);
+      expect(definedBots).toHaveLength(23);
     });
 
     it.each(ALL_INTERNAL_BOTS)('%s has required fields (name, description, icon, balCode)', (botName) => {
@@ -175,17 +168,14 @@ describe('internal-baleybots', () => {
     });
 
     // These tests depend on complex type parsing — marked as todo until SDK patch
-    it.todo('creator_bot has correct model (awaiting SDK complex type parser)');
     it.todo('test_validator uses gpt-5-mini (awaiting SDK complex type parser)');
-    it.todo('creator_bot spawn_baleybot integration (conversational mode with bal_generator spawn)');
     it.todo('bal_generator output has balCode, entities, suggestedName, suggestedIcon fields');
     it.todo('test_orchestrator output has topology and tests');
     it.todo('deployment_advisor output has trigger recommendations and checklist');
 
     // Verify output fields via string matching (bypasses parser)
-    // All current internal bots have output schemas except baley (conversational, no output)
     // Bots that use conversational mode (no structured output schema)
-    const CONVERSATIONAL_BOTS = new Set(['baley', 'creator_bot', 'integration_builder']);
+    const CONVERSATIONAL_BOTS = new Set(['baley', 'integration_builder']);
     const BOTS_WITH_OUTPUT = ALL_INTERNAL_BOTS.filter(name => !CONVERSATIONAL_BOTS.has(name));
     it.each(BOTS_WITH_OUTPUT)('%s balCode contains an "output" block', (botName) => {
       const bot = INTERNAL_BALEYBOTS[botName]!;
@@ -203,10 +193,6 @@ describe('internal-baleybots', () => {
       expect(balCode).toContain('list_baleybots');
     });
 
-    it('creator_bot balCode specifies claude-sonnet model', () => {
-      expect(INTERNAL_BALEYBOTS.creator_bot!.balCode).toContain('anthropic:claude-sonnet-4-20250514');
-    });
-
     it('test_validator balCode specifies claude-haiku model (fast tier for per-test validation)', () => {
       expect(INTERNAL_BALEYBOTS.test_validator!.balCode).toContain('anthropic:claude-haiku-4-5-20251001');
     });
@@ -214,29 +200,13 @@ describe('internal-baleybots', () => {
     it('creator_action_advisor output keeps structured actions typing', () => {
       expect(INTERNAL_BALEYBOTS.creator_action_advisor!.balCode).toContain('"actions": "array<object>"');
     });
-
-    it('creator_bot has no output block (conversational mode)', () => {
-      const balCode = INTERNAL_BALEYBOTS.creator_bot!.balCode;
-      expect(balCode).not.toContain('"output"');
-      expect(balCode).toContain('Rules:');
-    });
-
-    it('creator_bot BAL contains maxTokens', () => {
-      const balCode = INTERNAL_BALEYBOTS.creator_bot!.balCode;
-      expect(balCode).toContain('"maxTokens": 32768');
-    });
-
-    it('creator_bot goal emphasizes spawn delegation over direct BAL generation', () => {
-      const balCode = INTERNAL_BALEYBOTS.creator_bot!.balCode;
-      expect(balCode).toContain("delegate BAL code generation to spawn_baleybot('bal_generator'");
-    });
   });
 
   describe('getInternalBaleybot', () => {
     it('returns internal bot definition', async () => {
-      const bot = await getInternalBaleybot('creator_bot');
+      const bot = await getInternalBaleybot('baley');
       expect(bot).toBeDefined();
-      expect(bot?.name).toBe('creator_bot');
+      expect(bot?.name).toBe('baley');
     });
 
     it('returns null for unknown bot', async () => {

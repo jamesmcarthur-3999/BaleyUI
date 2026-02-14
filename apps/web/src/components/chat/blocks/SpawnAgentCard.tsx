@@ -59,7 +59,7 @@ export function SpawnAgentCard({ segment, config, className }: SpawnAgentCardPro
       </button>
 
       {expanded && segment.childSegments.length > 0 && (
-        <div className="ml-3 border-l-2 border-foreground/[0.08] pl-3 mt-1.5 space-y-1 animate-content-enter">
+        <div className="ml-4 pl-3 border-l border-dashed border-foreground/[0.06] mt-1.5 space-y-1 animate-content-enter">
           <Suspense fallback={<div className="text-xs text-muted-foreground/50 px-2 py-1">Loading...</div>}>
             <LazySegmentRenderer segments={segment.childSegments} config={config} />
           </Suspense>

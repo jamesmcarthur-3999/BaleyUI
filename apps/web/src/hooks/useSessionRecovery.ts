@@ -9,7 +9,8 @@
 
 import { useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import type { VisualEntity, CreatorMessage } from '@/lib/baleybot/creator-types';
+import type { VisualEntity } from '@/lib/baleybot/creator-types';
+import type { ChatMessage } from '@/components/chat';
 
 // ============================================================================
 // TYPES
@@ -21,7 +22,7 @@ export interface UseSessionRecoveryArgs {
   savedBaleybotId: string | null;
   /** State to persist */
   state: {
-    messages: CreatorMessage[];
+    messages: ChatMessage[];
     entities: VisualEntity[];
     balCode: string;
     name: string;
@@ -30,7 +31,7 @@ export interface UseSessionRecoveryArgs {
   };
   /** State setters for restore */
   restore: {
-    setMessages: (updater: (prev: CreatorMessage[]) => CreatorMessage[]) => void;
+    setMessages: (updater: (prev: ChatMessage[]) => ChatMessage[]) => void;
     setEntities: (entities: VisualEntity[]) => void;
     setBalCode: (code: string) => void;
     setName: (name: string) => void;
@@ -70,7 +71,6 @@ export function useSessionRecovery(args: UseSessionRecoveryArgs): void {
           role: m.role,
           content: m.content,
           timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
-          metadata: m.metadata,
         })),
         entities: state.entities,
         balCode: state.balCode,
@@ -100,7 +100,7 @@ export function useSessionRecovery(args: UseSessionRecoveryArgs): void {
       if (!raw) return;
       const snapshot = JSON.parse(raw) as {
         ts: number;
-        messages: Array<{ id: string; role: string; content: string; timestamp: string; metadata?: Record<string, unknown> }>;
+        messages: Array<{ id: string; role: string; content: string; timestamp: string }>;
         entities: VisualEntity[];
         balCode: string;
         name: string;
@@ -114,10 +114,12 @@ export function useSessionRecovery(args: UseSessionRecoveryArgs): void {
       }
       if (snapshot.messages.length > 0) {
         restore.setMessages(() =>
-          snapshot.messages.map((m) => ({
-            ...m,
+          snapshot.messages.map((m): ChatMessage => ({
+            id: m.id,
             role: m.role as 'user' | 'assistant' | 'system',
+            content: m.content,
             timestamp: new Date(m.timestamp),
+            status: 'complete',
           }))
         );
       }

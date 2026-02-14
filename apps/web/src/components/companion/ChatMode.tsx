@@ -5,8 +5,9 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, StopCircle, Paperclip, Loader2, Upload } from 'lucide-react';
-import { ChatThread, COMPANION_CONFIG, AttachmentThumbnails } from '@/components/chat';
+import { ChatThread, COMPANION_CONFIG, AttachmentThumbnails, NavigationChipList } from '@/components/chat';
 import type { ChatMessage, ChatAttachment } from '@/components/chat';
+import type { PendingNavigation } from '@/hooks/useBaleyChat';
 import { useFileUpload } from '@/hooks/useFileUpload';
 
 interface ChatModeProps {
@@ -17,6 +18,10 @@ interface ChatModeProps {
   onRetry?: (messageId: string) => void;
   className?: string;
   placeholder?: string;
+  /** Pending navigation requests from Baley */
+  pendingNavigations?: PendingNavigation[];
+  onApproveNavigation?: (id: string) => void;
+  onDismissNavigation?: (id: string) => void;
 }
 
 export function ChatMode({
@@ -27,6 +32,9 @@ export function ChatMode({
   onRetry,
   className,
   placeholder = 'Type a message...',
+  pendingNavigations,
+  onApproveNavigation,
+  onDismissNavigation,
 }: ChatModeProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -97,6 +105,15 @@ export function ChatMode({
 
       {/* Input — shrink-0 keeps it pinned at the bottom */}
       <div className="shrink-0 p-3 pt-2 space-y-2">
+        {/* Pending navigation requests */}
+        {pendingNavigations && pendingNavigations.length > 0 && onApproveNavigation && onDismissNavigation && (
+          <NavigationChipList
+            navigations={pendingNavigations}
+            onApprove={onApproveNavigation}
+            onDismiss={onDismissNavigation}
+          />
+        )}
+
         {/* Pending attachment thumbnails */}
         {pendingAttachments.length > 0 && (
           <AttachmentThumbnails

@@ -1,7 +1,7 @@
 ---
 id: creator_proactive_guidance
 version: 3
-appliesTo: creator_bot, baley
+appliesTo: baley
 section: output_rules
 ---
 Before building, call present_plan unless the user signals urgency.

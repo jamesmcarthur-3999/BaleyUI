@@ -6,6 +6,9 @@ import { withSentryConfig } from '@sentry/nextjs';
 // The barrel import pulls in @baleybots/core → express → fs, breaking client-side bundles.
 const toolsPkgDir = path.dirname(require.resolve('@baleybots/tools/package.json'));
 const dslDir = path.join(toolsPkgDir, 'dist', 'esm', 'baleybots-dsl-v2');
+// Turbopack resolveAlias doesn't support absolute paths (treats /foo as ./foo).
+// Compute a relative path from the project root for Turbopack aliases.
+const relativeDslDir = './' + path.relative(process.cwd(), dslDir).split(path.sep).join('/');
 const workspaceRoot = path.join(process.cwd(), '../..');
 
 const nextConfig: NextConfig = {
@@ -18,6 +21,22 @@ const nextConfig: NextConfig = {
   // Explicitly pin tracing root to this monorepo to avoid Next.js inferring
   // a parent directory when unrelated lockfiles exist on the host machine.
   outputFileTracingRoot: workspaceRoot,
+  turbopack: {
+    resolveAlias: {
+      // DSL sub-path aliases (equivalent to webpack resolve.alias).
+      // Uses relative paths because Turbopack doesn't support absolute paths in resolveAlias.
+      '@baleybots/tools/dsl/lexer': relativeDslDir + '/lexer.js',
+      '@baleybots/tools/dsl/parser': relativeDslDir + '/parser.js',
+      '@baleybots/tools/dsl/types': relativeDslDir + '/types.js',
+      '@baleybots/tools/dsl/type-builder': relativeDslDir + '/type-builder.js',
+      // Client-side fallbacks for Node.js builtins (equivalent to webpack resolve.fallback)
+      fs: { browser: './turbopack-empty.js' },
+      net: { browser: './turbopack-empty.js' },
+      tls: { browser: './turbopack-empty.js' },
+      child_process: { browser: './turbopack-empty.js' },
+      'fs/promises': { browser: './turbopack-empty.js' },
+    },
+  },
   webpack: (config, { isServer }) => {
     config.resolve = config.resolve || {};
     config.resolve.alias = {
@@ -66,12 +85,13 @@ const nextConfig: NextConfig = {
 
     const cspDirectives = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://cdn.jsdelivr.net",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "img-src 'self' data: blob: https://*.public.blob.vercel-storage.com",
       "font-src 'self' https://fonts.gstatic.com",
       `connect-src ${connectSrc}`,
       "frame-src 'self' https://challenges.cloudflare.com",
+      "worker-src 'self' blob:",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
@@ -107,6 +127,10 @@ const nextConfig: NextConfig = {
     '@baleybots/tools',
     '@baleybots/chat',
     '@baleybots/react',
+    // Turbopack can't resolve these through pnpm's isolated node_modules
+    // (they're transitive deps of @baleyui/db). Let Node.js resolve at runtime.
+    'drizzle-orm',
+    'postgres',
   ],
   // Note: 'standalone' output removed — Vercel uses its own adapter.
   // For Docker/self-hosted, re-add output: 'standalone'.

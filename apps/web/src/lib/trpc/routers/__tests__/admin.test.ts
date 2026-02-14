@@ -14,11 +14,6 @@ vi.mock('@baleyui/db', () => createMockDbModule());
 
 vi.mock('@/lib/baleybot/internal-baleybots', () => ({
   INTERNAL_BALEYBOTS: {
-    creator_bot: {
-      balCode: '  entity CreatorBot:\n  goal: "Create baleybots"\n  ',
-      description: 'Creates new BaleyBots',
-      icon: 'robot',
-    },
     bal_generator: {
       balCode: '  entity BALGenerator:\n  goal: "Generate BAL code"\n  ',
       description: 'Generates BAL code from descriptions',
@@ -75,7 +70,7 @@ describe('Admin Router Logic', () => {
   describe('listInternalBaleybots', () => {
     it('returns internal baleybots with isInternal flag', async () => {
       const internalBots = [
-        createMockBaleybot({ id: 'ib-1', name: 'creator_bot' }),
+        createMockBaleybot({ id: 'ib-1', name: 'bal_generator' }),
         createMockBaleybot({ id: 'ib-2', name: 'bal_generator' }),
       ] as Array<MockBaleybot & { isInternal?: boolean }>;
 
@@ -93,8 +88,8 @@ describe('Admin Router Logic', () => {
     it('identifies baleybots with default code', async () => {
       const { INTERNAL_BALEYBOTS } = await import('@/lib/baleybot/internal-baleybots');
       const bot = createMockBaleybot({
-        name: 'creator_bot',
-        balCode: INTERNAL_BALEYBOTS.creator_bot!.balCode.trim(),
+        name: 'bal_generator',
+        balCode: INTERNAL_BALEYBOTS.bal_generator!.balCode.trim(),
       });
 
       const hasDefaultCode = bot.name in INTERNAL_BALEYBOTS
@@ -107,7 +102,7 @@ describe('Admin Router Logic', () => {
     it('detects modified internal baleybots', async () => {
       const { INTERNAL_BALEYBOTS } = await import('@/lib/baleybot/internal-baleybots');
       const bot = createMockBaleybot({
-        name: 'creator_bot',
+        name: 'bal_generator',
         balCode: 'entity Modified:\n  goal: "Modified version"',
       });
 
@@ -134,7 +129,7 @@ describe('Admin Router Logic', () => {
         createMockExecution({ id: 'exec-2', status: 'failed' }),
       ];
       const bot = {
-        ...createMockBaleybot({ id: 'ib-1', name: 'creator_bot' }),
+        ...createMockBaleybot({ id: 'ib-1', name: 'bal_generator' }),
         isInternal: true,
         executions,
       };
@@ -158,7 +153,7 @@ describe('Admin Router Logic', () => {
 
     it('includes default BAL code for known bots', async () => {
       const { INTERNAL_BALEYBOTS } = await import('@/lib/baleybot/internal-baleybots');
-      const botName = 'creator_bot';
+      const botName = 'bal_generator';
       const defaultDef = INTERNAL_BALEYBOTS[botName];
 
       expect(defaultDef).toBeDefined();
@@ -212,7 +207,7 @@ describe('Admin Router Logic', () => {
   describe('resetToDefault', () => {
     it('finds the internal bot before resetting', async () => {
       const existing = {
-        ...createMockBaleybot({ id: 'ib-1', name: 'creator_bot', version: 2 }),
+        ...createMockBaleybot({ id: 'ib-1', name: 'bal_generator', version: 2 }),
         isInternal: true,
         adminEdited: true,
       };
@@ -221,7 +216,7 @@ describe('Admin Router Logic', () => {
       const result = await ctx.db.query.baleybots.findFirst();
 
       expect(result).not.toBeNull();
-      expect(result?.name).toBe('creator_bot');
+      expect(result?.name).toBe('bal_generator');
     });
 
     it('returns null for non-existent bot (simulates NOT_FOUND)', async () => {
@@ -234,7 +229,7 @@ describe('Admin Router Logic', () => {
 
     it('resets balCode to default definition', async () => {
       const { INTERNAL_BALEYBOTS } = await import('@/lib/baleybot/internal-baleybots');
-      const botName = 'creator_bot';
+      const botName = 'bal_generator';
       const defaultDef = INTERNAL_BALEYBOTS[botName];
 
       expect(defaultDef).toBeDefined();
@@ -246,7 +241,7 @@ describe('Admin Router Logic', () => {
       };
 
       expect(resetData.adminEdited).toBe(false);
-      expect(resetData.balCode).toContain('CreatorBot');
+      expect(resetData.balCode).toContain('BALGenerator');
     });
 
     it('returns error when bot name has no default definition', async () => {

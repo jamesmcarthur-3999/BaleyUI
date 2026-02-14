@@ -10,9 +10,8 @@ import { useState, useRef, useEffect } from 'react';
 import { trpc } from '@/lib/trpc/client';
 import { useDebouncedCallback } from '@/hooks/useDebounce';
 import { isSaveConflictError } from '@/components/creator';
-import { buildCreatorHistoryPayload } from '@/lib/baleybot/creator-helpers';
 import { formatErrorWithAction } from '@/lib/errors/creator-errors';
-import type { CreatorMessage } from '@/lib/baleybot/creator-types';
+import type { ChatMessage } from '@/components/chat';
 import type { ConflictAction } from '@/components/creator';
 
 // ============================================================================
@@ -26,7 +25,7 @@ export interface UseBaleybotPersistenceArgs {
   name: string;
   description: string;
   icon: string;
-  messages: CreatorMessage[];
+  messages: ChatMessage[];
   isDirty: boolean;
   isStreaming: boolean;
   markClean: () => void;
@@ -107,7 +106,15 @@ export function useBaleybotPersistence(args: UseBaleybotPersistenceArgs): UseBal
         description: description || undefined,
         icon: icon || undefined,
         balCode,
-        conversationHistory: buildCreatorHistoryPayload(messages),
+        conversationHistory: messages
+          .filter((m) => m.role !== 'system')
+          .slice(-60)
+          .map((m) => ({
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: m.content.slice(0, 8000),
+            timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : String(m.timestamp),
+          })),
       });
 
       const isFirstSave = !savedBaleybotId;

@@ -51,7 +51,7 @@ export function computeApplicability(
 }
 
 /**
- * Specialist signals from creator_bot's autonomous team.
+ * Specialist signals from Baley's autonomous team.
  * When a specialist was invoked and returned output, the corresponding
  * field will be truthy. This enriches the readiness computation with
  * AI-driven assessments alongside manual/UI-driven checks.

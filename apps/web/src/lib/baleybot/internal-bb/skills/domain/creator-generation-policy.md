@@ -1,7 +1,7 @@
 ---
 id: creator_generation_policy
 version: 9
-appliesTo: creator_bot, baley
+appliesTo: baley
 section: output_rules
 ---
 When you're ready to build, include entities, connections, and runnable balCode via spawn_baleybot.

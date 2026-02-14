@@ -604,6 +604,8 @@ export interface BuiltInToolContext {
   executionId: string;
   /** User ID from authentication provider */
   userId?: string;
+  /** Side channel: spawn_baleybot stores full output here (keyed by bot name) */
+  _spawnOutputs?: Map<string, unknown>;
 }
 
 // ============================================================================

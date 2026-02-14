@@ -17,6 +17,7 @@ export { ErrorNotice } from './blocks/ErrorNotice';
 export { DoneIndicator } from './blocks/DoneIndicator';
 export { SystemNotice } from './blocks/SystemNotice';
 export { TextBlock } from './blocks/TextBlock';
+export { NavigationChip, NavigationChipList } from './blocks/NavigationChip';
 
 // Utilities
 export { getToolLabel, getToolIcon, registerToolSummary } from './tool-summaries';

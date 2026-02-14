@@ -1,8 +1,7 @@
 /**
  * Unified Baley Chat Hook
  *
- * Replaces both useCompanionChat.ts (general companion) and
- * creator-streaming.ts (creator pipeline) with a single hook that:
+ * Single hook for all Baley chat interactions (companion and creator) that:
  *
  * 1. Uses `useStreamState` (SDK-aligned reducer) for stream processing
  * 2. Sends to `/api/baley/stream` (the unified route)
@@ -24,11 +23,25 @@ import {
   type AppStreamState,
 } from '@/hooks/useStreamState';
 import type { ChatMessage, ChatAttachment } from '@/components/chat';
-import type { StreamSegment } from '@baleybots/chat';
+import type { StreamSegment, TextSegment } from '@baleybots/chat';
 import { finalizeSegments, getTextContent } from '@baleybots/chat';
+import { stripLargeJsonBlocks } from '@/components/chat/utils/strip-json';
 import type { ServerStreamEvent } from '@/lib/streaming/types';
 import type { CreatorOutput, PlanPreviewData } from '@/lib/baleybot/creator-types';
 import type { TriggerConfig } from '@/lib/baleybot/types';
+
+// ============================================================================
+// Navigation request types
+// ============================================================================
+
+/** A pending navigation that requires user confirmation. */
+export interface PendingNavigation {
+  id: string;
+  path: string;
+  label: string;
+  reason?: string;
+  createdAt: number;
+}
 
 // ============================================================================
 // Types
@@ -60,7 +73,6 @@ export interface UseBaleyConfig {
     onConnectionAction?: (action: string, result: unknown) => void;
     onTriggerSaved?: (config: TriggerConfig) => void;
     onWebhookEnabled?: (url: string, secret: string) => void;
-    onNavigateTab?: (tab: string) => void;
     onShowPlan?: (plan: PlanPreviewData) => void;
     onShowSurface?: (surface: string, reason?: string) => void;
     onCreatorComplete?: (result: CreatorOutput, specialist: SpecialistFindings) => void;
@@ -95,6 +107,7 @@ export function useBaleyChat(config?: UseBaleyConfig) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [pendingInput, setPendingInput] = useState<PendingInput | null>(null);
+  const [pendingNavigations, setPendingNavigations] = useState<PendingNavigation[]>([]);
   const [lastCreatorResult, setLastCreatorResult] = useState<CreatorOutput>();
   const [lastSpecialistFindings, setLastSpecialistFindings] = useState<SpecialistFindings>();
   const [streamState, dispatch] = useReducer(streamReducer, createInitialAppStreamState());
@@ -103,6 +116,25 @@ export function useBaleyChat(config?: UseBaleyConfig) {
 
   const abortRef = useRef<AbortController | null>(null);
   const currentAssistantIdRef = useRef<string | null>(null);
+
+  // RAF batching: queue stream events and flush once per animation frame
+  const eventQueueRef = useRef<ServerStreamEvent[]>([]);
+  const rafIdRef = useRef<number | null>(null);
+
+  const flushEventQueue = useCallback(() => {
+    rafIdRef.current = null;
+    const events = eventQueueRef.current;
+    if (events.length === 0) return;
+    eventQueueRef.current = [];
+    dispatch({ type: 'PROCESS_BATCH', events });
+  }, []);
+
+  const queueEvent = useCallback((event: ServerStreamEvent) => {
+    eventQueueRef.current.push(event);
+    if (rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(flushEventQueue);
+    }
+  }, [flushEventQueue]);
 
   const pathname = usePathname();
   const router = useRouter();
@@ -114,6 +146,9 @@ export function useBaleyChat(config?: UseBaleyConfig) {
 
   const send = useCallback(async (message: string, attachments?: ChatAttachment[]) => {
     if (isStreaming) return;
+
+    // Clear stale navigation requests when user sends a new message
+    setPendingNavigations([]);
 
     // Add user message
     const userMsg: ChatMessage = {
@@ -215,19 +250,45 @@ export function useBaleyChat(config?: UseBaleyConfig) {
             // ----------------------------------------------------------------
             if (event.type === 'stream_event') {
               const serverEvent = event as ServerStreamEvent;
-              dispatch({ type: 'PROCESS_EVENT', event: serverEvent });
+              queueEvent(serverEvent);
 
-              // Check for navigate tool results within the event
+              // Check for action objects in tool results
               const inner = serverEvent.event;
               if (
                 inner.type === 'tool_execution_output' &&
                 inner.result &&
-                typeof inner.result === 'object' &&
-                (inner.result as Record<string, unknown>).action === 'navigate'
+                typeof inner.result === 'object'
               ) {
-                const path = (inner.result as Record<string, unknown>).path;
-                if (typeof path === 'string') {
-                  router.push(path);
+                const result = inner.result as Record<string, unknown>;
+                const actionType = result.action as string | undefined;
+
+                if (actionType === 'navigate_request') {
+                  const path = result.path as string;
+                  const label = (result.label as string) ?? path;
+                  const reason = result.reason as string | undefined;
+                  if (path) {
+                    setPendingNavigations((prev) => [
+                      ...prev,
+                      {
+                        id: `nav-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                        path,
+                        label,
+                        reason,
+                        createdAt: Date.now(),
+                      },
+                    ]);
+                  }
+                } else if (actionType === 'show_surface') {
+                  const surface = result.surface as string;
+                  const reason = result.reason as string | undefined;
+                  if (surface) {
+                    config?.creatorCallbacks?.onShowSurface?.(surface, reason);
+                  }
+                } else if (actionType === 'show_plan') {
+                  const plan = result.plan as PlanPreviewData | undefined;
+                  if (plan) {
+                    config?.creatorCallbacks?.onShowPlan?.(plan);
+                  }
                 }
               }
             }
@@ -310,24 +371,8 @@ export function useBaleyChat(config?: UseBaleyConfig) {
               }
             }
 
-            else if (event.type === 'creator_navigate_tab') {
-              if (event.tab) {
-                config?.creatorCallbacks?.onNavigateTab?.(event.tab as string);
-              }
-            }
-
-            else if (event.type === 'creator_show_plan') {
-              if (event.plan) {
-                config?.creatorCallbacks?.onShowPlan?.(event.plan as PlanPreviewData);
-              }
-            }
-
-            else if (event.type === 'creator_show_surface') {
-              config?.creatorCallbacks?.onShowSurface?.(
-                event.surface as string,
-                event.reason as string | undefined
-              );
-            }
+            // creator_navigate_tab, creator_show_plan, creator_show_surface
+            // are now handled via action objects in tool_execution_output above.
           } catch {
             // Skip malformed JSON lines
           }
@@ -350,6 +395,17 @@ export function useBaleyChat(config?: UseBaleyConfig) {
         )
       );
     } finally {
+      // Flush any remaining RAF-queued events synchronously before finalizing
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      if (eventQueueRef.current.length > 0) {
+        const remaining = eventQueueRef.current;
+        eventQueueRef.current = [];
+        dispatch({ type: 'PROCESS_BATCH', events: remaining });
+      }
+
       // Finalize: read segments from streamState, update the assistant message,
       // then reset streamState for the next turn.
       const finalAssistantId = currentAssistantIdRef.current;
@@ -373,7 +429,15 @@ export function useBaleyChat(config?: UseBaleyConfig) {
             // above), don't overwrite it.
             if (m.status === 'error') return m;
 
-            const finalizedSegments = finalizeSegments(streamStateRef.current.segmentState);
+            const finalizedSegments = finalizeSegments(streamStateRef.current.segmentState).map(
+              (seg: StreamSegment) => {
+                if (seg.type === 'text') {
+                  const textSeg = seg as TextSegment;
+                  return { ...textSeg, content: stripLargeJsonBlocks(textSeg.content) };
+                }
+                return seg;
+              }
+            );
             const textContent = getTextContent(streamStateRef.current.segmentState);
 
             return {
@@ -389,7 +453,7 @@ export function useBaleyChat(config?: UseBaleyConfig) {
       // Reset the stream state for the next turn
       dispatch({ type: 'RESET' });
     }
-  }, [isStreaming, messages, pathname, health, config, router]);
+  }, [isStreaming, messages, pathname, health, config, router, queueEvent]);
 
   // --------------------------------------------------------------------------
   // respond — answer a pending input request
@@ -414,13 +478,33 @@ export function useBaleyChat(config?: UseBaleyConfig) {
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
+
+    // Flush remaining RAF-queued events synchronously before cancelling
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    if (eventQueueRef.current.length > 0) {
+      const remaining = eventQueueRef.current;
+      eventQueueRef.current = [];
+      dispatch({ type: 'PROCESS_BATCH', events: remaining });
+    }
+
     setIsStreaming(false);
     dispatch({ type: 'CANCEL' });
 
     // Finalize any in-progress assistant message
     const assistantId = currentAssistantIdRef.current;
     if (assistantId) {
-      const finalizedSegments = finalizeSegments(streamStateRef.current.segmentState);
+      const finalizedSegments = finalizeSegments(streamStateRef.current.segmentState).map(
+        (seg: StreamSegment) => {
+          if (seg.type === 'text') {
+            const textSeg = seg as TextSegment;
+            return { ...textSeg, content: stripLargeJsonBlocks(textSeg.content) };
+          }
+          return seg;
+        }
+      );
       const textContent = getTextContent(streamStateRef.current.segmentState);
 
       setMessages(prev =>
@@ -447,10 +531,33 @@ export function useBaleyChat(config?: UseBaleyConfig) {
   const clear = useCallback(() => {
     setMessages([]);
     setPendingInput(null);
+    setPendingNavigations([]);
     setLastCreatorResult(undefined);
     setLastSpecialistFindings(undefined);
     dispatch({ type: 'RESET' });
     currentAssistantIdRef.current = null;
+  }, []);
+
+  // --------------------------------------------------------------------------
+  // approveNavigation — user approves a pending navigation request
+  // --------------------------------------------------------------------------
+
+  const approveNavigation = useCallback((navId: string) => {
+    setPendingNavigations((prev) => {
+      const nav = prev.find((n) => n.id === navId);
+      if (nav) {
+        router.push(nav.path);
+      }
+      return prev.filter((n) => n.id !== navId);
+    });
+  }, [router]);
+
+  // --------------------------------------------------------------------------
+  // dismissNavigation — user dismisses a pending navigation request
+  // --------------------------------------------------------------------------
+
+  const dismissNavigation = useCallback((navId: string) => {
+    setPendingNavigations((prev) => prev.filter((n) => n.id !== navId));
   }, []);
 
   // --------------------------------------------------------------------------
@@ -483,6 +590,9 @@ export function useBaleyChat(config?: UseBaleyConfig) {
     clear,
     streamState,
     pendingInput,
+    pendingNavigations,
+    approveNavigation,
+    dismissNavigation,
     health,
     lastCreatorResult,
     lastSpecialistFindings,

@@ -5,7 +5,6 @@ import {
   baleybotExecutions,
   baleybotTriggers,
   connections,
-  sharedContext,
   eq,
   lt,
   and,
@@ -19,11 +18,7 @@ import {
 import { TRPCError } from '@trpc/server';
 import { sanitizeCreatorText } from '@/lib/baleybot/creator-sanitization';
 import { canExecute, executeBaleybot, type ExecutorContext } from '@/lib/baleybot/executor';
-import { buildCreatorRequestContext } from '@/lib/baleybot/creator-request-context';
-import { executeInternalBaleybot } from '@/lib/baleybot/internal-baleybots';
 import { runCreatorActionAdvisor } from '@/lib/baleybot/internal-bb/runner';
-import { buildConnectionTools } from '@/lib/baleybot/tools/companion/connections';
-import { creatorOutputSchema } from '@/lib/baleybot/creator-types';
 import { compileBALCode } from '@baleyui/sdk';
 import { sanitizeErrorMessage, isUserFacingError } from '@/lib/errors/sanitize';
 import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
@@ -1024,99 +1019,6 @@ export const baleybotsRouter = router({
   // ========================================================================
   // CREATOR
   // ========================================================================
-
-  /**
-   * Send a message to the Creator Bot and get a response.
-   * Used for conversational BaleyBot creation.
-   */
-  sendCreatorMessage: editorProcedure
-    .input(
-      z.object({
-        baleybotId: z.string().uuid().optional(),
-        message: z.string().min(1).max(10000),
-        conversationHistory: z
-          .array(
-            z.object({
-              id: z.string(),
-              role: z.enum(['user', 'assistant']),
-              content: z.string(),
-              timestamp: z.coerce.date(),
-              metadata: z.record(z.string(), z.unknown()).optional(),
-            })
-          )
-          .optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      await checkRateLimit(
-        `creatorForeground:${ctx.workspace.id}:${ctx.userId}`,
-        RATE_LIMITS.creatorMessage,
-      );
-
-      const creatorContext = await buildCreatorRequestContext({
-        db: ctx.db,
-        workspaceId: ctx.workspace.id,
-        message: input.message,
-        conversationHistory: input.conversationHistory,
-      });
-
-      // Fetch active shared context for creator bot awareness
-      const sharedContextEntries = await ctx.db.query.sharedContext.findMany({
-        where: and(
-          eq(sharedContext.workspaceId, ctx.workspace.id),
-          eq(sharedContext.isActive, true)
-        ),
-      });
-
-      // Build input for creator_bot (non-streaming path)
-      const contextParts: string[] = [];
-
-      if (sharedContextEntries.length > 0) {
-        const formatted = sharedContextEntries
-          .map((e) => `- ${e.key}: ${e.value}`)
-          .join('\n');
-        contextParts.push(`Workspace Knowledge & Standards:\n${formatted}`);
-      }
-
-      if (creatorContext.context.availableTools.length > 0) {
-        contextParts.push(`Available tools: ${creatorContext.context.availableTools.map(t => t.name).join(', ')}`);
-      }
-      if (creatorContext.conversationHistory.length > 0) {
-        const history = creatorContext.conversationHistory.slice(-16)
-          .map(m => `${m.role}: ${m.content.slice(0, 900)}`)
-          .join('\n');
-        contextParts.push(`Conversation history:\n${history}`);
-      }
-      contextParts.push(`User message: ${creatorContext.sanitizedMessage}`);
-
-      // Inject companion tools so creator_bot's BAL passes semantic validation
-      const connectionTools = buildConnectionTools({
-        workspaceId: ctx.workspace.id,
-        userId: ctx.userId!,
-      });
-
-      const { output } = await executeInternalBaleybot(
-        'creator_bot',
-        contextParts.join('\n\n'),
-        {
-          userWorkspaceId: ctx.workspace.id,
-          triggeredBy: 'internal',
-          injectedTools: connectionTools,
-        }
-      );
-
-      // Parse the concierge output through the creator output schema
-      const parsed = creatorOutputSchema.safeParse(output);
-      if (parsed.success) {
-        return parsed.data;
-      }
-
-      // Fallback: return a building response with the raw text
-      return creatorOutputSchema.parse({
-        message: typeof output === 'string' ? output : JSON.stringify(output),
-        status: 'building',
-      });
-    }),
 
   /**
    * Context-aware creator guidance actions. Canonical source for next-action suggestions.

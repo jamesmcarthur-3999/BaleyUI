@@ -117,13 +117,6 @@ export {
 // Reviewer (to be implemented in Phase 7.1)
 // export { reviewExecution } from './reviewer';
 
-// Creator Pipeline - BAL-native conversational BaleyBot creation
-export {
-  executeCreatorPipeline,
-  type CreatorPipelineArgs,
-  type CreatorSSEEvent,
-} from './creator-pipeline-adapter';
-
 // Creator Types (selective exports to avoid conflicts with types.ts)
 export {
   // Visual entity types
@@ -135,7 +128,6 @@ export {
   type Connection as VisualConnection,
   // Message types
   type MessageRole,
-  type CreatorMessage,
   // Canvas state types
   type CreationStatus,
   type CanvasState,

@@ -126,6 +126,9 @@ function AppShell({ children }: AppShellProps) {
             onSendMessage={companion.send}
             onStopGeneration={companion.stop}
             placeholder="Ask Baley anything..."
+            pendingNavigations={companion.pendingNavigations}
+            onApproveNavigation={companion.approveNavigation}
+            onDismissNavigation={companion.dismissNavigation}
           />
         </CompanionContainer>
       )}

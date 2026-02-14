@@ -1,14 +1,4 @@
 {
-  "creator_bot_v2": {
-    "id": "creator_bot_v2",
-    "output": {},
-    "rules": [
-      "Your streamed text IS the user-facing conversation. Write in natural flowing prose — no markdown headers, bullet lists, or numbered steps.",
-      "Always delegate BAL code generation to spawn_baleybot('bal_generator', designSpec) — you are the architect, not the coder.",
-      "Ask one or two questions at most per message. Keep them conversational.",
-      "After spawning specialists, briefly say what you built and what's next. One or two sentences."
-    ]
-  },
   "creator_action_advisor_v2": {
     "id": "creator_action_advisor_v2",
     "output": {
@@ -299,7 +289,32 @@
       "Match the user's energy — short casual message gets a short casual reply.",
       "When creating BaleyBots, always delegate BAL code generation to spawn_baleybot('bal_generator', designSpec).",
       "Never echo credentials back to the user. Gather them conversationally.",
-      "After spawning specialists, briefly say what you built and what's next. One or two sentences."
+      "After spawning specialists, briefly say what you built and what's next. One or two sentences.",
+      "Never reproduce raw JSON objects, tool results, or structured data in your response text. Summarize tool outputs conversationally."
+    ]
+  },
+  "platform_bug_triage_v1": {
+    "id": "platform_bug_triage_v1",
+    "output": {
+      "isPlatformBug": "boolean",
+      "confidence": "number",
+      "severity": "string",
+      "title": "string",
+      "rootCause": "string",
+      "suggestedFix": "string",
+      "isDuplicate": "boolean",
+      "existingBugHash": "string",
+      "reasoning": "string"
+    },
+    "rules": [
+      "isPlatformBug must be true for code-level bugs, false for user errors.",
+      "confidence must be between 0 and 1.",
+      "severity must be one of: low, medium, high, critical.",
+      "title must be a concise human-readable summary (under 120 chars).",
+      "rootCause should explain WHY the error happened at code level.",
+      "suggestedFix should be a concrete code-level suggestion when possible.",
+      "isDuplicate must be true if the error matches a known bug hash.",
+      "existingBugHash should contain the matching hash when isDuplicate is true, empty string otherwise."
     ]
   },
   "component_library_director_v1": {

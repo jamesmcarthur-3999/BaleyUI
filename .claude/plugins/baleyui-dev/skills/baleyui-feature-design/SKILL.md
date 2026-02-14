@@ -34,7 +34,7 @@ Check if an internal BB already handles this. Internal bots cover:
 
 | Category | Bots |
 |----------|------|
-| **Creation** | `creator_bot`, `creator_action_advisor`, `bal_generator` |
+| **Creation** | `baley`, `creator_action_advisor`, `bal_generator` |
 | **Testing** | `test_orchestrator`, `test_generator`, `test_validator`, `test_results_analyzer`, `test_interface_designer` |
 | **Deployment** | `deployment_advisor`, `connection_advisor`, `integration_builder` |
 | **Intelligence** | `pattern_learner`, `execution_reviewer`, `context_processor` |
@@ -126,7 +126,7 @@ Before finalizing any feature design, verify each item:
 | Traditional Approach | AI-First Alternative |
 |---------------------|---------------------|
 | Hard-coded review form for BB outputs | `execution_reviewer` bot + `bb_fn_show_diff` UI |
-| Multi-step onboarding wizard | `creator_bot` converses adaptively based on user responses |
+| Multi-step onboarding wizard | `baley` converses adaptively based on user responses |
 | Preference page + cron job for notifications | BaleyBot + `schedule_task` + `pattern_learner` to learn timing |
 | Error list with manual resolution forms | `execution_reviewer` analyzes errors + Actions Hub for one-click fixes |
 | Rule-based content scanner | BAL `chain` with `route()` classification and `gate()` conditions |

@@ -94,7 +94,6 @@ describe('internal-baleybots integration', () => {
   describe('INTERNAL_BALEYBOTS definitions', () => {
     const expectedBots = [
       'baley',
-      'creator_bot',
       'creator_action_advisor',
       'bal_generator',
       'pattern_learner',
@@ -136,13 +135,6 @@ describe('internal-baleybots integration', () => {
       }
     });
 
-    it('creator_bot has proper BAL structure', () => {
-      const def = INTERNAL_BALEYBOTS.creator_bot;
-      expect(def).toBeDefined();
-      expect(def!.balCode).toContain('"goal"');
-      expect(def!.balCode).toContain('"model"');
-    });
-
     it('SQL bots are configured for different databases', () => {
       expect(INTERNAL_BALEYBOTS.nl_to_sql_postgres!.balCode).toContain('PostgreSQL');
       expect(INTERNAL_BALEYBOTS.nl_to_sql_mysql!.balCode).toContain('MySQL');
@@ -158,9 +150,9 @@ describe('internal-baleybots integration', () => {
 
   describe('getInternalBaleybot', () => {
     it('returns bot definition for known bots', async () => {
-      const bot = await getInternalBaleybot('creator_bot');
+      const bot = await getInternalBaleybot('baley');
       expect(bot).not.toBeNull();
-      expect(bot?.name).toBe('creator_bot');
+      expect(bot?.name).toBe('baley');
     });
 
     it('returns null for unknown bots', async () => {

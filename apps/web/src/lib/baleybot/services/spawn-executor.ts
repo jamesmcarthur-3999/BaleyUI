@@ -266,6 +266,26 @@ async function updateExecutionRecord(
 }
 
 /**
+ * Build a human-readable summary of a spawn result for the LLM.
+ * The full structured output is captured in the side channel (_spawnOutputs)
+ * so the LLM doesn't need to see raw JSON.
+ */
+function buildSpawnSummary(botName: string, output: unknown): string {
+  if (!output || typeof output !== 'object') {
+    return `spawn_baleybot(${botName}) completed. Result: ${String(output).slice(0, 200)}`;
+  }
+  const obj = output as Record<string, unknown>;
+  const parts = [`spawn_baleybot(${botName}) completed successfully.`];
+  if (obj.suggestedName ?? obj.name) parts.push(`Name: ${String(obj.suggestedName ?? obj.name).slice(0, 100)}`);
+  if (Array.isArray(obj.entities)) {
+    parts.push(`Entities: ${obj.entities.map((e: Record<string, unknown>) => String(e.name ?? 'unnamed')).join(', ')}`);
+  }
+  if (obj.explanation) parts.push(`Summary: ${String(obj.explanation).slice(0, 300)}`);
+  parts.push('Full structured output has been captured and will be applied automatically. Do not reproduce raw data.');
+  return parts.join('\n');
+}
+
+/**
  * Create a spawn executor with configurable options
  */
 export function createSpawnBaleybotExecutor(options?: {
@@ -428,8 +448,16 @@ export function createSpawnBaleybotExecutor(options?: {
         throw new Error(`Spawned BaleyBot "${targetBB.name}" failed: ${result.error}`);
       }
 
+      // Store full output in side channel for downstream consumers
+      if (ctx._spawnOutputs) {
+        ctx._spawnOutputs.set(targetBB.name, result.output);
+      }
+
+      // Return a human-readable summary instead of raw JSON
+      const summary = buildSpawnSummary(targetBB.name, result.output);
+
       return {
-        output: result.output,
+        output: summary,
         executionId,
         durationMs,
       };

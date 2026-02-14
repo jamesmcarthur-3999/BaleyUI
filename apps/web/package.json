@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "SENTRY_SUPPRESS_TURBOPACK_WARNING=1 next dev --turbopack",
     "prebuild": "if [ -f ../../packages/baleybots/typescript/packages/core/package.json ]; then (cd ../../packages/baleybots/typescript/packages/core && pnpm build); else echo \"Skipping @baleybots/core prebuild (core package not present in this checkout).\"; fi && if [ -f ../../packages/baleybots/typescript/packages/tools/package.json ]; then (cd ../../packages/baleybots/typescript/packages/tools && pnpm build); else echo \"Skipping @baleybots/tools prebuild (tools package not present in this checkout).\"; fi",
     "build": "next build",
     "start": "next start",
@@ -68,6 +68,7 @@
     "dagre": "^0.8.5",
     "date-fns": "^4.1.0",
     "dompurify": "^3.3.1",
+    "drizzle-orm": "^0.38.2",
     "lucide-react": "^0.468.0",
     "mysql2": "^3.16.3",
     "next": "15.5.12",

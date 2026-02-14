@@ -297,7 +297,7 @@ BaleyUI "eats its own cooking" - internal operations use BaleyBots stored with `
 
 | ID | Icon | Role | Model |
 |----|------|------|-------|
-| `creator_bot` | `bot` | Conversational architect, delegates to specialists | anthropic:powerful |
+| `baley` | `bot` | Conversational architect, delegates to specialists | anthropic:powerful |
 | `creator_action_advisor` | `puzzle` | Suggests next creator actions based on context | anthropic:powerful |
 | `bal_generator` | `memo` | Converts descriptions to BAL code | anthropic:powerful |
 | `pattern_learner` | `brain` | Analyzes approvals, suggests auto-approval patterns | anthropic:powerful |
@@ -322,7 +322,7 @@ BaleyUI "eats its own cooking" - internal operations use BaleyBots stored with `
 import { executeInternalBaleybot } from '@/lib/baleybot/internal-baleybots';
 
 const { output, executionId } = await executeInternalBaleybot(
-  'creator_bot',
+  'baley',
   userMessage,
   {
     userWorkspaceId: workspace.id,
@@ -371,7 +371,7 @@ The creator flow uses a team of specialist internal BBs:
 
 ```
 User describes what they want
-  -> creator_bot (conversational architect)
+  -> baley (conversational architect)
     -> Understands intent, asks clarifying questions
     -> spawn_baleybot('bal_generator', designSpec)  // Produces BAL code
     -> spawn_baleybot('connection_advisor', ...)     // Checks connections
@@ -380,7 +380,7 @@ User describes what they want
   -> BaleyBot saved to DB with generated BAL + metadata
 ```
 
-**Key rule:** `creator_bot` NEVER generates BAL code itself. It always delegates to `bal_generator` via `spawn_baleybot`.
+**Key rule:** `baley` NEVER generates BAL code itself. It always delegates to `bal_generator` via `spawn_baleybot`.
 
 ### 5 Readiness Dimensions
 

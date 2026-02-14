@@ -526,7 +526,7 @@ describe('parseBalCode real-world scenarios', () => {
 
   it('parses an entity matching internal balaybot pattern (output with complex types)', () => {
     const result = parseBalCode(`
-      creator_bot {
+      example_bot {
         "goal": "Create BaleyBots from user descriptions",
         "model": "anthropic:claude-sonnet-4-20250514",
         "output": {

@@ -229,7 +229,11 @@ export function AdaptiveTestSurface({
             if (existing) {
               existing.status = event.error ? 'failed' : 'completed';
               existing.result = event.result;
-              existing.error = event.error as string | undefined;
+              existing.error = typeof event.error === 'string'
+                ? event.error
+                : event.error != null
+                  ? (event.error as Record<string, unknown>).message as string ?? String(event.error)
+                  : undefined;
               existing.endTime = Date.now();
               setToolCalls((prev) => ({ ...prev, [eventId]: { ...existing } }));
             }
@@ -246,7 +250,9 @@ export function AdaptiveTestSurface({
 
           if (event.type === 'error') {
             setError({
-              message: (event.error as string) ?? 'Execution failed',
+              message: typeof event.error === 'string'
+                ? event.error
+                : (event.error as Record<string, unknown>)?.message as string ?? String(event.error ?? 'Execution failed'),
               actionUrl: event.actionUrl as string | undefined,
               actionLabel: event.actionLabel as string | undefined,
             });

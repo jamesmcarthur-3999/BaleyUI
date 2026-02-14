@@ -128,11 +128,11 @@ function CreateBBWizard() {
 }
 ```
 
-### Right Approach: creator_bot converses adaptively
+### Right Approach: baley converses adaptively
 
 ```bal
-# creator_bot already handles this — it's an internal BB
-creator_bot {
+# baley already handles this — it's an internal BB
+baley {
   "goal": "Help the user create a new BaleyBot. Understand what they want
            to accomplish, ask clarifying questions, then delegate to
            specialist bots for BAL generation, connection checks, and testing.",
@@ -151,7 +151,7 @@ creator_bot {
 function CreateBBPage() {
   return (
     <CreatorChat
-      botName="creator_bot"
+      botName="baley"
       initialMessage="What would you like your BaleyBot to do?"
       onBotCreated={handleNavigateToBB}
     />

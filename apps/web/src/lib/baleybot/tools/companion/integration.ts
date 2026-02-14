@@ -2,7 +2,7 @@
  * Integration Companion Tools
  *
  * Reusable tool builders for save_trigger_config and enable_webhook.
- * Extracted from integrate-stream/route.ts so the creator_bot pipeline
+ * Extracted from integrate-stream/route.ts so the Baley pipeline
  * can inject them directly when a BaleyBot is saved.
  */
 

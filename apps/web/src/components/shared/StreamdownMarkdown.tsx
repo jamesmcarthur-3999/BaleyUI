@@ -14,12 +14,13 @@ export function StreamdownMarkdown({ text, isStreaming = false, className }: Str
   return (
     <div className={cn(
       'prose prose-sm dark:prose-invert max-w-none overflow-hidden break-words',
-      'prose-p:leading-relaxed prose-p:my-2',
+      'prose-p:leading-[1.75] prose-p:my-2.5',
       'prose-headings:font-semibold prose-headings:tracking-tight',
       'prose-code:text-[0.8125em] prose-code:font-medium prose-code:bg-foreground/[0.04] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none',
-      'prose-pre:bg-foreground/[0.03] prose-pre:border prose-pre:border-foreground/[0.06] prose-pre:rounded-xl prose-pre:overflow-x-auto',
+      'prose-pre:bg-foreground/[0.03] prose-pre:border prose-pre:border-foreground/[0.06] prose-pre:rounded-xl prose-pre:overflow-x-auto prose-pre:my-3',
       'prose-a:text-primary prose-a:no-underline hover:prose-a:underline',
-      'prose-li:my-0.5',
+      'prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5',
+      'prose-blockquote:border-l-primary/30 prose-blockquote:text-muted-foreground',
       '[&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
       className,
     )}>
@@ -27,6 +28,7 @@ export function StreamdownMarkdown({ text, isStreaming = false, className }: Str
         plugins={{ code }}
         mode={isStreaming ? 'streaming' : 'static'}
         isAnimating={isStreaming}
+        animated={isStreaming ? { animation: 'fadeIn', duration: 150, sep: 'word' } : false}
         caret={isStreaming ? 'block' : undefined}
       >
         {text}

@@ -185,7 +185,7 @@ describe('buildActionTools', () => {
 
       expect(result).toEqual(
         expect.objectContaining({
-          action: 'navigate',
+          action: 'navigate_request',
           path: '/dashboard/actions?highlight=rec-1',
         })
       );
@@ -204,7 +204,7 @@ describe('buildActionTools', () => {
       const result = await applyTool.function({ recommendationId: 'rec-1' });
 
       expect(result).toEqual(
-        expect.objectContaining({ action: 'navigate' })
+        expect.objectContaining({ action: 'navigate_request' })
       );
     });
 

@@ -17,6 +17,10 @@ import { apiErrors } from '@/lib/api/error-response';
 import { getAuthenticatedWorkspace } from '@/lib/auth/workspace-lookup';
 import { executeInternalBaleybot, type InternalExecutionOptions } from '@/lib/baleybot/internal-baleybots';
 import type { RuntimeToolDefinition } from '@/lib/baleybot/executor';
+import {
+  buildCompanionTools,
+  type CompanionToolContext,
+} from '@/lib/baleybot/tools/companion';
 import type { DesignPackageData } from '@/lib/design-packages/types';
 import { generateTailwindTheme } from '@/lib/design-packages/tailwind-theme';
 import { DEFAULT_COMPONENT_SET } from '@/lib/design-packages/component-registry';
@@ -253,8 +257,12 @@ export async function POST(req: NextRequest) {
             assetContext,
           ].filter(Boolean).join('');
 
-          // Injected tools
-          const injectedTools = new Map<string, RuntimeToolDefinition>();
+          // Build companion tools so Baley's BAL resolves all tool references
+          const toolCtx: CompanionToolContext = {
+            workspaceId: workspace.id,
+            userId,
+          };
+          const injectedTools = new Map<string, RuntimeToolDefinition>(buildCompanionTools(toolCtx));
 
           injectedTools.set('set_design_package', {
             name: 'set_design_package',

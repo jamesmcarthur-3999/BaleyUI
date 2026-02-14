@@ -9,7 +9,8 @@ import { ChatInput, LeftPanel, KeyboardShortcutsDialog, useKeyboardShortcutsDial
 import type {
   TestCase,
 } from '@/components/creator';
-import type { ChatAttachment } from '@/components/chat';
+import type { ChatMessage, ChatAttachment } from '@/components/chat';
+import { useBaleyChat } from '@/hooks/useBaleyChat';
 
 // Dynamic import to avoid bundling @baleybots/core server-only modules in client
 const VisualEditor = dynamic(
@@ -85,14 +86,12 @@ import { ROUTES } from '@/lib/routes';
 import { ErrorBoundary } from '@/components/errors';
 import { useDirtyState, useNavigationGuard, useHistory, useBaleybotPersistence, useSessionRecovery, useEditorNavigation, useReadiness } from '@/hooks';
 import { useTestStream } from '@/hooks/use-test-stream';
-import { parseCreatorError } from '@/lib/errors/creator-errors';
 import { safeParseDate } from '@/lib/utils/date';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import type {
   VisualEntity,
   Connection,
-  CreatorMessage,
   CreatorGuidanceAction,
   CreationStatus,
   AdaptiveTab,
@@ -103,7 +102,6 @@ import type { ReadinessState } from '@/lib/baleybot/readiness';
 import type { GraphRuntimeEvent } from '@/lib/streaming/types/events';
 import { parseBalCode } from '@/lib/baleybot/bal-parser-pure';
 import { sanitizeCreatorText } from '@/lib/baleybot/creator-sanitization';
-import { runCreatorStream } from '@/lib/baleybot/creator-streaming';
 import { buildCreatorResultPatch } from '@/lib/baleybot/creator-response-handler';
 import {
   extractSidecarFromStructure,
@@ -111,7 +109,6 @@ import {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by GraphSidecar visualization (planned)
   appendGraphRuntimeEvent,
   escapeRegExp,
-  buildCreatorHistoryPayload,
   buildGuidanceQuickPrompts,
 } from '@/lib/baleybot/creator-helpers';
 import { EXAMPLE_PROMPTS, TAB_QUICK_PROMPTS } from '@/lib/baleybot/creator-constants';
@@ -119,7 +116,6 @@ import { EXAMPLE_PROMPTS, TAB_QUICK_PROMPTS } from '@/lib/baleybot/creator-const
 // Pure functions and constants extracted to:
 // - @/lib/baleybot/creator-helpers.ts
 // - @/lib/baleybot/creator-constants.ts
-// - @/lib/baleybot/creator-streaming.ts
 // - @/lib/baleybot/creator-response-handler.ts
 
 
@@ -132,6 +128,8 @@ import { EXAMPLE_PROMPTS, TAB_QUICK_PROMPTS } from '@/lib/baleybot/creator-const
  *
  * Provides a conversational interface for building and modifying BaleyBots
  * with a visual canvas showing the assembled entities and connections.
+ *
+ * Uses the unified Baley chat pipeline (useBaleyChat) for all AI interactions.
  */
 export default function BaleybotPage() {
   const router = useRouter();
@@ -156,27 +154,9 @@ export default function BaleybotPage() {
   const [description, setDescription] = useState<string>('');
   const [icon, setIcon] = useState<string>('');
 
-  // -- Conversation --
-  const [messages, setMessages] = useState<CreatorMessage[]>([]);
-  const [streamingText, setStreamingText] = useState('');
-  const streamingTextRef = useRef('');
-  const [streamingReasoning, setStreamingReasoning] = useState('');
-  const streamingReasoningRef = useRef('');
-  const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [agentEvents, setAgentEvents] = useState<Array<{ event: Record<string, unknown>; entityName?: string; timestamp: number }>>([]);
-  const [connectionActions, setConnectionActions] = useState<Array<{
-    action: string;
-    result: Record<string, unknown>;
-    timestamp: number;
-  }>>([]);
-  const [creatorStreamingProgress, setCreatorStreamingProgress] =
-    useState<{ phase: string; message: string; startedAt: number } | null>(null);
+  // -- Conversation (managed by useBaleyChat) --
   const [creatorGuidanceActions, setCreatorGuidanceActions] = useState<CreatorGuidanceAction[]>([]);
-  const isStreamingRef = useRef(false);
-  const [isStreaming, setIsStreaming] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
-  const isSendingRef = useRef(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
   const initialPromptSentRef = useRef(false);
 
   // -- Persistence --
@@ -206,15 +186,6 @@ export default function BaleybotPage() {
   // -- Readiness (ref breaks circular dep: useReadiness ↔ useEditorNavigation) --
   const resetDesignGateReminderRef = useRef<(() => void) | null>(null);
 
-  // Cleanup throttle timer on unmount to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      if (throttleRef.current) {
-        clearTimeout(throttleRef.current);
-        throttleRef.current = null;
-      }
-    };
-  }, []);
   const leftPanelWidthClass = 'md:w-[380px] lg:w-[420px] xl:w-[460px]';
 
   // =====================================================================
@@ -262,12 +233,6 @@ export default function BaleybotPage() {
 
   const hasContent = entities.length > 0 || balCode.length > 0;
 
-  // Backward-compatible derived status for component props and query inputs
-  const status: CreationStatus = isStreaming ? 'building'
-    : lastError ? 'error'
-    : (hasContent || messages.length > 0) ? 'ready'
-    : 'empty';
-
   // =====================================================================
   // READINESS (design confirmation, specialist signals, readiness state)
   // Queries needed by readiness are co-located here to avoid stale values.
@@ -284,6 +249,115 @@ export default function BaleybotPage() {
     { baleybotId: savedBaleybotId! },
     { enabled: !!savedBaleybotId },
   );
+
+  // =====================================================================
+  // UNIFIED BALEY CHAT (replaces runCreatorStream + manual state)
+  // =====================================================================
+
+  const baley = useBaleyChat({
+    mode: 'creator',
+    creatorContext: {
+      baleybotId: savedBaleybotId ?? undefined,
+      currentState: {
+        balCode,
+        name: name || undefined,
+        description: description || undefined,
+        icon: icon || undefined,
+        entities: entities.map(e => ({ name: e.name, purpose: e.purpose, tools: e.tools })),
+      },
+      uiState: {
+        activeTab: 'visual', // Will be updated after viewMode is available
+        availableTabs: ['visual', 'code'],
+        lifecycleStage: 'draft',
+        readinessSummary: '',
+        triggerConfigured: !!triggerConfig,
+        webhookEnabled: !!webhookInfo,
+      },
+    },
+    creatorCallbacks: {
+      onCreatorComplete: (result, specialist) => {
+        // Apply builder state patch from creator result
+        const patch = buildCreatorResultPatch({
+          result,
+          prevEntities: entities,
+          prevConnections: connections,
+          prevName: name,
+          currentName: name,
+          currentIcon: icon,
+          currentDescription: description,
+        });
+
+        if (patch.entities) {
+          setEntities(patch.entities);
+          setTimeout(() => setEntities(prev => prev.map(e => ({ ...e, status: 'stable' as const }))), 600);
+        }
+        if (patch.connections) setConnections(patch.connections);
+        if (patch.balCode !== undefined) setBalCode(patch.balCode);
+        if (patch.name) setName(patch.name);
+        if (patch.icon) setIcon(patch.icon);
+        if (patch.description) setDescription(patch.description);
+        if (patch.historyEntry) pushHistory(patch.historyEntry.state, patch.historyEntry.label);
+        if (!patch.isConversationOnly) setLastError(null);
+        if (patch.resetDesignConfirmation) {
+          setIsDesignConfirmed(false);
+          resetDesignGateReminder();
+        }
+
+        // Update specialist signals for readiness
+        if (specialist) {
+          setSpecialistSignals(prev => ({
+            ...prev,
+            connectionAdvisorRan: prev.connectionAdvisorRan || !!specialist.connections,
+            testOrchestratorRan: prev.testOrchestratorRan || !!specialist.tests,
+            deploymentAdvisorRan: prev.deploymentAdvisorRan || !!specialist.deployment,
+          }));
+        }
+      },
+      onConnectionAction: (_action, _result) => {
+        utils.connections.list.invalidate();
+      },
+      onTriggerSaved: (config) => {
+        setTriggerConfig(config as TriggerConfigType);
+        if (savedBaleybotId) utils.baleybots.getTriggerConfig.invalidate({ baleybotId: savedBaleybotId });
+      },
+      onWebhookEnabled: (url, secret) => {
+        setWebhookInfo({ url, secret });
+        if (savedBaleybotId) utils.baleybots.get.invalidate({ id: savedBaleybotId });
+      },
+      onShowPlan: (plan) => {
+        setPlanData(plan);
+        navigateToTab('plan' as AdaptiveTab, { bypassDesignGate: true });
+      },
+      onShowSurface: (surface, reason) => {
+        navigateToTab(surface as AdaptiveTab, { bypassDesignGate: true });
+        if (reason) {
+          toast({
+            title: `Switched to ${surface.charAt(0).toUpperCase() + surface.slice(1)}`,
+            description: reason,
+          });
+        }
+        setLastAINavigatedTab(surface);
+        setTimeout(() => setLastAINavigatedTab(null), 3000);
+      },
+    },
+  });
+
+  // Derive isStreaming and messages from baley hook
+  const { isStreaming, messages: baleyMessages } = baley;
+
+  // External message state for injecting system messages (errors, advisor actions, etc.)
+  const [injectedMessages, setInjectedMessages] = useState<ChatMessage[]>([]);
+
+  // Merged message list: baley messages + injected system messages
+  const allMessages = [...baleyMessages, ...injectedMessages].sort(
+    (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
+  );
+
+  // Backward-compatible derived status for component props and query inputs
+  const status: CreationStatus = isStreaming ? 'building'
+    : lastError ? 'error'
+    : (hasContent || allMessages.length > 0) ? 'ready'
+    : 'empty';
 
   const {
     readiness,
@@ -396,7 +470,6 @@ export default function BaleybotPage() {
   }, [savedTriggerConfig, triggerConfig]);
 
   // Mutations
-  const creatorMutation = trpc.baleybots.sendCreatorMessage.useMutation();
   const generateLaunchKitMutation = trpc.baleybots.generateLaunchKit.useMutation();
   const promoteToLiveMutation = trpc.baleybots.promoteToLive.useMutation();
   const pauseLiveBotMutation = trpc.baleybots.pauseLiveBot.useMutation();
@@ -434,32 +507,19 @@ export default function BaleybotPage() {
   const readinessContext = `Readiness: ${Object.entries(readiness).map(([dim, s]) => `${dim}=${s === 'complete'}`).join(', ')}. Active tab: ${viewMode}.`;
   const creatorGuidanceInput = {
     status,
-    messages: messages
+    messages: allMessages
       .filter((m) => m.role !== 'system')
       .slice(-30)
-      .map((message) => {
-        const metadata: Record<string, unknown> = {};
-        if (message.metadata?.creatorLifecycle) {
-          metadata.creatorLifecycle = message.metadata.creatorLifecycle;
-        }
-        if (message.metadata?.diagnostic) {
-          metadata.diagnostic = message.metadata.diagnostic;
-        }
-        if (message.metadata?.streamSummary) {
-          metadata.streamSummary = message.metadata.streamSummary;
-        }
-        return {
-          role: message.role as 'user' | 'assistant',
-          content: message.content.slice(0, 4000),
-          metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-        };
-      }),
+      .map((message) => ({
+        role: message.role as 'user' | 'assistant',
+        content: message.content.slice(0, 4000),
+      })),
     readinessContext,
   };
   const {
     data: creatorGuidanceData,
   } = trpc.baleybots.getCreatorGuidance.useQuery(creatorGuidanceInput, {
-    enabled: messages.length > 0 && status !== 'building',
+    enabled: allMessages.length > 0 && status !== 'building',
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     retry: false,
@@ -496,17 +556,12 @@ export default function BaleybotPage() {
     }
   }, [latestBalCodeFromFix]);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by test execution feedback injection (planned)
-  const injectMessage = (message: CreatorMessage) => {
-    setMessages(prev => [...prev, message]);
-  };
-
   /**
    * Fetch advisor suggestions and inject them as a system message in the chat.
    * Called after lifecycle events (test completion, save, go-live).
    */
-  const injectAdvisorSuggestions = async (eventLabel: string) => {
-    if (isStreamingRef.current) return;
+  const injectAdvisorSuggestions = async (_eventLabel: string) => {
+    if (isStreaming) return;
     try {
       const result = await utils.baleybots.getCreatorGuidance.fetch(creatorGuidanceInput);
       if (result?.actions?.length) {
@@ -515,15 +570,12 @@ export default function BaleybotPage() {
           label: sanitizeCreatorText(a.label),
           prompt: sanitizeCreatorText(a.prompt),
         }));
-        setMessages(prev => [...prev, {
+        setInjectedMessages(prev => [...prev, {
           id: crypto.randomUUID(),
           role: 'system' as const,
-          content: `Here's what I'd suggest next:`,
+          content: `Here's what I'd suggest next: ${sanitizedActions.map(a => a.label).join(', ')}`,
           timestamp: new Date(),
-          metadata: {
-            diagnostic: { level: 'info' as const, title: eventLabel },
-            advisorActions: sanitizedActions,
-          },
+          status: 'complete' as const,
         }]);
       }
     } catch { /* swallow — advisory, not critical */ }
@@ -534,209 +586,12 @@ export default function BaleybotPage() {
   // =====================================================================
 
   /**
-   * Handle sending a message to the Creator Bot
+   * Handle sending a message — delegates to useBaleyChat
    */
-  // TODO: Forward attachments to runCreatorStream once the creator stream endpoint supports multimodal
-  const handleSendMessage = async (message: string, _attachments?: ChatAttachment[]) => {
-    // Concurrency guard — prevent overlapping sends
-    if (isSendingRef.current) return;
-    isSendingRef.current = true;
-
-    // Cancel any in-flight stream
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    abortControllerRef.current = new AbortController();
-
-    const sanitizedMessage = sanitizeCreatorText(message);
-
-    // 0. Capture previous state for change summary
-    const prevEntities = [...entities];
-    const prevConnections = [...connections];
-    const prevName = name;
-
-    // 1. Add user message
-    const userMessage: CreatorMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: sanitizedMessage,
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, userMessage]);
-    const nextConversationHistory = buildCreatorHistoryPayload([...messages, userMessage]);
-
-    // 2. Enter streaming state
-    setIsStreaming(true);
-    isStreamingRef.current = true;
+  const handleSendMessage = async (message: string, attachments?: ChatAttachment[]) => {
     setLastError(null);
-
-    // Reset streaming-related state
     setCreatorGuidanceActions([]);
-    setAgentEvents([]);
-    setConnectionActions([]);
-    if (throttleRef.current) {
-      clearTimeout(throttleRef.current);
-      throttleRef.current = null;
-    }
-    streamingTextRef.current = '';
-    setStreamingText('');
-    streamingReasoningRef.current = '';
-    setStreamingReasoning('');
-
-    try {
-      // 3. Try SSE streaming, fall back to mutation
-      let streamResult: Awaited<ReturnType<typeof runCreatorStream>> | null = null;
-      try {
-        streamResult = await runCreatorStream(
-          {
-            message: sanitizedMessage,
-            conversationHistory: nextConversationHistory,
-            savedBaleybotId,
-            balCode,
-            name,
-            description,
-            icon,
-            entities: entities.map(e => ({ name: e.name, purpose: e.purpose, tools: e.tools })),
-            viewMode,
-            availableTabs,
-            lifecycleStage: existingBaleybot?.lifecycleStage ?? 'draft',
-            readiness,
-            triggerConfigured: !!triggerConfig,
-            webhookEnabled: !!webhookInfo || existingBaleybot?.webhookEnabled === true,
-          },
-          {
-            onStreamingText: (text) => { streamingTextRef.current = text; setStreamingText(text); },
-            onStreamingReasoning: (text) => { streamingReasoningRef.current = text; setStreamingReasoning(text); },
-            onProgress: (phase, message) => setCreatorStreamingProgress(prev =>
-              prev ? { ...prev, phase, message } : { phase, message, startedAt: Date.now() }
-            ),
-            onAgentEvent: (event, entityName, timestamp) => setAgentEvents(prev => [
-              ...prev,
-              { event, entityName, timestamp: timestamp ?? Date.now() },
-            ]),
-            onConnectionAction: (action, result, timestamp) => setConnectionActions(prev => [
-              ...prev,
-              { action, result, timestamp },
-            ]),
-            onTriggerSaved: (config) => {
-              setTriggerConfig(config as TriggerConfigType);
-              if (savedBaleybotId) utils.baleybots.getTriggerConfig.invalidate({ baleybotId: savedBaleybotId });
-            },
-            onWebhookEnabled: (url, secret) => {
-              setWebhookInfo({ url, secret });
-              if (savedBaleybotId) utils.baleybots.get.invalidate({ id: savedBaleybotId });
-            },
-            onNavigateTab: (tab) => {
-              navigateToTab(tab as AdaptiveTab, { bypassDesignGate: true });
-              toast({
-                title: `Switched to ${tab.charAt(0).toUpperCase() + tab.slice(1)} tab`,
-                description: 'The AI assistant navigated here to show you something relevant.',
-              });
-              setLastAINavigatedTab(tab);
-              setTimeout(() => setLastAINavigatedTab(null), 3000);
-            },
-            onShowPlan: (plan) => {
-              setPlanData(plan);
-              navigateToTab('plan' as AdaptiveTab, { bypassDesignGate: true });
-            },
-            onShowSurface: (surface, reason) => {
-              navigateToTab(surface as AdaptiveTab, { bypassDesignGate: true });
-              if (reason) {
-                toast({
-                  title: `Switched to ${surface.charAt(0).toUpperCase() + surface.slice(1)}`,
-                  description: reason,
-                });
-              }
-              setLastAINavigatedTab(surface);
-              setTimeout(() => setLastAINavigatedTab(null), 3000);
-            },
-            onSpecialistSignals: (signals) => setSpecialistSignals(prev => ({
-              ...prev,
-              connectionAdvisorRan: prev.connectionAdvisorRan || !!signals.connections,
-              testOrchestratorRan: prev.testOrchestratorRan || !!signals.tests,
-              deploymentAdvisorRan: prev.deploymentAdvisorRan || !!signals.deployment,
-            })),
-            invalidateConnections: () => utils.connections.list.invalidate(),
-            invalidateTriggerConfig: (id) => utils.baleybots.getTriggerConfig.invalidate({ baleybotId: id }),
-            invalidateBot: (id) => utils.baleybots.get.invalidate({ id }),
-          },
-        );
-      } catch (streamError) {
-        console.warn('Creator stream failed, falling back to mutation:', streamError);
-        setCreatorStreamingProgress(null);
-      }
-
-      // Reset streaming refs after stream completes
-      streamingTextRef.current = '';
-      setStreamingText('');
-      streamingReasoningRef.current = '';
-      setStreamingReasoning('');
-
-      const result =
-        streamResult?.result ??
-        (await creatorMutation.mutateAsync({
-          baleybotId: savedBaleybotId ?? undefined,
-          message: sanitizedMessage,
-          conversationHistory: nextConversationHistory,
-        }));
-
-      // 4. Apply result via pure function patch
-      const patch = buildCreatorResultPatch({
-        result,
-        prevEntities,
-        prevConnections,
-        prevName,
-        currentName: name,
-        currentIcon: icon,
-        currentDescription: description,
-        streamSummary: streamResult?.summary,
-      });
-
-      if (patch.entities) {
-        setEntities(patch.entities);
-        setTimeout(() => setEntities(prev => prev.map(e => ({ ...e, status: 'stable' as const }))), 600);
-      }
-      if (patch.connections) setConnections(patch.connections);
-      if (patch.balCode !== undefined) setBalCode(patch.balCode);
-      if (patch.name) setName(patch.name);
-      if (patch.icon) setIcon(patch.icon);
-      if (patch.description) setDescription(patch.description);
-      if (patch.historyEntry) pushHistory(patch.historyEntry.state, patch.historyEntry.label);
-      if (patch.newMessages.length > 0) setMessages(prev => [...prev, ...patch.newMessages]);
-
-      setIsStreaming(false);
-      isStreamingRef.current = false;
-      if (!patch.isConversationOnly) setLastError(null);
-      if (patch.resetDesignConfirmation) {
-        setIsDesignConfirmed(false);
-        resetDesignGateReminder();
-      }
-      setCreatorStreamingProgress(null);
-    } catch (error) {
-      console.error('Creator message failed:', error);
-      setIsStreaming(false);
-      isStreamingRef.current = false;
-      setLastError(error instanceof Error ? error.message : 'Unknown error');
-      setCreatorStreamingProgress(null);
-
-      // Pipeline error -> system message (not from the model)
-      const parsed = parseCreatorError(error);
-      const errorMessage: CreatorMessage = {
-        id: crypto.randomUUID(),
-        role: 'system',
-        content: `${parsed.title}: ${parsed.message}${parsed.action ? ` ${parsed.action}` : ''}`,
-        timestamp: new Date(),
-        metadata: {
-          isError: true,
-          options: [
-            { id: 'retry', label: 'Retry', description: 'Send the same message again', icon: '\u{1F504}' },
-          ],
-        },
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    } finally {
-      isSendingRef.current = false;
-    }
+    baley.send(message, attachments);
   };
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- wired when ConnectionsPanel is added to advanced mode
@@ -786,7 +641,7 @@ export default function BaleybotPage() {
     name,
     description,
     icon,
-    messages,
+    messages: allMessages,
     isDirty,
     isStreaming,
     markClean,
@@ -1076,8 +931,20 @@ export default function BaleybotPage() {
     id,
     isNew,
     savedBaleybotId,
-    state: { messages, entities, balCode, name, description, icon },
-    restore: { setMessages, setEntities, setBalCode, setName, setDescription, setIcon },
+    state: { messages: allMessages, entities, balCode, name, description, icon },
+    restore: {
+      setMessages: (updater) => {
+        // Session recovery restores into injectedMessages since baley.messages
+        // are managed by the hook internally
+        const restored = updater([]);
+        setInjectedMessages(restored);
+      },
+      setEntities,
+      setBalCode,
+      setName,
+      setDescription,
+      setIcon,
+    },
   });
 
   // Auto-save trigger config when it changes (debounced)
@@ -1138,39 +1005,6 @@ export default function BaleybotPage() {
     return () => clearTimeout(timeout);
   }, [triggerConfig, savedBaleybotId]);
 
-  const handleOptionSelect = (optionId: string) => {
-    if (optionId === 'confirm-design') {
-      setIsDesignConfirmed(true);
-      resetDesignGateReminder();
-      navigateToTab('test', { bypassDesignGate: true });
-      return;
-    }
-
-    // Readiness-guided option cards → navigate to tab
-    const optionToTab: Record<string, AdaptiveTab> = {
-      'review-design': 'visual',
-      'setup-connections': 'integrate',
-      'run-tests': 'test',
-      'setup-integration': 'integrate',
-      'enable-monitoring': 'integrate',
-    };
-
-    const tabTarget = optionToTab[optionId];
-    if (tabTarget) {
-      navigateToTab(tabTarget);
-      return;
-    }
-
-    // Retry last user message
-    if (optionId === 'retry') {
-      const lastUserMsg = messages.filter(m => m.role === 'user').pop();
-      if (lastUserMsg) {
-        handleSendMessage(lastUserMsg.content);
-      }
-      return;
-    }
-    handleSendMessage(`I'd like to go with: ${optionId}`);
-  };
 
   // =====================================================================
   // EFFECTS
@@ -1247,20 +1081,20 @@ export default function BaleybotPage() {
 
       // Trigger config is loaded separately via getTriggerConfig query
 
-      // Load conversation history (Phase 2.6)
+      // Load conversation history into injectedMessages (since baley manages its own messages)
       if (existingBaleybot.conversationHistory && Array.isArray(existingBaleybot.conversationHistory)) {
-        const loadedMessages: CreatorMessage[] = existingBaleybot.conversationHistory
-          .filter((msg): msg is { id: string; role: 'user' | 'assistant'; content: string; timestamp: string; metadata?: Record<string, unknown> } =>
+        const loadedMessages: ChatMessage[] = existingBaleybot.conversationHistory
+          .filter((msg): msg is { id: string; role: 'user' | 'assistant'; content: string; timestamp: string } =>
             msg && typeof msg.id === 'string' && typeof msg.content === 'string'
           )
-          .map((msg) => ({
+          .map((msg): ChatMessage => ({
             id: msg.id,
             role: msg.role,
             content: sanitizeCreatorText(msg.content),
             timestamp: safeParseDate(msg.timestamp),
-            metadata: msg.metadata as CreatorMessage['metadata'],
+            status: 'complete',
           }));
-        setMessages(loadedMessages);
+        setInjectedMessages(loadedMessages);
       }
 
       // Mark as clean since we just loaded from database
@@ -1272,7 +1106,6 @@ export default function BaleybotPage() {
   }, [isNew, existingBaleybot, markClean, setTestCases, resetDesignGateReminder, setViewMode, setIsDesignConfirmed]);
 
   // Auto-send initial prompt if provided (using ref to track sent state)
-  // Note: handleSendMessage is intentionally excluded from deps - we use ref to ensure single execution
   useEffect(() => {
     if (isNew && initialPrompt && !initialPromptSentRef.current && status === 'empty') {
       initialPromptSentRef.current = true;
@@ -1450,7 +1283,7 @@ export default function BaleybotPage() {
         onDescriptionChange={setDescription}
         onEditDescriptionToggle={setIsEditingDescription}
         onToggleFullDescription={() => setShowFullDescription(!showFullDescription)}
-        onStartFresh={messages.length > 0 ? handleStartFresh : undefined}
+        onStartFresh={allMessages.length > 0 ? handleStartFresh : undefined}
       />
 
       {status === 'empty' ? (
@@ -1527,20 +1360,18 @@ export default function BaleybotPage() {
               mobileView === 'chat' ? 'flex' : 'hidden md:flex'
             )}>
               <LeftPanel
-                messages={messages}
+                messages={allMessages}
                 status={status}
                 onSendMessage={handleSendMessage}
                 isCreatorDisabled={isInputDisabled}
+                isStreaming={isStreaming}
                 executions={!isNew && existingBaleybot?.executions ? existingBaleybot.executions : undefined}
                 onExecutionClick={(executionId) => router.push(ROUTES.activity.execution(executionId))}
-                onOptionSelect={handleOptionSelect}
-                streamingProgress={creatorStreamingProgress}
                 quickPrompts={quickPrompts}
                 quickPromptContextLabel={quickPromptContextLabel}
-                agentEvents={agentEvents}
-                streamingText={streamingText}
-                connectionActions={connectionActions}
-                streamingReasoning={streamingReasoning}
+                pendingNavigations={baley.pendingNavigations}
+                onApproveNavigation={baley.approveNavigation}
+                onDismissNavigation={baley.dismissNavigation}
               />
             </div>
 

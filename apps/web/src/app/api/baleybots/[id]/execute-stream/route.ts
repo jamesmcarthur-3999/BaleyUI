@@ -33,7 +33,8 @@ import {
   configureWebSearch,
 } from '@/lib/baleybot/tools/built-in/implementations';
 import { initializeBuiltInToolServices, getWorkspaceTavilyKey } from '@/lib/baleybot/services';
-import { getPreferredModel, buildInputWithSharedContext } from '@/lib/baleybot/executor';
+import { getPreferredModel, getPreferredProvider, buildInputWithSharedContext } from '@/lib/baleybot/executor';
+import { resolveProviderConfig, MissingCredentialsError } from '@/lib/baleybot/services/ai-credentials-service';
 import type { BuiltInToolContext } from '@/lib/baleybot/tools/built-in';
 import { validateApiKey } from '@/lib/api/validate-api-key';
 import { processBBCompletion } from '@/lib/baleybot/services/bb-completion-trigger-service';
@@ -226,12 +227,25 @@ export async function POST(
     const segments: BALExecutionEvent[] = [];
     const startTime = Date.now();
 
+    /** Ensure error fields are always strings before sending to clients */
+    const sanitizeEvent = (event: BALExecutionEvent): BALExecutionEvent => {
+      if (event.error !== undefined && typeof event.error !== 'string') {
+        return {
+          ...event,
+          error: (event.error as Record<string, unknown>)?.message as string
+            ?? String(event.error ?? 'Unknown error'),
+        };
+      }
+      return event;
+    };
+
     const stream = new ReadableStream({
       async start(controller) {
-        // Helper to send SSE event
+        // Helper to send SSE event (sanitizes error fields before sending)
         const sendEvent = (event: BALExecutionEvent) => {
-          segments.push(event);
-          const data = JSON.stringify(event);
+          const safe = sanitizeEvent(event);
+          segments.push(safe);
+          const data = JSON.stringify(safe);
           controller.enqueue(encoder.encode(`data: ${data}\n\n`));
         };
 
@@ -252,16 +266,17 @@ export async function POST(
           // Get the model from the BAL code first to select the correct API key
           const model = getPreferredModel(baleybot.balCode);
 
-          // Get API key based on model provider
-          let apiKey: string | undefined;
-          if (model.startsWith('anthropic:')) {
-            apiKey = process.env.ANTHROPIC_API_KEY;
-          } else if (model.startsWith('openai:') || model.startsWith('gpt-')) {
-            apiKey = process.env.OPENAI_API_KEY;
-          } else {
-            // Default to OpenAI for backwards compatibility
-            apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+          // Resolve API key from workspace connections (same path as internal bots)
+          const preferredProvider = getPreferredProvider(baleybot.balCode);
+          const providerConfig = await resolveProviderConfig(workspaceId, preferredProvider);
+
+          if (!providerConfig) {
+            throw new MissingCredentialsError(
+              'No AI provider configured. Add an API key in Settings > Connections.'
+            );
           }
+
+          const apiKey = providerConfig.apiKey;
 
           // Configure web search if Tavily key is available (env or workspace DB)
           const tavilyKey = await getWorkspaceTavilyKey(workspaceId);

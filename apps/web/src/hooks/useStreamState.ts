@@ -20,6 +20,7 @@ import type { ServerStreamEvent } from '@/lib/streaming/types';
 export type StreamAction =
   | { type: 'START_STREAM'; botId?: string; botName?: string }
   | { type: 'PROCESS_EVENT'; event: ServerStreamEvent }
+  | { type: 'PROCESS_BATCH'; events: ServerStreamEvent[] }
   | { type: 'SET_STATUS'; status: AppStreamStatus }
   | { type: 'SET_ERROR'; error: Error }
   | { type: 'RESET' }
@@ -99,6 +100,40 @@ export function streamReducer(state: AppStreamState, action: StreamAction): AppS
             ? now - state.metrics.startTime
             : state.metrics.ttft,
           endTime: newSegState.isDone ? now : null,
+        },
+      };
+    }
+
+    case 'PROCESS_BATCH': {
+      // Process all queued events sequentially through the SDK reducer,
+      // producing a single state update (one re-render per batch).
+      let segState = state.segmentState;
+      const prevSegCount = segState.segments.length;
+      let latestBotId = state.botId;
+      let latestBotName = state.botName;
+
+      for (const event of action.events) {
+        segState = reduceStreamEvent(segState, event.event);
+        latestBotId = latestBotId || event.botId;
+        latestBotName = latestBotName || event.botName;
+      }
+
+      const now = Date.now();
+      const isFirstContent = !state.metrics.firstTokenTime && segState.segments.length > prevSegCount;
+
+      return {
+        ...state,
+        segmentState: segState,
+        status: segState.isDone ? 'complete' : 'streaming',
+        botId: latestBotId,
+        botName: latestBotName,
+        metrics: {
+          ...state.metrics,
+          firstTokenTime: isFirstContent ? now : state.metrics.firstTokenTime,
+          ttft: isFirstContent && state.metrics.startTime
+            ? now - state.metrics.startTime
+            : state.metrics.ttft,
+          endTime: segState.isDone ? now : null,
         },
       };
     }

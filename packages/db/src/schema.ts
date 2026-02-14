@@ -1752,6 +1752,47 @@ export const aiModels = pgTable('ai_models', {
 // No relations needed - aiModels is a standalone reference table
 
 // ============================================================================
+// PLATFORM BUGS (AI-triaged error tracking)
+// ============================================================================
+
+export const platformBugs = pgTable('platform_bugs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  errorHash: varchar('error_hash', { length: 64 }).notNull(),
+  title: text('title'),
+  errorMessage: text('error_message').notNull(),
+  stackTrace: text('stack_trace'),
+  source: text('source').notNull(), // 'client' | 'server' | 'streaming'
+  category: text('category').notNull(), // 'react_crash' | 'uncaught_exception' | 'api_5xx' | 'streaming_error'
+  severity: text('severity').default('medium'), // 'low' | 'medium' | 'high' | 'critical'
+  status: text('status').default('new').notNull(), // 'new' | 'acknowledged' | 'filed' | 'resolved' | 'wontfix'
+  environment: text('environment').default('production'),
+  occurrenceCount: integer('occurrence_count').default(1).notNull(),
+  firstSeenAt: timestamp('first_seen_at').defaultNow().notNull(),
+  lastSeenAt: timestamp('last_seen_at').defaultNow().notNull(),
+  affectedWorkspaces: jsonb('affected_workspaces').$type<string[]>().default([]),
+  affectedRoutes: jsonb('affected_routes').$type<string[]>().default([]),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  rootCause: text('root_cause'),
+  suggestedFix: text('suggested_fix'),
+  triageConfidence: doublePrecision('triage_confidence'),
+  githubIssueUrl: text('github_issue_url'),
+  githubIssueNumber: integer('github_issue_number'),
+  resolvedAt: timestamp('resolved_at'),
+  resolution: text('resolution'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+  version: integer('version').default(1).notNull(),
+}, (table) => [
+  index('platform_bugs_error_hash_idx').on(table.errorHash),
+  index('platform_bugs_status_idx').on(table.status),
+  index('platform_bugs_severity_idx').on(table.severity),
+  index('platform_bugs_last_seen_idx').on(table.lastSeenAt),
+]);
+
+// No relations needed - platformBugs is a standalone global table
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 

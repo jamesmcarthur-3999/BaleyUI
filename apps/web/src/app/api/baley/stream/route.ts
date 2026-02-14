@@ -32,12 +32,11 @@ import {
 } from '@/lib/baleybot/tools/companion';
 import { buildConnectionTools } from '@/lib/baleybot/tools/companion/connections';
 import { buildIntegrationTools } from '@/lib/baleybot/tools/companion/integration';
-import { buildUIControlTools } from '@/lib/baleybot/tools/companion/ui-control';
 import {
   buildCreatorRequestContext,
   type CreatorConversationHistoryInput,
 } from '@/lib/baleybot/creator-request-context';
-import type { CreatorOutput, PlanPreviewData } from '@/lib/baleybot/creator-types';
+import type { CreatorOutput } from '@/lib/baleybot/creator-types';
 import { creatorOutputSchema } from '@/lib/baleybot/creator-types';
 import type { TriggerConfig } from '@/lib/baleybot/types';
 import type { BaleybotStreamEvent } from '@baleybots/core';
@@ -161,7 +160,7 @@ const CONNECTION_TOOL_NAMES = new Set([
 
 /**
  * Map a raw entity from bal_generator output to match the creatorEntitySchema shape.
- * Re-implements the same logic from creator-pipeline-adapter.ts.
+ * Maps a raw entity from bal_generator output to the creatorEntitySchema shape.
  */
 function mapEntity(raw: Record<string, unknown>): {
   id: string;
@@ -335,31 +334,6 @@ export async function POST(req: NextRequest) {
     // declare the callback reference here for use in tool builders)
     let sendEvent: (event: Record<string, unknown>) => void = () => {};
 
-    // UI control tools are always available — Baley's BAL declares them unconditionally.
-    // In companion mode the SSE events are emitted but ignored by the client.
-    const uiTools = buildUIControlTools({
-      onNavigateTab: (tab: string) =>
-        sendEvent({
-          type: 'creator_navigate_tab',
-          tab,
-          timestamp: Date.now(),
-        }),
-      onShowPlan: (plan: PlanPreviewData) =>
-        sendEvent({
-          type: 'creator_show_plan',
-          plan,
-          timestamp: Date.now(),
-        }),
-      onShowSurface: (surface: string, reason?: string) =>
-        sendEvent({
-          type: 'creator_show_surface',
-          surface,
-          reason,
-          timestamp: Date.now(),
-        }),
-    });
-    for (const [k, v] of uiTools) allTools.set(k, v);
-
     // For creator mode, build and merge creator-specific tools
     if (isCreatorMode) {
       const connectionTools = buildConnectionTools(toolCtx);
@@ -471,7 +445,7 @@ export async function POST(req: NextRequest) {
           `- Readiness: ${ui.readinessSummary}`,
           `- Trigger: ${ui.triggerConfigured ? 'configured' : 'not configured'}`,
           `- Webhook: ${ui.webhookEnabled ? 'enabled' : 'not enabled'}`,
-          '- You can switch tabs using navigate_tab. Use this to guide the user to relevant content.',
+          '- You can use navigate_tab, show_surface, or present_plan to guide the user to relevant content or present a bot plan.',
         ];
         contextParts.push(uiLines.join('\n'));
       }
@@ -535,6 +509,8 @@ export async function POST(req: NextRequest) {
         let accumulatedText = '';
         const spawnResults = new Map<string, unknown>();
         const pendingSpawnNames = new Map<string, string>();
+        // Side channel: spawn_baleybot stores full output here before summarizing
+        const spawnOutputs = new Map<string, unknown>();
 
         try {
           // Fetch uploaded attachments and convert to base64 for multimodal input
@@ -590,6 +566,7 @@ export async function POST(req: NextRequest) {
               triggeredBy: 'internal',
               signal: req.signal,
               attachments: fetchedAttachments.length > 0 ? fetchedAttachments : undefined,
+              _spawnOutputs: spawnOutputs,
               onSegment: (segment: BaleybotStreamEvent) => {
                 // --------------------------------------------------------
                 // Channel 1: Wrap every event as stream_event
@@ -706,6 +683,12 @@ export async function POST(req: NextRequest) {
 
           // Creator mode: build CreatorOutput and emit creator_complete
           if (isCreatorMode) {
+            // Merge side-channel data (full structured output) into spawnResults
+            // Side channel always wins — it has the original structured output before summarization
+            for (const [k, v] of spawnOutputs) {
+              spawnResults.set(k, v);
+            }
+
             const creatorOutput = buildCreatorOutput(accumulatedText, spawnResults);
 
             const specialistFindings: SpecialistFindings = {

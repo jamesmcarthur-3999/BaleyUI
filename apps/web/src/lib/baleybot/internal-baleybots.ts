@@ -198,6 +198,8 @@ export interface InternalExecutionOptions {
   signal?: AbortSignal;
   /** Multi-modal file attachments (images, PDFs, etc.) */
   attachments?: Array<{ data: string; mimeType: string }>;
+  /** Side channel: spawn_baleybot stores full output here (keyed by bot name) */
+  _spawnOutputs?: Map<string, unknown>;
 }
 
 const INTERNAL_DEFAULT_MODEL: Record<'openai' | 'anthropic' | 'ollama', string> = {
@@ -342,6 +344,7 @@ export async function executeInternalBaleybot(
       baleybotId: internalBB.id,
       executionId: execution.id,
       userId: 'system',
+      _spawnOutputs: options._spawnOutputs,
     };
 
     // Load ALL tool categories (built-in + DB + MCP + workspace) for full parity

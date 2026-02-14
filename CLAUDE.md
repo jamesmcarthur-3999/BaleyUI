@@ -224,7 +224,6 @@ BaleyUI uses BaleyBots internally ("eating our own cooking"). These are stored i
 
 | Name | Purpose |
 |------|---------|
-| `creator_bot` | Creates new BaleyBots from user descriptions |
 | `creator_action_advisor` | Suggests next creator actions based on context |
 | `bal_generator` | Converts descriptions to BAL code |
 | `pattern_learner` | Analyzes approvals, suggests patterns |
@@ -248,7 +247,7 @@ BaleyUI uses BaleyBots internally ("eating our own cooking"). These are stored i
 ```typescript
 import { executeInternalBaleybot } from '@/lib/baleybot/internal-baleybots';
 
-const { output, executionId } = await executeInternalBaleybot('creator_bot', userMessage, {
+const { output, executionId } = await executeInternalBaleybot('bal_generator', userMessage, {
   userWorkspaceId: workspace.id,
   context: additionalContext,
 });

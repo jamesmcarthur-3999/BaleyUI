@@ -10,13 +10,13 @@ Structured lookup tables for mapping features to existing BaleyUI capabilities.
 
 | Category | Internal Bots | Tools | Compositions |
 |----------|---------------|-------|-------------|
-| **Content generation** | `bal_generator`, `creator_bot` | `web_search`, `fetch_url` | `chain`, `loop` (iterative refinement) |
+| **Content generation** | `bal_generator`, `baley` | `web_search`, `fetch_url` | `chain`, `loop` (iterative refinement) |
 | **Quality / improvement** | `execution_reviewer`, `pattern_learner` | `store_memory`, `spawn_baleybot` | `chain`, `route` (by error type) |
 | **Testing** | `test_orchestrator`, `test_generator`, `test_validator`, `test_results_analyzer`, `test_interface_designer` | `spawn_baleybot` | `chain`, `parallel` (run tests concurrently) |
 | **Deployment / ops** | `deployment_advisor`, `connection_advisor`, `integration_builder` | `schedule_task`, `send_notification` | `gate` (readiness checks) |
 | **Data / queries** | `nl_to_sql_postgres`, `nl_to_sql_mysql` | `web_search`, `fetch_url` | `chain` (query → analyze) |
-| **Orchestration** | `creator_bot`, `creator_action_advisor` | `spawn_baleybot`, `create_agent` | `route`, `parallel`, `chain` |
-| **User interaction** | `creator_bot`, `context_processor` | `request_user_input`, `send_notification` | `gate` (ask only when needed) |
+| **Orchestration** | `baley`, `creator_action_advisor` | `spawn_baleybot`, `create_agent` | `route`, `parallel`, `chain` |
+| **User interaction** | `baley`, `context_processor` | `request_user_input`, `send_notification` | `gate` (ask only when needed) |
 | **Error handling** | `execution_reviewer`, `tool_executor` | `store_memory` (remember fixes) | `try/catch`, `route` |
 | **Learning / adaptation** | `pattern_learner`, `context_processor` | `store_memory`, `shared_storage` | `chain`, `loop` |
 
@@ -26,9 +26,9 @@ Structured lookup tables for mapping features to existing BaleyUI capabilities.
 
 | Bot | Best For | Typical Compositions |
 |-----|----------|---------------------|
-| `creator_bot` | Conversational BB creation, understanding user intent | Entry point — delegates via `spawn_baleybot` |
-| `creator_action_advisor` | Suggesting next steps in creator flow | Called by `creator_bot` mid-conversation |
-| `bal_generator` | Producing BAL code from descriptions | `chain` after creator_bot analysis |
+| `baley` | Conversational BB creation, understanding user intent | Entry point — delegates via `spawn_baleybot` |
+| `creator_action_advisor` | Suggesting next steps in creator flow | Called by `baley` mid-conversation |
+| `bal_generator` | Producing BAL code from descriptions | `chain` after baley analysis |
 | `pattern_learner` | Mining approval/feedback data for rules | `chain` after execution_reviewer |
 | `execution_reviewer` | Analyzing execution quality, suggesting fixes | `chain` → `route` (by issue type) |
 | `nl_to_sql_postgres` | PostgreSQL query generation from natural language | `chain` (NL → SQL → execute → analyze) |

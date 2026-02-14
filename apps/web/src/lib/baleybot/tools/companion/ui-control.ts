@@ -1,25 +1,21 @@
 /**
  * UI Control Companion Tools
  *
- * Lets the creator_bot control the user's right-panel view.
+ * Lets Baley control the user's right-panel view.
  * - `present_plan`: Show a plan preview before building
  * - `show_surface`: Switch to any surface with a reason toast
  * - `navigate_tab`: Legacy alias for show_surface
  *
- * The pipeline emits SSE events which page.tsx handlers consume.
+ * Tools return action objects that the frontend handles via tool_execution_output.
+ * No SSE callback wiring required — works in any route that calls buildCompanionTools().
  */
 
 import type { RuntimeToolDefinition } from '../../executor';
+import type { CompanionToolContext } from './index';
 import type { PlanPreviewData } from '../../creator-types';
 
-export interface UIControlToolContext {
-  onNavigateTab: (tab: string) => void;
-  onShowPlan: (plan: PlanPreviewData) => void;
-  onShowSurface: (surface: string, reason?: string) => void;
-}
-
 export function buildUIControlTools(
-  ctx: UIControlToolContext,
+  _ctx: CompanionToolContext,
 ): Map<string, RuntimeToolDefinition> {
   const tools = new Map<string, RuntimeToolDefinition>();
 
@@ -99,14 +95,17 @@ export function buildUIControlTools(
     category: 'ui',
     dangerLevel: 'safe',
     async function(args: Record<string, unknown>) {
+      // Cap descriptions to prevent tool output from exceeding SDK's 10K char limit
+      const capStr = (s: string, max: number) => s.length > max ? s.slice(0, max) + '...' : s;
+
       const plan: PlanPreviewData = {
         name: String(args.name ?? 'Unnamed Bot'),
-        description: String(args.description ?? ''),
+        description: capStr(String(args.description ?? ''), 500),
         icon: String(args.icon ?? '🤖'),
         entities: Array.isArray(args.entities)
           ? (args.entities as Array<Record<string, unknown>>).map((e) => ({
               name: String(e.name ?? ''),
-              purpose: String(e.purpose ?? ''),
+              purpose: capStr(String(e.purpose ?? ''), 200),
               tools: Array.isArray(e.tools) ? (e.tools as unknown[]).map(String) : [],
               model: e.model ? String(e.model) : undefined,
               icon: e.icon ? String(e.icon) : undefined,
@@ -132,9 +131,9 @@ export function buildUIControlTools(
         designRationale: args.designRationale ? String(args.designRationale) : undefined,
       };
 
-      ctx.onShowPlan(plan);
       return {
-        success: true,
+        action: 'show_plan',
+        plan,
         message: 'Plan presented to user. Wait for their approval before building. They will say "approve", "looks good", "build it", or provide feedback for changes.',
         awaitUserAction: true,
       };
@@ -173,8 +172,12 @@ export function buildUIControlTools(
         return { success: false, error: `Invalid surface: ${surface}. Must be one of: ${validSurfaces.join(', ')}` };
       }
       const reason = args.reason ? String(args.reason) : undefined;
-      ctx.onShowSurface(surface, reason);
-      return { success: true, message: `Switched to ${surface} surface${reason ? `: ${reason}` : ''}` };
+      return {
+        action: 'show_surface',
+        surface,
+        reason,
+        message: `Switched to ${surface} surface${reason ? `: ${reason}` : ''}`,
+      };
     },
   });
 
@@ -205,8 +208,12 @@ export function buildUIControlTools(
       if (!validTabs.includes(tab)) {
         return { success: false, error: `Invalid tab: ${tab}. Must be one of: ${validTabs.join(', ')}` };
       }
-      ctx.onNavigateTab(tab);
-      return { success: true, message: `Navigated to ${tab} tab` };
+      return {
+        action: 'show_surface',
+        surface: tab,
+        reason: 'The AI assistant navigated here to show you something relevant.',
+        message: `Navigated to ${tab} tab`,
+      };
     },
   });
 

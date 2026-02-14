@@ -61,7 +61,7 @@ export function ChatBubble({ message, config, onRetry, className }: ChatBubblePr
         {/* User messages: plain text bubble */}
         {isUser ? (
           <div className="inline-block max-w-[85%]">
-            <div className="px-4 py-2.5 rounded-2xl rounded-tr-md bg-primary text-primary-foreground text-[0.9375rem] leading-relaxed shadow-md shadow-primary/10 break-all">
+            <div className="px-4 py-2.5 rounded-2xl rounded-tr-md bg-primary text-primary-foreground text-[0.9375rem] leading-relaxed shadow-md shadow-primary/10 break-words">
               {message.content}
             </div>
             {message.attachments && message.attachments.length > 0 && (
@@ -72,10 +72,7 @@ export function ChatBubble({ message, config, onRetry, className }: ChatBubblePr
           </div>
         ) : (
           /* Assistant messages: segment-based rendering */
-          <div className={cn(
-            'max-w-full',
-            message.status === 'streaming' && 'pl-3 border-l-2 border-primary/20',
-          )}>
+          <div className="max-w-full">
             <SegmentRenderer segments={segments} config={config} />
           </div>
         )}

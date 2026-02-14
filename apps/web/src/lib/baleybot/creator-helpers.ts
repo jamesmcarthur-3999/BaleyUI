@@ -5,13 +5,12 @@
  * These have zero React dependencies and can be tested independently.
  */
 
-import type { VisualEntity, CreatorMessage, CreatorGuidanceAction, AdaptiveTab } from './creator-types';
+import type { VisualEntity, CreatorGuidanceAction, AdaptiveTab } from './creator-types';
 import type { ReadinessState } from './readiness';
 import { getVisibleTabs } from './readiness';
 import type { ChatQuickPrompt } from '@/components/creator';
 import type { BalGraphSidecarMetadata } from './graph/types';
 import type { GraphRuntimeEvent } from '@/lib/streaming/types/events';
-import { sanitizeCreatorConversationHistory } from './creator-sanitization';
 import { parseConnectionTool, connectionNameToSlug } from './tools/requirements-scanner';
 import { ADVANCED_EDITOR_TABS, POST_DESIGN_TABS, MAX_NAME_LENGTH } from './creator-constants';
 
@@ -161,18 +160,6 @@ export function isSameReadiness(a: ReadinessState, b: ReadinessState): boolean {
 
 export function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-export function buildCreatorHistoryPayload(messages: CreatorMessage[]) {
-  return sanitizeCreatorConversationHistory(
-    messages.filter((m) => m.role !== 'system')
-  ).map((message) => ({
-    id: message.id,
-    role: message.role as 'user' | 'assistant',
-    content: message.content,
-    timestamp: message.timestamp,
-    metadata: message.metadata as Record<string, unknown> | undefined,
-  }));
 }
 
 export function buildGuidanceQuickPrompts(

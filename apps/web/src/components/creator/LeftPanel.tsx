@@ -1,16 +1,12 @@
 'use client';
 
-import { ConversationThread } from './ConversationThread';
-import type { StreamingProgress } from './ConversationThread';
+import { ChatThread, CREATOR_CONFIG, NavigationChipList } from '@/components/chat';
+import type { ChatMessage, ChatAttachment } from '@/components/chat';
+import type { PendingNavigation } from '@/hooks/useBaleyChat';
 import { ChatInput } from './ChatInput';
 import type { ChatQuickPrompt } from './ChatInput';
 import { ExecutionHistory } from './ExecutionHistory';
-import type {
-  CreatorMessage,
-  CreationStatus,
-} from '@/lib/baleybot/creator-types';
-import type { ChatAttachment } from '@/components/chat';
-import type { ConnectionAction } from './ConnectionActionCard';
+import type { CreationStatus } from '@/lib/baleybot/creator-types';
 
 interface Execution {
   id: string;
@@ -24,69 +20,47 @@ interface Execution {
   createdAt: Date | string;
 }
 
-interface AgentActivityEvent {
-  event: Record<string, unknown>;
-  entityName?: string;
-  timestamp: number;
-}
-
 interface LeftPanelProps {
-  messages: CreatorMessage[];
+  messages: ChatMessage[];
   status: CreationStatus;
   onSendMessage: (message: string, attachments?: ChatAttachment[]) => void;
   isCreatorDisabled: boolean;
+  isStreaming: boolean;
   executions?: Execution[];
   onExecutionClick?: (id: string) => void;
-  onOptionSelect?: (optionId: string) => void;
-  /** Streaming progress info for the building indicator */
-  streamingProgress?: StreamingProgress | null;
   quickPrompts?: ChatQuickPrompt[];
   quickPromptContextLabel?: string;
-  /** Agent activity events for the expandable activity panel */
-  agentEvents?: AgentActivityEvent[];
-  /** Real-time streaming text from creator_bot conversation */
-  streamingText?: string;
-  /** Connection actions performed during streaming */
-  connectionActions?: ConnectionAction[];
-  /** Real-time streaming reasoning from creator_bot */
-  streamingReasoning?: string;
+  pendingNavigations?: PendingNavigation[];
+  onApproveNavigation?: (id: string) => void;
+  onDismissNavigation?: (id: string) => void;
 }
 
 /**
  * Left panel for the two-column BaleyBot detail layout.
- * It intentionally remains dumb/presentational so guidance logic is centralized
- * in the page-level orchestrator state.
+ * Uses the unified ChatThread component from @/components/chat
+ * for rendering messages with SDK-aligned segment rendering.
  */
 export function LeftPanel({
   messages,
   status,
   onSendMessage,
   isCreatorDisabled,
+  isStreaming,
   executions,
   onExecutionClick,
-  onOptionSelect,
-  streamingProgress,
   quickPrompts = [],
   quickPromptContextLabel,
-  agentEvents,
-  streamingText,
-  connectionActions,
-  streamingReasoning,
+  pendingNavigations,
+  onApproveNavigation,
+  onDismissNavigation,
 }: LeftPanelProps) {
   return (
     <div className="flex flex-col h-full">
-      <ConversationThread
+      <ChatThread
         messages={messages}
-        embedded
-        isBuilding={status === 'building'}
-        streamingProgress={streamingProgress}
+        config={CREATOR_CONFIG}
+        isTyping={isStreaming && messages.every(m => m.status !== 'streaming')}
         className="flex-1 min-h-0"
-        onOptionSelect={onOptionSelect}
-        onSendMessage={onSendMessage}
-        agentEvents={agentEvents}
-        streamingText={streamingText}
-        connectionActions={connectionActions}
-        streamingReasoning={streamingReasoning}
       />
 
       {executions && executions.length > 0 && (
@@ -99,7 +73,14 @@ export function LeftPanel({
         </div>
       )}
 
-      <div className="shrink-0 border-t border-border/30 px-4 py-3">
+      <div className="shrink-0 border-t border-border/30 px-4 py-3 space-y-2">
+        {pendingNavigations && pendingNavigations.length > 0 && onApproveNavigation && onDismissNavigation && (
+          <NavigationChipList
+            navigations={pendingNavigations}
+            onApprove={onApproveNavigation}
+            onDismiss={onDismissNavigation}
+          />
+        )}
         <ChatInput
           status={status}
           onSend={onSendMessage}

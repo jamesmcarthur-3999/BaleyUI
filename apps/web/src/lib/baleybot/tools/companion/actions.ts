@@ -138,8 +138,10 @@ export function buildActionTools(
           'hardeningSteps' in (rec.proposedAction as Record<string, unknown>))
       ) {
         return {
-          action: 'navigate',
+          action: 'navigate_request',
           path: `/dashboard/actions?highlight=${rec.id}`,
+          label: 'Actions',
+          reason: 'This changes BAL code — please review the diff on the Actions page.',
           message: 'This changes BAL code — please review the diff on the Actions page.',
         };
       }

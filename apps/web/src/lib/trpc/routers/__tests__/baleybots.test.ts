@@ -34,7 +34,6 @@ vi.mock('@/lib/rate-limit', () => ({
     testValidate: { maxRequests: 120, windowMs: 60000 },
     testAnalyze: { maxRequests: 20, windowMs: 60000 },
     generate: { maxRequests: 5, windowMs: 60000 },
-    creatorMessage: { maxRequests: 10, windowMs: 60000 },
   },
 }));
 
@@ -457,32 +456,6 @@ describe('Baleybots Router Logic', () => {
   });
 
   describe('Creator Bot', () => {
-    describe('sendCreatorMessage', () => {
-      it('fetches workspace connections for context', async () => {
-        const mockConnections = [
-          { id: 'conn-1', type: 'openai' as const, name: 'OpenAI', workspaceId: 'ws-1', config: { apiKey: 'test' }, status: 'connected' as const, isDefault: true, version: 1, createdAt: new Date(), updatedAt: new Date(), availableModels: null, lastCheckedAt: null, deletedAt: null, deletedBy: null },
-        ];
-        ctx.db.query.connections.findMany.mockResolvedValue(mockConnections);
-
-        const result = await ctx.db.query.connections.findMany();
-
-        expect(result).toHaveLength(1);
-        expect(result[0]!.type).toBe('openai');
-      });
-
-      it('fetches existing baleybots for context', async () => {
-        const mockBaleybots = [
-          createMockBaleybot({ id: 'bb-1', name: 'Existing Bot' }),
-        ];
-        ctx.db.query.baleybots.findMany.mockResolvedValue(mockBaleybots);
-
-        const result = await ctx.db.query.baleybots.findMany();
-
-        expect(result).toHaveLength(1);
-        expect(result[0]!.name).toBe('Existing Bot');
-      });
-    });
-
     describe('saveFromSession', () => {
       it('creates new baleybot when no ID provided', async () => {
         const newBot = createMockBaleybot({ id: 'new-bb', status: 'draft' });

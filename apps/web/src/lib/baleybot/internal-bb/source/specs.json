@@ -1,37 +1,5 @@
 [
   {
-    "id": "creator_bot",
-    "description": "Creates new BaleyBots from user descriptions through conversation",
-    "icon": "\ud83e\udd16",
-    "model": "anthropic:powerful",
-    "contractId": "creator_bot_v2",
-    "role": "BaleyBot Creator",
-    "maxTokens": 32768,
-    "tools": ["spawn_baleybot", "web_search", "fetch_url", "list_connections", "test_connection", "set_default_connection", "create_connection", "delete_connection", "present_plan", "show_surface"],
-    "inputs": [
-      "sanitized user request and prior conversation context",
-      "workspace tool catalog and connection summary",
-      "discovery context notes"
-    ],
-    "decisionPolicy": [
-      "You are a conversational architect. Understand what the user wants to build, then delegate BAL code generation to specialists via spawn_baleybot.",
-      "A good creation session flows like a conversation: understand the user's actual problem and what success looks like, design the best solution, then hand off to specialists while explaining what's happening.",
-      "If a spawn fails, be honest. Tell the user what went wrong and suggest a concrete next step.",
-      "Build the best solution to the user's problem, not just the fastest. One good question beats one wrong assumption."
-    ],
-    "uncertaintyPolicy": "When unsure, ask in your response. One good question beats one wrong solution.",
-    "skills": [
-      "concise_reasoning",
-      "consultative_curiosity",
-      "conversational_tone",
-      "user_communication_actionable",
-      "safety_non_destructive",
-      "creator_generation_policy",
-      "creator_connection_management",
-      "creator_proactive_guidance"
-    ]
-  },
-  {
     "id": "creator_action_advisor",
     "description": "Suggests the most relevant next creator actions based on workflow context",
     "icon": "\ud83e\udde9",
@@ -574,6 +542,30 @@
       "user_communication_actionable", "safety_non_destructive",
       "creator_generation_policy", "creator_connection_management",
       "creator_proactive_guidance", "consultative_curiosity"
+    ]
+  },
+  {
+    "id": "platform_bug_triage",
+    "description": "Analyzes raw errors and determines if they are platform bugs worth tracking. Classifies user errors vs platform bugs. Provides root cause analysis and suggested fixes.",
+    "icon": "\ud83d\udc1b",
+    "model": "anthropic:fast",
+    "contractId": "platform_bug_triage_v1",
+    "role": "Platform Bug Triage Analyst",
+    "inputs": [
+      "error message, stack trace, and source context",
+      "recent similar errors for deduplication"
+    ],
+    "decisionPolicy": [
+      "Classify whether this is a platform bug (our code's fault) or a user error (bad config, missing key, invalid input).",
+      "Platform bugs: TypeError, ReferenceError, null pointer crashes, integration failures from our code, recurring systemic errors, React render crashes.",
+      "NOT platform bugs: MissingCredentialsError, ZodError from user input, rate limits, network timeouts, HMR/dev noise, known limitations.",
+      "For platform bugs, analyze the stack trace and error message to determine root cause and suggest a concrete fix.",
+      "Check against provided recent similar errors to detect duplicates."
+    ],
+    "uncertaintyPolicy": "When uncertain if something is a platform bug, lean towards reporting it with lower confidence rather than missing a real bug.",
+    "skills": [
+      "concise_reasoning",
+      "contract_json_v1"
     ]
   },
   {

@@ -226,7 +226,7 @@ importers:
         version: 5.0.114(zod@4.1.12)
       better-auth:
         specifier: ^1.4.18
-        version: 1.4.18(better-sqlite3@12.6.2)(mysql2@3.16.3)(next@15.5.12(@opentelemetry/api@1.9.0)(@playwright/test@1.58.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vitest@4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.19.3)(happy-dom@20.0.11)(jiti@1.21.7)(jsdom@24.1.3)(msw@2.12.8(@types/node@22.19.3)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
+        version: 1.4.18(better-sqlite3@12.6.2)(drizzle-orm@0.38.4(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(@types/react@19.2.7)(better-sqlite3@12.6.2)(bun-types@1.3.9)(kysely@0.28.11)(mysql2@3.16.3)(postgres@3.4.7)(react@19.2.3))(mysql2@3.16.3)(next@15.5.12(@opentelemetry/api@1.9.0)(@playwright/test@1.58.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vitest@4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.19.3)(happy-dom@20.0.11)(jiti@1.21.7)(jsdom@24.1.3)(msw@2.12.8(@types/node@22.19.3)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -245,6 +245,9 @@ importers:
       dompurify:
         specifier: ^3.3.1
         version: 3.3.1
+      drizzle-orm:
+        specifier: ^0.38.2
+        version: 0.38.4(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(@types/react@19.2.7)(better-sqlite3@12.6.2)(bun-types@1.3.9)(kysely@0.28.11)(mysql2@3.16.3)(postgres@3.4.7)(react@19.2.3)
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.2.3)
@@ -1083,6 +1086,13 @@ packages:
       '@baleybots/core': '>=0.0.1-alpha.100'
       ai: ^6.0.0
       zod: ^4.3.6
+    peerDependenciesMeta:
+      '@ai-sdk/anthropic':
+        optional: true
+      '@ai-sdk/openai':
+        optional: true
+      ai:
+        optional: true
 
   '@baleybots/core@0.0.1-alpha.115':
     resolution: {integrity: sha512-LiDCax0KZ1Lq8XIAXMX4TyZe5E9GeGpLOurrUNOs3PETE6Tl77B/MC3op9L5BJh23YPwYR/kvysH6i8ToT1I7w==, tarball: https://npm.pkg.github.com/download/@baleybots/core/0.0.1-alpha.115/a3d96cc1135fefb094c37584b4f34cd0685662f5}
@@ -1094,6 +1104,17 @@ packages:
       ollama-ai-provider: ^1.0.0
       ws: ^8.18.0
       zod: ^4.3.6
+    peerDependenciesMeta:
+      '@ai-sdk/anthropic':
+        optional: true
+      '@ai-sdk/openai':
+        optional: true
+      ai:
+        optional: true
+      ollama-ai-provider:
+        optional: true
+      ws:
+        optional: true
 
   '@baleybots/mcp@0.0.1-alpha.115':
     resolution: {integrity: sha512-1Y3DUc7AoS1KliScGUSYDVxInn67ZMLUqJ3b6uD53RaUUmaGvZEOWNhDBfQ2j9deYEoK72F7ldg+mmvcKTbSsA==, tarball: https://npm.pkg.github.com/download/@baleybots/mcp/0.0.1-alpha.115/4a7a46b45f5ae914a32959bef0a8a7df4738505c}
@@ -9766,22 +9787,24 @@ snapshots:
 
   '@baleybots/chat@0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(@baleybots/core@0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(zod@4.3.6)':
     dependencies:
+      '@baleybots/core': 0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
+      zod: 4.3.6
+    optionalDependencies:
       '@ai-sdk/anthropic': 2.0.58(zod@4.3.6)
       '@ai-sdk/openai': 1.3.24(zod@4.3.6)
-      '@baleybots/core': 0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)
       ai: 6.0.69(zod@4.3.6)
-      zod: 4.3.6
 
   '@baleybots/core@0.0.1-alpha.115(@ai-sdk/anthropic@2.0.58(zod@4.3.6))(@ai-sdk/openai@1.3.24(zod@4.3.6))(ai@6.0.69(zod@4.3.6))(ollama-ai-provider@1.2.0(zod@4.3.6))(ws@8.19.0)(zod@4.3.6)':
     dependencies:
-      '@ai-sdk/anthropic': 2.0.58(zod@4.3.6)
-      '@ai-sdk/openai': 1.3.24(zod@4.3.6)
       '@baleybots/auth': 1.0.0-alpha.71
       '@cfworker/json-schema': 4.1.1
+      zod: 4.3.6
+    optionalDependencies:
+      '@ai-sdk/anthropic': 2.0.58(zod@4.3.6)
+      '@ai-sdk/openai': 1.3.24(zod@4.3.6)
       ai: 6.0.69(zod@4.3.6)
       ollama-ai-provider: 1.2.0(zod@4.3.6)
       ws: 8.19.0
-      zod: 4.3.6
     transitivePeerDependencies:
       - supports-color
 
@@ -13814,7 +13837,7 @@ snapshots:
     dependencies:
       tweetnacl: 0.14.5
 
-  better-auth@1.4.18(better-sqlite3@12.6.2)(mysql2@3.16.3)(next@15.5.12(@opentelemetry/api@1.9.0)(@playwright/test@1.58.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vitest@4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.19.3)(happy-dom@20.0.11)(jiti@1.21.7)(jsdom@24.1.3)(msw@2.12.8(@types/node@22.19.3)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)):
+  better-auth@1.4.18(better-sqlite3@12.6.2)(drizzle-orm@0.38.4(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(@types/react@19.2.7)(better-sqlite3@12.6.2)(bun-types@1.3.9)(kysely@0.28.11)(mysql2@3.16.3)(postgres@3.4.7)(react@19.2.3))(mysql2@3.16.3)(next@15.5.12(@opentelemetry/api@1.9.0)(@playwright/test@1.58.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(vitest@4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.19.3)(happy-dom@20.0.11)(jiti@1.21.7)(jsdom@24.1.3)(msw@2.12.8(@types/node@22.19.3)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)):
     dependencies:
       '@better-auth/core': 1.4.18(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.8(zod@4.1.12))(jose@6.1.3)(kysely@0.28.11)(nanostores@1.1.0)
       '@better-auth/telemetry': 1.4.18(@better-auth/core@1.4.18(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.8(zod@4.1.12))(jose@6.1.3)(kysely@0.28.11)(nanostores@1.1.0))
@@ -13830,6 +13853,7 @@ snapshots:
       zod: 4.3.6
     optionalDependencies:
       better-sqlite3: 12.6.2
+      drizzle-orm: 0.38.4(@opentelemetry/api@1.9.0)(@types/pg@8.6.1)(@types/react@19.2.7)(better-sqlite3@12.6.2)(bun-types@1.3.9)(kysely@0.28.11)(mysql2@3.16.3)(postgres@3.4.7)(react@19.2.3)
       mysql2: 3.16.3
       next: 15.5.12(@opentelemetry/api@1.9.0)(@playwright/test@1.58.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       react: 19.2.3

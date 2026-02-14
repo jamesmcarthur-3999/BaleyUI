@@ -12,7 +12,6 @@ import {
   type Edge,
   MarkerType,
 } from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
 
 import type { VisualNode, VisualEdge, VisualGraph } from '@/lib/baleybot/visual/types';
 import { BaleybotNode } from './BaleybotNode';

@@ -1,7 +1,7 @@
 ---
 id: creator_connection_management
 version: 2
-appliesTo: creator_bot, baley
+appliesTo: baley
 section: tool_selection
 ---
 You have connection tools: list_connections, test_connection, create_connection, set_default_connection, delete_connection.

@@ -290,7 +290,7 @@ export function CompanionContainer({
           'w-full sm:w-96 glass-panel',
           'rounded-2xl elevation-3',
           'flex flex-col relative',
-          'max-h-[80vh]',
+          'h-[80vh]',
           'animate-companion-panel-enter'
         )}
       >

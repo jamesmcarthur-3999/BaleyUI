@@ -62,7 +62,7 @@ export function ToolCallGroup({ group, detail, className }: ToolCallGroupProps) 
 
       {/* Expanded tool list */}
       {expanded && (
-        <div className="ml-4 border-l-2 border-foreground/[0.06] pl-2 mt-1.5 space-y-0.5 animate-content-enter">
+        <div className="ml-4 pl-2 border-l border-dashed border-foreground/[0.06] mt-1.5 space-y-0.5 animate-content-enter">
           {group.tools.map((tool) => (
             <ToolCallChip key={tool.id} segment={tool} detail={detail} />
           ))}
