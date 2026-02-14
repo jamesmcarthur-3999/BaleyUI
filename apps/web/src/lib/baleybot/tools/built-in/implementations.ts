@@ -223,7 +223,7 @@ type SpawnBaleybotExecutor = (
   baleybotIdOrName: string,
   input: unknown,
   ctx: BuiltInToolContext,
-  options?: { modelTierOverride?: string }
+  options?: { modelTierOverride?: string; toolCallId?: string }
 ) => Promise<SpawnBaleybotResult>;
 
 let spawnBaleybotExecutor: SpawnBaleybotExecutor | null = null;
@@ -605,7 +605,7 @@ function createRuntimeTool(
   name: string,
   description: string,
   inputSchema: Record<string, unknown>,
-  impl: (args: Record<string, unknown>, ctx: BuiltInToolContext) => Promise<unknown>,
+  impl: (args: Record<string, unknown>, ctx: BuiltInToolContext, executionOptions?: { toolCallId?: string }) => Promise<unknown>,
   ctx: BuiltInToolContext
 ): RuntimeToolDefinition {
   const metadata = BUILT_IN_TOOLS_METADATA.find((t) => t.name === name);
@@ -614,7 +614,7 @@ function createRuntimeTool(
     name,
     description,
     inputSchema,
-    function: async (args: Record<string, unknown>) => impl(args, ctx),
+    function: async (args: Record<string, unknown>, executionOptions?: { toolCallId?: string }) => impl(args, ctx, executionOptions),
     category: metadata?.category,
     dangerLevel: metadata?.dangerLevel,
     needsApproval: metadata?.approvalRequired ?? false,
@@ -661,8 +661,10 @@ export function getBuiltInRuntimeTools(
       'spawn_baleybot',
       'Execute another BaleyBot and return its result',
       SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>,
-      async (args: Record<string, unknown>, toolCtx: BuiltInToolContext) =>
-        streamingSpawnExecutor(String(args.baleybot), args.input, toolCtx),
+      async (args: Record<string, unknown>, toolCtx: BuiltInToolContext, executionOptions?: { toolCallId?: string }) =>
+        streamingSpawnExecutor(String(args.baleybot), args.input, toolCtx, {
+          toolCallId: executionOptions?.toolCallId,
+        }),
       ctx
     ));
   } else {

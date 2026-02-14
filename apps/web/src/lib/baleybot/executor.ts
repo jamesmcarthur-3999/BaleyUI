@@ -121,7 +121,7 @@ export interface RuntimeToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  function: (args: Record<string, unknown>) => Promise<unknown>;
+  function: (args: Record<string, unknown>, executionOptions?: { toolCallId?: string }) => Promise<unknown>;
   needsApproval?: boolean | ((args: Record<string, unknown>) => boolean | Promise<boolean>);
   category?: string;
   dangerLevel?: 'safe' | 'moderate' | 'dangerous';

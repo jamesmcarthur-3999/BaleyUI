@@ -128,7 +128,7 @@ export type SpawnBaleybotExecutor = (
   baleybotIdOrName: string,
   input: unknown,
   ctx: BuiltInToolContext,
-  options?: { modelTierOverride?: string }
+  options?: { modelTierOverride?: string; toolCallId?: string }
 ) => Promise<SpawnBaleybotResult>;
 
 /**
@@ -310,7 +310,7 @@ export function createSpawnBaleybotExecutor(options?: {
     baleybotIdOrName: string,
     input: unknown,
     ctx: BuiltInToolContext,
-    spawnOptions?: { modelTierOverride?: string }
+    spawnOptions?: { modelTierOverride?: string; toolCallId?: string }
   ): Promise<SpawnBaleybotResult> {
     const startTime = Date.now();
     const spawnCtx = ctx as SpawnContext;
@@ -445,6 +445,7 @@ export function createSpawnBaleybotExecutor(options?: {
                   toolName: 'spawn_baleybot',
                   nestedEvent: childEvent,
                   childBotName: targetBB.name,
+                  toolCallId: spawnOptions?.toolCallId,
                 } as BaleybotStreamEvent);
               }
             : undefined,
