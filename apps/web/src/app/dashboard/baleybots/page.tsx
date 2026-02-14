@@ -39,7 +39,7 @@ import {
 import { useGridNavigation } from '@/hooks/useGridNavigation';
 import { cn } from '@/lib/utils';
 import { formatTimeAgo } from '@/lib/format';
-import { UnifiedStatusBadge } from '@/components/ui/unified-status-badge';
+import { UnifiedStatusBadge, type LifecycleStatus, type ExecutionStatus } from '@/components/ui/unified-status-badge';
 
 type BaleybotStatus = 'draft' | 'active' | 'paused' | 'error';
 type SmartView =
@@ -653,7 +653,7 @@ export default function BaleybotsListPage() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <UnifiedStatusBadge status={bb.status as any} domain="lifecycle" size="sm" />
+                            <UnifiedStatusBadge status={bb.status as LifecycleStatus} domain="lifecycle" size="sm" />
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {formatTimeAgo(bb.lastExecutedAt)}
@@ -663,7 +663,7 @@ export default function BaleybotsListPage() {
                           </TableCell>
                           <TableCell>
                             {bb.lastExecution?.status ? (
-                              <UnifiedStatusBadge status={bb.lastExecution.status as any} domain="execution" size="sm" />
+                              <UnifiedStatusBadge status={bb.lastExecution.status as ExecutionStatus} domain="execution" size="sm" />
                             ) : (
                               <span className="text-xs text-muted-foreground">No runs</span>
                             )}
@@ -802,7 +802,7 @@ export default function BaleybotsListPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold">{inspectedBotSummary.name}</span>
-                  <UnifiedStatusBadge status={inspectedBotSummary.status as any} domain="lifecycle" size="sm" />
+                  <UnifiedStatusBadge status={inspectedBotSummary.status as LifecycleStatus} domain="lifecycle" size="sm" />
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Updated {formatTimeAgo(inspectedBotSummary.updatedAt)}
@@ -848,7 +848,7 @@ export default function BaleybotsListPage() {
                             {formatDateTime(execution.startedAt)}
                           </p>
                         </div>
-                        <UnifiedStatusBadge status={execution.status as any} domain="execution" size="sm" />
+                        <UnifiedStatusBadge status={execution.status as ExecutionStatus} domain="execution" size="sm" />
                       </div>
 
                       {execution.durationMs != null && (

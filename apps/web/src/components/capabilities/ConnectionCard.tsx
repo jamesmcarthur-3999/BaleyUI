@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { Wifi, WifiOff, Trash2, RefreshCw, Star, Database, Bot, Pencil, Plug, Wrench } from 'lucide-react';
-import { UnifiedStatusBadge } from '@/components/ui/unified-status-badge';
+import { UnifiedStatusBadge, type ConnectionStatus } from '@/components/ui/unified-status-badge';
 import { PROVIDERS } from '@/lib/connections/providers';
 import type { ProviderType } from '@/lib/connections/providers';
 
@@ -87,7 +87,7 @@ export function ConnectionCard({
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <UnifiedStatusBadge status={(connection.status ?? 'unconfigured') as any} domain="connection" variant="dot" />
+            <UnifiedStatusBadge status={(connection.status ?? 'unconfigured') as ConnectionStatus} domain="connection" variant="dot" />
             <CategoryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
             <CardTitle className="truncate text-base">
               {connection.name}

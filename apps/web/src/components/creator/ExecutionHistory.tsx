@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ChevronUp, ChevronDown, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { UnifiedStatusBadge } from '@/components/ui/unified-status-badge';
+import { UnifiedStatusBadge, type ExecutionStatus } from '@/components/ui/unified-status-badge';
 import { formatDuration } from '@/lib/format';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -127,7 +127,7 @@ function ExecutionRow({ execution, onClick }: ExecutionRowProps) {
       disabled={!onClick}
     >
       {/* Status badge */}
-      <UnifiedStatusBadge status={execution.status as any} domain="execution" size="sm" />
+      <UnifiedStatusBadge status={execution.status as ExecutionStatus} domain="execution" size="sm" />
 
       {/* Details */}
       <div className="flex-1 min-w-0">

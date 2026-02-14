@@ -8,7 +8,7 @@ import { BotAnalyticsCards } from './BotAnalyticsCards';
 import { ConversationReview } from './ConversationReview';
 import { Loader2, ExternalLink, AlertTriangle, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { UnifiedStatusBadge } from '@/components/ui/unified-status-badge';
+import { UnifiedStatusBadge, type ExecutionStatus } from '@/components/ui/unified-status-badge';
 import { useRouter } from 'next/navigation';
 
 interface BotMonitorPanelProps {
@@ -123,7 +123,7 @@ export function BotMonitorPanel({ baleybotId, baleybotName, onPauseOrResume, isP
                 className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-muted/30 transition-colors"
                 onClick={() => router.push(ROUTES.activity.execution(exec.id))}
               >
-                <UnifiedStatusBadge status={exec.status as any} domain="execution" size="sm" />
+                <UnifiedStatusBadge status={exec.status as ExecutionStatus} domain="execution" size="sm" />
                 <span className="text-xs text-muted-foreground truncate flex-1">
                   {exec.input
                     ? String(typeof exec.input === 'string' ? exec.input : JSON.stringify(exec.input)).slice(0, 60)
