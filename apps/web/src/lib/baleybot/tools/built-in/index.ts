@@ -98,6 +98,32 @@ export const SPAWN_BALEYBOT_SCHEMA = {
       enum: ['fast', 'balanced', 'powerful'],
       description: 'Optional model tier override. Use "powerful" for complex reasoning tasks that need a stronger model than the bot\'s default.',
     },
+    taskId: {
+      type: 'string',
+      description: 'Optional orchestration task ID for tracing spawned work.',
+    },
+    parentTaskId: {
+      type: 'string',
+      description: 'Optional parent orchestration task ID for lineage.',
+    },
+    objective: {
+      type: 'string',
+      description: 'Optional high-level objective for this spawned task.',
+    },
+    expectedArtifact: {
+      type: 'string',
+      description: 'Optional expected artifact type produced by the spawned task.',
+    },
+    strategyHints: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Optional strategy hints for the spawned worker.',
+    },
+    allowChildSpawns: {
+      type: 'boolean',
+      description: 'Whether this worker can spawn additional workers.',
+      default: true,
+    },
   },
   required: ['baleybot'],
 } as const;
@@ -219,9 +245,54 @@ export const GET_DESIGN_PACKAGE_SCHEMA = {
     },
     format: {
       type: 'string',
-      enum: ['brief', 'full', 'tailwind_only', 'registry_only'],
-      description: 'Output format: brief (concise guide ~2000 tokens), full (complete JSON), tailwind_only (theme tokens), registry_only (component library)',
+      enum: [
+        'brief',
+        'full',
+        'tailwind_only',
+        'registry_only',
+        'blueprints',
+        'artifact_bundle_manifest',
+        'brand_dossier',
+        'quality_report',
+        'concept_pack_manifest',
+        'verification_report',
+      ],
+      description: 'Output format: brief, full, tailwind_only, registry_only, blueprints, artifact_bundle_manifest, brand_dossier, quality_report, concept_pack_manifest, verification_report',
       default: 'brief',
+    },
+  },
+  required: [],
+} as const;
+
+export const GET_ORCHESTRATION_RUN_SCHEMA = {
+  type: 'object',
+  properties: {
+    run_id: {
+      type: 'string',
+      description: 'Orchestration run ID',
+    },
+  },
+  required: ['run_id'],
+} as const;
+
+export const LIST_ORCHESTRATION_TASKS_SCHEMA = {
+  type: 'object',
+  properties: {
+    run_id: {
+      type: 'string',
+      description: 'Optional orchestration run ID. If omitted, returns most recent tasks.',
+    },
+    task_ids: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Optional list of exact task IDs to fetch.',
+    },
+    limit: {
+      type: 'number',
+      minimum: 1,
+      maximum: 200,
+      description: 'Maximum tasks to return when run_id/task_ids are omitted.',
+      default: 50,
     },
   },
   required: [],
@@ -495,7 +566,7 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
   },
   {
     name: 'get_design_package',
-    description: 'Retrieve the workspace design package with color tokens, typography, component library, and Tailwind theme. Returns a formatted brief by default, or raw JSON. Use this to build UI that matches the workspace brand.',
+    description: 'Retrieve the workspace design package with tokens, typography, component library, blueprints, and artifact manifest. Returns a formatted brief by default, or raw JSON payloads.',
     inputSchema: GET_DESIGN_PACKAGE_SCHEMA as Record<string, unknown>,
     category: 'information',
     dangerLevel: 'safe',
@@ -503,10 +574,16 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
     capabilities: ['read'],
     capability: 'read',
     requirements: [],
-    tags: ['design', 'theme', 'brand', 'colors', 'components', 'tailwind'],
+    tags: ['design', 'theme', 'brand', 'colors', 'components', 'tailwind', 'blueprints', 'artifact-bundle'],
     examples: [
       { input: {}, description: 'Get the workspace default design package as a brief' },
       { input: { format: 'tailwind_only' }, description: 'Get just the Tailwind theme tokens' },
+      { input: { format: 'blueprints' }, description: 'Get structured landing/customer/internal blueprint payloads' },
+      { input: { format: 'artifact_bundle_manifest' }, description: 'Get reusable artifact bundle manifest and file map' },
+      { input: { format: 'brand_dossier' }, description: 'Get source evidence and inferred brand constraints' },
+      { input: { format: 'quality_report' }, description: 'Get quality checks, scores, and repair trace metadata' },
+      { input: { format: 'concept_pack_manifest' }, description: 'Get concept directions and selection metadata for merge/reuse' },
+      { input: { format: 'verification_report' }, description: 'Get verification status, issues, and repair trace for self-healing generation' },
     ],
   },
   {
@@ -522,6 +599,37 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
     tags: ['design', 'component', 'registry', 'ui', 'tailwind'],
     examples: [
       { input: { name: 'Button', category: 'action', variants: [{ name: 'default', classes: 'rounded-md bg-primary px-4 py-2 text-primary-foreground', usage: 'Primary CTA' }] }, description: 'Register a Button component' },
+    ],
+  },
+  {
+    name: 'get_orchestration_run',
+    description: 'Retrieve orchestration run telemetry for a swarm execution, including status, objective, metrics, and summary.',
+    inputSchema: GET_ORCHESTRATION_RUN_SCHEMA as Record<string, unknown>,
+    category: 'information',
+    dangerLevel: 'safe',
+    approvalRequired: false,
+    capabilities: ['read'],
+    capability: 'read',
+    requirements: [],
+    tags: ['orchestration', 'swarm', 'telemetry', 'run', 'trace'],
+    examples: [
+      { input: { run_id: '3a0fcb8a-26e2-4f6f-9ae2-f927f2176a4f' }, description: 'Fetch one orchestration run by ID' },
+    ],
+  },
+  {
+    name: 'list_orchestration_tasks',
+    description: 'List orchestration tasks for a run or recent swarm activity with status, depth, attempts, and failures.',
+    inputSchema: LIST_ORCHESTRATION_TASKS_SCHEMA as Record<string, unknown>,
+    category: 'information',
+    dangerLevel: 'safe',
+    approvalRequired: false,
+    capabilities: ['read'],
+    capability: 'read',
+    requirements: [],
+    tags: ['orchestration', 'swarm', 'tasks', 'telemetry', 'trace'],
+    examples: [
+      { input: { run_id: '3a0fcb8a-26e2-4f6f-9ae2-f927f2176a4f' }, description: 'List tasks for a specific orchestration run' },
+      { input: { limit: 20 }, description: 'List the most recent orchestration tasks in this workspace' },
     ],
   },
 ];
@@ -544,8 +652,11 @@ export interface FetchUrlResult {
 
 export interface SpawnBaleybotResult {
   output: unknown;
+  summary?: string;
   executionId: string;
   durationMs: number;
+  orchestrationRunId?: string;
+  orchestrationTaskId?: string;
 }
 
 export interface SendNotificationResult {
@@ -589,6 +700,16 @@ export interface RegisterComponentResult {
   action: 'created' | 'updated';
 }
 
+export interface GetOrchestrationRunResult {
+  found: boolean;
+  run?: Record<string, unknown>;
+}
+
+export interface ListOrchestrationTasksResult {
+  found: boolean;
+  tasks: Array<Record<string, unknown>>;
+}
+
 // ============================================================================
 // TOOL CONTEXT (passed to tool implementations)
 // ============================================================================
@@ -611,6 +732,12 @@ export interface BuiltInToolContext {
   userId?: string;
   /** Side channel: spawn_baleybot stores full output here (keyed by bot name) */
   _spawnOutputs?: Map<string, unknown>;
+  /** Optional active orchestration run ID for swarm tracing */
+  orchestrationRunId?: string;
+  /** Optional active orchestration task ID for lineage */
+  orchestrationTaskId?: string;
+  /** Whether this execution scope may spawn additional workers */
+  allowChildSpawns?: boolean;
 }
 
 // ============================================================================

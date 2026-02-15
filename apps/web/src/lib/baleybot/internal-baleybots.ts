@@ -10,11 +10,13 @@ import { getOrCreateSystemWorkspace } from '@/lib/system-workspace';
 import { executeBaleybot, type ExecutorContext, type RuntimeToolDefinition } from './executor';
 import { createLogger } from '@/lib/logger';
 import type { BaleybotStreamEvent } from '@baleybots/core';
+import type { BuiltInToolContext } from './tools/built-in';
 import {
   GENERATED_INTERNAL_BALEYBOTS,
   type GeneratedInternalBaleybotDef,
 } from './internal-bb/generated-definitions';
 import { initializeBuiltInToolServices } from './services';
+import { normalizeOutputCandidate } from './internal-bb/contract-gateway';
 
 const logger = createLogger('internal-baleybots');
 
@@ -80,25 +82,18 @@ export async function getInternalBaleybot(
     // Check if BAL code needs updating (definition changed)
     const expectedBalCode = def.balCode.trim();
     if (existing.balCode !== expectedBalCode) {
-      // If admin has edited this bot, respect their changes (DB wins)
-      if (existing.adminEdited) {
-        logger.info('Skipping BAL code update for admin-edited internal BaleyBot', { name, id: existing.id });
-        const result = {
-          id: existing.id,
-          name: existing.name,
-          balCode: existing.balCode,
-        };
-        internalBBCache.set(name, result);
-        return result;
-      }
-
-      logger.info('Updating internal BaleyBot BAL code', { name, id: existing.id });
+      logger.info('Updating internal BaleyBot BAL code from source-of-truth', {
+        name,
+        id: existing.id,
+        wasAdminEdited: existing.adminEdited,
+      });
       await db
         .update(baleybots)
         .set({
           balCode: expectedBalCode,
           description: def.description,
           icon: def.icon,
+          adminEdited: false,
         })
         .where(eq(baleybots.id, existing.id));
     }
@@ -200,6 +195,19 @@ export interface InternalExecutionOptions {
   attachments?: Array<{ data: string; mimeType: string }>;
   /** Side channel: spawn_baleybot stores full output here (keyed by bot name) */
   _spawnOutputs?: Map<string, unknown>;
+  /** Optional swarm orchestration run ID to attach nested spawns to */
+  orchestrationRunId?: string;
+  /** Optional active orchestration task ID for child lineage */
+  orchestrationTaskId?: string;
+  /** Whether this execution is allowed to spawn additional workers */
+  allowChildSpawns?: boolean;
+}
+
+export interface InternalExecutionMetadata {
+  finishReasons: string[];
+  maxTokensReached: boolean;
+  tokenCount?: number;
+  model?: string;
 }
 
 const INTERNAL_DEFAULT_MODEL: Record<'openai' | 'anthropic' | 'ollama', string> = {
@@ -209,15 +217,8 @@ const INTERNAL_DEFAULT_MODEL: Record<'openai' | 'anthropic' | 'ollama', string> 
 };
 
 function applyInternalContractCompatibility(name: string, balCode: string): string {
-  if (name !== 'creator_action_advisor') {
-    return balCode;
-  }
-
-  // Compatibility for older edits that used actions: array<string> (or other array scalar contracts).
-  return balCode.replace(
-    /("actions"\s*:\s*")array<[^"]+>"/gi,
-    '$1array<object>"'
-  );
+  // Legacy output contract shims were removed in favor of app-layer parsing.
+  return balCode;
 }
 
 function rewriteModelProvidersForAvailability(
@@ -259,7 +260,7 @@ export async function executeInternalBaleybot(
   name: string,
   input: string,
   options: InternalExecutionOptions = {}
-): Promise<{ output: unknown; executionId: string }> {
+): Promise<{ output: unknown; executionId: string; metadata: InternalExecutionMetadata }> {
   // Parallel initialization: fetch internal BB definition and system workspace concurrently
   const [internalBB, systemWorkspaceId] = await Promise.all([
     getInternalBaleybot(name),
@@ -339,43 +340,91 @@ export async function executeInternalBaleybot(
       tavilyApiKey: process.env.TAVILY_API_KEY,
     });
 
-    const toolCtx = {
+    const toolCtx: BuiltInToolContext = {
       workspaceId,
       baleybotId: internalBB.id,
       executionId: execution.id,
       userId: 'system',
       _spawnOutputs: options._spawnOutputs,
+      orchestrationRunId: options.orchestrationRunId,
+      orchestrationTaskId: options.orchestrationTaskId,
+      allowChildSpawns:
+        typeof options.allowChildSpawns === 'boolean'
+          ? options.allowChildSpawns
+          : true,
     };
 
     // Load ALL tool categories (built-in + DB + MCP + workspace) for full parity
     const { loadExecutionTools } = await import('./services/execution-tools-loader');
-    const { runtimeTools } = await loadExecutionTools({ workspaceId, toolCtx });
+    const { runtimeTools: baseRuntimeTools } = await loadExecutionTools({
+      workspaceId,
+      toolCtx,
+    });
+    const { getBuiltInRuntimeTools } = await import(
+      './tools/built-in/implementations'
+    );
 
-    // If streaming, replace the default spawn_baleybot with a streaming-aware version
-    if (options.onSegment) {
-      const { createSpawnBaleybotExecutor } = await import('./services/spawn-executor');
-      const { SPAWN_BALEYBOT_SCHEMA } = await import('./tools/built-in');
-      const streamingSpawnExecutor = createSpawnBaleybotExecutor({
-        onChildSegment: options.onSegment,
-        getTools: () => runtimeTools,
-      });
-      runtimeTools.set('spawn_baleybot', {
-        name: 'spawn_baleybot',
-        description: 'Execute another BaleyBot and return its result',
-        inputSchema: SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>,
-        function: async (args: Record<string, unknown>) =>
-          streamingSpawnExecutor(String(args.baleybot), args.input, toolCtx),
-      });
-    }
+    let createStreamingSpawnTool:
+      | ((scopedToolCtx: BuiltInToolContext) => RuntimeToolDefinition)
+      | null = null;
 
-    const allTools = runtimeTools;
+    const buildScopedRuntimeTools = (
+      scopedToolCtx: BuiltInToolContext
+    ): Map<string, RuntimeToolDefinition> => {
+      const scopedTools = new Map<string, RuntimeToolDefinition>(
+        baseRuntimeTools
+      );
 
-    // Injected tools override built-in tools of the same name
-    if (options.injectedTools) {
-      for (const [name, tool] of options.injectedTools) {
-        allTools.set(name, tool);
+      // Re-bind built-in tools to the current execution scope so nested spawns
+      // get correct execution IDs, depth tracking, and side-channel state.
+      const scopedBuiltIns = getBuiltInRuntimeTools(scopedToolCtx);
+      for (const [toolName, toolDef] of scopedBuiltIns) {
+        scopedTools.set(toolName, toolDef);
       }
+
+      // In streaming mode, use a spawn tool that forwards child segments.
+      if (createStreamingSpawnTool) {
+        scopedTools.set('spawn_baleybot', createStreamingSpawnTool(scopedToolCtx));
+      }
+
+      // Injected tools override built-ins/custom tools of the same name.
+      if (options.injectedTools) {
+        for (const [toolName, tool] of options.injectedTools) {
+          scopedTools.set(toolName, tool);
+        }
+      }
+
+      return scopedTools;
+    };
+
+    if (options.onSegment) {
+      const { createSpawnBaleybotExecutor } = await import(
+        './services/spawn-executor'
+      );
+      const { SPAWN_BALEYBOT_SCHEMA } = await import('./tools/built-in');
+
+      createStreamingSpawnTool = (
+        scopedToolCtx: BuiltInToolContext
+      ): RuntimeToolDefinition => {
+        const streamingSpawnExecutor = createSpawnBaleybotExecutor({
+          onChildSegment: options.onSegment,
+          getTools: buildScopedRuntimeTools,
+        });
+        return {
+          name: 'spawn_baleybot',
+          description: 'Execute another BaleyBot and return its result',
+          inputSchema: SPAWN_BALEYBOT_SCHEMA as Record<string, unknown>,
+          function: async (args: Record<string, unknown>) =>
+            streamingSpawnExecutor(
+              String(args.baleybot),
+              args.input,
+              scopedToolCtx
+            ),
+        };
+      };
     }
+
+    const allTools = buildScopedRuntimeTools(toolCtx);
 
     // Execute through standard path
     const ctx: ExecutorContext = {
@@ -415,11 +464,12 @@ export async function executeInternalBaleybot(
       }
     }
 
-    // Use caller's signal, or default to 2-minute timeout to prevent indefinite hangs
-    const signal = options.signal ?? AbortSignal.timeout(120_000);
+    // Respect caller cancellation/disconnect only. Long-running internal BB flows
+    // should not be hard-stopped by a fixed wall-clock timeout.
+    const signal = options.signal;
 
     // Check signal before execution
-    if (signal.aborted) {
+    if (signal?.aborted) {
       throw new Error('Execution aborted');
     }
 
@@ -429,12 +479,14 @@ export async function executeInternalBaleybot(
       attachments: options.attachments,
     });
 
+    const normalizedOutput = normalizeOutputCandidate(result.output);
+
     // Update execution record (including usage data for analytics)
     await db
       .update(baleybotExecutions)
       .set({
         status: result.status === 'completed' ? 'completed' : 'failed',
-        output: result.output,
+        output: normalizedOutput,
         error: result.error,
         segments: result.segments,
         completedAt: new Date(),
@@ -451,9 +503,28 @@ export async function executeInternalBaleybot(
       throw new Error(result.error || 'Internal BaleyBot execution failed');
     }
 
+    const finishReasons = result.segments
+      .filter((segment) => {
+        const maybe = segment as Record<string, unknown>;
+        return maybe.type === 'done';
+      })
+      .map((segment) => {
+        const maybe = segment as Record<string, unknown>;
+        return String(maybe.reason ?? '');
+      })
+      .filter((reason) => reason.length > 0);
+
+    const metadata: InternalExecutionMetadata = {
+      finishReasons,
+      maxTokensReached: finishReasons.includes('max_tokens_reached'),
+      tokenCount: result.tokenCount,
+      model: result.model,
+    };
+
     return {
-      output: result.output,
+      output: normalizedOutput,
       executionId: execution.id,
+      metadata,
     };
   } catch (error: unknown) {
     // Update execution with error

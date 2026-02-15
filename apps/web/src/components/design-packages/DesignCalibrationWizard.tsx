@@ -4,9 +4,11 @@ import { useState, useRef, useEffect } from 'react';
 import { AppScaffoldPreview } from './AppScaffoldPreview';
 import { DESIGN_PRESETS } from '@/lib/design-packages/presets';
 import type { DesignPackageData } from '@/lib/design-packages/types';
+import { ensureDesignPackageDataV2 } from '@/lib/design-packages/schema';
 import {
   runDesignCalibrationStream,
   type DesignCalibrationCallbacks,
+  type DesignConceptPayload,
 } from '@/lib/design-packages/calibration-streaming';
 import { DesignTokenStreamParser } from '@/lib/design-packages/token-stream-parser';
 import { checkContrast } from '@/lib/design-packages/css-variables';
@@ -72,6 +74,22 @@ interface DesignCalibrationWizardProps {
   };
 }
 
+type SurfaceTab = 'landing' | 'customerApp' | 'internalApp';
+type DirectionId = 'directionA' | 'directionB' | 'directionC';
+
+interface OrchestrationTaskView {
+  taskId: string;
+  parentTaskId?: string | null;
+  assignedBot: string;
+  expectedArtifact?: string;
+  depth: number;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  attempt: number;
+  message?: string;
+  durationMs?: number;
+  error?: string;
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -91,6 +109,35 @@ const BASE_PROMPTS = [
   { label: 'Darker theme', prompt: 'Use a darker, moodier color scheme' },
 ];
 
+const DIRECTION_META: Record<
+  DirectionId,
+  {
+    label: string;
+    subtitle: string;
+    accentClass: string;
+    badgeClass: string;
+  }
+> = {
+  directionA: {
+    label: 'Direction A',
+    subtitle: 'Brand Faithful',
+    accentClass: 'from-emerald-500/28 via-cyan-500/14 to-transparent',
+    badgeClass: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300',
+  },
+  directionB: {
+    label: 'Direction B',
+    subtitle: 'Conversion Forward',
+    accentClass: 'from-amber-500/30 via-rose-500/16 to-transparent',
+    badgeClass: 'bg-amber-500/14 text-amber-700 dark:text-amber-300',
+  },
+  directionC: {
+    label: 'Direction C',
+    subtitle: 'Ops Forward',
+    accentClass: 'from-blue-500/30 via-indigo-500/16 to-transparent',
+    badgeClass: 'bg-blue-500/14 text-blue-700 dark:text-blue-300',
+  },
+};
+
 const WELCOME_MESSAGE: DesignMessage = {
   id: 'welcome',
   role: 'assistant',
@@ -104,6 +151,11 @@ const WELCOME_MESSAGE: DesignMessage = {
   toolCallStates: {},
   timestamp: Date.now(),
 };
+
+function truncate(text: string, max = 120): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1).trimEnd()}...`;
+}
 
 // ============================================================================
 // Component
@@ -128,6 +180,43 @@ export function DesignCalibrationWizard({
   const [generatedComponents, setGeneratedComponents] = useState<
     Array<{ componentName: string; action: string }>
   >([]);
+  const [conceptsLoading, setConceptsLoading] = useState(false);
+  const [designConcepts, setDesignConcepts] = useState<DesignConceptPayload[]>([]);
+  const [activeSurfaceTab, setActiveSurfaceTab] = useState<SurfaceTab>('landing');
+  const [selectedDirectionId, setSelectedDirectionId] = useState<DirectionId | null>(null);
+  const [compareDirectionId, setCompareDirectionId] = useState<DirectionId | null>(null);
+  const [directionScores, setDirectionScores] = useState<
+    Record<string, { score: number; rationale: string }>
+  >({});
+  const [brandDossier, setBrandDossier] = useState<Record<string, unknown> | null>(null);
+  const [qualityRepairs, setQualityRepairs] = useState<Array<{ attempt: number; reason: string }>>([]);
+  const [mergePreview, setMergePreview] = useState<Record<string, unknown> | null>(null);
+  const [selfReviewIssues, setSelfReviewIssues] = useState<
+    Array<{
+      directionId: string;
+      directionTitle: string;
+      attempt: number;
+      status: string;
+      score: number;
+      issues: Array<Record<string, unknown>>;
+    }>
+  >([]);
+  const [mergeSelection, setMergeSelection] = useState<
+    Partial<Record<'colors' | 'typography' | 'motionSystem' | 'layoutSystem' | 'surfaceBlueprints', DirectionId>>
+  >({});
+  const [orchestrationRun, setOrchestrationRun] = useState<{
+    runId: string;
+    objective: string;
+    steps: string[];
+  } | null>(null);
+  const [orchestrationTasks, setOrchestrationTasks] = useState<Record<string, OrchestrationTaskView>>({});
+  const [orchestrationDegradedReasons, setOrchestrationDegradedReasons] = useState<string[]>([]);
+
+  const [brandAlignment, setBrandAlignment] = useState(85);
+  const [contrastTarget, setContrastTarget] = useState<'aa' | 'aaa'>('aa');
+  const [layoutDensity, setLayoutDensity] = useState<'compact' | 'comfortable' | 'spacious'>('comfortable');
+  const [motionIntensity, setMotionIntensity] = useState<'subtle' | 'moderate' | 'expressive'>('moderate');
+  const [voiceTone, setVoiceTone] = useState('clear and confident');
 
   // File upload state (shared hook)
   const [sessionId] = useState(() => crypto.randomUUID());
@@ -239,6 +328,35 @@ export function DesignCalibrationWizard({
       ? 'active' as const
       : 'placeholder' as const;
 
+  const getConceptByDirection = (directionId: DirectionId | undefined) =>
+    designConcepts.find((concept) => concept.id === directionId);
+
+  const previewMergedConcept = () => {
+    const baseDirection = selectedDirectionId ?? designConcepts[0]?.id;
+    if (!baseDirection) return;
+    const baseConcept = getConceptByDirection(baseDirection);
+    if (!baseConcept) return;
+
+    const colorsConcept = getConceptByDirection(mergeSelection.colors ?? baseDirection);
+    const typographyConcept = getConceptByDirection(mergeSelection.typography ?? baseDirection);
+    const motionConcept = getConceptByDirection(mergeSelection.motionSystem ?? baseDirection);
+    const layoutConcept = getConceptByDirection(mergeSelection.layoutSystem ?? baseDirection);
+    const blueprintConcept = getConceptByDirection(mergeSelection.surfaceBlueprints ?? baseDirection);
+
+    const merged = ensureDesignPackageDataV2({
+      ...baseConcept.packageData,
+      colors: colorsConcept?.packageData.colors ?? baseConcept.packageData.colors,
+      typography: typographyConcept?.packageData.typography ?? baseConcept.packageData.typography,
+      motionSystem: motionConcept?.packageData.motionSystem ?? baseConcept.packageData.motionSystem,
+      layoutSystem: layoutConcept?.packageData.layoutSystem ?? baseConcept.packageData.layoutSystem,
+      surfaceBlueprints:
+        blueprintConcept?.packageData.surfaceBlueprints ?? baseConcept.packageData.surfaceBlueprints,
+    });
+
+    setPackageData(merged);
+    pushHistory(merged);
+  };
+
   // ── Send Message ────────────────────────────────────────
 
   const sendMessage = async (text: string) => {
@@ -261,7 +379,7 @@ export function DesignCalibrationWizard({
     const displayContent = trimmed || (attachments
       ? `Uploaded ${attachments.length} file${attachments.length > 1 ? 's' : ''}`
       : '');
-    const messageForApi = trimmed || 'Please analyze the uploaded brand assets and create a design system from them.';
+    const userMessage = trimmed || 'Please analyze the uploaded brand assets and create a design system from them.';
 
     // Add user message
     const userMsg: DesignMessage = {
@@ -277,6 +395,18 @@ export function DesignCalibrationWizard({
 
     // Start streaming
     setIsStreaming(true);
+    setOrchestrationRun(null);
+    setOrchestrationTasks({});
+    setOrchestrationDegradedReasons([]);
+    if (!packageData) {
+      setDesignConcepts([]);
+      setSelectedDirectionId(null);
+      setCompareDirectionId(null);
+      setDirectionScores({});
+      setBrandDossier(null);
+      setQualityRepairs([]);
+      setMergePreview(null);
+    }
     outputAccRef.current = '';
     toolCallsRef.current = {};
     currentBlocksRef.current = [];
@@ -423,6 +553,224 @@ export function DesignCalibrationWizard({
         onComplete(packageId);
       },
 
+      onBrandDossierStarted: () => {
+        setBrandDossier(null);
+      },
+
+      onBrandDossierReady: (dossier) => {
+        setBrandDossier(dossier);
+      },
+
+      onConceptDirectionScored: ({ id, score, rationale }) => {
+        setDirectionScores((prev) => ({
+          ...prev,
+          [id]: { score, rationale },
+        }));
+      },
+
+      onQualityGateRepair: ({ attempt, reason }) => {
+        setQualityRepairs((prev) => [...prev, { attempt, reason }]);
+      },
+
+      onSelfReviewStarted: ({ directionTitle, attempt }) => {
+        setQualityRepairs((prev) => [
+          ...prev,
+          {
+            attempt,
+            reason: `Self-review started for ${directionTitle}`,
+          },
+        ]);
+      },
+
+      onSelfReviewResult: ({ directionId, directionTitle, attempt, status, score, issues }) => {
+        setSelfReviewIssues((prev) => [
+          ...prev.slice(-9),
+          {
+            directionId,
+            directionTitle,
+            attempt,
+            status,
+            score,
+            issues,
+          },
+        ]);
+      },
+
+      onSelfRepairStarted: ({ directionTitle, attempt, issues }) => {
+        setQualityRepairs((prev) => [
+          ...prev,
+          {
+            attempt,
+            reason: `Self-repair ${attempt} for ${directionTitle} (${issues.length} issues)`,
+          },
+        ]);
+      },
+
+      onSelfRepairResult: ({ directionTitle, attempt, status, issues }) => {
+        setQualityRepairs((prev) => [
+          ...prev,
+          {
+            attempt,
+            reason: `Self-repair result for ${directionTitle}: ${status} (${issues.length} issues)`,
+          },
+        ]);
+      },
+
+      onSelfRepairExhausted: ({ directionTitle, attempt, issues }) => {
+        setQualityRepairs((prev) => [
+          ...prev,
+          {
+            attempt,
+            reason: `Repair exhausted for ${directionTitle} (${issues.length} unresolved issues)`,
+          },
+        ]);
+      },
+
+      onConceptMergePreview: (payload) => {
+        setMergePreview(payload);
+        const selectedDirection = payload.selectedDirection;
+        if (
+          selectedDirection === 'directionA' ||
+          selectedDirection === 'directionB' ||
+          selectedDirection === 'directionC'
+        ) {
+          setSelectedDirectionId(selectedDirection);
+          setMergeSelection({
+            colors: selectedDirection,
+            typography: selectedDirection,
+            motionSystem: selectedDirection,
+            layoutSystem: selectedDirection,
+            surfaceBlueprints: selectedDirection,
+          });
+        }
+      },
+
+      onOrchestrationRunStarted: ({ runId, objective }) => {
+        setOrchestrationRun({
+          runId,
+          objective,
+          steps: [],
+        });
+      },
+
+      onOrchestrationPlanReady: ({ runId, steps }) => {
+        setOrchestrationRun((prev) => {
+          if (!prev || prev.runId !== runId) return prev;
+          return { ...prev, steps };
+        });
+      },
+
+      onOrchestrationTaskStarted: ({
+        taskId,
+        parentTaskId,
+        assignedBot,
+        expectedArtifact,
+        depth,
+      }) => {
+        setOrchestrationTasks((prev) => ({
+          ...prev,
+          [taskId]: {
+            taskId,
+            parentTaskId,
+            assignedBot,
+            expectedArtifact,
+            depth,
+            status: 'running',
+            attempt: 0,
+          },
+        }));
+      },
+
+      onOrchestrationTaskProgress: ({ taskId, status, message, attempt }) => {
+        setOrchestrationTasks((prev) => {
+          const existing = prev[taskId];
+          if (!existing) return prev;
+          return {
+            ...prev,
+            [taskId]: {
+              ...existing,
+              status: (status as OrchestrationTaskView['status']) ?? existing.status,
+              attempt,
+              message,
+            },
+          };
+        });
+      },
+
+      onOrchestrationTaskRetry: ({ taskId, attempt, reason }) => {
+        setOrchestrationTasks((prev) => {
+          const existing = prev[taskId];
+          if (!existing) return prev;
+          return {
+            ...prev,
+            [taskId]: {
+              ...existing,
+              attempt,
+              message: reason,
+              status: 'running',
+            },
+          };
+        });
+      },
+
+      onOrchestrationTaskDone: ({ taskId, status, durationMs }) => {
+        setOrchestrationTasks((prev) => {
+          const existing = prev[taskId];
+          if (!existing) return prev;
+          return {
+            ...prev,
+            [taskId]: {
+              ...existing,
+              status: (status as OrchestrationTaskView['status']) ?? 'completed',
+              durationMs,
+            },
+          };
+        });
+      },
+
+      onOrchestrationTaskFailed: ({ taskId, error }) => {
+        setOrchestrationTasks((prev) => {
+          const existing = prev[taskId];
+          if (!existing) return prev;
+          return {
+            ...prev,
+            [taskId]: {
+              ...existing,
+              status: 'failed',
+              error,
+            },
+          };
+        });
+      },
+
+      onOrchestrationMergeDone: ({ degraded }) => {
+        if (!degraded) return;
+        setOrchestrationDegradedReasons((prev) => {
+          if (prev.length > 0) return prev;
+          return ['Generated package required degraded publish safeguards'];
+        });
+      },
+
+      onOrchestrationDegradedPublish: ({ reasons }) => {
+        setOrchestrationDegradedReasons(reasons);
+      },
+
+      onDesignConceptsStarted: () => {
+        setConceptsLoading(true);
+      },
+
+      onDesignConceptsUpdate: (concepts) => {
+        setConceptsLoading(false);
+        setDesignConcepts(concepts);
+        if (!selectedDirectionId && concepts[0]) {
+          setSelectedDirectionId(concepts[0].id);
+        }
+        if (!compareDirectionId) {
+          const fallbackCompare = concepts.find((c) => c.id !== (selectedDirectionId ?? concepts[0]?.id));
+          if (fallbackCompare) setCompareDirectionId(fallbackCompare.id);
+        }
+      },
+
       onComponentGenerationStarted: () => {
         setComponentGenState('generating');
       },
@@ -476,6 +824,7 @@ export function DesignCalibrationWizard({
         morphTimersRef.current.forEach(clearTimeout);
         morphTimersRef.current = [];
         setIsStreaming(false);
+        setConceptsLoading(false);
         isSendingRef.current = false;
         abortControllerRef.current = null;
       },
@@ -484,11 +833,18 @@ export function DesignCalibrationWizard({
     try {
       await runDesignCalibrationStream(
         {
-          message: messageForApi,
+          message: userMessage,
           conversationHistory,
           existingPackageData: packageData ?? undefined,
           attachmentIds: attachmentIds?.length ? attachmentIds : undefined,
           sessionId,
+          controls: {
+            brandAlignment,
+            contrastTarget,
+            layoutDensity,
+            motionIntensity,
+            voiceTone,
+          },
         },
         callbacks,
         abortController.signal,
@@ -524,6 +880,16 @@ export function DesignCalibrationWizard({
     setMessages((prev) => [...prev, presetMsg]);
   };
 
+  const applyConcept = (concept: DesignConceptPayload) => {
+    setPackageData(concept.packageData);
+    pushHistory(concept.packageData);
+    setSelectedDirectionId(concept.id);
+    if (compareDirectionId === concept.id) {
+      const fallbackCompare = designConcepts.find((candidate) => candidate.id !== concept.id);
+      setCompareDirectionId(fallbackCompare?.id ?? null);
+    }
+  };
+
   // ── Abort / Close ────────────────────────────────────────
 
   const handleClose = () => {
@@ -540,6 +906,13 @@ export function DesignCalibrationWizard({
     }
     onSkip?.();
   };
+
+  const selectedConcept = selectedDirectionId ? getConceptByDirection(selectedDirectionId) : designConcepts[0];
+  const compareConcept = compareDirectionId ? getConceptByDirection(compareDirectionId) : null;
+  const orchestrationTaskList = Object.values(orchestrationTasks).sort((a, b) => {
+    if (a.depth !== b.depth) return a.depth - b.depth;
+    return a.taskId.localeCompare(b.taskId);
+  });
 
   // ── Render helpers ───────────────────────────────────────
   // NOTE: This will be replaced by the unified chat library
@@ -606,10 +979,10 @@ export function DesignCalibrationWizard({
   return (
     <div className="flex flex-1 min-h-0 flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border bg-card/50 px-5 py-3">
+      <div className="flex items-center justify-between border-b border-border bg-[linear-gradient(120deg,hsl(var(--card)/0.94),hsl(var(--muted)/0.55))] px-5 py-3">
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-semibold">
+          <h2 className="text-sm font-semibold tracking-tight">
             {existingPackage ? existingPackage.name : 'New Design Package'}
           </h2>
         </div>
@@ -670,14 +1043,453 @@ export function DesignCalibrationWizard({
       {/* Two-panel layout */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left: Preview */}
-        <div className="flex-1 min-w-0 overflow-y-auto bg-muted/30 p-5">
-          <div className="mx-auto max-w-5xl">
+        <div className="relative flex-1 min-w-0 overflow-y-auto bg-[radial-gradient(circle_at_12%_12%,hsl(var(--primary)/0.14),transparent_35%),radial-gradient(circle_at_88%_86%,hsl(var(--accent)/0.14),transparent_38%),hsl(var(--muted)/0.35)] p-5">
+          <div className="pointer-events-none absolute left-14 top-16 h-40 w-40 rounded-full bg-primary/10 blur-3xl" />
+          <div className="pointer-events-none absolute bottom-8 right-12 h-44 w-44 rounded-full bg-accent/12 blur-3xl" />
+          <div className="relative mx-auto max-w-6xl">
+            <div className="mb-4 overflow-hidden rounded-2xl border border-border/70 bg-card/80 shadow-sm backdrop-blur">
+              <div className="bg-[linear-gradient(120deg,hsl(var(--primary)/0.14),hsl(var(--accent)/0.1),transparent)] px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/80">
+                      Design Transformation Engine
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      Multi-surface brand system preview
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {selectedConcept && (
+                      <span className="rounded-full border border-border bg-background/85 px-2.5 py-1 text-[10px] font-semibold text-muted-foreground">
+                        Active: {selectedConcept.title}
+                      </span>
+                    )}
+                    {selectedConcept && typeof (directionScores[selectedConcept.id]?.score ?? selectedConcept.score) === 'number' && (
+                      <span className="rounded-full bg-primary/12 px-2.5 py-1 text-[10px] font-semibold text-primary">
+                        Score {(directionScores[selectedConcept.id]?.score ?? selectedConcept.score)}/100
+                      </span>
+                    )}
+                    {qualityRepairs.length > 0 && (
+                      <span className="rounded-full bg-amber-500/12 px-2.5 py-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                        {qualityRepairs.length} repair pass{qualityRepairs.length > 1 ? 'es' : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 px-3 py-2">
+                <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-background/80 p-1">
+                  {([
+                    ['landing', 'Landing'],
+                    ['customerApp', 'Customer App'],
+                    ['internalApp', 'Internal App'],
+                  ] as Array<[SurfaceTab, string]>).map(([tab, label]) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveSurfaceTab(tab)}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                        activeSurfaceTab === tab
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Blend direction systems and inspect branded outcomes instantly.
+                </p>
+              </div>
+            </div>
+
             <AppScaffoldPreview
               data={packageData}
               brandName={existingPackage?.name ?? 'Your App'}
+              surface={activeSurfaceTab}
               state={scaffoldState}
               containerRef={(el) => { previewContainerRef.current = el; }}
             />
+
+            {(conceptsLoading || designConcepts.length > 0) && (
+              <div className="mt-4 rounded-2xl border border-border/70 bg-card/85 p-3.5 shadow-sm backdrop-blur">
+                <div className="mb-2.5 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-foreground">Direction Gallery</p>
+                  {conceptsLoading && (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Generating direction set
+                    </span>
+                  )}
+                </div>
+                {designConcepts.length > 0 && (
+                  <div className="grid gap-2.5 md:grid-cols-3">
+                    {designConcepts.map((concept) => {
+                      const meta = DIRECTION_META[concept.id];
+                      const score = directionScores[concept.id]?.score ?? concept.score;
+                      const rationale = directionScores[concept.id]?.rationale ?? concept.rationale;
+                      return (
+                        <div
+                          key={concept.id}
+                          className={cn(
+                            'group relative overflow-hidden rounded-xl border p-2.5 text-left transition-all',
+                            selectedDirectionId === concept.id
+                              ? 'border-primary/60 bg-primary/5 shadow-[0_10px_26px_-18px_hsl(var(--primary))]'
+                              : 'border-border/70 bg-background/92 hover:border-primary/30'
+                          )}
+                        >
+                          <div className={cn('pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-r', meta.accentClass)} />
+                          <div className="relative">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-[11px] font-semibold text-foreground">{meta.label}</p>
+                                <span className={cn('mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold', meta.badgeClass)}>
+                                  {meta.subtitle}
+                                </span>
+                              </div>
+                              {typeof score === 'number' && (
+                                <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-[10px] font-semibold text-foreground">
+                                  {score}/100
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-2 text-xs font-semibold">{concept.title}</p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">{concept.summary}</p>
+                            {rationale && (
+                              <p className="mt-1.5 text-[10px] text-muted-foreground/90">
+                                {rationale}
+                              </p>
+                            )}
+                            <div className="mt-2.5 flex items-center gap-1">
+                              {[concept.packageData.colors.light.primary, concept.packageData.colors.light.accent, concept.packageData.colors.light.secondary].map((color, index) => (
+                                <span
+                                  key={`${concept.id}-${index}`}
+                                  className="h-2.5 w-2.5 rounded-full ring-1 ring-black/10"
+                                  style={{ backgroundColor: `hsl(${color})` }}
+                                />
+                              ))}
+                            </div>
+                            <div className="mt-2.5 flex flex-wrap gap-1.5">
+                              <button
+                                onClick={() => applyConcept(concept)}
+                                className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-semibold hover:border-primary/40"
+                              >
+                                Preview
+                              </button>
+                              <button
+                                onClick={() => setCompareDirectionId(concept.id)}
+                                className={cn(
+                                  'rounded-md border px-2 py-1 text-[10px] font-semibold',
+                                  compareDirectionId === concept.id
+                                    ? 'border-primary/40 bg-primary/10 text-primary'
+                                    : 'border-border bg-background hover:border-primary/30'
+                                )}
+                              >
+                                Compare
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setSelectedDirectionId(concept.id);
+                                  setMergeSelection((prev) => ({
+                                    colors: prev.colors ?? concept.id,
+                                    typography: prev.typography ?? concept.id,
+                                    motionSystem: prev.motionSystem ?? concept.id,
+                                    layoutSystem: prev.layoutSystem ?? concept.id,
+                                    surfaceBlueprints: prev.surfaceBlueprints ?? concept.id,
+                                  }));
+                                }}
+                                className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-semibold hover:border-primary/40"
+                              >
+                                Base for Merge
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {selectedConcept && compareConcept && selectedConcept.id !== compareConcept.id && (
+                  <div className="mt-3.5 grid gap-2 rounded-xl border border-border/70 bg-muted/30 p-2.5 md:grid-cols-2">
+                    {[selectedConcept, compareConcept].map((concept) => (
+                      <div key={`compare-${concept.id}`} className="rounded-lg border border-border/60 bg-background/85 p-2.5">
+                        <div className="mb-1.5 flex items-center justify-between">
+                          <p className="text-[11px] font-semibold">{concept.title}</p>
+                          <span className="text-[10px] text-muted-foreground">{DIRECTION_META[concept.id].subtitle}</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          {truncate(concept.summary, 88)}
+                        </p>
+                        <div className="mt-2 flex items-center gap-1.5">
+                          {[concept.packageData.colors.light.primary, concept.packageData.colors.light.accent, concept.packageData.colors.light.secondary, concept.packageData.colors.light.background].map((color, idx) => (
+                            <span
+                              key={`compare-${concept.id}-${idx}`}
+                              className="h-3 w-3 rounded-full ring-1 ring-black/10"
+                              style={{ backgroundColor: `hsl(${color})` }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {designConcepts.length > 0 && (
+                  <div className="mt-3.5 rounded-xl border border-border/70 bg-muted/35 p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold text-foreground">Merge Composer</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Mix best traits from each direction, then preview before save.
+                      </p>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-5">
+                      {([
+                        ['colors', 'Palette'],
+                        ['typography', 'Type'],
+                        ['motionSystem', 'Motion'],
+                        ['layoutSystem', 'Layout'],
+                        ['surfaceBlueprints', 'Blueprints'],
+                      ] as const).map(([key, label]) => (
+                        <div key={key}>
+                          <label className="mb-1 block text-[10px] font-medium text-muted-foreground">{label}</label>
+                          <select
+                            value={mergeSelection[key] ?? selectedDirectionId ?? designConcepts[0]!.id}
+                            onChange={(e) =>
+                              setMergeSelection((prev) => ({
+                                ...prev,
+                                [key]: e.target.value as DirectionId,
+                              }))
+                            }
+                            className="h-7 w-full rounded-md border border-border/70 bg-background px-1.5 text-[10px]"
+                          >
+                            {designConcepts.map((concept) => (
+                              <option key={`${key}-${concept.id}`} value={concept.id}>
+                                {DIRECTION_META[concept.id].label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2.5 flex items-center justify-between gap-2">
+                      <p className="text-[10px] text-muted-foreground">
+                        {mergePreview?.selectedDirection
+                          ? `Suggested base: ${String(mergePreview.selectedDirection)}`
+                          : 'Blend systems across directions and preview instantly.'}
+                      </p>
+                      <button
+                        onClick={previewMergedConcept}
+                        className="rounded-md bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground hover:bg-primary/90"
+                      >
+                        Preview Merge
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(brandDossier || qualityRepairs.length > 0 || selfReviewIssues.length > 0) && (
+              <div className="mt-4 rounded-xl border border-border/70 bg-card/85 p-3 shadow-sm backdrop-blur">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Evidence Rationale</p>
+                    {brandDossier && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Canonical brand dossier is active with confidence scores and inferred defaults.
+                      </p>
+                    )}
+                  </div>
+                  {qualityRepairs.length > 0 && (
+                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                      {qualityRepairs.length} repair pass{qualityRepairs.length > 1 ? 'es' : ''}
+                    </span>
+                  )}
+                </div>
+                {qualityRepairs.length > 0 && (
+                  <div className="mt-2 grid gap-1.5">
+                    {qualityRepairs.slice(-3).map((repair) => (
+                      <p key={`${repair.attempt}-${repair.reason}`} className="text-[10px] text-muted-foreground">
+                        Attempt {repair.attempt}: {repair.reason}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {selfReviewIssues.length > 0 && (
+                  <div className="mt-2 grid gap-1.5">
+                    {selfReviewIssues.slice(-3).map((entry) => (
+                      <p
+                        key={`${entry.directionId}-${entry.attempt}-${entry.status}`}
+                        className="text-[10px] text-muted-foreground"
+                      >
+                        {entry.directionTitle} self-review {entry.attempt}: {entry.status} (score {entry.score}/100, issues {entry.issues.length})
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(orchestrationRun || orchestrationTaskList.length > 0) && (
+              <div className="mt-4 rounded-xl border border-border/70 bg-card/85 p-3 shadow-sm backdrop-blur">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Swarm Orchestration Timeline</p>
+                    {orchestrationRun && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {orchestrationRun.objective}
+                      </p>
+                    )}
+                  </div>
+                  {orchestrationTaskList.length > 0 && (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                      {orchestrationTaskList.length} task{orchestrationTaskList.length > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {orchestrationRun?.steps && orchestrationRun.steps.length > 0 && (
+                  <div className="mt-2 grid gap-1">
+                    {orchestrationRun.steps.map((step) => (
+                      <p key={step} className="text-[10px] text-muted-foreground">
+                        {step}
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+                {orchestrationTaskList.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {orchestrationTaskList.slice(0, 8).map((task) => (
+                      <div
+                        key={task.taskId}
+                        className="rounded-md border border-border/60 bg-background/75 px-2 py-1.5 text-[10px]"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-foreground">
+                            {task.assignedBot}
+                            {task.expectedArtifact ? ` · ${task.expectedArtifact}` : ''}
+                          </span>
+                          <span
+                            className={cn(
+                              'rounded-full px-1.5 py-0.5 font-semibold',
+                              task.status === 'completed' && 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300',
+                              task.status === 'failed' && 'bg-destructive/12 text-destructive',
+                              task.status === 'running' && 'bg-amber-500/12 text-amber-700 dark:text-amber-300',
+                              task.status === 'pending' && 'bg-muted text-muted-foreground',
+                              task.status === 'skipped' && 'bg-muted/80 text-muted-foreground'
+                            )}
+                          >
+                            {task.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-muted-foreground">
+                          depth {task.depth}
+                          {task.attempt > 0 ? ` · retry ${task.attempt}` : ''}
+                          {typeof task.durationMs === 'number' ? ` · ${(task.durationMs / 1000).toFixed(1)}s` : ''}
+                        </p>
+                        {(task.message || task.error) && (
+                          <p className="mt-1 text-muted-foreground">
+                            {truncate(task.error ?? task.message ?? '', 120)}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {orchestrationDegradedReasons.length > 0 && (
+                  <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5">
+                    <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                      Degraded but usable output
+                    </p>
+                    {orchestrationDegradedReasons.map((reason) => (
+                      <p key={reason} className="mt-0.5 text-[10px] text-amber-700/90 dark:text-amber-300/90">
+                        {reason}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-4 rounded-2xl border border-border/70 bg-card/85 p-3 shadow-sm backdrop-blur">
+              <div className="mb-2">
+                <p className="text-xs font-semibold text-foreground">Advanced Direction Controls</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Dial quality intent before the next generation pass.
+                </p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-lg border border-border/70 bg-background/85 p-2.5">
+                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    Brand Alignment ({brandAlignment}%)
+                  </label>
+                  <input
+                    type="range"
+                    min={40}
+                    max={100}
+                    value={brandAlignment}
+                    onChange={(e) => setBrandAlignment(Number(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+                <div className="rounded-lg border border-border/70 bg-background/85 p-2.5">
+                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    Contrast Target
+                  </label>
+                  <select
+                    value={contrastTarget}
+                    onChange={(e) => setContrastTarget(e.target.value as 'aa' | 'aaa')}
+                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                  >
+                    <option value="aa">AA</option>
+                    <option value="aaa">AAA</option>
+                  </select>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-background/85 p-2.5">
+                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    Layout Density
+                  </label>
+                  <select
+                    value={layoutDensity}
+                    onChange={(e) => setLayoutDensity(e.target.value as 'compact' | 'comfortable' | 'spacious')}
+                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                  >
+                    <option value="compact">Compact</option>
+                    <option value="comfortable">Comfortable</option>
+                    <option value="spacious">Spacious</option>
+                  </select>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-background/85 p-2.5">
+                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    Motion Intensity
+                  </label>
+                  <select
+                    value={motionIntensity}
+                    onChange={(e) => setMotionIntensity(e.target.value as 'subtle' | 'moderate' | 'expressive')}
+                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                  >
+                    <option value="subtle">Subtle</option>
+                    <option value="moderate">Moderate</option>
+                    <option value="expressive">Expressive</option>
+                  </select>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-background/85 p-2.5 md:col-span-2">
+                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    Voice Tone
+                  </label>
+                  <input
+                    value={voiceTone}
+                    onChange={(e) => setVoiceTone(e.target.value)}
+                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                    placeholder="clear and confident"
+                  />
+                </div>
+              </div>
+            </div>
 
             {/* Preset chips when no package data */}
             {!packageData && !isStreaming && (
@@ -690,7 +1502,7 @@ export function DesignCalibrationWizard({
                     <button
                       key={preset.id}
                       onClick={() => handlePresetSelect(preset)}
-                      className="group flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium transition-all hover:border-primary/40 hover:shadow-sm active:scale-95"
+                      className="group flex items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 text-xs font-medium transition-all hover:border-primary/40 hover:shadow-sm active:scale-95"
                     >
                       <div className="flex gap-0.5">
                         {[
@@ -699,7 +1511,7 @@ export function DesignCalibrationWizard({
                         ].map((color, i) => (
                           <div
                             key={i}
-                            className="h-3 w-3 rounded-full"
+                            className="h-3 w-3 rounded-full ring-1 ring-black/10"
                             style={{ backgroundColor: `hsl(${color})` }}
                           />
                         ))}
@@ -715,7 +1527,7 @@ export function DesignCalibrationWizard({
 
         {/* Right: Chat */}
         <div
-          className="relative flex w-[420px] shrink-0 flex-col overflow-hidden border-l border-border bg-card/40"
+          className="relative flex w-[420px] shrink-0 flex-col overflow-hidden border-l border-border bg-[linear-gradient(180deg,hsl(var(--card)/0.94),hsl(var(--muted)/0.42))]"
           {...dragHandlers}
         >
           {/* Drag overlay */}
@@ -733,9 +1545,9 @@ export function DesignCalibrationWizard({
               <div key={msg.id} className={cn('space-y-1', msg.role === 'user' && 'flex justify-end')}>
                 <div
                   className={cn(
-                    'max-w-[95%] rounded-2xl px-3.5 py-2.5',
+                    'max-w-[95%] rounded-2xl px-3.5 py-2.5 shadow-sm',
                     msg.role === 'assistant'
-                      ? 'bg-muted/80 text-foreground rounded-tl-md'
+                      ? 'bg-background/85 text-foreground rounded-tl-md border border-border/70'
                       : 'bg-primary text-primary-foreground rounded-tr-md',
                   )}
                 >
@@ -758,7 +1570,7 @@ export function DesignCalibrationWizard({
             {/* Live streaming block */}
             {isStreaming && currentBlocksRef.current.length > 0 && (
               <div className="space-y-1">
-                <div className="max-w-[95%] rounded-2xl rounded-tl-md bg-muted/80 text-foreground px-3.5 py-2.5">
+                <div className="max-w-[95%] rounded-2xl rounded-tl-md border border-border/70 bg-background/85 text-foreground px-3.5 py-2.5 shadow-sm">
                   {renderBlocks(currentBlocksRef.current, toolCallsRef.current, true)}
                 </div>
               </div>
@@ -766,7 +1578,7 @@ export function DesignCalibrationWizard({
 
             {/* Typing indicator */}
             {isStreaming && currentBlocksRef.current.length === 0 && (
-              <div className="flex items-center gap-2 max-w-[95%] rounded-2xl rounded-tl-md bg-muted/80 px-3.5 py-3">
+              <div className="flex items-center gap-2 max-w-[95%] rounded-2xl rounded-tl-md border border-border/70 bg-background/85 px-3.5 py-3 shadow-sm">
                 <Sparkles className="h-3.5 w-3.5 text-primary animate-pulse" />
                 <div className="flex gap-1">
                   {[0, 1, 2].map((i) => (

@@ -5,7 +5,10 @@
  */
 
 import type { BaleybotStreamEvent } from '@/lib/streaming/types/events';
-import type { FlowNodeType, FlowNodeData } from '@/lib/baleybots/types';
+
+// Local execution-node aliases keep this module independent from legacy flow stack types.
+export type FlowNodeType = string;
+export type FlowNodeData = Record<string, unknown>;
 
 // ============================================================================
 // EXECUTION STATUS

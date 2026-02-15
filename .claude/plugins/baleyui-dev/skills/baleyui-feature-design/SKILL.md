@@ -53,12 +53,11 @@ If no existing bot fits, can you compose a new one? BAL compositions:
 | `parallel { a b }` | Independent analyses can run concurrently |
 | `if/else` | Binary branching on a condition |
 | `loop` | Iterative refinement until quality threshold |
-| `try/catch` | Graceful error handling with retry or fallback |
-| `route(classifier)` | Multi-way dispatch based on AI classification |
-| `gate(condition)` | Conditional execution (skip if not needed) |
-| `filter(predicate)` | Process only items matching criteria |
-| `processor(transform)` | Data extraction or transformation |
-| `map` | Apply a bot to each item in an array |
+| `loop + if/else fallback` | Self-repair with bounded retries and explicit fallback |
+| `classifier + nested if/else` | Multi-way dispatch based on AI classification output |
+| `if (condition)` | Conditional execution (skip if not needed) |
+| `map result.items { ... }` | Apply a bot/composition to each array item |
+| `select { ... }` | Data extraction or projection between steps |
 
 Compose entities into a BAL program → save as a new internal or user BaleyBot.
 
@@ -112,8 +111,8 @@ Before finalizing any feature design, verify each item:
 - [ ] **Workflows** are adaptive (BB-driven), not rigid (step-by-step wizard)
 - [ ] **UI** provides a workspace for AI to operate, not a manual control panel
 - [ ] **Manual processes** are replaced by BB intelligence where possible
-- [ ] **Error handling** uses self-healing (execution_reviewer, try/catch compositions) not just error displays
-- [ ] **Routing/classification** uses `route()` or BB classifiers, not if/else trees
+- [ ] **Error handling** uses self-healing (`loop` retries + explicit fallback branch), not static error displays
+- [ ] **Routing/classification** uses classifier BB output + explicit BAL branches, not hardcoded switch tables
 - [ ] **Data enrichment** uses BB chains, not hardcoded transformations
 - [ ] **Scheduling/triggers** use `schedule_task` tool, not custom cron implementations
 - [ ] **Cross-BB coordination** uses `spawn_baleybot` or `shared_storage`, not shared global state
@@ -129,14 +128,14 @@ Before finalizing any feature design, verify each item:
 | Multi-step onboarding wizard | `baley` converses adaptively based on user responses |
 | Preference page + cron job for notifications | BaleyBot + `schedule_task` + `pattern_learner` to learn timing |
 | Error list with manual resolution forms | `execution_reviewer` analyzes errors + Actions Hub for one-click fixes |
-| Rule-based content scanner | BAL `chain` with `route()` classification and `gate()` conditions |
+| Rule-based content scanner | BAL `chain` with classifier BB + explicit conditional branches |
 | Dashboard with static metrics | BaleyBot that queries data (`nl_to_sql_*`) and generates insights |
 | Manual template library | `bal_generator` creates BBs from natural language descriptions |
-| Hard-coded API routing table | `route(classifier)` composition that dispatches to handler BBs |
+| Hard-coded API routing table | classifier BB + nested `if/else` branch composition |
 | Static recommendation engine | `pattern_learner` that adapts recommendations from real usage |
 | Manual test creation form | `test_orchestrator` + `test_generator` create tests from BB goal |
 | Fixed deployment checklist | `deployment_advisor` evaluates readiness contextually |
-| Rigid data pipeline | BAL `chain` with `try/catch` for self-healing and `loop` for refinement |
+| Rigid data pipeline | BAL `chain` with bounded `loop` repair and fallback branch |
 
 ---
 
@@ -179,10 +178,14 @@ When proposing a feature design, structure it as:
 ```bal
 chain {
   execution_reviewer => analysis
-  route(analysis.errorType) {
-    "bal_syntax": bal_generator with { fix: $analysis.suggestion },
-    "missing_tool": connection_advisor with { needed: $analysis.missingTool },
-    "model_error": error_resolver with { context: $analysis }
+  if ("$analysis.errorType == 'bal_syntax'") {
+    bal_generator with { fix: $analysis.suggestion }
+  } else {
+    if ("$analysis.errorType == 'missing_tool'") {
+      connection_advisor with { needed: $analysis.missingTool }
+    } else {
+      error_resolver with { context: $analysis }
+    }
   }
 }
 ```

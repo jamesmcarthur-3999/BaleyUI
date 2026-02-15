@@ -17,6 +17,20 @@ export interface DesignPackageData {
   borderRadius: string; // e.g. "0.75rem"
   mood: DesignMood;
   animationStyle: AnimationStyle;
+  /** Brand-level design intent and quality constraints (V2) */
+  foundation?: DesignFoundation;
+  /** Motion behavior defaults and accessibility posture (V2) */
+  motionSystem?: MotionSystem;
+  /** Density/grid/navigation defaults for generated surfaces (V2) */
+  layoutSystem?: LayoutSystem;
+  /** Explicit blueprints for multiple generated surfaces (V2) */
+  surfaceBlueprints?: SurfaceBlueprintSet;
+  /** Generated artifact metadata for export bundles (V2) */
+  artifactManifest?: ArtifactManifest;
+  /** Canonical source synthesis used to generate this package (V2.5) */
+  brandDossier?: BrandDossier;
+  /** Generation scoring and repair trace for quality gating (V2.5) */
+  generationReport?: GenerationReport;
   /** AI-generated component library (populated after save) */
   componentRegistry?: ComponentRegistry;
   /** Deterministic Tailwind theme tokens (populated after save) */
@@ -48,6 +62,249 @@ export interface ColorPalette {
   warning: string;
   error: string;
   info: string;
+}
+
+export interface DesignFoundation {
+  brandPersonality: string;
+  voiceTone: string;
+  designPrinciples: string[];
+  accessibilityTarget: 'aa' | 'aaa';
+  brandAlignment: number;
+}
+
+export interface MotionSystem {
+  intensity: 'subtle' | 'moderate' | 'expressive';
+  transitionStyle: string;
+  durationScale: {
+    fastMs: number;
+    normalMs: number;
+    slowMs: number;
+  };
+  easingPreset: string;
+  reducedMotionStrategy: string;
+}
+
+export interface LayoutSystem {
+  density: 'compact' | 'comfortable' | 'spacious';
+  spacingBasePx: number;
+  contentWidth: {
+    landing: 'narrow' | 'standard' | 'wide';
+    customerApp: 'standard' | 'wide';
+    internalApp: 'wide' | 'full';
+  };
+  navigationPattern: {
+    landing: 'top' | 'split' | 'minimal';
+    customerApp: 'top' | 'side' | 'hybrid';
+    internalApp: 'side' | 'dense-side' | 'hybrid';
+  };
+  grid: {
+    columns: number;
+    gutterPx: number;
+  };
+}
+
+export interface SurfaceBlueprintSection {
+  id: string;
+  title: string;
+  description: string;
+  priority: number;
+  components: string[];
+  interactionNotes: string[];
+}
+
+export interface SurfaceBlueprint {
+  purpose: string;
+  layoutSummary: string;
+  sectionOrder: SurfaceBlueprintSection[];
+  animationGuidelines: string[];
+  samplePrompt: string;
+}
+
+export interface SurfaceBlueprintSet {
+  landing: SurfaceBlueprint;
+  customerApp: SurfaceBlueprint;
+  internalApp: SurfaceBlueprint;
+}
+
+export interface ArtifactManifestEntry {
+  path: string;
+  kind: 'json' | 'css' | 'tsx' | 'md';
+  description: string;
+}
+
+export interface ArtifactManifest {
+  version: 2;
+  generatedAt: string;
+  codeTarget: 'react-tailwind';
+  artifacts: ArtifactManifestEntry[];
+}
+
+export interface PaletteArtifact {
+  directionId?: string;
+  colors: {
+    light: ColorPalette;
+    dark: ColorPalette;
+  };
+  rationale?: string;
+  confidence?: number;
+}
+
+export interface TypographyArtifact {
+  directionId?: string;
+  typography: DesignPackageData['typography'];
+  borderRadius: string;
+  mood: DesignMood;
+  animationStyle: AnimationStyle;
+  rationale?: string;
+  confidence?: number;
+}
+
+export interface FoundationArtifact {
+  directionId?: string;
+  foundation: DesignFoundation;
+  rationale?: string;
+  confidence?: number;
+}
+
+export interface MotionArtifact {
+  directionId?: string;
+  motionSystem: MotionSystem;
+  rationale?: string;
+  confidence?: number;
+}
+
+export interface LayoutArtifact {
+  directionId?: string;
+  layoutSystem: LayoutSystem;
+  rationale?: string;
+  confidence?: number;
+}
+
+export interface SurfaceBlueprintArtifact {
+  directionId?: string;
+  surface: 'landing' | 'customerApp' | 'internalApp';
+  blueprint: SurfaceBlueprint;
+  rationale?: string;
+  confidence?: number;
+}
+
+export interface QualityArtifact {
+  directionId?: string;
+  overallScore: number;
+  failedChecks: string[];
+  notes: string[];
+}
+
+export interface BrandSourceRecord {
+  id: string;
+  kind: 'url' | 'image' | 'pdf' | 'text';
+  label: string;
+  confidence: number;
+  notes: string[];
+}
+
+export interface BrandConflictRecord {
+  topic: string;
+  detail: string;
+  resolution: string;
+  confidence: number;
+}
+
+export interface BrandDossier {
+  version: 1;
+  createdAt: string;
+  sources: BrandSourceRecord[];
+  extractedTokens: string[];
+  typographySignals: string[];
+  motionSignals: string[];
+  layoutSignals: string[];
+  voiceSignals: string[];
+  conflicts: BrandConflictRecord[];
+  confidence: {
+    overall: number;
+    color: number;
+    typography: number;
+    motion: number;
+    layout: number;
+    voice: number;
+  };
+  recommendedDefaults: {
+    mood: DesignMood;
+    animationStyle: AnimationStyle;
+    accessibilityTarget: 'aa' | 'aaa';
+    density: 'compact' | 'comfortable' | 'spacious';
+    voiceTone: string;
+  };
+}
+
+export interface QualityCheckResult {
+  id: string;
+  label: string;
+  passed: boolean;
+  score: number;
+  detail: string;
+}
+
+export interface ConceptScore {
+  id: string;
+  title: string;
+  score: number;
+  rationale: string;
+}
+
+export interface VerificationIssue {
+  id: string;
+  severity: 'error' | 'warning';
+  path: string;
+  message: string;
+  source: 'schema' | 'invariant' | 'quality' | 'ai_review';
+  attempt: number;
+  recoverable: boolean;
+}
+
+export interface RepairTraceEntry {
+  attempt: number;
+  source: 'generator' | 'refiner' | 'fallback';
+  status: 'applied' | 'skipped' | 'failed';
+  issueCount: number;
+  message: string;
+}
+
+export interface OrchestrationTaskSummary {
+  taskId: string;
+  assignedBot: string;
+  expectedArtifact?: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  attempt: number;
+  depth: number;
+  durationMs?: number;
+  error?: string;
+}
+
+export interface ReplanTraceEntry {
+  step: string;
+  reason: string;
+  action: string;
+  timestamp: number;
+}
+
+export interface GenerationReport {
+  version: 1;
+  generatedAt: string;
+  selectedConceptId: string;
+  overallScore: number;
+  repairAttempts: number;
+  repairApplied: boolean;
+  failedChecks: string[];
+  qualityChecks: QualityCheckResult[];
+  conceptScores: ConceptScore[];
+  verificationStatus: 'passed' | 'repaired' | 'degraded';
+  verificationIssues: VerificationIssue[];
+  repairTrace: RepairTraceEntry[];
+  orchestrationRunId?: string;
+  taskSummary: OrchestrationTaskSummary[];
+  degradedReasons: string[];
+  replanTrace: ReplanTraceEntry[];
 }
 
 // ============================================================================

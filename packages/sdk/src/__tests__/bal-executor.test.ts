@@ -1,18 +1,22 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { compileBALCode, executeBALCode, streamBALExecution } from '../bal-executor';
 
-// Mock @baleybots/tools
 vi.mock('@baleybots/tools', () => ({
   compileBAL: vi.fn(),
-  executeBAL: vi.fn(),
   webSearchTool: vi.fn(() => ({})),
   sequentialThinkTool: {},
 }));
 
-import { compileBAL, executeBAL } from '@baleybots/tools';
+import { compileBAL } from '@baleybots/tools';
 
 const mockedCompileBAL = vi.mocked(compileBAL);
-const mockedExecuteBAL = vi.mocked(executeBAL);
+
+const BAL_CODE = `
+  test_bot {
+    "goal": "Run test"
+  }
+  run("input")
+`;
 
 describe('compileBALCode', () => {
   beforeEach(() => {
@@ -22,16 +26,16 @@ describe('compileBALCode', () => {
   it('returns entities and structure on success', () => {
     mockedCompileBAL.mockReturnValue({
       executable: null,
-      entityNames: ['Researcher', 'Writer'],
+      entityNames: ['test_bot'],
       pipelineStructure: { type: 'sequential', steps: [] },
-      runInput: 'test input',
+      runInput: 'input',
     });
 
-    const result = compileBALCode('@entity Researcher');
+    const result = compileBALCode(BAL_CODE);
 
-    expect(result.entities).toEqual(['Researcher', 'Writer']);
+    expect(result.entities).toEqual(['test_bot']);
     expect(result.structure).toEqual({ type: 'sequential', steps: [] });
-    expect(result.runInput).toBe('test input');
+    expect(result.runInput).toBe('input');
     expect(result.errors).toBeUndefined();
   });
 
@@ -55,38 +59,17 @@ describe('compileBALCode', () => {
       runInput: null,
     });
 
-    compileBALCode('@entity Test', {
+    compileBALCode(BAL_CODE, {
       enableWebSearch: true,
       tavilyApiKey: 'test-key',
     });
 
     expect(mockedCompileBAL).toHaveBeenCalledWith(
-      '@entity Test',
+      BAL_CODE,
       expect.objectContaining({
         availableTools: expect.objectContaining({
           web_search: expect.any(Object),
         }),
-      })
-    );
-  });
-
-  it('does not include web search without API key', () => {
-    mockedCompileBAL.mockReturnValue({
-      executable: null,
-      entityNames: [],
-      pipelineStructure: null,
-      runInput: null,
-    });
-
-    compileBALCode('@entity Test', {
-      enableWebSearch: true,
-      // No tavilyApiKey
-    });
-
-    expect(mockedCompileBAL).toHaveBeenCalledWith(
-      '@entity Test',
-      expect.objectContaining({
-        availableTools: undefined,
       })
     );
   });
@@ -98,22 +81,20 @@ describe('executeBALCode', () => {
   });
 
   it('returns success result on successful execution', async () => {
+    const process = vi.fn().mockResolvedValue('test output');
     mockedCompileBAL.mockReturnValue({
-      executable: null,
-      entityNames: ['Test'],
-      pipelineStructure: { type: 'bot', name: 'Test' },
+      executable: { process },
+      entityNames: ['test_bot'],
+      pipelineStructure: { type: 'bot', name: 'test_bot' },
       runInput: 'input',
     });
-    mockedExecuteBAL.mockResolvedValue({
-      status: 'executed',
-      result: 'test output',
-    });
 
-    const result = await executeBALCode('@entity Test @run Test("input")');
+    const result = await executeBALCode(BAL_CODE);
 
     expect(result.status).toBe('success');
     expect(result.result).toBe('test output');
-    expect(result.entities).toEqual(['Test']);
+    expect(result.entities).toEqual(['test_bot']);
+    expect(process).toHaveBeenCalled();
   });
 
   it('returns error on compilation failure', async () => {
@@ -127,60 +108,39 @@ describe('executeBALCode', () => {
     expect(result.error).toBe('Compile error');
   });
 
-  it('executes single-entity BAL (auto-execution)', async () => {
-    // compileBAL returns null structure (single entity, no composition)
-    mockedCompileBAL.mockReturnValue({
-      executable: null,
-      entityNames: ['Test'],
-      pipelineStructure: null,
-      runInput: null,
-    });
-    // executeBAL handles single-entity execution internally
-    mockedExecuteBAL.mockResolvedValue({
-      status: 'executed',
-      result: { output: 'test result' },
-    });
-
-    const result = await executeBALCode('@entity Test');
-
-    expect(result.status).toBe('success');
-    expect(result.result).toEqual({ output: 'test result' });
-    expect(mockedExecuteBAL).toHaveBeenCalled();
-  });
-
   it('handles timeout', async () => {
+    const process = vi.fn().mockImplementation(
+      (_input, ctx?: { signal?: AbortSignal }) => new Promise((_resolve, reject) => {
+        if (ctx?.signal?.aborted) {
+          reject(new Error('aborted'));
+          return;
+        }
+        ctx?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      })
+    );
     mockedCompileBAL.mockReturnValue({
-      executable: null,
-      entityNames: ['Test'],
-      pipelineStructure: { type: 'bot', name: 'Test' },
+      executable: { process },
+      entityNames: ['test_bot'],
+      pipelineStructure: { type: 'bot', name: 'test_bot' },
       runInput: 'input',
     });
-    // executeBAL takes too long
-    mockedExecuteBAL.mockImplementation(
-      () => new Promise((resolve) => setTimeout(resolve, 5000))
-    );
 
-    const result = await executeBALCode('@entity Test @run Test("input")', {
-      timeout: 100,
-    });
+    const result = await executeBALCode(BAL_CODE, { timeout: 100 });
 
     expect(result.status).toBe('timeout');
   }, 10000);
 
   it('calls onEvent callback with events', async () => {
+    const process = vi.fn().mockResolvedValue('output');
     mockedCompileBAL.mockReturnValue({
-      executable: null,
-      entityNames: ['Test'],
-      pipelineStructure: { type: 'bot', name: 'Test' },
+      executable: { process },
+      entityNames: ['test_bot'],
+      pipelineStructure: { type: 'bot', name: 'test_bot' },
       runInput: 'input',
-    });
-    mockedExecuteBAL.mockResolvedValue({
-      status: 'executed',
-      result: 'output',
     });
 
     const events: unknown[] = [];
-    await executeBALCode('@entity Test @run Test("input")', {
+    await executeBALCode(BAL_CODE, {
       onEvent: (event) => events.push(event),
     });
 
@@ -197,19 +157,16 @@ describe('streamBALExecution', () => {
   });
 
   it('yields events in order', async () => {
+    const process = vi.fn().mockResolvedValue('output');
     mockedCompileBAL.mockReturnValue({
-      executable: null,
-      entityNames: ['Test'],
-      pipelineStructure: { type: 'bot', name: 'Test' },
+      executable: { process },
+      entityNames: ['test_bot'],
+      pipelineStructure: { type: 'bot', name: 'test_bot' },
       runInput: 'input',
-    });
-    mockedExecuteBAL.mockResolvedValue({
-      status: 'executed',
-      result: 'output',
     });
 
     const events: unknown[] = [];
-    const generator = streamBALExecution('@entity Test @run Test("input")');
+    const generator = streamBALExecution(BAL_CODE);
 
     for await (const event of generator) {
       events.push(event);
@@ -220,30 +177,5 @@ describe('streamBALExecution', () => {
     expect(types).toContain('compiled');
     expect(types).toContain('started');
     expect(types).toContain('completed');
-  });
-
-  it('completes generator successfully', async () => {
-    mockedCompileBAL.mockReturnValue({
-      executable: null,
-      entityNames: ['Test'],
-      pipelineStructure: { type: 'bot', name: 'Test' },
-      runInput: 'input',
-    });
-    mockedExecuteBAL.mockResolvedValue({
-      status: 'executed',
-      result: 'output',
-    });
-
-    const generator = streamBALExecution('@entity Test @run Test("input")');
-
-    // Consume all events
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    for await (const _ of generator) {
-      // consume
-    }
-
-    // Get return value
-    const final = await generator.next();
-    expect(final.done).toBe(true);
   });
 });

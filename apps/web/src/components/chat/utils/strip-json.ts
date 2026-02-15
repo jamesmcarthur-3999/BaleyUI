@@ -1,12 +1,12 @@
 /**
  * Strip large JSON blocks from text content.
  * Safety net for cases where the LLM echoes tool results as text.
- * Only strips balanced JSON objects >200 chars containing 2+ quoted keys.
+ * Strips:
+ * - Balanced JSON objects >200 chars with 2+ quoted keys
+ * - JSON blocks containing known internal bot payload keys (regardless of size)
  * Preserves JSON inside markdown code fences (e.g. ```json ... ```).
  */
 export function stripLargeJsonBlocks(text: string): string {
-  if (text.length < 200) return text;
-
   // Build a set of character positions that fall inside markdown code fences.
   // We skip any JSON block whose opening brace is inside a fenced region.
   const codeFenceRanges: Array<[number, number]> = [];
@@ -18,6 +18,29 @@ export function stripLargeJsonBlocks(text: string): string {
 
   const isInCodeFence = (pos: number) =>
     codeFenceRanges.some(([s, e]) => pos >= s && pos < e);
+
+  const internalPayloadKeys = [
+    'balCode',
+    'entities',
+    'explanation',
+    'toolRationale',
+    'suggestedName',
+    'suggestedIcon',
+    'topology',
+    'strategy',
+    'overallAssessment',
+    'issues',
+    'suggestions',
+    'analysis',
+    'recommendations',
+    'warnings',
+    'remediationSteps',
+    'verificationPlan',
+    'monitoringAdvice',
+    'readinessGaps',
+    'productionChecklist',
+    'triggerRecommendations',
+  ];
 
   // Find outermost balanced { ... } blocks
   let result = text;
@@ -50,14 +73,14 @@ export function stripLargeJsonBlocks(text: string): string {
     if (end === -1) break; // Unclosed brace, stop
 
     const block = result.slice(start, end);
-    if (block.length < 200) {
-      searchFrom = end;
-      continue;
-    }
+    const hasInternalPayloadKey = internalPayloadKeys.some((key) => block.includes(`"${key}"`));
 
     // Check if it looks like structured output (2+ quoted keys)
     const keyMatches = block.match(/"[a-zA-Z_]+"\s*:/g);
-    if (!keyMatches || keyMatches.length < 2) {
+    const hasMultipleKeys = keyMatches !== null && keyMatches.length >= 2;
+    const shouldStrip = (block.length >= 200 && hasMultipleKeys) || hasInternalPayloadKey;
+
+    if (!shouldStrip) {
       searchFrom = end;
       continue;
     }
@@ -80,5 +103,5 @@ export function stripLargeJsonBlocks(text: string): string {
     }
   }
 
-  return result || text; // Never return empty
+  return result;
 }

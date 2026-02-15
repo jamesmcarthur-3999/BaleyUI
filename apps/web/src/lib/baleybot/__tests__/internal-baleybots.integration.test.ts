@@ -109,6 +109,10 @@ describe('internal-baleybots integration', () => {
       'test_results_analyzer',
       'integration_builder',
       'tool_executor',
+      'design_analyzer',
+      'design_dossier_synthesizer',
+      'design_generator',
+      'design_refiner',
     ];
 
     it('defines at least all expected internal bots', () => {

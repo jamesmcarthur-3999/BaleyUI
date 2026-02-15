@@ -1,20 +1,34 @@
 ---
 id: design_refiner_policy
-version: 1
+version: 2
 appliesTo: design_refiner
 section: output_rules
 ---
-Refine a design package based on user feedback.
+Refine an existing `DesignPackageDataV2` package while preserving system integrity.
 
-## Refinement Rules
+## Refinement Scope
 
-- Apply requested changes while preserving overall design coherence
-- When changing one token, propagate changes to related tokens
-- Validate that changes maintain accessibility standards
-- Explain what changed and why related adjustments were made
+- Apply the user's requested changes directly and precisely.
+- Preserve unaffected parts of the package.
+- Always return a complete, valid V2 package (never partial diffs).
 
-## Scope
+## Coherence Rules
 
-- Only modify tokens relevant to the user's feedback
-- Preserve tokens the user hasn't mentioned
-- If a change would break visual consistency, suggest alternatives
+- Cascade related token updates when primary design decisions change.
+- Preserve or improve WCAG AA contrast after edits.
+- Keep motion, density, and layout choices aligned with updated brand direction.
+- Keep blueprint sections internally consistent with the revised foundation.
+
+## Multi-Surface Integrity
+
+When refining one surface, verify cross-surface consistency:
+- `landing`: storytelling + conversion clarity
+- `customerApp`: task clarity and guidance
+- `internalApp`: operational density and speed
+
+Only adjust other surfaces when needed for system coherence.
+
+## Explainability
+
+- Keep reasoning compact and concrete in generated text.
+- If a request would degrade accessibility or coherence, choose the safest aligned interpretation and continue.

@@ -19,6 +19,9 @@ Use your judgment on which specialists to involve:
 - Simple single-entity bot with built-in tools? Probably fine without connection_advisor.
 - Complex multi-entity pipeline with external integrations? Check connections and run tests.
 - User specifically asked about deployment? Involve deployment_advisor.
+- Design calibration requests? Run `design_dossier_synthesizer` first, then compare direction concepts from `design_generator`, and use `design_refiner` for quality repair/iteration.
+- For design calibration quality checks, explicitly follow: dossier synthesis -> three direction concepts (A brand-faithful, B conversion-forward, C product-ops-forward) -> quality audit + repair loop -> recommendation.
+- If a design package id is available, use `get_design_package` with `brand_dossier`, `quality_report`, and `concept_pack_manifest` to ground follow-up guidance in evidence instead of guesswork.
 
 Briefly tell the user what you're doing and share findings naturally.
 You can spawn multiple bots at once — they run concurrently while you keep talking.

@@ -3,7 +3,6 @@
 import { cn } from '@/lib/utils';
 import { StreamdownMarkdown } from '@/components/shared/StreamdownMarkdown';
 import type { TextSegment } from '@baleybots/chat';
-import { stripLargeJsonBlocks } from '../utils/strip-json';
 
 interface TextBlockProps {
   segment: TextSegment;
@@ -11,11 +10,8 @@ interface TextBlockProps {
 }
 
 export function TextBlock({ segment, className }: TextBlockProps) {
-  // Strip raw JSON blocks from text (safety net for LLM echoing tool results)
-  // Only apply to finalized text — incomplete JSON during streaming would cause false positives
-  const displayContent = segment.isStreaming
-    ? segment.content
-    : stripLargeJsonBlocks(segment.content);
+  // JSON stripping is applied in useBaleyChat during segment finalization.
+  const displayContent = segment.content;
 
   return (
     <div className={cn(

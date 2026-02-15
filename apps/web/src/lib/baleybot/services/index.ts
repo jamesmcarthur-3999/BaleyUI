@@ -82,6 +82,19 @@ export {
   type SharedStorageResult,
 } from './shared-storage-service';
 
+// Orchestration runtime
+export {
+  startOrchestrationRun,
+  completeOrchestrationRun,
+  startOrchestrationTask,
+  completeOrchestrationTask,
+  failOrchestrationTask,
+  getOrchestrationRun,
+  listOrchestrationTasks,
+  type OrchestrationRunStatus,
+  type OrchestrationTaskStatus,
+} from './orchestration-runtime-service';
+
 // Analytics - Metrics
 export {
   createMetricsService,

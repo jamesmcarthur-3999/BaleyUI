@@ -51,7 +51,7 @@ export interface BALExecutionOptions {
   /** Enable sequential thinking tool */
   enableSequentialThinking?: boolean;
 
-  /** Maximum execution time in milliseconds (default: 60000) */
+  /** Maximum execution time in milliseconds. Omit or set <= 0 for no timeout. */
   timeout?: number;
 
   /** Callback for streaming events */
@@ -196,7 +196,8 @@ export async function executeBALCode(
   options: BALExecutionOptions = {}
 ): Promise<BALExecutionResult> {
   const startTime = Date.now();
-  const { onEvent, signal, timeout = 60000 } = options;
+  const { onEvent, signal } = options;
+  const timeoutMs = typeof options.timeout === 'number' ? options.timeout : 0;
 
   // Set up unified abort handling
   const abortController = new AbortController();
@@ -204,14 +205,14 @@ export async function executeBALCode(
 
   // Handle timeout
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  if (timeout > 0) {
+  if (timeoutMs > 0) {
     timeoutId = setTimeout(() => {
       if (!abortReason) {
         abortReason = 'timeout';
         abortController.abort();
-        onEvent?.({ type: 'error', error: `Execution timed out after ${timeout}ms` });
+        onEvent?.({ type: 'error', error: `Execution timed out after ${timeoutMs}ms` });
       }
-    }, timeout);
+    }, timeoutMs);
   }
 
   // Handle user cancellation
@@ -279,7 +280,7 @@ export async function executeBALCode(
       cleanup();
       return {
         status: abortReason === 'timeout' ? 'timeout' : 'cancelled',
-        error: abortReason === 'timeout' ? `Execution timed out after ${timeout}ms` : undefined,
+        error: abortReason === 'timeout' ? `Execution timed out after ${timeoutMs}ms` : undefined,
         entities: entityNames,
         structure: pipelineStructure,
         duration: Date.now() - startTime,
@@ -339,7 +340,7 @@ export async function executeBALCode(
       if (abortReason === 'timeout') {
         return {
           status: 'timeout',
-          error: `Execution timed out after ${timeout}ms`,
+          error: `Execution timed out after ${timeoutMs}ms`,
           errorContext: { phase: 'execution' },
           duration: Date.now() - startTime,
         };
@@ -375,16 +376,17 @@ export async function* streamBALExecution(
   options: BALExecutionOptions = {}
 ): AsyncGenerator<BALExecutionEvent, BALExecutionResult, undefined> {
   const startTime = Date.now();
-  const { signal, timeout = 60000 } = options;
+  const { signal } = options;
+  const timeoutMs = typeof options.timeout === 'number' ? options.timeout : 0;
 
   // Set up timeout
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
 
-  if (timeout > 0) {
+  if (timeoutMs > 0) {
     timeoutId = setTimeout(() => {
       timedOut = true;
-    }, timeout);
+    }, timeoutMs);
   }
 
   try {

@@ -8,8 +8,9 @@ Platform knowledge for BaleyBot design and advisory decisions.
 
 ## Built-in Tools
 Always available. No connection required.
-- General: web_search, fetch_url, send_notification, store_memory, spawn_baleybot, request_user_input
+- General: web_search, fetch_url, send_notification, store_memory, spawn_baleybot, request_user_input, get_design_package, register_component, shared_storage
 - Require approval: schedule_task, create_agent, create_tool
+- get_design_package: retrieve design artifacts (full package, blueprints, dossier, quality report, concept manifest)
 - shared_storage: cross-BB async data passing with TTL — use for pipelines where entities share intermediate results
 
 ## Connection Types

@@ -231,7 +231,7 @@ export async function POST(
                 const result = await executeBaleybot(balCode, inputStr, execCtx, {
                   onSegment: (segment: BaleybotStreamEvent) => {
                     const seg = segment as Record<string, unknown>;
-                    if (seg.type === 'text' && typeof seg.content === 'string') {
+                    if (seg.type === 'text_delta' && typeof seg.content === 'string') {
                       sendEvent({
                         type: 'test_output_delta',
                         testId: tc.id,

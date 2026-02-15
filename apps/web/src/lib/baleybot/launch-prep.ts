@@ -34,13 +34,24 @@ interface StoredTestCaseLike {
 
 function inferTopology(balCode: string): TopologyType {
   const parsed = parseBalCode(balCode);
-  const code = balCode.toLowerCase();
   const entityCount = parsed.entities.length;
 
   if (entityCount <= 1) return 'single';
-  if (code.includes('parallel')) return 'parallel';
-  if (code.includes('if ') || code.includes('loop ') || code.includes('route(') || code.includes('try ')) {
-    return 'complex';
+  if (parsed.expression?.type === 'parallel') return 'parallel';
+  if (parsed.expression?.type === 'chain' && parsed.chain && parsed.chain.length > 1) {
+    return 'chain';
+  }
+  if (parsed.expression) {
+    switch (parsed.expression.type) {
+      case 'if':
+      case 'loop':
+      case 'map':
+      case 'select':
+      case 'merge':
+        return 'complex';
+      default:
+        break;
+    }
   }
   if (parsed.chain && parsed.chain.length > 1) return 'chain';
   return 'complex';
@@ -203,4 +214,3 @@ export function buildLaunchKit(args: {
     ],
   };
 }
-

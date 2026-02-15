@@ -1,33 +1,25 @@
 'use client';
 
-import { useId, useState, useEffect } from 'react';
-import type { DesignPackageData } from '@/lib/design-packages/types';
+import { useEffect, useId, useState } from 'react';
+import type { DesignPackageData, SurfaceBlueprintSection } from '@/lib/design-packages/types';
 import { packageToCSSString } from '@/lib/design-packages/css-variables';
 import { useGoogleFonts } from '@/lib/design-packages/font-loader';
 import { cn } from '@/lib/utils';
 import {
-  Home,
-  Users,
-  BarChart3,
-  Settings,
   Bell,
-  Search,
-  TrendingUp,
-  TrendingDown,
-  Plus,
-  ChevronRight,
-  Layers,
-  Zap,
-  Shield,
+  Blocks,
+  ChartColumnIncreasing,
   CheckCircle2,
-  AlertTriangle,
-  Folder,
+  Clock4,
+  Layers,
+  LayoutDashboard,
   Moon,
-  Palette,
+  Shield,
+  Sparkles,
   Sun,
+  Users,
+  WandSparkles,
 } from 'lucide-react';
-
-/* ─── Types ─────────────────────────────────────────────── */
 
 type ScaffoldState = 'placeholder' | 'loading' | 'active';
 
@@ -36,86 +28,75 @@ interface AppScaffoldPreviewProps {
   brandName?: string;
   className?: string;
   state?: ScaffoldState;
-  /** Ref callback to access the inner container for direct CSS variable manipulation during streaming */
+  surface?: 'landing' | 'customerApp' | 'internalApp';
   containerRef?: (el: HTMLDivElement | null) => void;
 }
 
-/* ─── Static Data ───────────────────────────────────────── */
-
-const SIDEBAR_ITEMS = [
-  { icon: Home, label: 'Dashboard', active: true },
-  { icon: Users, label: 'Customers', badge: '12' },
-  { icon: BarChart3, label: 'Analytics' },
-  { icon: Folder, label: 'Projects' },
-  { icon: Layers, label: 'Integrations' },
-  { icon: Settings, label: 'Settings' },
-];
-
-const STATS = [
-  { label: 'Revenue', value: '$12,450', icon: TrendingUp, trend: 12.5 },
-  { label: 'Active Users', value: '1,234', icon: Users, trend: 8.2 },
-  { label: 'Conversion', value: '3.2%', icon: Zap, trend: -2.1 },
-  { label: 'Open Tasks', value: '45', icon: CheckCircle2, trend: 5.0 },
-];
-
-const TABLE_DATA = [
-  { name: 'Brand Redesign', status: 'Active', date: 'Feb 13', initials: 'AK', progress: 75 },
-  { name: 'API Integration', status: 'Complete', date: 'Feb 12', initials: 'JM', progress: 100 },
-  { name: 'User Research', status: 'In Review', date: 'Feb 11', initials: 'SR', progress: 90 },
-  { name: 'Mobile App v2', status: 'Active', date: 'Feb 10', initials: 'LD', progress: 45 },
-  { name: 'Security Audit', status: 'Pending', date: 'Feb 9', initials: 'TC', progress: 10 },
-];
-
-const STATUS_CSS_VAR: Record<string, string> = {
-  Active: '--primary',
-  Complete: '--color-success',
-  'In Review': '--color-warning',
-  Pending: '--muted-foreground',
-};
-
-const CHART_POINTS = [28, 42, 35, 55, 38, 62, 48, 70, 52, 74, 58, 80];
-
-/* ─── SVG Helpers ───────────────────────────────────────── */
-
-function smoothPath(points: number[], w: number, h: number): string {
-  const max = Math.max(...points);
-  const pts = points.map((p, i) => ({
-    x: (i / (points.length - 1)) * w,
-    y: h - (p / max) * h * 0.75 - h * 0.12,
-  }));
-
-  let d = `M ${pts[0]!.x} ${pts[0]!.y}`;
-  for (let i = 1; i < pts.length; i++) {
-    const p0 = pts[i - 2] ?? pts[i - 1]!;
-    const p1 = pts[i - 1]!;
-    const p2 = pts[i]!;
-    const p3 = pts[i + 1] ?? p2;
-    const t = 0.35;
-    const cp1x = p1.x + (p2.x - p0.x) * t;
-    const cp1y = p1.y + (p2.y - p0.y) * t;
-    const cp2x = p2.x - (p3.x - p1.x) * t;
-    const cp2y = p2.y - (p3.y - p1.y) * t;
-    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
-  }
-  return d;
+function sectionGlyph(sectionId: string) {
+  const id = sectionId.toLowerCase();
+  if (id.includes('hero') || id.includes('feature')) return Sparkles;
+  if (id.includes('nav') || id.includes('sidebar')) return LayoutDashboard;
+  if (id.includes('table') || id.includes('queue')) return ChartColumnIncreasing;
+  if (id.includes('proof') || id.includes('customer')) return Users;
+  if (id.includes('detail') || id.includes('panel')) return Layers;
+  return Blocks;
 }
 
-/* ─── Component ─────────────────────────────────────────── */
+function densityClass(density: 'compact' | 'comfortable' | 'spacious'): string {
+  if (density === 'compact') return 'p-2.5';
+  if (density === 'spacious') return 'p-5';
+  return 'p-4';
+}
+
+function motionClass(intensity: 'subtle' | 'moderate' | 'expressive'): string {
+  if (intensity === 'subtle') return 'transition-all duration-300';
+  if (intensity === 'expressive') return 'transition-all duration-700';
+  return 'transition-all duration-500';
+}
+
+function truncate(text: string, max = 120): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1).trimEnd()}...`;
+}
+
+function surfaceName(surface: 'landing' | 'customerApp' | 'internalApp'): string {
+  if (surface === 'landing') return 'Landing Surface';
+  if (surface === 'customerApp') return 'Customer App Surface';
+  return 'Internal App Surface';
+}
+
+function readinessScore(section: SurfaceBlueprintSection): number {
+  return Math.max(72, Math.min(98, 80 + section.priority * 4));
+}
+
+function metricValue(
+  surface: 'landing' | 'customerApp' | 'internalApp',
+  section: SurfaceBlueprintSection,
+): string {
+  if (surface === 'landing') return `+${10 + section.priority}%`;
+  if (surface === 'customerApp') return `${84 + section.priority}%`;
+  return `${31 + section.priority}m`;
+}
+
+function metricLabel(surface: 'landing' | 'customerApp' | 'internalApp'): string {
+  if (surface === 'landing') return 'Lift potential';
+  if (surface === 'customerApp') return 'Flow completion';
+  return 'Ops cycle time';
+}
 
 export function AppScaffoldPreview({
   data,
   brandName = 'Your App',
   className,
   state: stateProp,
+  surface = 'customerApp',
   containerRef,
 }: AppScaffoldPreviewProps) {
   const uid = useId().replace(/:/g, '');
   const cid = `scaffold-${uid}`;
   const [isDark, setIsDark] = useState(false);
 
-  // Derive state from props if not explicitly set
   const state: ScaffoldState = stateProp ?? (data ? 'active' : 'placeholder');
-
   useGoogleFonts(data?.typography.googleFontsUrl);
 
   const css = data ? packageToCSSString(data, cid, isDark ? 'dark' : 'light') : '';
@@ -123,92 +104,155 @@ export function AppScaffoldPreview({
     ? `#${cid} { font-family: ${data.typography.fontFamily}; }`
     : '';
 
-  // Loading overlay exit animation
   const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
   useEffect(() => {
     if (state === 'loading') {
       setShowLoadingOverlay(true);
     } else if (showLoadingOverlay) {
-      const timer = setTimeout(() => setShowLoadingOverlay(false), 300);
+      const timer = setTimeout(() => setShowLoadingOverlay(false), 250);
       return () => clearTimeout(timer);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
+  }, [showLoadingOverlay, state]);
 
-  // Clean placeholder — no greyed-out scaffold, just a minimal empty state
   if (state === 'placeholder') {
     return (
-      <div className={cn('relative rounded-2xl shadow-2xl ring-1 ring-black/[0.08] overflow-hidden', className)}>
-        <div className="flex items-center justify-center bg-muted/30 py-32">
-          <div className="text-center space-y-3 px-8">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20">
-              <Palette className="h-7 w-7 text-primary" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">Your design will appear here</p>
-              <p className="text-xs text-muted-foreground">Paste a URL, describe your brand, or pick a preset</p>
-            </div>
+      <div className={cn('relative overflow-hidden rounded-2xl shadow-[0_24px_70px_-30px_rgba(0,0,0,0.5)] ring-1 ring-black/[0.08]', className)}>
+        <div className="relative isolate overflow-hidden bg-[radial-gradient(circle_at_12%_16%,hsl(var(--primary)/0.28),transparent_42%),radial-gradient(circle_at_88%_82%,hsl(var(--accent)/0.22),transparent_44%),linear-gradient(130deg,hsl(var(--muted)/0.68),hsl(var(--background)))] px-8 py-28 text-center">
+          <div className="pointer-events-none absolute -left-24 top-16 h-44 w-44 rounded-full bg-primary/25 blur-3xl" />
+          <div className="pointer-events-none absolute -right-20 bottom-10 h-36 w-36 rounded-full bg-accent/30 blur-3xl" />
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15 ring-1 ring-primary/30 backdrop-blur">
+            <WandSparkles className="h-6 w-6 text-primary" />
           </div>
+          <p className="text-sm font-semibold text-foreground">Brand transformation preview appears here</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Run calibration to generate high-fidelity landing, customer app, and internal app surfaces.
+          </p>
         </div>
       </div>
     );
   }
 
-  const slug = brandName.toLowerCase().replace(/\s+/g, '');
-  const CW = 560;
-  const CH = 140;
-  const line = smoothPath(CHART_POINTS, CW, CH);
-  const area = `${line} L ${CW} ${CH} L 0 ${CH} Z`;
-  const lastY =
-    CH -
-    (CHART_POINTS[CHART_POINTS.length - 1]! / Math.max(...CHART_POINTS)) * CH * 0.75 -
-    CH * 0.12;
+  if (!data) {
+    return null;
+  }
+
+  const blueprint = data.surfaceBlueprints?.[surface] ?? {
+    purpose: 'Blueprint data unavailable for this surface.',
+    layoutSummary: 'Run calibration to generate structured blueprint sections.',
+    sectionOrder: [
+      {
+        id: 'core-surface',
+        title: 'Core Surface',
+        description: 'Primary workspace section',
+        priority: 1,
+        components: ['Card'],
+        interactionNotes: ['Keep hierarchy clear and concise'],
+      },
+      {
+        id: 'supporting-surface',
+        title: 'Supporting Surface',
+        description: 'Secondary context section',
+        priority: 2,
+        components: ['List'],
+        interactionNotes: ['Use semantic spacing and contrast'],
+      },
+      {
+        id: 'actions-surface',
+        title: 'Actions Surface',
+        description: 'Actions and controls section',
+        priority: 3,
+        components: ['ButtonGroup'],
+        interactionNotes: ['Prioritize clear call-to-action affordances'],
+      },
+    ],
+    animationGuidelines: ['Prefer subtle transitions'],
+    samplePrompt: 'Generate a coherent product surface from available design tokens.',
+  };
+
+  const density = data.layoutSystem?.density ?? 'comfortable';
+  const motion = data.motionSystem?.intensity ?? 'moderate';
+  const transitionClass = motionClass(motion);
+  const blockClass = densityClass(density);
+  const navItems = blueprint.sectionOrder.slice(0, 4).map((section) => section.title);
 
   const transitionStyles = `
     #${cid},
-    #${cid} > div,
-    #${cid} header,
-    #${cid} aside,
-    #${cid} main,
-    #${cid} main > div {
-      transition: background-color 300ms ease, color 300ms ease, border-color 300ms ease;
+    #${cid} * {
+      transition: background-color 260ms ease, border-color 260ms ease, color 260ms ease, transform 280ms ease, box-shadow 280ms ease;
     }
-    @keyframes scaffold-shimmer {
-      0% { opacity: 0.4; }
-      50% { opacity: 0.8; }
-      100% { opacity: 0.4; }
+    #${cid} .surface-block:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 20px 38px -32px hsl(var(--foreground) / 0.9);
+    }
+    #${cid} .ambient-orb {
+      animation: scaffold-orbit 16s ease-in-out infinite alternate;
+    }
+    #${cid} .ambient-sheen {
+      animation: scaffold-pan 12s linear infinite;
+    }
+    #${cid} .soft-float {
+      animation: scaffold-float 5.2s ease-in-out infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #${cid},
+      #${cid} * {
+        transition: none !important;
+        animation: none !important;
+      }
+      #${cid} .surface-block:hover {
+        transform: none !important;
+        box-shadow: none !important;
+      }
+    }
+    @keyframes scaffold-pulse {
+      0% { opacity: 0.35; }
+      50% { opacity: 0.68; }
+      100% { opacity: 0.35; }
+    }
+    @keyframes scaffold-float {
+      0% { transform: translateY(0px); }
+      50% { transform: translateY(-4px); }
+      100% { transform: translateY(0px); }
+    }
+    @keyframes scaffold-pan {
+      0% { transform: translateX(-18%); opacity: 0.18; }
+      50% { opacity: 0.28; }
+      100% { transform: translateX(18%); opacity: 0.12; }
+    }
+    @keyframes scaffold-orbit {
+      0% { transform: translate(0px, 0px) scale(1); }
+      100% { transform: translate(8px, -10px) scale(1.04); }
     }
   `;
 
   return (
-    <div className={cn('relative rounded-2xl shadow-2xl ring-1 ring-black/[0.08] overflow-hidden', className)}>
+    <div className={cn('relative overflow-hidden rounded-2xl shadow-[0_30px_80px_-36px_rgba(0,0,0,0.55)] ring-1 ring-black/[0.08]', className)}>
       <style dangerouslySetInnerHTML={{ __html: css + '\n' + fontCss + '\n' + transitionStyles }} />
 
-      {/* Loading overlay with exit animation */}
       {(state === 'loading' || showLoadingOverlay) && (
         <div
           className={cn(
-            'absolute inset-0 z-10 rounded-2xl bg-primary/5 backdrop-blur-[1px] transition-opacity duration-300',
-            state !== 'loading' && 'opacity-0',
+            'absolute inset-0 z-20 rounded-2xl bg-primary/5 backdrop-blur-[1px] transition-opacity duration-300',
+            state !== 'loading' && 'opacity-0'
           )}
-          style={{ animation: state === 'loading' ? 'scaffold-shimmer 2s ease-in-out infinite' : 'none' }}
+          style={{ animation: state === 'loading' ? 'scaffold-pulse 2s ease-in-out infinite' : 'none' }}
         />
       )}
 
       <div
         id={cid}
         ref={containerRef}
-        className={cn(
-          'transition-colors duration-500',
-          isDark ? 'dark' : '',
-        )}
+        className={cn('relative isolate overflow-hidden', isDark && 'dark')}
         style={{ backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
       >
-        {/* ── Browser Chrome ─────────────────────────── */}
+        <div className="ambient-orb pointer-events-none absolute -left-20 top-20 h-44 w-44 rounded-full bg-primary/20 blur-3xl" />
+        <div className="ambient-orb pointer-events-none absolute -right-20 bottom-14 h-44 w-44 rounded-full bg-accent/22 blur-3xl" />
+        <div className="ambient-sheen pointer-events-none absolute inset-y-0 left-1/2 h-full w-56 -translate-x-1/2 bg-gradient-to-r from-transparent via-primary/10 to-transparent" />
+
         <div
-          className="flex items-center gap-3 px-4 py-2"
+          className="relative z-10 flex items-center gap-3 px-4 py-2.5"
           style={{
-            backgroundColor: 'hsl(var(--muted))',
+            backgroundColor: 'hsl(var(--muted) / 0.86)',
             borderBottom: '1px solid hsl(var(--border))',
           }}
         >
@@ -217,21 +261,22 @@ export function AppScaffoldPreview({
             <div className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
             <div className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
           </div>
-          <div className="flex-1 mx-6">
-            <div
-              className="flex items-center gap-2 rounded-lg px-3 py-1 text-[11px]"
-              style={{
-                backgroundColor: 'hsl(var(--background) / 0.7)',
-                color: 'hsl(var(--muted-foreground))',
-              }}
-            >
-              <Shield className="h-3 w-3 shrink-0" style={{ color: 'hsl(var(--color-success))' }} />
-              <span className="truncate">https://app.{slug}.com/dashboard</span>
-            </div>
+          <div
+            className="mx-3 flex h-6 flex-1 items-center rounded-lg px-3 text-[11px]"
+            style={{
+              backgroundColor: 'hsl(var(--background) / 0.84)',
+              color: 'hsl(var(--muted-foreground))',
+              border: '1px solid hsl(var(--border) / 0.7)',
+            }}
+          >
+            <Shield className="mr-1.5 h-3 w-3" style={{ color: 'hsl(var(--color-success))' }} />
+            {surface === 'landing'
+              ? 'https://brand.site'
+              : `https://app.${brandName.toLowerCase().replace(/\s+/g, '')}.com`}
           </div>
           <button
-            onClick={() => setIsDark((d) => !d)}
-            className="rounded-md p-1 transition-colors hover:opacity-80"
+            onClick={() => setIsDark((prev) => !prev)}
+            className="rounded-md p-1"
             style={{ color: 'hsl(var(--muted-foreground))' }}
             aria-label="Toggle dark mode"
           >
@@ -239,447 +284,347 @@ export function AppScaffoldPreview({
           </button>
         </div>
 
-        {/* ── App Header ─────────────────────────────── */}
         <header
-          className="flex items-center justify-between px-5 py-2"
+          className="relative z-10 flex items-center justify-between px-5 py-3"
           style={{ borderBottom: '1px solid hsl(var(--border))' }}
         >
-          <div className="flex items-center gap-5">
-            <div className="flex items-center gap-2">
-              <div
-                className="flex h-7 w-7 items-center justify-center"
-                style={{
-                  backgroundColor: 'hsl(var(--primary))',
-                  color: 'hsl(var(--primary-foreground))',
-                  borderRadius: `calc(var(--radius) * 0.6)`,
-                }}
-              >
-                <Zap className="h-3.5 w-3.5" />
-              </div>
-              <span className="text-sm font-semibold tracking-tight">{brandName}</span>
-            </div>
-            <nav className="flex items-center gap-0.5">
-              {['Dashboard', 'Customers', 'Analytics'].map((item, i) => (
-                <span
-                  key={item}
-                  className="cursor-default px-2.5 py-1 text-[11px] font-medium"
-                  style={{
-                    borderRadius: 'var(--radius)',
-                    ...(i === 0
-                      ? {
-                          backgroundColor: 'hsl(var(--primary) / 0.08)',
-                          color: 'hsl(var(--primary))',
-                        }
-                      : { color: 'hsl(var(--muted-foreground))' }),
-                  }}
-                >
-                  {item}
-                </span>
-              ))}
-            </nav>
-          </div>
-          <div className="flex items-center gap-2.5">
-            <div className="relative">
-              <Search
-                className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2"
-                style={{ color: 'hsl(var(--muted-foreground))' }}
-              />
-              <input
-                className="h-7 w-36 pl-7 pr-2 text-[11px] outline-none"
-                placeholder="Search..."
-                style={{
-                  borderRadius: 'var(--radius)',
-                  backgroundColor: 'hsl(var(--muted) / 0.6)',
-                  color: 'hsl(var(--foreground))',
-                }}
-                readOnly
-              />
-            </div>
-            <div className="relative cursor-default" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              <Bell className="h-4 w-4" />
-              <span
-                className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full text-[7px] font-bold"
-                style={{
-                  backgroundColor: 'hsl(var(--primary))',
-                  color: 'hsl(var(--primary-foreground))',
-                }}
-              >
-                3
-              </span>
-            </div>
+          <div className="flex items-center gap-3">
             <div
-              className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold"
+              className="soft-float flex h-8 w-8 items-center justify-center"
               style={{
-                backgroundColor: 'hsl(var(--primary) / 0.12)',
-                color: 'hsl(var(--primary))',
+                backgroundColor: 'hsl(var(--primary))',
+                color: 'hsl(var(--primary-foreground))',
+                borderRadius: 'calc(var(--radius) * 0.7)',
               }}
             >
-              A
+              <Sparkles className="h-4 w-4" />
             </div>
+            <div>
+              <p className="text-sm font-semibold tracking-tight">{brandName}</p>
+              <p className="text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                {surfaceName(surface)}
+              </p>
+            </div>
+          </div>
+          <div className="hidden items-center gap-1 md:flex">
+            {navItems.map((item, index) => (
+              <span
+                key={item}
+                className="rounded-md px-2 py-1 text-[10px] font-medium"
+                style={
+                  index === 0
+                    ? {
+                        backgroundColor: 'hsl(var(--primary) / 0.14)',
+                        color: 'hsl(var(--primary))',
+                      }
+                    : { color: 'hsl(var(--muted-foreground))' }
+                }
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+          <div className="relative">
+            <Bell className="h-4 w-4" style={{ color: 'hsl(var(--muted-foreground))' }} />
+            <span
+              className="absolute -right-1 -top-1 h-2 w-2 rounded-full"
+              style={{ backgroundColor: 'hsl(var(--primary))' }}
+            />
           </div>
         </header>
 
-        {/* ── Body: Sidebar + Main ───────────────────── */}
-        <div className="flex">
-          {/* Sidebar */}
-          <aside
-            className="w-44 shrink-0 space-y-0.5 p-2.5"
-            style={{ borderRight: '1px solid hsl(var(--border))' }}
-          >
-            {SIDEBAR_ITEMS.map((item) => (
-              <div
-                key={item.label}
-                className="flex items-center gap-2 px-2.5 py-[7px] text-[11px] font-medium cursor-default"
-                style={{
-                  borderRadius: 'var(--radius)',
-                  ...(item.active
-                    ? {
-                        backgroundColor: 'hsl(var(--primary) / 0.08)',
-                        color: 'hsl(var(--primary))',
-                      }
-                    : { color: 'hsl(var(--muted-foreground))' }),
-                }}
-              >
-                <item.icon className="h-3.5 w-3.5" />
-                <span className="flex-1">{item.label}</span>
-                {item.badge && (
-                  <span
-                    className="rounded-full px-1.5 py-px text-[9px] font-semibold"
-                    style={{
-                      backgroundColor: 'hsl(var(--primary) / 0.1)',
-                      color: 'hsl(var(--primary))',
-                    }}
-                  >
-                    {item.badge}
-                  </span>
-                )}
-              </div>
-            ))}
-          </aside>
-
-          {/* Main Content */}
-          <main className="flex-1 space-y-5 p-5">
-            {/* ─ Welcome ─ */}
-            <div className="flex items-end justify-between">
-              <div>
-                <h1 className="text-base font-semibold tracking-tight">Good afternoon, Alex</h1>
-                <p className="mt-0.5 text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  Here&apos;s your overview for today
-                </p>
-              </div>
-              <button
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium"
-                style={{
-                  borderRadius: 'var(--radius)',
-                  backgroundColor: 'hsl(var(--primary))',
-                  color: 'hsl(var(--primary-foreground))',
-                }}
-              >
-                <Plus className="h-3 w-3" />
-                New Project
-              </button>
-            </div>
-
-            {/* ─ Stat Cards ─ */}
-            <div className="grid grid-cols-4 gap-3">
-              {STATS.map((s) => {
-                const positive = s.trend > 0;
-                return (
-                  <div
-                    key={s.label}
-                    className="space-y-2 p-3.5"
-                    style={{
-                      borderRadius: 'var(--radius)',
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                    }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span
-                        className="text-[10px] font-medium uppercase tracking-wider"
-                        style={{ color: 'hsl(var(--muted-foreground))' }}
-                      >
-                        {s.label}
-                      </span>
-                      <s.icon className="h-3.5 w-3.5" style={{ color: 'hsl(var(--muted-foreground))' }} />
-                    </div>
-                    <div className="text-xl font-bold tabular-nums">{s.value}</div>
-                    <div className="flex items-center gap-1 text-[10px]">
-                      {positive ? (
-                        <TrendingUp
-                          className="h-3 w-3"
-                          style={{ color: 'hsl(var(--color-success))' }}
-                        />
-                      ) : (
-                        <TrendingDown
-                          className="h-3 w-3"
-                          style={{ color: 'hsl(var(--color-error))' }}
-                        />
-                      )}
-                      <span
+        {surface === 'landing' ? (
+          <main className="relative z-10 space-y-4 p-4 md:p-5">
+            <section
+              className={cn('relative overflow-hidden rounded-2xl border px-5 py-6 md:px-7 md:py-8', transitionClass)}
+              style={{
+                borderColor: 'hsl(var(--border))',
+                background:
+                  'linear-gradient(130deg, hsl(var(--card)), hsl(var(--muted)/0.52)), radial-gradient(circle at 12% 14%, hsl(var(--primary) / 0.26), transparent 38%), radial-gradient(circle at 88% 74%, hsl(var(--accent) / 0.2), transparent 42%)',
+              }}
+            >
+              <div className="grid gap-6 md:grid-cols-[1.2fr_0.8fr]">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: 'hsl(var(--primary))' }}>
+                    {truncate(data.foundation?.brandPersonality ?? 'Brand-aligned transformation', 58)}
+                  </p>
+                  <h1 className="mt-2 max-w-2xl text-2xl font-semibold leading-tight md:text-3xl">
+                    {truncate(blueprint.purpose, 110)}
+                  </h1>
+                  <p className="mt-3 max-w-xl text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    {truncate(blueprint.layoutSummary, 160)}
+                  </p>
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <button
+                      className="rounded-lg px-3.5 py-2 text-xs font-semibold"
+                      style={{
+                        backgroundColor: 'hsl(var(--primary))',
+                        color: 'hsl(var(--primary-foreground))',
+                      }}
+                    >
+                      Launch Branded Experience
+                    </button>
+                    <button
+                      className="rounded-lg border px-3.5 py-2 text-xs font-medium"
+                      style={{
+                        borderColor: 'hsl(var(--border))',
+                        color: 'hsl(var(--foreground))',
+                        backgroundColor: 'hsl(var(--background) / 0.64)',
+                      }}
+                    >
+                      Open Storyboard
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2.5">
+                  {blueprint.sectionOrder.slice(0, 3).map((section) => {
+                    const Glyph = sectionGlyph(section.id);
+                    return (
+                      <div
+                        key={`landing-highlight-${section.id}`}
+                        className={cn('surface-block rounded-xl border p-3 backdrop-blur-[1px]', transitionClass)}
                         style={{
-                          color: positive
-                            ? 'hsl(var(--color-success))'
-                            : 'hsl(var(--color-error))',
+                          borderColor: 'hsl(var(--border))',
+                          backgroundColor: 'hsl(var(--background) / 0.74)',
                         }}
                       >
-                        {positive ? '+' : ''}
-                        {s.trend}%
+                        <div className="mb-2 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="flex h-6 w-6 items-center justify-center rounded-md"
+                              style={{
+                                backgroundColor: 'hsl(var(--primary) / 0.14)',
+                                color: 'hsl(var(--primary))',
+                              }}
+                            >
+                              <Glyph className="h-3.5 w-3.5" />
+                            </div>
+                            <p className="text-[11px] font-semibold">{section.title}</p>
+                          </div>
+                          <span className="text-[10px] font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            {readinessScore(section)}
+                          </span>
+                        </div>
+                        <p className="text-[10px] leading-relaxed" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          {truncate(section.description, 70)}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+
+            <section className="grid gap-3 md:grid-cols-3">
+              {blueprint.sectionOrder.map((section) => {
+                const Glyph = sectionGlyph(section.id);
+                return (
+                  <article
+                    key={section.id}
+                    className={cn('surface-block rounded-xl border bg-card/92', blockClass, transitionClass)}
+                    style={{ borderColor: 'hsl(var(--border))' }}
+                  >
+                    <div className="mb-2.5 flex items-center justify-between">
+                      <div
+                        className="flex h-7 w-7 items-center justify-center rounded-md"
+                        style={{
+                          backgroundColor: 'hsl(var(--primary) / 0.12)',
+                          color: 'hsl(var(--primary))',
+                        }}
+                      >
+                        <Glyph className="h-3.5 w-3.5" />
+                      </div>
+                      <span className="text-[10px] font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        Priority {section.priority}
                       </span>
-                      <span style={{ color: 'hsl(var(--muted-foreground))' }}>vs last month</span>
                     </div>
+                    <p className="text-sm font-semibold leading-tight">{section.title}</p>
+                    <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      {truncate(section.description, 92)}
+                    </p>
+                    <div className="mt-3 flex items-center gap-1 text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      <CheckCircle2 className="h-3 w-3" style={{ color: 'hsl(var(--color-success))' }} />
+                      <span>{truncate(section.interactionNotes[0] ?? 'Guided interaction pattern', 54)}</span>
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+          </main>
+        ) : (
+          <div className="relative z-10 flex">
+            <aside
+              className="hidden w-52 shrink-0 space-y-1.5 border-r bg-gradient-to-b from-muted/30 to-transparent p-3 md:block"
+              style={{ borderColor: 'hsl(var(--border))' }}
+            >
+              {blueprint.sectionOrder.map((section, index) => {
+                const Glyph = sectionGlyph(section.id);
+                return (
+                  <div
+                    key={section.id}
+                    className={cn('surface-block flex items-center gap-2 rounded-lg px-2.5 py-2 text-[11px] font-medium', transitionClass)}
+                    style={
+                      index === 0
+                        ? {
+                            backgroundColor: 'hsl(var(--primary) / 0.12)',
+                            color: 'hsl(var(--primary))',
+                          }
+                        : {
+                            color: 'hsl(var(--muted-foreground))',
+                            border: '1px solid hsl(var(--border) / 0.45)',
+                            backgroundColor: 'hsl(var(--background) / 0.55)',
+                          }
+                    }
+                  >
+                    <Glyph className="h-3.5 w-3.5" />
+                    <span className="truncate">{section.title}</span>
                   </div>
                 );
               })}
-            </div>
+            </aside>
 
-            {/* ─ Chart ─ */}
-            <div
-              className="p-4"
-              style={{
-                borderRadius: 'var(--radius)',
-                backgroundColor: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-              }}
-            >
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <h3 className="text-xs font-semibold">Revenue Overview</h3>
-                  <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                    Last 12 weeks
-                  </span>
-                </div>
-                <span
-                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                  style={{
-                    backgroundColor: 'hsl(var(--color-success) / 0.1)',
-                    color: 'hsl(var(--color-success))',
-                  }}
-                >
-                  <TrendingUp className="h-2.5 w-2.5" />
-                  +18.2%
-                </span>
-              </div>
-              <svg
-                viewBox={`0 0 ${CW} ${CH}`}
-                className="w-full"
-                style={{ height: 120 }}
-                preserveAspectRatio="none"
+            <main className="flex-1 space-y-3 p-3 md:p-4">
+              <section
+                className={cn('rounded-xl border bg-card/90', densityClass(density), transitionClass)}
+                style={{ borderColor: 'hsl(var(--border))' }}
               >
-                <defs>
-                  <linearGradient id={`g-${uid}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.25" />
-                    <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                {[0.25, 0.5, 0.75].map((r) => (
-                  <line
-                    key={r}
-                    x1="0"
-                    y1={CH * r}
-                    x2={CW}
-                    y2={CH * r}
-                    stroke="hsl(var(--border))"
-                    strokeWidth="0.8"
-                    strokeDasharray="4 4"
-                    opacity="0.5"
-                  />
-                ))}
-                <path d={area} fill={`url(#g-${uid})`} />
-                <path
-                  d={line}
-                  fill="none"
-                  stroke="hsl(var(--primary))"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <circle cx={CW} cy={lastY} r="3.5" fill="hsl(var(--primary))" />
-                <circle cx={CW} cy={lastY} r="6" fill="hsl(var(--primary))" opacity="0.2" />
-              </svg>
-            </div>
-
-            {/* ─ Table ─ */}
-            <div
-              className="overflow-hidden"
-              style={{
-                borderRadius: 'var(--radius)',
-                backgroundColor: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-              }}
-            >
-              <div className="flex items-center justify-between px-4 py-3">
-                <h3 className="text-xs font-semibold">Recent Activity</h3>
-                <button
-                  className="flex items-center gap-0.5 text-[10px] font-medium"
-                  style={{ color: 'hsl(var(--primary))' }}
-                >
-                  View all
-                  <ChevronRight className="h-3 w-3" />
-                </button>
-              </div>
-              <table className="w-full text-[11px]">
-                <thead>
-                  <tr
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold">{blueprint.purpose}</p>
+                    <p className="mt-1 text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      {truncate(blueprint.layoutSummary, 160)}
+                    </p>
+                  </div>
+                  <div
+                    className="rounded-lg border px-2.5 py-1.5 text-[10px] font-medium"
                     style={{
-                      backgroundColor: 'hsl(var(--muted) / 0.4)',
-                      borderTop: '1px solid hsl(var(--border))',
+                      borderColor: 'hsl(var(--border))',
+                      color: 'hsl(var(--muted-foreground))',
+                      backgroundColor: 'hsl(var(--background) / 0.66)',
                     }}
                   >
-                    {['Project', 'Status', 'Date', 'Assignee', 'Progress'].map((h, i) => (
-                      <th
-                        key={h}
-                        className={cn(
-                          'px-4 py-2 font-medium',
-                          i === 4 ? 'text-right' : 'text-left'
-                        )}
-                        style={{ color: 'hsl(var(--muted-foreground))' }}
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {TABLE_DATA.map((row, i) => {
-                    const cssVar = STATUS_CSS_VAR[row.status] ?? '--muted-foreground';
+                    {data.foundation?.accessibilityTarget?.toUpperCase() ?? 'AA'} guardrail
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  {blueprint.sectionOrder.slice(0, 2).map((section) => (
+                    <div
+                      key={`kpi-${section.id}`}
+                      className={cn('surface-block rounded-lg border bg-background/86 p-3', transitionClass)}
+                      style={{ borderColor: 'hsl(var(--border))' }}
+                    >
+                      <p className="text-[10px] uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        {section.title}
+                      </p>
+                      <p className="mt-1 text-lg font-semibold">{metricValue(surface, section)}</p>
+                      <p className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        {metricLabel(surface)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              {surface === 'customerApp' ? (
+                <section className="grid gap-2 md:grid-cols-2">
+                  {blueprint.sectionOrder.map((section) => {
+                    const Glyph = sectionGlyph(section.id);
                     return (
-                      <tr key={i} style={{ borderTop: '1px solid hsl(var(--border))' }}>
-                        <td className="px-4 py-2.5 font-medium">{row.name}</td>
-                        <td className="px-4 py-2.5">
-                          <span
-                            className="inline-flex items-center rounded-full px-2 py-px text-[9px] font-semibold"
-                            style={{
-                              backgroundColor: `hsl(var(${cssVar}) / 0.1)`,
-                              color: `hsl(var(${cssVar}))`,
-                            }}
-                          >
-                            {row.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                          {row.date}
-                        </td>
-                        <td className="px-4 py-2.5">
+                      <article
+                        key={`customer-surface-${section.id}`}
+                        className={cn('surface-block rounded-xl border bg-card/94', blockClass, transitionClass)}
+                        style={{ borderColor: 'hsl(var(--border))' }}
+                      >
+                        <div className="mb-2 flex items-center gap-2">
                           <div
-                            className="flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-semibold"
+                            className="flex h-7 w-7 items-center justify-center rounded-md"
                             style={{
-                              backgroundColor: 'hsl(var(--primary) / 0.1)',
+                              backgroundColor: 'hsl(var(--primary) / 0.12)',
                               color: 'hsl(var(--primary))',
                             }}
                           >
-                            {row.initials}
+                            <Glyph className="h-3.5 w-3.5" />
                           </div>
-                        </td>
-                        <td className="px-4 py-2.5 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <div
-                              className="h-1.5 w-14 overflow-hidden rounded-full"
-                              style={{ backgroundColor: 'hsl(var(--muted))' }}
-                            >
-                              <div
-                                className="h-full rounded-full"
-                                style={{
-                                  width: `${row.progress}%`,
-                                  backgroundColor: `hsl(var(${cssVar}))`,
-                                }}
-                              />
+                          <p className="text-xs font-semibold">{section.title}</p>
+                        </div>
+                        <p className="text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          {truncate(section.description, 90)}
+                        </p>
+                        <div className="mt-3 space-y-1.5">
+                          {section.interactionNotes.slice(0, 2).map((note) => (
+                            <div key={note} className="flex items-start gap-1.5 text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              <CheckCircle2 className="mt-[1px] h-3 w-3 shrink-0" style={{ color: 'hsl(var(--color-success))' }} />
+                              <span>{truncate(note, 72)}</span>
                             </div>
-                            <span
-                              className="w-7 text-right tabular-nums"
-                              style={{ color: 'hsl(var(--muted-foreground))' }}
-                            >
-                              {row.progress}%
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
+                          ))}
+                        </div>
+                      </article>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
+                </section>
+              ) : (
+                <section className="grid gap-2 md:grid-cols-[1.2fr_0.8fr]">
+                  <article
+                    className={cn('surface-block rounded-xl border bg-card/94', blockClass, transitionClass)}
+                    style={{ borderColor: 'hsl(var(--border))' }}
+                  >
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-xs font-semibold">Operations Queue</p>
+                      <span className="rounded-md px-2 py-0.5 text-[10px] font-medium" style={{ backgroundColor: 'hsl(var(--warning) / 0.15)', color: 'hsl(var(--warning))' }}>
+                        12 active
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {blueprint.sectionOrder.slice(0, 3).map((section) => (
+                        <div
+                          key={`internal-row-${section.id}`}
+                          className="flex items-center justify-between rounded-lg border px-2.5 py-2"
+                          style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background) / 0.78)' }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Clock4 className="h-3.5 w-3.5" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                            <span className="text-[11px] font-medium">{truncate(section.title, 28)}</span>
+                          </div>
+                          <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            {metricValue('internalApp', section)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
 
-            {/* ─ Quick Action Form ─ */}
-            <div
-              className="p-4"
-              style={{
-                borderRadius: 'var(--radius)',
-                backgroundColor: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-              }}
-            >
-              <h3 className="mb-3 text-xs font-semibold">Quick Action</h3>
-              <div className="flex gap-2.5">
-                <input
-                  className="h-8 flex-1 px-3 text-[11px] outline-none"
-                  placeholder="Project name"
-                  readOnly
-                  style={{
-                    borderRadius: 'var(--radius)',
-                    backgroundColor: 'hsl(var(--background))',
-                    border: '1px solid hsl(var(--input))',
-                    color: 'hsl(var(--foreground))',
-                  }}
-                />
-                <select
-                  className="h-8 appearance-none px-3 text-[11px] outline-none"
-                  style={{
-                    borderRadius: 'var(--radius)',
-                    backgroundColor: 'hsl(var(--background))',
-                    border: '1px solid hsl(var(--input))',
-                    color: 'hsl(var(--muted-foreground))',
-                  }}
-                >
-                  <option>Category</option>
-                </select>
-                <button
-                  className="flex h-8 items-center gap-1.5 px-3.5 text-[11px] font-medium"
-                  style={{
-                    borderRadius: 'var(--radius)',
-                    backgroundColor: 'hsl(var(--primary))',
-                    color: 'hsl(var(--primary-foreground))',
-                  }}
-                >
-                  <Plus className="h-3 w-3" />
-                  Create
-                </button>
-              </div>
-            </div>
+                  <article
+                    className={cn('surface-block rounded-xl border bg-card/94 p-3', transitionClass)}
+                    style={{ borderColor: 'hsl(var(--border))' }}
+                  >
+                    <p className="mb-2 text-xs font-semibold">Control Tower</p>
+                    <div className="space-y-2">
+                      {blueprint.sectionOrder.slice(0, 3).map((section) => (
+                        <div key={`tower-${section.id}`} className="rounded-lg border p-2" style={{ borderColor: 'hsl(var(--border))' }}>
+                          <p className="text-[10px] font-semibold">{truncate(section.title, 34)}</p>
+                          <p className="mt-1 text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            Ready score {readinessScore(section)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                </section>
+              )}
 
-            {/* ─ Notification Alerts ─ */}
-            <div className="space-y-2">
-              <div
-                className="flex items-center gap-2.5 px-4 py-2.5 text-[11px]"
-                style={{
-                  borderRadius: 'var(--radius)',
-                  backgroundColor: 'hsl(var(--color-success) / 0.06)',
-                  border: '1px solid hsl(var(--color-success) / 0.15)',
-                }}
+              <section
+                className={cn('rounded-xl border bg-card/90 p-3', transitionClass)}
+                style={{ borderColor: 'hsl(var(--border))' }}
               >
-                <CheckCircle2
-                  className="h-3.5 w-3.5 shrink-0"
-                  style={{ color: 'hsl(var(--color-success))' }}
-                />
-                <span>Deployment completed successfully — all systems operational</span>
-              </div>
-              <div
-                className="flex items-center gap-2.5 px-4 py-2.5 text-[11px]"
-                style={{
-                  borderRadius: 'var(--radius)',
-                  backgroundColor: 'hsl(var(--color-warning) / 0.06)',
-                  border: '1px solid hsl(var(--color-warning) / 0.15)',
-                }}
-              >
-                <AlertTriangle
-                  className="h-3.5 w-3.5 shrink-0"
-                  style={{ color: 'hsl(var(--color-warning))' }}
-                />
-                <span>API rate limit approaching (85%) — consider upgrading your plan</span>
-              </div>
-            </div>
-          </main>
-        </div>
+                <p className="text-[11px] font-semibold">Motion + Layout Guidance</p>
+                <p className="mt-1 text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Intensity: {data.motionSystem?.intensity ?? 'moderate'} | Density: {data.layoutSystem?.density ?? 'comfortable'} | Grid: {data.layoutSystem?.grid.columns ?? 12} columns
+                </p>
+              </section>
+            </main>
+          </div>
+        )}
       </div>
     </div>
   );

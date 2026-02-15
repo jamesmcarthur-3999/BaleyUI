@@ -26,11 +26,11 @@ import { executeBALCode, compileBALCode } from '@baleyui/sdk';
 
 // Compile BAL code (validation only, no execution)
 const compiled = compileBALCode(`
-  @entity Researcher
-  instructions: "Research the given topic"
-  tools: [web_search]
-
-  @run Researcher("What is TypeScript?")
+  researcher {
+    "goal": "Research the given topic",
+    "tools": { "web_search" }
+  }
+  run("What is TypeScript?")
 `);
 
 if (compiled.errors) {
@@ -42,11 +42,11 @@ if (compiled.errors) {
 
 // Execute BAL code
 const result = await executeBALCode(`
-  @entity Researcher
-  instructions: "Research the given topic"
-  tools: [web_search]
-
-  @run Researcher("What is TypeScript?")
+  researcher {
+    "goal": "Research the given topic",
+    "tools": { "web_search" }
+  }
+  run("What is TypeScript?")
 `, {
   model: 'gpt-4o-mini',
   apiKey: process.env.OPENAI_API_KEY,

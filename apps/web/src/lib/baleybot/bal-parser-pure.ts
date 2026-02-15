@@ -20,7 +20,11 @@
 // webpack alias to resolve these to the actual dist files.
 import { tokenize } from '@baleybots/tools/dsl/lexer';
 import { parse } from '@baleybots/tools/dsl/parser';
-import { type ParsedExpression } from './graph/build-graph';
+import {
+  buildGraphFromParsed,
+  graphToVisualGraph,
+  type ParsedExpression,
+} from './graph/build-graph';
 
 // ============================================================================
 // TYPES (inlined to avoid importing from ./types which pulls @baleybots/core)
@@ -99,10 +103,6 @@ export interface VisualEdge {
     | 'spawn'
     | 'shared_data'
     | 'trigger'
-    | 'try_catch'
-    | 'route'
-    | 'gate'
-    | 'filter'
     | 'runtime';
   label?: string;
   animated?: boolean;
@@ -152,70 +152,13 @@ function outputSchemaToRecord(output: { fields: Array<{ name: string; fieldType:
 }
 
 /**
- * Normalize legacy JSON-array tools syntax into BAL tools-set syntax.
+ * BAL v2 compliance normalization.
  *
- * Example:
- *   "tools": ["web_search", "fetch_url"]
- * becomes
- *   "tools": { "web_search", "fetch_url" }
- */
-function normalizeToolsSyntax(balCode: string): string {
-  return balCode.replace(
-    /("tools"\s*:\s*)\[(.*?)\]/gs,
-    (_match, prefix: string, contents: string) => `${prefix}{ ${contents.trim()} }`
-  );
-}
-
-function cleanupDanglingCommas(balCode: string): string {
-  return balCode
-    .replace(/,\s*([}\]])/g, '$1')
-    .replace(/(\{\s*),/g, '$1')
-    .replace(/,\s*,/g, ',');
-}
-
-/**
- * Strip entity properties that are not yet supported by the current SDK parser.
- * These are preserved by loose parsing below, but removed for strict AST parsing.
- */
-function stripUnsupportedEntityProperties(balCode: string): string {
-  let normalized = balCode;
-
-  const unsupportedKeys = [
-    'temperature',
-    'reasoning',
-    'stopWhen',
-    'retries',
-    'can_request',
-    'trigger',
-  ];
-
-  for (const key of unsupportedKeys) {
-    // Supports scalar values plus multiline object/array values.
-    // Example matches:
-    //   "reasoning": "high",
-    //   "reasoning": { "effort": "high" },
-    //   "can_request": [ "send_notification" ],
-    //   "trigger": { ... }
-    const linePattern = new RegExp(
-      `^[ \\t]*"${key}"\\s*:\\s*(?:\\{[\\s\\S]*?\\}|\\[[\\s\\S]*?\\]|"(?:\\\\.|[^"\\\\])*"|[^,\\n\\r}]+)\\s*,?\\s*(?:\\n|$)`,
-      'gm'
-    );
-    normalized = normalized.replace(linePattern, '');
-  }
-
-  return normalized;
-}
-
-/**
- * Normalize generated BAL into compatibility mode for the current SDK parser/runtime.
- * - Converts legacy tools array syntax to BAL set syntax
- * - Removes unsupported entity properties emitted by some generator prompts
- * - Cleans up dangling commas created during property stripping
+ * This intentionally performs no legacy rewrites (e.g. tools array brackets,
+ * BAL v1 directives). Callers should provide BAL v2 syntax directly.
  */
 export function normalizeBalCodeForCompatibility(balCode: string): string {
-  const toolsNormalized = normalizeToolsSyntax(balCode);
-  const unsupportedStripped = stripUnsupportedEntityProperties(toolsNormalized);
-  return cleanupDanglingCommas(unsupportedStripped);
+  return balCode;
 }
 
 function decodeEscapedString(value: string): string {
@@ -450,14 +393,6 @@ function extractEntitiesLoosely(balCode: string): ParsedEntity[] {
     'merge',
     'map',
     'with',
-    'try',
-    'catch',
-    'finally',
-    'route',
-    'gate',
-    'filter',
-    'processor',
-    'when',
   ]);
 
   let i = 0;
@@ -725,11 +660,41 @@ function extractPipelineFromAst(
   }
 }
 
+function detectLegacyBalSyntax(balCode: string): string[] {
+  const checks: Array<{ label: string; pattern: RegExp }> = [
+    { label: 'route()', pattern: /\broute\s*\(/i },
+    { label: 'gate()', pattern: /\bgate\s*\(/i },
+    { label: 'filter()', pattern: /\bfilter\s*\(/i },
+    { label: 'processor()', pattern: /\bprocessor\s*\(/i },
+    { label: 'when { ... }', pattern: /\bwhen\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\{/i },
+    { label: 'try/catch', pattern: /\btry\s*(?:\(|\{)/i },
+    { label: '@entity', pattern: /@entity\b/i },
+    { label: '@run', pattern: /@run\b/i },
+    { label: 'tools array []', pattern: /"tools"\s*:\s*\[/i },
+  ];
+
+  return checks
+    .filter((check) => check.pattern.test(balCode))
+    .map((check) => check.label);
+}
+
 /**
  * Parse BAL code and extract entity definitions.
  * Pure function with no server dependencies.
  */
 export function parseBalCode(balCode: string): ParseResult {
+  const legacySyntax = detectLegacyBalSyntax(balCode);
+  if (legacySyntax.length > 0) {
+    return {
+      entities: [],
+      chain: undefined,
+      expression: undefined,
+      errors: [
+        `BAL v1 syntax is not supported: ${legacySyntax.join(', ')}. Use BAL v2 compositions (chain, parallel, if/else, loop, map, select, merge).`,
+      ],
+    };
+  }
+
   const parseProgram = (source: string) => {
     const tokens = tokenize(source);
     return parse(tokens, source);
@@ -757,9 +722,7 @@ export function parseBalCode(balCode: string): ParseResult {
     return parsedEntities;
   };
 
-  const normalizedCode = normalizeToolsSyntax(balCode);
-  const compatibilityCode = normalizeBalCodeForCompatibility(balCode);
-  const parseCandidates = [...new Set([balCode, normalizedCode, compatibilityCode])];
+  const parseCandidates = [balCode];
 
   let lastError: unknown;
   for (const candidate of parseCandidates) {
@@ -908,31 +871,47 @@ function parseParallelEdges(
   const edges: VisualEdge[] = [];
   const nodeNames = new Set(nodes.map((n) => n.id));
 
-  const parallelMatch = balCode.match(/parallel\s*\{([^}]+)\}/);
+  const parallelMatch = balCode.match(/parallel\s*\{([\s\S]*?)\}/);
   if (!parallelMatch) return edges;
 
-  const branchRegex = /"(\w+)"\s*:\s*(\w+)/g;
-  const branches: Array<{ label: string; target: string }> = [];
-  let branchMatch;
+  const branchNames: string[] = [];
+  const seen = new Set<string>();
+  const keywordSet = new Set([
+    'parallel',
+    'chain',
+    'if',
+    'else',
+    'loop',
+    'map',
+    'select',
+    'merge',
+    'with',
+    'run',
+  ]);
 
-  while ((branchMatch = branchRegex.exec(parallelMatch[1] || '')) !== null) {
-    if (branchMatch[1] && branchMatch[2] && nodeNames.has(branchMatch[2])) {
-      branches.push({ label: branchMatch[1], target: branchMatch[2] });
+  const idRegex = /\b[a-zA-Z_][a-zA-Z0-9_]*\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = idRegex.exec(parallelMatch[1] || '')) !== null) {
+    const candidate = match[0];
+    if (!candidate || keywordSet.has(candidate) || !nodeNames.has(candidate) || seen.has(candidate)) {
+      continue;
     }
+    seen.add(candidate);
+    branchNames.push(candidate);
   }
 
-  if (branches.length >= 2) {
-    for (let i = 1; i < branches.length; i++) {
-      const branch = branches[i];
-      if (branch) {
-        edges.push({
-          id: `parallel-${branches[0]?.target}->${branch.target}`,
-          source: branches[0]?.target || '',
-          target: branch.target,
-          type: 'parallel',
-          label: branch.label,
-        });
-      }
+  if (branchNames.length >= 2) {
+    const source = branchNames[0]!;
+    for (let i = 1; i < branchNames.length; i++) {
+      const target = branchNames[i];
+      if (!target) continue;
+      edges.push({
+        id: `parallel-${source}->${target}`,
+        source,
+        target,
+        type: 'parallel',
+        label: `branch_${i}`,
+      });
     }
   }
 
@@ -946,32 +925,42 @@ function parseConditionalEdges(
   const edges: VisualEdge[] = [];
   const nodeNames = new Set(nodes.map((n) => n.id));
 
-  const whenMatch = balCode.match(/when\s+(\w+)\s*\{([^}]+)\}/);
-  if (!whenMatch) return edges;
+  const ifMatch = balCode.match(/if\s*\([^)]*\)\s*\{([\s\S]*?)\}(?:\s*else\s*\{([\s\S]*?)\})?/);
+  if (!ifMatch) return edges;
 
-  const [, conditionEntity, branchesStr] = whenMatch;
-  if (!conditionEntity || !branchesStr || !nodeNames.has(conditionEntity)) {
+  const extractFirstNode = (block: string | undefined): string | null => {
+    if (!block) return null;
+    const idRegex = /\b[a-zA-Z_][a-zA-Z0-9_]*\b/g;
+    let match: RegExpExecArray | null;
+    while ((match = idRegex.exec(block)) !== null) {
+      const candidate = match[0];
+      if (candidate && nodeNames.has(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  };
+
+  const passTarget = extractFirstNode(ifMatch[1]);
+  const failTarget = extractFirstNode(ifMatch[2]);
+  const source = nodes[0]?.id;
+  if (!source) {
     return edges;
   }
-
-  const passMatch = branchesStr.match(/"pass"\s*:\s*(\w+)/);
-  const failMatch = branchesStr.match(/"fail"\s*:\s*(\w+)/);
-
-  if (passMatch?.[1] && nodeNames.has(passMatch[1])) {
+  if (passTarget) {
     edges.push({
-      id: `${conditionEntity}->pass->${passMatch[1]}`,
-      source: conditionEntity,
-      target: passMatch[1],
+      id: `${source}->pass->${passTarget}`,
+      source,
+      target: passTarget,
       type: 'conditional_pass',
       label: 'pass',
     });
   }
-
-  if (failMatch?.[1] && nodeNames.has(failMatch[1])) {
+  if (failTarget) {
     edges.push({
-      id: `${conditionEntity}->fail->${failMatch[1]}`,
-      source: conditionEntity,
-      target: failMatch[1],
+      id: `${source}->fail->${failTarget}`,
+      source,
+      target: failTarget,
       type: 'conditional_fail',
       label: 'fail',
     });

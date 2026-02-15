@@ -89,16 +89,45 @@ export function DesignPackagesTab() {
     URL.revokeObjectURL(url);
   };
 
-  const handleExport = async (id: string, format: 'css' | 'tailwind' | 'json') => {
+  const downloadBase64File = (filename: string, base64: string, mimeType: string) => {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExport = async (
+    id: string,
+    format: 'css' | 'tailwind' | 'json' | 'blueprints' | 'bundle'
+  ) => {
     try {
-      const procedure = format === 'css'
-        ? utils.designPackages.exportCSS
-        : format === 'tailwind'
-          ? utils.designPackages.exportTailwind
-          : utils.designPackages.exportJSON;
-      const result = await procedure.fetch({ id });
-      downloadFile(result.filename, result.content);
-      toast({ title: `Exported as ${format.toUpperCase()}` });
+      if (format === 'bundle') {
+        const result = await utils.designPackages.exportBundle.fetch({ id });
+        downloadBase64File(result.filename, result.base64, result.contentType);
+        toast({
+          title: 'Exported Artifact Bundle',
+          description: `${result.files.length} files packaged`,
+        });
+      } else {
+        const procedure = format === 'css'
+          ? utils.designPackages.exportCSS
+          : format === 'tailwind'
+            ? utils.designPackages.exportTailwind
+            : format === 'blueprints'
+              ? utils.designPackages.exportBlueprints
+              : utils.designPackages.exportJSON;
+        const result = await procedure.fetch({ id });
+        downloadFile(result.filename, result.content);
+        toast({ title: `Exported as ${format.toUpperCase()}` });
+      }
     } catch {
       toast({ title: 'Export failed', variant: 'destructive' });
     }
@@ -240,6 +269,14 @@ export function DesignPackagesTab() {
                     <DropdownMenuItem onClick={() => handleExport(pkg.id, 'json')}>
                       <Download className="h-4 w-4 mr-2" />
                       Export JSON
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleExport(pkg.id, 'blueprints')}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Export Blueprints
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleExport(pkg.id, 'bundle')}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Export Artifact Bundle
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => setDeleteId(pkg.id)}

@@ -33,7 +33,7 @@ export interface NodeIntentResult {
 }
 
 function hasAdvancedCompositionSyntax(balCode: string): boolean {
-  return /\b(parallel|loop|if|when|try|route|gate|filter|processor|map|select|merge)\b/i.test(
+  return /\b(parallel|loop|if|map|select|merge)\b/i.test(
     balCode
   );
 }
@@ -496,7 +496,7 @@ export function applyNodeChangeFromParsed(
     i === entityIndex ? { name: e.name, config: updatedConfig } : e
   );
 
-  // Preserve advanced compositions (parallel/loop/route/etc) by patching only
+  // Preserve advanced compositions (parallel/loop/if/map/select/merge) by patching only
   // the selected entity block when source BAL is available.
   if (originalBalCode && hasAdvancedCompositionSyntax(originalBalCode)) {
     const updatedEntity = updatedEntities[entityIndex];

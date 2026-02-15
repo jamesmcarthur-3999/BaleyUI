@@ -1,6 +1,6 @@
 ---
 id: bal_syntax_reference
-version: 2
+version: 3
 appliesTo: bal_generator
 section: output_rules
 ---
@@ -16,8 +16,9 @@ goal, model, tools, output, history, maxTokens
 `"tools": { "web_search", "fetch_url" }` — NEVER use bracket syntax `[...]`
 
 ## Output Schema
-`"output": { "fieldName": "string", "count": "number", "items": "array<object>" }`
-Supported types: string, number, boolean, array, array<object>, array<number>, array<string>, array<boolean>, object
+`"output": { "fieldName": "string", "count": "number", "labels": "array<string>" }`
+Supported stable types for internal BB contracts: string, number, boolean, array<string>, array<number>, array<boolean>.
+Do NOT use generic `object` or `array<object>` in internal BB BAL output blocks. For complex object payloads, omit BAL `output` and rely on app-layer contract gateway parsing.
 
 ## Compositions (use when 2+ entities exist)
 - Sequential: `chain { entity_a entity_b }`

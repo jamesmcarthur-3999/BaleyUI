@@ -146,6 +146,63 @@ export function formatDesignBrief(
     lines.push(`| ${key} | ${light} | ${dark} | ${usage} |`);
   }
 
+  if (data.foundation) {
+    lines.push('');
+    lines.push('## Foundation');
+    lines.push(`- Brand personality: ${data.foundation.brandPersonality}`);
+    lines.push(`- Voice tone: ${data.foundation.voiceTone}`);
+    lines.push(`- Accessibility target: ${data.foundation.accessibilityTarget.toUpperCase()}`);
+    lines.push(`- Brand alignment: ${Math.round(data.foundation.brandAlignment * 100)}%`);
+    lines.push(`- Principles: ${data.foundation.designPrinciples.join(' | ')}`);
+  }
+
+  if (data.motionSystem) {
+    lines.push('');
+    lines.push('## Motion System');
+    lines.push(`- Intensity: ${data.motionSystem.intensity}`);
+    lines.push(`- Transition style: ${data.motionSystem.transitionStyle}`);
+    lines.push(`- Easing: ${data.motionSystem.easingPreset}`);
+    lines.push(
+      `- Duration scale: fast ${data.motionSystem.durationScale.fastMs}ms | normal ${data.motionSystem.durationScale.normalMs}ms | slow ${data.motionSystem.durationScale.slowMs}ms`
+    );
+    lines.push(`- Reduced motion: ${data.motionSystem.reducedMotionStrategy}`);
+  }
+
+  if (data.layoutSystem) {
+    lines.push('');
+    lines.push('## Layout System');
+    lines.push(`- Density: ${data.layoutSystem.density}`);
+    lines.push(`- Spacing base: ${data.layoutSystem.spacingBasePx}px`);
+    lines.push(`- Grid: ${data.layoutSystem.grid.columns} columns, ${data.layoutSystem.grid.gutterPx}px gutters`);
+    lines.push(
+      `- Navigation patterns: landing=${data.layoutSystem.navigationPattern.landing}, customer=${data.layoutSystem.navigationPattern.customerApp}, internal=${data.layoutSystem.navigationPattern.internalApp}`
+    );
+    lines.push(
+      `- Content width: landing=${data.layoutSystem.contentWidth.landing}, customer=${data.layoutSystem.contentWidth.customerApp}, internal=${data.layoutSystem.contentWidth.internalApp}`
+    );
+  }
+
+  if (data.surfaceBlueprints) {
+    lines.push('');
+    lines.push('## Surface Blueprints');
+    const surfaces: Array<['landing' | 'customerApp' | 'internalApp', string]> = [
+      ['landing', 'Landing'],
+      ['customerApp', 'Customer App'],
+      ['internalApp', 'Internal App'],
+    ];
+    for (const [key, label] of surfaces) {
+      const blueprint = data.surfaceBlueprints[key];
+      lines.push(`- ${label}: ${blueprint.purpose}`);
+      lines.push(`  Layout: ${blueprint.layoutSummary}`);
+      lines.push(
+        `  Section priorities: ${blueprint.sectionOrder
+          .map((section) => `${section.id}(p${section.priority})`)
+          .join(', ')}`
+      );
+      lines.push(`  Prompt seed: ${blueprint.samplePrompt}`);
+    }
+  }
+
   if (registry) {
     lines.push('');
     lines.push(formatRegistryBrief(registry));

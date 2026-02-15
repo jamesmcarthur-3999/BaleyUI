@@ -125,26 +125,6 @@ function toReactFlowEdge(edge: VisualEdge): Edge {
         style: { stroke: 'hsl(142.1, 76.2%, 36.3%)', strokeWidth: 1.5 },
         animated: true,
       };
-    case 'try_catch':
-      return {
-        ...baseEdge,
-        style: { stroke: 'hsl(0, 72%, 51%)', strokeDasharray: '6,4' },
-      };
-    case 'route':
-      return {
-        ...baseEdge,
-        style: { stroke: 'hsl(262, 83%, 58%)', strokeWidth: 1.5 },
-      };
-    case 'gate':
-      return {
-        ...baseEdge,
-        style: { stroke: 'hsl(45, 93%, 47%)', strokeDasharray: '4,4' },
-      };
-    case 'filter':
-      return {
-        ...baseEdge,
-        style: { stroke: 'hsl(var(--muted-foreground))', strokeDasharray: '3,3' },
-      };
     case 'runtime':
       return {
         ...baseEdge,

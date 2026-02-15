@@ -3,187 +3,89 @@ import {
   executeInternalBaleybot,
   type InternalExecutionOptions,
 } from '../internal-baleybots';
-import { createLogger } from '@/lib/logger';
-
-const log = createLogger('internal-bb-runner');
-
-type FallbackMode = 'throw' | 'value';
+import {
+  runWithContractGateway,
+  type FallbackMode,
+  type ContractGatewayCallbacks,
+} from './contract-gateway';
+import {
+  brandDossierSchema,
+  designPackageDataV2Schema,
+  ensureBrandDossier,
+  ensureDesignPackageDataV2,
+  type DesignPackageDataV2,
+} from '@/lib/design-packages/schema';
+export { normalizeOutputCandidate } from './contract-gateway';
 
 export interface InternalBBRunOptions<T> extends InternalExecutionOptions {
   fallbackMode?: FallbackMode;
   fallbackValue?: T;
   repairAttempts?: number;
+  repairStrategies?: string[];
+  /** Per-attempt timeout (ms) for contract-gateway retries. */
+  attemptTimeoutMs?: number;
+  contractCallbacks?: ContractGatewayCallbacks;
 }
 
+interface RepairPolicy {
+  repairAttempts: number;
+  repairStrategies: string[];
+}
 
-function summarizeOutput(output: unknown): string {
-  if (typeof output === 'string') {
-    return output.slice(0, 500);
+const BOT_REPAIR_POLICIES: Partial<Record<string, RepairPolicy>> = {
+  design_dossier_synthesizer: {
+    repairAttempts: 2,
+    repairStrategies: [
+      'Reconcile conflicting source evidence conservatively and keep all required dossier keys.',
+      'Prioritize explicit source evidence over inferred style cues; lower confidence where uncertain.',
+    ],
+  },
+  design_generator: {
+    repairAttempts: 3,
+    repairStrategies: [
+      'Ensure strict schema completeness first; fill any missing sections with conservative defaults.',
+      'Repair semantic coherence across colors, typography, motion, layout, and blueprints.',
+      'Preserve direction intent while fixing only malformed or missing fields.',
+    ],
+  },
+  design_refiner: {
+    repairAttempts: 3,
+    repairStrategies: [
+      'Apply minimal targeted corrections while preserving user-requested changes.',
+      'Rebuild only malformed sections and keep unaffected package sections stable.',
+      'If conflicting goals exist, prioritize accessibility and schema validity.',
+    ],
+  },
+};
+
+function combineAbortSignals(
+  baseSignal: AbortSignal | undefined,
+  timeoutMs: number
+): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+
+  if (!baseSignal) {
+    return timeoutSignal;
   }
-  try {
-    return JSON.stringify(output).slice(0, 500);
-  } catch {
-    return String(output).slice(0, 500);
+
+  if (typeof AbortSignal.any === 'function') {
+    return AbortSignal.any([baseSignal, timeoutSignal]);
   }
-}
 
-function tryParseJson(raw: string): unknown | undefined {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-}
+  const controller = new AbortController();
 
-function extractJsonCodeFence(raw: string): string | undefined {
-  const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const fenced = match?.[1]?.trim();
-  return fenced && fenced.length > 0 ? fenced : undefined;
-}
-
-function extractBalancedJsonSegment(raw: string): string | undefined {
-  const openChars = new Set(['{', '[']);
-  const closeFor: Record<string, string> = {
-    '{': '}',
-    '[': ']',
+  const forwardAbort = (signal: AbortSignal) => {
+    if (signal.aborted) {
+      controller.abort();
+      return;
+    }
+    signal.addEventListener('abort', () => controller.abort(), { once: true });
   };
 
-  let start = -1;
-  for (let i = 0; i < raw.length; i += 1) {
-    const char = raw[i];
-    if (char && openChars.has(char)) {
-      start = i;
-      break;
-    }
-  }
-  if (start === -1) return undefined;
+  forwardAbort(baseSignal);
+  forwardAbort(timeoutSignal);
 
-  const stack: string[] = [];
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < raw.length; i += 1) {
-    const char = raw[i];
-    if (!char) continue;
-
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (char === '\\') {
-        escaped = true;
-        continue;
-      }
-      if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-
-    if (openChars.has(char)) {
-      stack.push(closeFor[char]!);
-      continue;
-    }
-
-    if (stack.length > 0 && char === stack[stack.length - 1]) {
-      stack.pop();
-      if (stack.length === 0) {
-        return raw.slice(start, i + 1).trim();
-      }
-    }
-  }
-
-  return undefined;
-}
-
-export function normalizeOutputCandidate(output: unknown): unknown {
-  if (output && typeof output === 'object' && !Array.isArray(output)) {
-    return output;
-  }
-
-  if (typeof output === 'string') {
-    const trimmed = output.trim();
-    if (!trimmed) return output;
-
-    const direct = tryParseJson(trimmed);
-    if (direct !== undefined) return direct;
-
-    const fenced = extractJsonCodeFence(trimmed);
-    if (fenced) {
-      const parsedFence = tryParseJson(fenced);
-      if (parsedFence !== undefined) return parsedFence;
-    }
-
-    const balanced = extractBalancedJsonSegment(trimmed);
-    if (balanced) {
-      const parsedBalanced = tryParseJson(balanced);
-      if (parsedBalanced !== undefined) return parsedBalanced;
-    }
-  }
-
-  return output;
-}
-
-function parseAgainstSchema<T>(
-  schema: z.ZodType<T>,
-  output: unknown
-): {
-  success: true;
-  data: T;
-  normalizedOutput: unknown;
-} | {
-  success: false;
-  issues: z.ZodIssue[];
-  normalizedOutput: unknown;
-} {
-  const normalized = normalizeOutputCandidate(output);
-  const parsed = schema.safeParse(normalized);
-
-  if (parsed.success) {
-    return {
-      success: true,
-      data: parsed.data,
-      normalizedOutput: normalized,
-    };
-  }
-
-  return {
-    success: false,
-    issues: parsed.error.issues,
-    normalizedOutput: normalized,
-  };
-}
-
-
-function formatRepairPrompt(args: {
-  botName: string;
-  originalInput: string;
-  previousOutput: unknown;
-  issues: z.ZodIssue[];
-}): string {
-  const issueSummary = args.issues
-    .slice(0, 8)
-    .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-    .join('; ');
-
-  return [
-    `Repair your previous ${args.botName} output so it matches your output contract exactly.`,
-    'Return only one valid JSON object and nothing else.',
-    '',
-    'Original request:',
-    args.originalInput,
-    '',
-    'Validation issues to fix:',
-    issueSummary || '(unknown validation issue)',
-    '',
-    'Previous output preview:',
-    summarizeOutput(args.previousOutput),
-  ].join('\n');
+  return controller.signal;
 }
 
 async function runInternalBB<T>(args: {
@@ -194,81 +96,44 @@ async function runInternalBB<T>(args: {
 }): Promise<T> {
   const { botName, input, schema, options } = args;
   const {
-    fallbackMode = 'throw',
+    fallbackMode,
     fallbackValue,
-    repairAttempts = 1,
+    repairAttempts,
+    repairStrategies,
+    attemptTimeoutMs,
+    contractCallbacks,
     ...executionOptions
   } = options ?? {};
+  const policy = BOT_REPAIR_POLICIES[botName];
+  const resolvedRepairAttempts =
+    typeof repairAttempts === 'number'
+      ? repairAttempts
+      : policy?.repairAttempts ?? 1;
+  const resolvedRepairStrategies =
+    Array.isArray(repairStrategies) && repairStrategies.length > 0
+      ? repairStrategies
+      : policy?.repairStrategies ?? [];
 
-  try {
-    let { output } = await executeInternalBaleybot(botName, input, executionOptions);
-    let parsed = parseAgainstSchema(schema, output);
+  const baseExecutionOptions = executionOptions as InternalExecutionOptions;
 
-    if (parsed.success) {
-      return parsed.data;
-    }
-
-    log.warn('Internal BB output parse failed', {
-      botName,
-      issues: parsed.issues,
-      outputType: typeof output,
-      outputPreview: summarizeOutput(output),
-    });
-
-    const maxRepairAttempts = Math.max(0, repairAttempts);
-    for (let attempt = 1; attempt <= maxRepairAttempts; attempt += 1) {
-      const repairPrompt = formatRepairPrompt({
-        botName,
-        originalInput: input,
-        previousOutput: parsed.normalizedOutput,
-        issues: parsed.issues,
-      });
-
-      const repaired = await executeInternalBaleybot(
-        botName,
-        repairPrompt,
-        executionOptions
-      );
-      output = repaired.output;
-      parsed = parseAgainstSchema(schema, output);
-
-      if (parsed.success) {
-        log.info('Internal BB output repaired successfully', {
-          botName,
-          attempt,
-        });
-        return parsed.data;
-      }
-
-      log.warn('Internal BB output repair attempt failed', {
-        botName,
-        attempt,
-        issues: parsed.issues,
-        outputPreview: summarizeOutput(output),
-      });
-    }
-
-    if (fallbackMode === 'value' && fallbackValue !== undefined) {
-      return fallbackValue;
-    }
-
-    const issueSummary = parsed.issues
-      .slice(0, 6)
-      .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-      .join('; ');
-
-    throw new Error(`${botName} returned malformed output: ${issueSummary}`);
-  } catch (error) {
-    if (fallbackMode === 'value' && fallbackValue !== undefined) {
-      log.warn('Internal BB execution failed, using fallback value', {
-        botName,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return fallbackValue;
-    }
-
-    throw error;
-  }
+  return runWithContractGateway({
+    botName,
+    input,
+    schema,
+    execute: executeInternalBaleybot,
+    executionOptions: baseExecutionOptions,
+    resolveExecutionOptions: attemptTimeoutMs
+      ? () => ({
+          ...baseExecutionOptions,
+          signal: combineAbortSignals(baseExecutionOptions.signal, attemptTimeoutMs),
+        })
+      : undefined,
+    fallbackMode,
+    fallbackValue,
+    repairAttempts: resolvedRepairAttempts,
+    repairStrategies: resolvedRepairStrategies,
+    callbacks: contractCallbacks,
+  });
 }
 
 function normalizeCreatorActionLabel(prompt: string): string {
@@ -544,7 +409,14 @@ export const balGeneratorOutputSchema = z.object({
   balCode: z.string(),
   explanation: z.string().catch(''),
   entities: z.array(balGeneratorEntitySchema).catch([]),
-  toolRationale: z.record(z.string(), z.string()).catch({}),
+  toolRationale: z.preprocess((raw) => {
+    if (typeof raw !== 'string') return raw;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }, z.record(z.string(), z.string())).catch({}),
   suggestedName: z.string().catch('Unnamed BaleyBot'),
   suggestedIcon: z.string().catch('🤖'),
 });
@@ -841,51 +713,35 @@ export const designAnalyzerOutputSchema = z.object({
   recommendations: z.array(z.string()).catch([]),
 });
 
-const colorPaletteSchema = z.object({
-  background: z.string(),
-  foreground: z.string(),
-  card: z.string(),
-  cardForeground: z.string(),
-  primary: z.string(),
-  primaryForeground: z.string(),
-  secondary: z.string(),
-  secondaryForeground: z.string(),
-  muted: z.string(),
-  mutedForeground: z.string(),
-  accent: z.string(),
-  accentForeground: z.string(),
-  destructive: z.string(),
-  destructiveForeground: z.string(),
-  border: z.string(),
-  input: z.string(),
-  ring: z.string(),
-  success: z.string(),
-  warning: z.string(),
-  error: z.string(),
-  info: z.string(),
-}).passthrough();
+const resilientDesignPackageOutputSchema = z.preprocess(
+  (value) => {
+    try {
+      return ensureDesignPackageDataV2(value);
+    } catch {
+      return value;
+    }
+  },
+  designPackageDataV2Schema
+);
 
-export const designGeneratorOutputSchema = z.object({
-  colors: z.object({
-    light: colorPaletteSchema,
-    dark: colorPaletteSchema,
-  }),
-  typography: z.object({
-    fontFamily: z.string().catch('Inter, sans-serif'),
-    fontFamilyHeading: z.string().optional(),
-    googleFontsUrl: z.string().optional(),
-  }).passthrough(),
-  borderRadius: z.string().catch('0.75rem'),
-  mood: z.enum(['playful', 'professional', 'minimal', 'elegant', 'bold']).catch('professional'),
-  animationStyle: z.enum(['playful', 'professional', 'minimal']).catch('professional'),
-  suggestedName: z.string().catch('Custom Design'),
-});
+export const designGeneratorOutputSchema = resilientDesignPackageOutputSchema;
 
-export const designRefinerOutputSchema = designGeneratorOutputSchema;
+export const designRefinerOutputSchema = resilientDesignPackageOutputSchema;
+export const designDossierSynthesizerOutputSchema = z.preprocess(
+  (value) => {
+    try {
+      return ensureBrandDossier(value);
+    } catch {
+      return value;
+    }
+  },
+  brandDossierSchema
+);
 
 export type DesignAnalyzerOutput = z.infer<typeof designAnalyzerOutputSchema>;
-export type DesignGeneratorOutput = z.infer<typeof designGeneratorOutputSchema>;
-export type DesignRefinerOutput = z.infer<typeof designRefinerOutputSchema>;
+export type DesignGeneratorOutput = DesignPackageDataV2;
+export type DesignRefinerOutput = DesignPackageDataV2;
+export type DesignDossierSynthesizerOutput = z.infer<typeof designDossierSynthesizerOutputSchema>;
 
 export async function runDesignAnalyzer(
   input: string,
@@ -919,6 +775,18 @@ export async function runDesignRefiner(
     botName: 'design_refiner',
     input,
     schema: designRefinerOutputSchema,
+    options,
+  });
+}
+
+export async function runDesignDossierSynthesizer(
+  input: string,
+  options?: InternalBBRunOptions<DesignDossierSynthesizerOutput>
+): Promise<DesignDossierSynthesizerOutput> {
+  return runInternalBB({
+    botName: 'design_dossier_synthesizer',
+    input,
+    schema: designDossierSynthesizerOutputSchema,
     options,
   });
 }

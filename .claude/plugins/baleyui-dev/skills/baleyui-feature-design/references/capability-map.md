@@ -55,11 +55,11 @@ Structured lookup tables for mapping features to existing BaleyUI capabilities.
 | `parallel { a b }` | Independent analyses that can run concurrently | Sentiment + Keywords + Topics |
 | `if/else` | Binary decision between two paths | Quality > threshold? publish : revise |
 | `loop ("until", "max")` | Iterative refinement toward a quality target | Edit → Review → Edit (until score > 8) |
-| `try/catch` | Graceful degradation when primary approach fails | Try premium model → Catch: use fallback |
-| `route(classifier)` | Multi-way dispatch based on classification | Classify ticket type → route to specialist |
-| `gate(condition)` | Skip a step if condition isn't met | Only review if flagged as sensitive |
-| `filter(predicate)` | Process subset of items from an array | Only enrich items with score > 0.5 |
-| `processor(transform)` | Extract or reshape data between steps | Pull `data.results` for next step |
+| `loop + fallback branch` | Self-healing retries with explicit fallback | Retry refiner up to N times, then fallback |
+| `classifier + nested if/else` | Multi-way dispatch based on classification | Classify ticket type, then branch to specialist |
+| `if (condition)` | Skip a step if condition isn't met | Only review if flagged as sensitive |
+| `map result.items { ... }` | Process each item from an array | Enrich each result item independently |
+| `select { ... }` | Extract or reshape data between steps | Pull `data.results` for next step |
 | `map` | Apply same bot to each item in array | Process each document independently |
 
 ### Composition Combinations
@@ -74,28 +74,31 @@ chain {
     analyzer_a
     analyzer_b
   }
-  route(combined_analysis.category) {
-    "urgent": fast_handler,
-    "normal": standard_handler,
-    "low": gate("batch_ready") { batch_processor }
+  if ("$combined_analysis.category == 'urgent'") {
+    fast_handler
+  } else {
+    if ("$combined_analysis.category == 'normal'") {
+      standard_handler
+    } else {
+      if ("batch_ready") { batch_processor }
+    }
   }
 }
 ```
 
 ```bal
 # Self-healing pipeline
-try ("retries": 3) {
-  chain {
-    processor
+chain {
+  processor
+  validator
+}
+
+if ("$validator.hasIssues") {
+  loop ("until": "result.quality > 0.8", "max": 3) {
+    fixer
     validator
-    gate("validator.hasIssues") {
-      loop ("until": "result.quality > 0.8", "max": 3) {
-        fixer
-        validator
-      }
-    }
   }
-} catch {
+} else {
   fallback_handler
 }
 ```

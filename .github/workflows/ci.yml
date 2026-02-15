@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: BAL v2 compliance check
+        run: pnpm bal:v2:check
+
       - name: Type check
         run: pnpm type-check
 

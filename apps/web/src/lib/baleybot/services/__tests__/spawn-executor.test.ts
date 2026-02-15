@@ -23,6 +23,12 @@ vi.mock('@baleyui/db', () => ({
       workspacePolicies: {
         findFirst: vi.fn(),
       },
+      orchestrationTasks: {
+        findFirst: vi.fn().mockResolvedValue({ startedAt: new Date() }),
+      },
+      orchestrationRuns: {
+        findFirst: vi.fn(),
+      },
     },
     insert: vi.fn(() => ({
       values: vi.fn(() => ({
@@ -37,6 +43,8 @@ vi.mock('@baleyui/db', () => ({
   },
   baleybots: { id: 'id', workspaceId: 'workspaceId', name: 'name' },
   baleybotExecutions: { id: 'id' },
+  orchestrationRuns: { id: 'id', workspaceId: 'workspaceId' },
+  orchestrationTasks: { id: 'id', workspaceId: 'workspaceId', runId: 'runId', createdAt: 'createdAt' },
   workspacePolicies: { workspaceId: 'workspaceId' },
   eq: vi.fn(),
   and: vi.fn(),
@@ -80,7 +88,7 @@ describe('SpawnBaleybotExecutor', () => {
       const balCode = `
         analyzer {
           "goal": "Analyze data",
-          "tools": ["database_query", "web_search", "fetch_url"]
+          "tools": { "database_query", "web_search", "fetch_url" }
         }
       `;
 
@@ -100,14 +108,14 @@ describe('SpawnBaleybotExecutor', () => {
     });
 
     it('should handle single tool', () => {
-      const balCode = `bot { "tools": ["only_one"] }`;
+      const balCode = `bot { "tools": { "only_one" } }`;
 
       const tools = extractToolsFromBAL(balCode);
       expect(tools).toEqual(['only_one']);
     });
 
-    it('should handle empty tools array', () => {
-      const balCode = `bot { "tools": [] }`;
+    it('should handle empty tools set', () => {
+      const balCode = `bot { "tools": { } }`;
 
       const tools = extractToolsFromBAL(balCode);
       expect(tools).toEqual([]);
@@ -123,7 +131,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'data-bot',
-          balCode: 'bot { "tools": ["database_query", "web_search"] }',
+          balCode: 'bot { "tools": { "database_query", "web_search" } }',
         })
       );
 
@@ -155,7 +163,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'safe-bot',
-          balCode: 'bot { "tools": ["web_search", "fetch_url"] }',
+          balCode: 'bot { "tools": { "web_search", "fetch_url" } }',
         })
       );
 
@@ -185,7 +193,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'nested-bot',
-          balCode: 'bot { "tools": [] }',
+          balCode: 'bot { "tools": { } }',
         })
       );
 
@@ -218,7 +226,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'any-bot',
-          balCode: 'bot { "tools": ["database_query"] }',
+          balCode: 'bot { "tools": { "database_query" } }',
         })
       );
 
@@ -244,7 +252,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'restricted-bot',
-          balCode: 'bot { "tools": ["web_search", "database_query"] }',
+          balCode: 'bot { "tools": { "web_search", "database_query" } }',
         })
       );
 
@@ -269,6 +277,139 @@ describe('SpawnBaleybotExecutor', () => {
     });
   });
 
+  describe('spawn result payload', () => {
+    it('returns structured output plus a summary field', async () => {
+      const { db } = await import('@baleyui/db');
+
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'safe-bot',
+          balCode: 'bot { "tools": { "web_search" } }',
+        })
+      );
+
+      const executor = createSpawnBaleybotExecutor({
+        getPolicies: async () => null,
+      });
+
+      const ctx = {
+        workspaceId: 'ws-1',
+        baleybotId: 'parent',
+        executionId: 'exec-1',
+        userId: 'user-1',
+      };
+
+      const result = await executor('safe-bot', { task: 'analyze' }, ctx);
+
+      // output now carries the child BB payload directly (mocked as "success")
+      expect(result.output).toBe('success');
+      // summary remains available for concise human-readable UX
+      expect(result.summary).toContain('spawn_baleybot(safe-bot)');
+    });
+  });
+
+  describe('robustness guards', () => {
+    it('prefers system BaleyBots for internal callers to avoid name shadowing', async () => {
+      const { db } = await import('@baleyui/db');
+      const { executeBaleybot } = await import('../../executor');
+
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValueOnce(
+        mockBB({
+          id: 'sys-bal-generator',
+          name: 'bal_generator',
+          balCode: 'system-bal-code',
+        })
+      );
+
+      const executor = createSpawnBaleybotExecutor({
+        getPolicies: async () => null,
+      });
+
+      await executor(
+        'bal_generator',
+        { task: 'build bot' },
+        {
+          workspaceId: 'user-workspace',
+          baleybotId: 'parent',
+          executionId: 'exec-1',
+          userId: 'system',
+        }
+      );
+
+      const firstCall = vi.mocked(executeBaleybot).mock.calls[0];
+      expect(firstCall?.[0]).toBe('system-bal-code');
+    });
+
+    it('propagates _spawnOutputs into nested spawn contexts', async () => {
+      const { db } = await import('@baleyui/db');
+
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'safe-bot',
+          balCode: 'bot { "tools": { } }',
+        })
+      );
+
+      let capturedCtx: { _spawnOutputs?: Map<string, unknown> } | undefined;
+      const executor = createSpawnBaleybotExecutor({
+        getPolicies: async () => null,
+        getTools: (ctx) => {
+          capturedCtx = ctx;
+          return new Map();
+        },
+      });
+
+      const spawnOutputs = new Map<string, unknown>();
+
+      await executor(
+        'safe-bot',
+        { task: 'delegate' },
+        {
+          workspaceId: 'ws-1',
+          baleybotId: 'parent',
+          executionId: 'exec-1',
+          userId: 'user-1',
+          _spawnOutputs: spawnOutputs,
+        }
+      );
+
+      expect(capturedCtx?._spawnOutputs).toBe(spawnOutputs);
+    });
+
+    it('passes empty-string input when spawn input is undefined', async () => {
+      const { db } = await import('@baleyui/db');
+      const { executeBaleybot } = await import('../../executor');
+
+      vi.mocked(db.query.baleybots.findFirst).mockResolvedValue(
+        mockBB({
+          id: 'bb-1',
+          name: 'safe-bot',
+          balCode: 'bot { "tools": { } }',
+        })
+      );
+
+      const executor = createSpawnBaleybotExecutor({
+        getPolicies: async () => null,
+      });
+
+      await executor(
+        'safe-bot',
+        undefined,
+        {
+          workspaceId: 'ws-1',
+          baleybotId: 'parent',
+          executionId: 'exec-1',
+          userId: 'user-1',
+        }
+      );
+
+      const firstCall = vi.mocked(executeBaleybot).mock.calls[0];
+      expect(firstCall?.[1]).toBe('');
+    });
+  });
+
   describe('spawn depth limit', () => {
     it('should prevent excessive spawn depth', async () => {
       const { db } = await import('@baleyui/db');
@@ -277,7 +418,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'deep-bot',
-          balCode: 'bot { "tools": [] }',
+          balCode: 'bot { "tools": { } }',
         })
       );
 
