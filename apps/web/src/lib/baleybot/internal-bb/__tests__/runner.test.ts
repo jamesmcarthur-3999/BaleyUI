@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeOutputCandidate } from '../runner';
+import {
+  balGeneratorOutputSchema,
+  normalizeOutputCandidate,
+} from '../runner';
 
 describe('normalizeOutputCandidate', () => {
   it('passes through plain objects', () => {
@@ -20,5 +23,65 @@ describe('normalizeOutputCandidate', () => {
     expect(normalizeOutputCandidate(42)).toBe(42);
     expect(normalizeOutputCandidate(null)).toBeNull();
     expect(normalizeOutputCandidate('not json')).toBe('not json');
+  });
+});
+
+describe('balGeneratorOutputSchema', () => {
+  const baseOutput = {
+    balCode: 'test_bot { "goal": "Test bot" }',
+    explanation: 'Test explanation',
+    entities: [
+      {
+        name: 'test_bot',
+        goal: 'Test bot',
+        tools: [],
+      },
+    ],
+    suggestedName: 'Test Bot',
+    suggestedIcon: '🤖',
+  };
+
+  it('accepts object toolRationale', () => {
+    const result = balGeneratorOutputSchema.safeParse({
+      ...baseOutput,
+      toolRationale: {
+        web_search: 'Required for current information retrieval.',
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.toolRationale).toEqual({
+        web_search: 'Required for current information retrieval.',
+      });
+    }
+  });
+
+  it('parses stringified toolRationale JSON', () => {
+    const result = balGeneratorOutputSchema.safeParse({
+      ...baseOutput,
+      toolRationale: JSON.stringify({
+        fetch_url: 'Used to inspect source pages directly.',
+      }),
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.toolRationale).toEqual({
+        fetch_url: 'Used to inspect source pages directly.',
+      });
+    }
+  });
+
+  it('falls back to empty object for malformed toolRationale strings', () => {
+    const result = balGeneratorOutputSchema.safeParse({
+      ...baseOutput,
+      toolRationale: '{not-json',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.toolRationale).toEqual({});
+    }
   });
 });

@@ -323,7 +323,14 @@ export const balGeneratorOutputSchema = z.object({
   balCode: z.string(),
   explanation: z.string().catch(''),
   entities: z.array(balGeneratorEntitySchema).catch([]),
-  toolRationale: z.record(z.string(), z.string()).catch({}),
+  toolRationale: z.preprocess((raw) => {
+    if (typeof raw !== 'string') return raw;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }, z.record(z.string(), z.string())).catch({}),
   suggestedName: z.string().catch('Unnamed BaleyBot'),
   suggestedIcon: z.string().catch('🤖'),
 });
