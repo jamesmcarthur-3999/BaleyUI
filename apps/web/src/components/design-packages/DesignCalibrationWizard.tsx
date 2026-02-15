@@ -96,6 +96,35 @@ const BASE_PROMPTS = [
   { label: 'Darker theme', prompt: 'Use a darker, moodier color scheme' },
 ];
 
+const DIRECTION_META: Record<
+  DirectionId,
+  {
+    label: string;
+    subtitle: string;
+    accentClass: string;
+    badgeClass: string;
+  }
+> = {
+  directionA: {
+    label: 'Direction A',
+    subtitle: 'Brand Faithful',
+    accentClass: 'from-emerald-500/28 via-cyan-500/14 to-transparent',
+    badgeClass: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300',
+  },
+  directionB: {
+    label: 'Direction B',
+    subtitle: 'Conversion Forward',
+    accentClass: 'from-amber-500/30 via-rose-500/16 to-transparent',
+    badgeClass: 'bg-amber-500/14 text-amber-700 dark:text-amber-300',
+  },
+  directionC: {
+    label: 'Direction C',
+    subtitle: 'Ops Forward',
+    accentClass: 'from-blue-500/30 via-indigo-500/16 to-transparent',
+    badgeClass: 'bg-blue-500/14 text-blue-700 dark:text-blue-300',
+  },
+};
+
 const WELCOME_MESSAGE: DesignMessage = {
   id: 'welcome',
   role: 'assistant',
@@ -109,6 +138,11 @@ const WELCOME_MESSAGE: DesignMessage = {
   toolCallStates: {},
   timestamp: Date.now(),
 };
+
+function truncate(text: string, max = 120): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1).trimEnd()}...`;
+}
 
 // ============================================================================
 // Component
@@ -137,6 +171,7 @@ export function DesignCalibrationWizard({
   const [designConcepts, setDesignConcepts] = useState<DesignConceptPayload[]>([]);
   const [activeSurfaceTab, setActiveSurfaceTab] = useState<SurfaceTab>('landing');
   const [selectedDirectionId, setSelectedDirectionId] = useState<DirectionId | null>(null);
+  const [compareDirectionId, setCompareDirectionId] = useState<DirectionId | null>(null);
   const [directionScores, setDirectionScores] = useState<
     Record<string, { score: number; rationale: string }>
   >({});
@@ -333,6 +368,7 @@ export function DesignCalibrationWizard({
     if (!packageData) {
       setDesignConcepts([]);
       setSelectedDirectionId(null);
+      setCompareDirectionId(null);
       setDirectionScores({});
       setBrandDossier(null);
       setQualityRepairs([]);
@@ -532,6 +568,10 @@ export function DesignCalibrationWizard({
         if (!selectedDirectionId && concepts[0]) {
           setSelectedDirectionId(concepts[0].id);
         }
+        if (!compareDirectionId) {
+          const fallbackCompare = concepts.find((c) => c.id !== (selectedDirectionId ?? concepts[0]?.id));
+          if (fallbackCompare) setCompareDirectionId(fallbackCompare.id);
+        }
       },
 
       onComponentGenerationStarted: () => {
@@ -647,6 +687,10 @@ export function DesignCalibrationWizard({
     setPackageData(concept.packageData);
     pushHistory(concept.packageData);
     setSelectedDirectionId(concept.id);
+    if (compareDirectionId === concept.id) {
+      const fallbackCompare = designConcepts.find((candidate) => candidate.id !== concept.id);
+      setCompareDirectionId(fallbackCompare?.id ?? null);
+    }
   };
 
   // ── Abort / Close ────────────────────────────────────────
@@ -665,6 +709,9 @@ export function DesignCalibrationWizard({
     }
     onSkip?.();
   };
+
+  const selectedConcept = selectedDirectionId ? getConceptByDirection(selectedDirectionId) : designConcepts[0];
+  const compareConcept = compareDirectionId ? getConceptByDirection(compareDirectionId) : null;
 
   // ── Render helpers ───────────────────────────────────────
   // NOTE: This will be replaced by the unified chat library
@@ -731,10 +778,10 @@ export function DesignCalibrationWizard({
   return (
     <div className="flex flex-1 min-h-0 flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border bg-card/50 px-5 py-3">
+      <div className="flex items-center justify-between border-b border-border bg-[linear-gradient(120deg,hsl(var(--card)/0.94),hsl(var(--muted)/0.55))] px-5 py-3">
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-semibold">
+          <h2 className="text-sm font-semibold tracking-tight">
             {existingPackage ? existingPackage.name : 'New Design Package'}
           </h2>
         </div>
@@ -795,28 +842,64 @@ export function DesignCalibrationWizard({
       {/* Two-panel layout */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left: Preview */}
-        <div className="flex-1 min-w-0 overflow-y-auto bg-muted/30 p-5">
-          <div className="mx-auto max-w-5xl">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1">
-                {([
-                  ['landing', 'Landing'],
-                  ['customerApp', 'Customer App'],
-                  ['internalApp', 'Internal App'],
-                ] as Array<[SurfaceTab, string]>).map(([tab, label]) => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveSurfaceTab(tab)}
-                    className={cn(
-                      'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-                      activeSurfaceTab === tab
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:text-foreground'
+        <div className="relative flex-1 min-w-0 overflow-y-auto bg-[radial-gradient(circle_at_12%_12%,hsl(var(--primary)/0.14),transparent_35%),radial-gradient(circle_at_88%_86%,hsl(var(--accent)/0.14),transparent_38%),hsl(var(--muted)/0.35)] p-5">
+          <div className="pointer-events-none absolute left-14 top-16 h-40 w-40 rounded-full bg-primary/10 blur-3xl" />
+          <div className="pointer-events-none absolute bottom-8 right-12 h-44 w-44 rounded-full bg-accent/12 blur-3xl" />
+          <div className="relative mx-auto max-w-6xl">
+            <div className="mb-4 overflow-hidden rounded-2xl border border-border/70 bg-card/80 shadow-sm backdrop-blur">
+              <div className="bg-[linear-gradient(120deg,hsl(var(--primary)/0.14),hsl(var(--accent)/0.1),transparent)] px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/80">
+                      Design Transformation Engine
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      Multi-surface brand system preview
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {selectedConcept && (
+                      <span className="rounded-full border border-border bg-background/85 px-2.5 py-1 text-[10px] font-semibold text-muted-foreground">
+                        Active: {selectedConcept.title}
+                      </span>
                     )}
-                  >
-                    {label}
-                  </button>
-                ))}
+                    {selectedConcept && typeof (directionScores[selectedConcept.id]?.score ?? selectedConcept.score) === 'number' && (
+                      <span className="rounded-full bg-primary/12 px-2.5 py-1 text-[10px] font-semibold text-primary">
+                        Score {(directionScores[selectedConcept.id]?.score ?? selectedConcept.score)}/100
+                      </span>
+                    )}
+                    {qualityRepairs.length > 0 && (
+                      <span className="rounded-full bg-amber-500/12 px-2.5 py-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                        {qualityRepairs.length} repair pass{qualityRepairs.length > 1 ? 'es' : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 px-3 py-2">
+                <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-background/80 p-1">
+                  {([
+                    ['landing', 'Landing'],
+                    ['customerApp', 'Customer App'],
+                    ['internalApp', 'Internal App'],
+                  ] as Array<[SurfaceTab, string]>).map(([tab, label]) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveSurfaceTab(tab)}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                        activeSurfaceTab === tab
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Blend direction systems and inspect branded outcomes instantly.
+                </p>
               </div>
             </div>
 
@@ -829,64 +912,123 @@ export function DesignCalibrationWizard({
             />
 
             {(conceptsLoading || designConcepts.length > 0) && (
-              <div className="mt-4 rounded-xl border border-border bg-card p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs font-semibold text-foreground">Concept Directions</p>
+              <div className="mt-4 rounded-2xl border border-border/70 bg-card/85 p-3.5 shadow-sm backdrop-blur">
+                <div className="mb-2.5 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-foreground">Direction Gallery</p>
                   {conceptsLoading && (
                     <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                       <Loader2 className="h-3 w-3 animate-spin" />
-                      Generating concepts
+                      Generating direction set
                     </span>
                   )}
                 </div>
                 {designConcepts.length > 0 && (
-                  <div className="grid gap-2 md:grid-cols-3">
-                    {designConcepts.map((concept) => (
-                      <div
-                        key={concept.id}
-                        className={cn(
-                          'rounded-lg border p-2 text-left transition-colors',
-                          selectedDirectionId === concept.id
-                            ? 'border-primary bg-primary/5'
-                            : 'border-border bg-background'
-                        )}
-                      >
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-semibold">{concept.title}</p>
-                          {typeof (directionScores[concept.id]?.score ?? concept.score) === 'number' && (
-                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                              {(directionScores[concept.id]?.score ?? concept.score)}/100
-                            </span>
+                  <div className="grid gap-2.5 md:grid-cols-3">
+                    {designConcepts.map((concept) => {
+                      const meta = DIRECTION_META[concept.id];
+                      const score = directionScores[concept.id]?.score ?? concept.score;
+                      const rationale = directionScores[concept.id]?.rationale ?? concept.rationale;
+                      return (
+                        <div
+                          key={concept.id}
+                          className={cn(
+                            'group relative overflow-hidden rounded-xl border p-2.5 text-left transition-all',
+                            selectedDirectionId === concept.id
+                              ? 'border-primary/60 bg-primary/5 shadow-[0_10px_26px_-18px_hsl(var(--primary))]'
+                              : 'border-border/70 bg-background/92 hover:border-primary/30'
                           )}
+                        >
+                          <div className={cn('pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-r', meta.accentClass)} />
+                          <div className="relative">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-[11px] font-semibold text-foreground">{meta.label}</p>
+                                <span className={cn('mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold', meta.badgeClass)}>
+                                  {meta.subtitle}
+                                </span>
+                              </div>
+                              {typeof score === 'number' && (
+                                <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-[10px] font-semibold text-foreground">
+                                  {score}/100
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-2 text-xs font-semibold">{concept.title}</p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">{concept.summary}</p>
+                            {rationale && (
+                              <p className="mt-1.5 text-[10px] text-muted-foreground/90">
+                                {rationale}
+                              </p>
+                            )}
+                            <div className="mt-2.5 flex items-center gap-1">
+                              {[concept.packageData.colors.light.primary, concept.packageData.colors.light.accent, concept.packageData.colors.light.secondary].map((color, index) => (
+                                <span
+                                  key={`${concept.id}-${index}`}
+                                  className="h-2.5 w-2.5 rounded-full ring-1 ring-black/10"
+                                  style={{ backgroundColor: `hsl(${color})` }}
+                                />
+                              ))}
+                            </div>
+                            <div className="mt-2.5 flex flex-wrap gap-1.5">
+                              <button
+                                onClick={() => applyConcept(concept)}
+                                className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-semibold hover:border-primary/40"
+                              >
+                                Preview
+                              </button>
+                              <button
+                                onClick={() => setCompareDirectionId(concept.id)}
+                                className={cn(
+                                  'rounded-md border px-2 py-1 text-[10px] font-semibold',
+                                  compareDirectionId === concept.id
+                                    ? 'border-primary/40 bg-primary/10 text-primary'
+                                    : 'border-border bg-background hover:border-primary/30'
+                                )}
+                              >
+                                Compare
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setSelectedDirectionId(concept.id);
+                                  setMergeSelection((prev) => ({
+                                    colors: prev.colors ?? concept.id,
+                                    typography: prev.typography ?? concept.id,
+                                    motionSystem: prev.motionSystem ?? concept.id,
+                                    layoutSystem: prev.layoutSystem ?? concept.id,
+                                    surfaceBlueprints: prev.surfaceBlueprints ?? concept.id,
+                                  }));
+                                }}
+                                className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-semibold hover:border-primary/40"
+                              >
+                                Base for Merge
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                        <p className="mt-1 text-[11px] text-muted-foreground">{concept.summary}</p>
-                        {(directionScores[concept.id]?.rationale ?? concept.rationale) && (
-                          <p className="mt-1 text-[10px] text-muted-foreground/90">
-                            {directionScores[concept.id]?.rationale ?? concept.rationale}
-                          </p>
-                        )}
-                        <div className="mt-2 flex gap-1.5">
-                          <button
-                            onClick={() => applyConcept(concept)}
-                            className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium hover:border-primary/40"
-                          >
-                            Preview
-                          </button>
-                          <button
-                            onClick={() => {
-                              setSelectedDirectionId(concept.id);
-                              setMergeSelection((prev) => ({
-                                colors: prev.colors ?? concept.id,
-                                typography: prev.typography ?? concept.id,
-                                motionSystem: prev.motionSystem ?? concept.id,
-                                layoutSystem: prev.layoutSystem ?? concept.id,
-                                surfaceBlueprints: prev.surfaceBlueprints ?? concept.id,
-                              }));
-                            }}
-                            className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium hover:border-primary/40"
-                          >
-                            Use in Merge
-                          </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {selectedConcept && compareConcept && selectedConcept.id !== compareConcept.id && (
+                  <div className="mt-3.5 grid gap-2 rounded-xl border border-border/70 bg-muted/30 p-2.5 md:grid-cols-2">
+                    {[selectedConcept, compareConcept].map((concept) => (
+                      <div key={`compare-${concept.id}`} className="rounded-lg border border-border/60 bg-background/85 p-2.5">
+                        <div className="mb-1.5 flex items-center justify-between">
+                          <p className="text-[11px] font-semibold">{concept.title}</p>
+                          <span className="text-[10px] text-muted-foreground">{DIRECTION_META[concept.id].subtitle}</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          {truncate(concept.summary, 88)}
+                        </p>
+                        <div className="mt-2 flex items-center gap-1.5">
+                          {[concept.packageData.colors.light.primary, concept.packageData.colors.light.accent, concept.packageData.colors.light.secondary, concept.packageData.colors.light.background].map((color, idx) => (
+                            <span
+                              key={`compare-${concept.id}-${idx}`}
+                              className="h-3 w-3 rounded-full ring-1 ring-black/10"
+                              style={{ backgroundColor: `hsl(${color})` }}
+                            />
+                          ))}
                         </div>
                       </div>
                     ))}
@@ -894,9 +1036,14 @@ export function DesignCalibrationWizard({
                 )}
 
                 {designConcepts.length > 0 && (
-                  <div className="mt-3 rounded-lg border border-border bg-muted/30 p-2.5">
-                    <p className="text-[11px] font-semibold text-foreground">Merge Composer</p>
-                    <div className="mt-2 grid gap-2 md:grid-cols-5">
+                  <div className="mt-3.5 rounded-xl border border-border/70 bg-muted/35 p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold text-foreground">Merge Composer</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Mix best traits from each direction, then preview before save.
+                      </p>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-5">
                       {([
                         ['colors', 'Palette'],
                         ['typography', 'Type'],
@@ -914,18 +1061,18 @@ export function DesignCalibrationWizard({
                                 [key]: e.target.value as DirectionId,
                               }))
                             }
-                            className="h-7 w-full rounded-md border border-border bg-background px-1.5 text-[10px]"
+                            className="h-7 w-full rounded-md border border-border/70 bg-background px-1.5 text-[10px]"
                           >
                             {designConcepts.map((concept) => (
                               <option key={`${key}-${concept.id}`} value={concept.id}>
-                                {concept.id}
+                                {DIRECTION_META[concept.id].label}
                               </option>
                             ))}
                           </select>
                         </div>
                       ))}
                     </div>
-                    <div className="mt-2 flex items-center justify-between gap-2">
+                    <div className="mt-2.5 flex items-center justify-between gap-2">
                       <p className="text-[10px] text-muted-foreground">
                         {mergePreview?.selectedDirection
                           ? `Suggested base: ${String(mergePreview.selectedDirection)}`
@@ -944,13 +1091,13 @@ export function DesignCalibrationWizard({
             )}
 
             {(brandDossier || qualityRepairs.length > 0) && (
-              <div className="mt-4 rounded-xl border border-border bg-card p-3">
+              <div className="mt-4 rounded-xl border border-border/70 bg-card/85 p-3 shadow-sm backdrop-blur">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs font-semibold text-foreground">Rationale</p>
+                    <p className="text-xs font-semibold text-foreground">Evidence Rationale</p>
                     {brandDossier && (
                       <p className="mt-1 text-[11px] text-muted-foreground">
-                        Source-backed dossier ready with confidence scoring and inferred defaults.
+                        Canonical brand dossier is active with confidence scores and inferred defaults.
                       </p>
                     )}
                   </div>
@@ -961,7 +1108,7 @@ export function DesignCalibrationWizard({
                   )}
                 </div>
                 {qualityRepairs.length > 0 && (
-                  <div className="mt-2 space-y-1">
+                  <div className="mt-2 grid gap-1.5">
                     {qualityRepairs.slice(-3).map((repair) => (
                       <p key={`${repair.attempt}-${repair.reason}`} className="text-[10px] text-muted-foreground">
                         Attempt {repair.attempt}: {repair.reason}
@@ -972,71 +1119,79 @@ export function DesignCalibrationWizard({
               </div>
             )}
 
-            <div className="mt-4 grid gap-3 rounded-xl border border-border bg-card p-3 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
-                  Brand Alignment ({brandAlignment}%)
-                </label>
-                <input
-                  type="range"
-                  min={40}
-                  max={100}
-                  value={brandAlignment}
-                  onChange={(e) => setBrandAlignment(Number(e.target.value))}
-                  className="w-full"
-                />
+            <div className="mt-4 rounded-2xl border border-border/70 bg-card/85 p-3 shadow-sm backdrop-blur">
+              <div className="mb-2">
+                <p className="text-xs font-semibold text-foreground">Advanced Direction Controls</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Dial quality intent before the next generation pass.
+                </p>
               </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
-                  Contrast Target
-                </label>
-                <select
-                  value={contrastTarget}
-                  onChange={(e) => setContrastTarget(e.target.value as 'aa' | 'aaa')}
-                  className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
-                >
-                  <option value="aa">AA</option>
-                  <option value="aaa">AAA</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
-                  Layout Density
-                </label>
-                <select
-                  value={layoutDensity}
-                  onChange={(e) => setLayoutDensity(e.target.value as 'compact' | 'comfortable' | 'spacious')}
-                  className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
-                >
-                  <option value="compact">Compact</option>
-                  <option value="comfortable">Comfortable</option>
-                  <option value="spacious">Spacious</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
-                  Motion Intensity
-                </label>
-                <select
-                  value={motionIntensity}
-                  onChange={(e) => setMotionIntensity(e.target.value as 'subtle' | 'moderate' | 'expressive')}
-                  className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
-                >
-                  <option value="subtle">Subtle</option>
-                  <option value="moderate">Moderate</option>
-                  <option value="expressive">Expressive</option>
-                </select>
-              </div>
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
-                  Voice Tone
-                </label>
-                <input
-                  value={voiceTone}
-                  onChange={(e) => setVoiceTone(e.target.value)}
-                  className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
-                  placeholder="clear and confident"
-                />
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-lg border border-border/70 bg-background/85 p-2.5">
+                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    Brand Alignment ({brandAlignment}%)
+                  </label>
+                  <input
+                    type="range"
+                    min={40}
+                    max={100}
+                    value={brandAlignment}
+                    onChange={(e) => setBrandAlignment(Number(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+                <div className="rounded-lg border border-border/70 bg-background/85 p-2.5">
+                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    Contrast Target
+                  </label>
+                  <select
+                    value={contrastTarget}
+                    onChange={(e) => setContrastTarget(e.target.value as 'aa' | 'aaa')}
+                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                  >
+                    <option value="aa">AA</option>
+                    <option value="aaa">AAA</option>
+                  </select>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-background/85 p-2.5">
+                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    Layout Density
+                  </label>
+                  <select
+                    value={layoutDensity}
+                    onChange={(e) => setLayoutDensity(e.target.value as 'compact' | 'comfortable' | 'spacious')}
+                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                  >
+                    <option value="compact">Compact</option>
+                    <option value="comfortable">Comfortable</option>
+                    <option value="spacious">Spacious</option>
+                  </select>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-background/85 p-2.5">
+                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    Motion Intensity
+                  </label>
+                  <select
+                    value={motionIntensity}
+                    onChange={(e) => setMotionIntensity(e.target.value as 'subtle' | 'moderate' | 'expressive')}
+                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                  >
+                    <option value="subtle">Subtle</option>
+                    <option value="moderate">Moderate</option>
+                    <option value="expressive">Expressive</option>
+                  </select>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-background/85 p-2.5 md:col-span-2">
+                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    Voice Tone
+                  </label>
+                  <input
+                    value={voiceTone}
+                    onChange={(e) => setVoiceTone(e.target.value)}
+                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                    placeholder="clear and confident"
+                  />
+                </div>
               </div>
             </div>
 
@@ -1051,7 +1206,7 @@ export function DesignCalibrationWizard({
                     <button
                       key={preset.id}
                       onClick={() => handlePresetSelect(preset)}
-                      className="group flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium transition-all hover:border-primary/40 hover:shadow-sm active:scale-95"
+                      className="group flex items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 text-xs font-medium transition-all hover:border-primary/40 hover:shadow-sm active:scale-95"
                     >
                       <div className="flex gap-0.5">
                         {[
@@ -1060,7 +1215,7 @@ export function DesignCalibrationWizard({
                         ].map((color, i) => (
                           <div
                             key={i}
-                            className="h-3 w-3 rounded-full"
+                            className="h-3 w-3 rounded-full ring-1 ring-black/10"
                             style={{ backgroundColor: `hsl(${color})` }}
                           />
                         ))}
@@ -1076,7 +1231,7 @@ export function DesignCalibrationWizard({
 
         {/* Right: Chat */}
         <div
-          className="relative flex w-[420px] shrink-0 flex-col overflow-hidden border-l border-border bg-card/40"
+          className="relative flex w-[420px] shrink-0 flex-col overflow-hidden border-l border-border bg-[linear-gradient(180deg,hsl(var(--card)/0.94),hsl(var(--muted)/0.42))]"
           {...dragHandlers}
         >
           {/* Drag overlay */}
@@ -1094,9 +1249,9 @@ export function DesignCalibrationWizard({
               <div key={msg.id} className={cn('space-y-1', msg.role === 'user' && 'flex justify-end')}>
                 <div
                   className={cn(
-                    'max-w-[95%] rounded-2xl px-3.5 py-2.5',
+                    'max-w-[95%] rounded-2xl px-3.5 py-2.5 shadow-sm',
                     msg.role === 'assistant'
-                      ? 'bg-muted/80 text-foreground rounded-tl-md'
+                      ? 'bg-background/85 text-foreground rounded-tl-md border border-border/70'
                       : 'bg-primary text-primary-foreground rounded-tr-md',
                   )}
                 >
@@ -1119,7 +1274,7 @@ export function DesignCalibrationWizard({
             {/* Live streaming block */}
             {isStreaming && currentBlocksRef.current.length > 0 && (
               <div className="space-y-1">
-                <div className="max-w-[95%] rounded-2xl rounded-tl-md bg-muted/80 text-foreground px-3.5 py-2.5">
+                <div className="max-w-[95%] rounded-2xl rounded-tl-md border border-border/70 bg-background/85 text-foreground px-3.5 py-2.5 shadow-sm">
                   {renderBlocks(currentBlocksRef.current, toolCallsRef.current, true)}
                 </div>
               </div>
@@ -1127,7 +1282,7 @@ export function DesignCalibrationWizard({
 
             {/* Typing indicator */}
             {isStreaming && currentBlocksRef.current.length === 0 && (
-              <div className="flex items-center gap-2 max-w-[95%] rounded-2xl rounded-tl-md bg-muted/80 px-3.5 py-3">
+              <div className="flex items-center gap-2 max-w-[95%] rounded-2xl rounded-tl-md border border-border/70 bg-background/85 px-3.5 py-3 shadow-sm">
                 <Sparkles className="h-3.5 w-3.5 text-primary animate-pulse" />
                 <div className="flex gap-1">
                   {[0, 1, 2].map((i) => (

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useState } from 'react';
-import type { DesignPackageData } from '@/lib/design-packages/types';
+import type { DesignPackageData, SurfaceBlueprintSection } from '@/lib/design-packages/types';
 import { packageToCSSString } from '@/lib/design-packages/css-variables';
 import { useGoogleFonts } from '@/lib/design-packages/font-loader';
 import { cn } from '@/lib/utils';
@@ -10,6 +10,7 @@ import {
   Blocks,
   ChartColumnIncreasing,
   CheckCircle2,
+  Clock4,
   Layers,
   LayoutDashboard,
   Moon,
@@ -58,6 +59,31 @@ function truncate(text: string, max = 120): string {
   return `${text.slice(0, max - 1).trimEnd()}...`;
 }
 
+function surfaceName(surface: 'landing' | 'customerApp' | 'internalApp'): string {
+  if (surface === 'landing') return 'Landing Surface';
+  if (surface === 'customerApp') return 'Customer App Surface';
+  return 'Internal App Surface';
+}
+
+function readinessScore(section: SurfaceBlueprintSection): number {
+  return Math.max(72, Math.min(98, 80 + section.priority * 4));
+}
+
+function metricValue(
+  surface: 'landing' | 'customerApp' | 'internalApp',
+  section: SurfaceBlueprintSection,
+): string {
+  if (surface === 'landing') return `+${10 + section.priority}%`;
+  if (surface === 'customerApp') return `${84 + section.priority}%`;
+  return `${31 + section.priority}m`;
+}
+
+function metricLabel(surface: 'landing' | 'customerApp' | 'internalApp'): string {
+  if (surface === 'landing') return 'Lift potential';
+  if (surface === 'customerApp') return 'Flow completion';
+  return 'Ops cycle time';
+}
+
 export function AppScaffoldPreview({
   data,
   brandName = 'Your App',
@@ -90,14 +116,16 @@ export function AppScaffoldPreview({
 
   if (state === 'placeholder') {
     return (
-      <div className={cn('relative overflow-hidden rounded-2xl shadow-2xl ring-1 ring-black/[0.08]', className)}>
-        <div className="relative bg-[radial-gradient(circle_at_20%_10%,hsl(var(--primary)/0.16),transparent_45%),radial-gradient(circle_at_80%_80%,hsl(var(--accent)/0.12),transparent_40%),hsl(var(--muted)/0.35)] px-8 py-28 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15 ring-1 ring-primary/30">
+      <div className={cn('relative overflow-hidden rounded-2xl shadow-[0_24px_70px_-30px_rgba(0,0,0,0.5)] ring-1 ring-black/[0.08]', className)}>
+        <div className="relative isolate overflow-hidden bg-[radial-gradient(circle_at_12%_16%,hsl(var(--primary)/0.28),transparent_42%),radial-gradient(circle_at_88%_82%,hsl(var(--accent)/0.22),transparent_44%),linear-gradient(130deg,hsl(var(--muted)/0.68),hsl(var(--background)))] px-8 py-28 text-center">
+          <div className="pointer-events-none absolute -left-24 top-16 h-44 w-44 rounded-full bg-primary/25 blur-3xl" />
+          <div className="pointer-events-none absolute -right-20 bottom-10 h-36 w-36 rounded-full bg-accent/30 blur-3xl" />
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15 ring-1 ring-primary/30 backdrop-blur">
             <WandSparkles className="h-6 w-6 text-primary" />
           </div>
           <p className="text-sm font-semibold text-foreground">Brand transformation preview appears here</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Run calibration to generate landing, customer app, and internal app directions.
+            Run calibration to generate high-fidelity landing, customer app, and internal app surfaces.
           </p>
         </div>
       </div>
@@ -140,18 +168,30 @@ export function AppScaffoldPreview({
     animationGuidelines: ['Prefer subtle transitions'],
     samplePrompt: 'Generate a coherent product surface from available design tokens.',
   };
+
   const density = data.layoutSystem?.density ?? 'comfortable';
   const motion = data.motionSystem?.intensity ?? 'moderate';
   const transitionClass = motionClass(motion);
   const blockClass = densityClass(density);
+  const navItems = blueprint.sectionOrder.slice(0, 4).map((section) => section.title);
 
   const transitionStyles = `
     #${cid},
     #${cid} * {
-      transition: background-color 260ms ease, border-color 260ms ease, color 260ms ease, transform 260ms ease;
+      transition: background-color 260ms ease, border-color 260ms ease, color 260ms ease, transform 280ms ease, box-shadow 280ms ease;
     }
     #${cid} .surface-block:hover {
-      transform: translateY(-2px);
+      transform: translateY(-3px);
+      box-shadow: 0 20px 38px -32px hsl(var(--foreground) / 0.9);
+    }
+    #${cid} .ambient-orb {
+      animation: scaffold-orbit 16s ease-in-out infinite alternate;
+    }
+    #${cid} .ambient-sheen {
+      animation: scaffold-pan 12s linear infinite;
+    }
+    #${cid} .soft-float {
+      animation: scaffold-float 5.2s ease-in-out infinite;
     }
     @media (prefers-reduced-motion: reduce) {
       #${cid},
@@ -161,25 +201,38 @@ export function AppScaffoldPreview({
       }
       #${cid} .surface-block:hover {
         transform: none !important;
+        box-shadow: none !important;
       }
     }
     @keyframes scaffold-pulse {
       0% { opacity: 0.35; }
-      50% { opacity: 0.7; }
+      50% { opacity: 0.68; }
       100% { opacity: 0.35; }
+    }
+    @keyframes scaffold-float {
+      0% { transform: translateY(0px); }
+      50% { transform: translateY(-4px); }
+      100% { transform: translateY(0px); }
+    }
+    @keyframes scaffold-pan {
+      0% { transform: translateX(-18%); opacity: 0.18; }
+      50% { opacity: 0.28; }
+      100% { transform: translateX(18%); opacity: 0.12; }
+    }
+    @keyframes scaffold-orbit {
+      0% { transform: translate(0px, 0px) scale(1); }
+      100% { transform: translate(8px, -10px) scale(1.04); }
     }
   `;
 
-  const navItems = blueprint.sectionOrder.slice(0, 4).map((section) => section.title);
-
   return (
-    <div className={cn('relative overflow-hidden rounded-2xl shadow-2xl ring-1 ring-black/[0.08]', className)}>
+    <div className={cn('relative overflow-hidden rounded-2xl shadow-[0_30px_80px_-36px_rgba(0,0,0,0.55)] ring-1 ring-black/[0.08]', className)}>
       <style dangerouslySetInnerHTML={{ __html: css + '\n' + fontCss + '\n' + transitionStyles }} />
 
       {(state === 'loading' || showLoadingOverlay) && (
         <div
           className={cn(
-            'absolute inset-0 z-10 rounded-2xl bg-primary/5 backdrop-blur-[1px] transition-opacity duration-300',
+            'absolute inset-0 z-20 rounded-2xl bg-primary/5 backdrop-blur-[1px] transition-opacity duration-300',
             state !== 'loading' && 'opacity-0'
           )}
           style={{ animation: state === 'loading' ? 'scaffold-pulse 2s ease-in-out infinite' : 'none' }}
@@ -189,13 +242,17 @@ export function AppScaffoldPreview({
       <div
         id={cid}
         ref={containerRef}
-        className={cn(isDark && 'dark')}
+        className={cn('relative isolate overflow-hidden', isDark && 'dark')}
         style={{ backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
       >
+        <div className="ambient-orb pointer-events-none absolute -left-20 top-20 h-44 w-44 rounded-full bg-primary/20 blur-3xl" />
+        <div className="ambient-orb pointer-events-none absolute -right-20 bottom-14 h-44 w-44 rounded-full bg-accent/22 blur-3xl" />
+        <div className="ambient-sheen pointer-events-none absolute inset-y-0 left-1/2 h-full w-56 -translate-x-1/2 bg-gradient-to-r from-transparent via-primary/10 to-transparent" />
+
         <div
-          className="flex items-center gap-3 px-4 py-2"
+          className="relative z-10 flex items-center gap-3 px-4 py-2.5"
           style={{
-            backgroundColor: 'hsl(var(--muted))',
+            backgroundColor: 'hsl(var(--muted) / 0.86)',
             borderBottom: '1px solid hsl(var(--border))',
           }}
         >
@@ -207,12 +264,15 @@ export function AppScaffoldPreview({
           <div
             className="mx-3 flex h-6 flex-1 items-center rounded-lg px-3 text-[11px]"
             style={{
-              backgroundColor: 'hsl(var(--background) / 0.72)',
+              backgroundColor: 'hsl(var(--background) / 0.84)',
               color: 'hsl(var(--muted-foreground))',
+              border: '1px solid hsl(var(--border) / 0.7)',
             }}
           >
             <Shield className="mr-1.5 h-3 w-3" style={{ color: 'hsl(var(--color-success))' }} />
-            {surface === 'landing' ? 'https://brand.site' : `https://app.${brandName.toLowerCase().replace(/\s+/g, '')}.com`}
+            {surface === 'landing'
+              ? 'https://brand.site'
+              : `https://app.${brandName.toLowerCase().replace(/\s+/g, '')}.com`}
           </div>
           <button
             onClick={() => setIsDark((prev) => !prev)}
@@ -225,12 +285,12 @@ export function AppScaffoldPreview({
         </div>
 
         <header
-          className="flex items-center justify-between px-5 py-3"
+          className="relative z-10 flex items-center justify-between px-5 py-3"
           style={{ borderBottom: '1px solid hsl(var(--border))' }}
         >
           <div className="flex items-center gap-3">
             <div
-              className="flex h-8 w-8 items-center justify-center"
+              className="soft-float flex h-8 w-8 items-center justify-center"
               style={{
                 backgroundColor: 'hsl(var(--primary))',
                 color: 'hsl(var(--primary-foreground))',
@@ -240,9 +300,9 @@ export function AppScaffoldPreview({
               <Sparkles className="h-4 w-4" />
             </div>
             <div>
-              <p className="text-sm font-semibold">{brandName}</p>
+              <p className="text-sm font-semibold tracking-tight">{brandName}</p>
               <p className="text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                {surface === 'landing' ? 'Landing Surface' : surface === 'customerApp' ? 'Customer App Surface' : 'Internal App Surface'}
+                {surfaceName(surface)}
               </p>
             </div>
           </div>
@@ -254,7 +314,7 @@ export function AppScaffoldPreview({
                 style={
                   index === 0
                     ? {
-                        backgroundColor: 'hsl(var(--primary) / 0.12)',
+                        backgroundColor: 'hsl(var(--primary) / 0.14)',
                         color: 'hsl(var(--primary))',
                       }
                     : { color: 'hsl(var(--muted-foreground))' }
@@ -274,44 +334,83 @@ export function AppScaffoldPreview({
         </header>
 
         {surface === 'landing' ? (
-          <main className="space-y-4 p-4 md:p-5">
+          <main className="relative z-10 space-y-4 p-4 md:p-5">
             <section
-              className={cn('relative overflow-hidden rounded-xl border', transitionClass)}
+              className={cn('relative overflow-hidden rounded-2xl border px-5 py-6 md:px-7 md:py-8', transitionClass)}
               style={{
                 borderColor: 'hsl(var(--border))',
                 background:
-                  'radial-gradient(circle at 10% 10%, hsl(var(--primary) / 0.22), transparent 42%), radial-gradient(circle at 90% 75%, hsl(var(--accent) / 0.18), transparent 45%), hsl(var(--card))',
+                  'linear-gradient(130deg, hsl(var(--card)), hsl(var(--muted)/0.52)), radial-gradient(circle at 12% 14%, hsl(var(--primary) / 0.26), transparent 38%), radial-gradient(circle at 88% 74%, hsl(var(--accent) / 0.2), transparent 42%)',
               }}
             >
-              <div className="px-5 py-6 md:px-7 md:py-8">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: 'hsl(var(--primary))' }}>
-                  {truncate(data.foundation?.brandPersonality ?? 'Brand-aligned design system', 52)}
-                </p>
-                <h1 className="mt-2 max-w-2xl text-2xl font-semibold leading-tight">
-                  {truncate(blueprint.purpose, 90)}
-                </h1>
-                <p className="mt-2 max-w-xl text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  {truncate(blueprint.layoutSummary, 130)}
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    className="rounded-md px-3 py-1.5 text-xs font-semibold"
-                    style={{
-                      backgroundColor: 'hsl(var(--primary))',
-                      color: 'hsl(var(--primary-foreground))',
-                    }}
-                  >
-                    Start Free Trial
-                  </button>
-                  <button
-                    className="rounded-md border px-3 py-1.5 text-xs font-medium"
-                    style={{
-                      borderColor: 'hsl(var(--border))',
-                      color: 'hsl(var(--foreground))',
-                    }}
-                  >
-                    View Demo
-                  </button>
+              <div className="grid gap-6 md:grid-cols-[1.2fr_0.8fr]">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: 'hsl(var(--primary))' }}>
+                    {truncate(data.foundation?.brandPersonality ?? 'Brand-aligned transformation', 58)}
+                  </p>
+                  <h1 className="mt-2 max-w-2xl text-2xl font-semibold leading-tight md:text-3xl">
+                    {truncate(blueprint.purpose, 110)}
+                  </h1>
+                  <p className="mt-3 max-w-xl text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    {truncate(blueprint.layoutSummary, 160)}
+                  </p>
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <button
+                      className="rounded-lg px-3.5 py-2 text-xs font-semibold"
+                      style={{
+                        backgroundColor: 'hsl(var(--primary))',
+                        color: 'hsl(var(--primary-foreground))',
+                      }}
+                    >
+                      Launch Branded Experience
+                    </button>
+                    <button
+                      className="rounded-lg border px-3.5 py-2 text-xs font-medium"
+                      style={{
+                        borderColor: 'hsl(var(--border))',
+                        color: 'hsl(var(--foreground))',
+                        backgroundColor: 'hsl(var(--background) / 0.64)',
+                      }}
+                    >
+                      Open Storyboard
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2.5">
+                  {blueprint.sectionOrder.slice(0, 3).map((section) => {
+                    const Glyph = sectionGlyph(section.id);
+                    return (
+                      <div
+                        key={`landing-highlight-${section.id}`}
+                        className={cn('surface-block rounded-xl border p-3 backdrop-blur-[1px]', transitionClass)}
+                        style={{
+                          borderColor: 'hsl(var(--border))',
+                          backgroundColor: 'hsl(var(--background) / 0.74)',
+                        }}
+                      >
+                        <div className="mb-2 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="flex h-6 w-6 items-center justify-center rounded-md"
+                              style={{
+                                backgroundColor: 'hsl(var(--primary) / 0.14)',
+                                color: 'hsl(var(--primary))',
+                              }}
+                            >
+                              <Glyph className="h-3.5 w-3.5" />
+                            </div>
+                            <p className="text-[11px] font-semibold">{section.title}</p>
+                          </div>
+                          <span className="text-[10px] font-semibold" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            {readinessScore(section)}
+                          </span>
+                        </div>
+                        <p className="text-[10px] leading-relaxed" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          {truncate(section.description, 70)}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </section>
@@ -322,10 +421,10 @@ export function AppScaffoldPreview({
                 return (
                   <article
                     key={section.id}
-                    className={cn('surface-block rounded-xl border bg-card', blockClass, transitionClass)}
+                    className={cn('surface-block rounded-xl border bg-card/92', blockClass, transitionClass)}
                     style={{ borderColor: 'hsl(var(--border))' }}
                   >
-                    <div className="mb-2 flex items-center justify-between">
+                    <div className="mb-2.5 flex items-center justify-between">
                       <div
                         className="flex h-7 w-7 items-center justify-center rounded-md"
                         style={{
@@ -339,19 +438,23 @@ export function AppScaffoldPreview({
                         Priority {section.priority}
                       </span>
                     </div>
-                    <p className="text-sm font-semibold">{section.title}</p>
-                    <p className="mt-1 text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                      {truncate(section.description, 85)}
+                    <p className="text-sm font-semibold leading-tight">{section.title}</p>
+                    <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      {truncate(section.description, 92)}
                     </p>
+                    <div className="mt-3 flex items-center gap-1 text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      <CheckCircle2 className="h-3 w-3" style={{ color: 'hsl(var(--color-success))' }} />
+                      <span>{truncate(section.interactionNotes[0] ?? 'Guided interaction pattern', 54)}</span>
+                    </div>
                   </article>
                 );
               })}
             </section>
           </main>
         ) : (
-          <div className="flex">
+          <div className="relative z-10 flex">
             <aside
-              className="hidden w-48 shrink-0 space-y-1.5 border-r p-3 md:block"
+              className="hidden w-52 shrink-0 space-y-1.5 border-r bg-gradient-to-b from-muted/30 to-transparent p-3 md:block"
               style={{ borderColor: 'hsl(var(--border))' }}
             >
               {blueprint.sectionOrder.map((section, index) => {
@@ -359,14 +462,18 @@ export function AppScaffoldPreview({
                 return (
                   <div
                     key={section.id}
-                    className={cn('flex items-center gap-2 rounded-md px-2.5 py-2 text-[11px] font-medium', transitionClass)}
+                    className={cn('surface-block flex items-center gap-2 rounded-lg px-2.5 py-2 text-[11px] font-medium', transitionClass)}
                     style={
                       index === 0
                         ? {
-                            backgroundColor: 'hsl(var(--primary) / 0.1)',
+                            backgroundColor: 'hsl(var(--primary) / 0.12)',
                             color: 'hsl(var(--primary))',
                           }
-                        : { color: 'hsl(var(--muted-foreground))' }
+                        : {
+                            color: 'hsl(var(--muted-foreground))',
+                            border: '1px solid hsl(var(--border) / 0.45)',
+                            backgroundColor: 'hsl(var(--background) / 0.55)',
+                          }
                     }
                   >
                     <Glyph className="h-3.5 w-3.5" />
@@ -378,73 +485,136 @@ export function AppScaffoldPreview({
 
             <main className="flex-1 space-y-3 p-3 md:p-4">
               <section
-                className={cn('rounded-xl border bg-card', densityClass(density), transitionClass)}
+                className={cn('rounded-xl border bg-card/90', densityClass(density), transitionClass)}
                 style={{ borderColor: 'hsl(var(--border))' }}
               >
-                <p className="text-xs font-semibold">{blueprint.purpose}</p>
-                <p className="mt-1 text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  {truncate(blueprint.layoutSummary, 160)}
-                </p>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold">{blueprint.purpose}</p>
+                    <p className="mt-1 text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      {truncate(blueprint.layoutSummary, 160)}
+                    </p>
+                  </div>
+                  <div
+                    className="rounded-lg border px-2.5 py-1.5 text-[10px] font-medium"
+                    style={{
+                      borderColor: 'hsl(var(--border))',
+                      color: 'hsl(var(--muted-foreground))',
+                      backgroundColor: 'hsl(var(--background) / 0.66)',
+                    }}
+                  >
+                    {data.foundation?.accessibilityTarget?.toUpperCase() ?? 'AA'} guardrail
+                  </div>
+                </div>
+
                 <div className="mt-3 grid gap-2 md:grid-cols-2">
                   {blueprint.sectionOrder.slice(0, 2).map((section) => (
                     <div
                       key={`kpi-${section.id}`}
-                      className={cn('rounded-lg border bg-background p-3', transitionClass)}
+                      className={cn('surface-block rounded-lg border bg-background/86 p-3', transitionClass)}
                       style={{ borderColor: 'hsl(var(--border))' }}
                     >
                       <p className="text-[10px] uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))' }}>
                         {section.title}
                       </p>
-                      <p className="mt-1 text-lg font-semibold">
-                        {surface === 'customerApp' ? `${84 + section.priority}%` : `${32 + section.priority} min`}
-                      </p>
+                      <p className="mt-1 text-lg font-semibold">{metricValue(surface, section)}</p>
                       <p className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        {surface === 'customerApp' ? 'Completion score' : 'Ops cycle time'}
+                        {metricLabel(surface)}
                       </p>
                     </div>
                   ))}
                 </div>
               </section>
 
-              <section className="grid gap-2 md:grid-cols-2">
-                {blueprint.sectionOrder.map((section) => {
-                  const Glyph = sectionGlyph(section.id);
-                  return (
-                    <article
-                      key={`surface-${section.id}`}
-                      className={cn('surface-block rounded-xl border bg-card', blockClass, transitionClass)}
-                      style={{ borderColor: 'hsl(var(--border))' }}
-                    >
-                      <div className="mb-2 flex items-center gap-2">
-                        <div
-                          className="flex h-7 w-7 items-center justify-center rounded-md"
-                          style={{
-                            backgroundColor: 'hsl(var(--primary) / 0.12)',
-                            color: 'hsl(var(--primary))',
-                          }}
-                        >
-                          <Glyph className="h-3.5 w-3.5" />
-                        </div>
-                        <p className="text-xs font-semibold">{section.title}</p>
-                      </div>
-                      <p className="text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        {truncate(section.description, 90)}
-                      </p>
-                      <div className="mt-3 space-y-1.5">
-                        {section.interactionNotes.slice(0, 2).map((note) => (
-                          <div key={note} className="flex items-start gap-1.5 text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                            <CheckCircle2 className="mt-[1px] h-3 w-3 shrink-0" style={{ color: 'hsl(var(--color-success))' }} />
-                            <span>{truncate(note, 72)}</span>
+              {surface === 'customerApp' ? (
+                <section className="grid gap-2 md:grid-cols-2">
+                  {blueprint.sectionOrder.map((section) => {
+                    const Glyph = sectionGlyph(section.id);
+                    return (
+                      <article
+                        key={`customer-surface-${section.id}`}
+                        className={cn('surface-block rounded-xl border bg-card/94', blockClass, transitionClass)}
+                        style={{ borderColor: 'hsl(var(--border))' }}
+                      >
+                        <div className="mb-2 flex items-center gap-2">
+                          <div
+                            className="flex h-7 w-7 items-center justify-center rounded-md"
+                            style={{
+                              backgroundColor: 'hsl(var(--primary) / 0.12)',
+                              color: 'hsl(var(--primary))',
+                            }}
+                          >
+                            <Glyph className="h-3.5 w-3.5" />
                           </div>
-                        ))}
-                      </div>
-                    </article>
-                  );
-                })}
-              </section>
+                          <p className="text-xs font-semibold">{section.title}</p>
+                        </div>
+                        <p className="text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          {truncate(section.description, 90)}
+                        </p>
+                        <div className="mt-3 space-y-1.5">
+                          {section.interactionNotes.slice(0, 2).map((note) => (
+                            <div key={note} className="flex items-start gap-1.5 text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                              <CheckCircle2 className="mt-[1px] h-3 w-3 shrink-0" style={{ color: 'hsl(var(--color-success))' }} />
+                              <span>{truncate(note, 72)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </section>
+              ) : (
+                <section className="grid gap-2 md:grid-cols-[1.2fr_0.8fr]">
+                  <article
+                    className={cn('surface-block rounded-xl border bg-card/94', blockClass, transitionClass)}
+                    style={{ borderColor: 'hsl(var(--border))' }}
+                  >
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-xs font-semibold">Operations Queue</p>
+                      <span className="rounded-md px-2 py-0.5 text-[10px] font-medium" style={{ backgroundColor: 'hsl(var(--warning) / 0.15)', color: 'hsl(var(--warning))' }}>
+                        12 active
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {blueprint.sectionOrder.slice(0, 3).map((section) => (
+                        <div
+                          key={`internal-row-${section.id}`}
+                          className="flex items-center justify-between rounded-lg border px-2.5 py-2"
+                          style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--background) / 0.78)' }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Clock4 className="h-3.5 w-3.5" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                            <span className="text-[11px] font-medium">{truncate(section.title, 28)}</span>
+                          </div>
+                          <span className="text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            {metricValue('internalApp', section)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+
+                  <article
+                    className={cn('surface-block rounded-xl border bg-card/94 p-3', transitionClass)}
+                    style={{ borderColor: 'hsl(var(--border))' }}
+                  >
+                    <p className="mb-2 text-xs font-semibold">Control Tower</p>
+                    <div className="space-y-2">
+                      {blueprint.sectionOrder.slice(0, 3).map((section) => (
+                        <div key={`tower-${section.id}`} className="rounded-lg border p-2" style={{ borderColor: 'hsl(var(--border))' }}>
+                          <p className="text-[10px] font-semibold">{truncate(section.title, 34)}</p>
+                          <p className="mt-1 text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            Ready score {readinessScore(section)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                </section>
+              )}
 
               <section
-                className={cn('rounded-xl border bg-card p-3', transitionClass)}
+                className={cn('rounded-xl border bg-card/90 p-3', transitionClass)}
                 style={{ borderColor: 'hsl(var(--border))' }}
               >
                 <p className="text-[11px] font-semibold">Motion + Layout Guidance</p>
