@@ -6,8 +6,7 @@ test.describe('Creator Bot JSON Display', () => {
     await page.goto('/');
 
     // Sign in via dev bypass (if available)
-    // You may need to adjust this based on your auth setup
-    await page.waitForTimeout(1000);
+    // No wait needed - dev bypass is synchronous
   });
 
   test('should NOT display raw JSON in creator chat', async ({ page }) => {
@@ -29,11 +28,14 @@ test.describe('Creator Bot JSON Display', () => {
     // Submit the message
     await page.keyboard.press('Enter');
 
-    // Wait for the response to appear
-    await page.waitForTimeout(3000); // Give time for streaming to start
+    // Wait for first message to appear (streaming started)
+    await page.locator('[role="article"]').first().waitFor({ state: 'visible', timeout: 5000 });
 
-    // Wait for the "done" indicator or a reasonable timeout
-    await page.waitForTimeout(15000); // Allow time for bot generation
+    // Wait for response to complete - check that we have messages
+    await page.waitForFunction(() => {
+      const articles = document.querySelectorAll('[role="article"]');
+      return articles.length > 0;
+    }, { timeout: 15000 });
 
     // Get all chat messages
     const messages = await page.locator('[role="article"], .message, p').allTextContents();
@@ -89,8 +91,8 @@ test.describe('Creator Bot JSON Display', () => {
     await input.fill('Create a weather bot');
     await page.keyboard.press('Enter');
 
-    // Wait for response
-    await page.waitForTimeout(10000);
+    // Wait for assistant response to appear
+    await page.locator('[role="article"]').last().waitFor({ state: 'visible', timeout: 15000 });
 
     // Take a screenshot for visual verification
     await page.screenshot({

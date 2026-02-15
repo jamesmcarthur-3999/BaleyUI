@@ -14,8 +14,8 @@ test('Creator chat should not display raw JSON', async ({ page }) => {
   // Try to navigate to the new bot page (may redirect to login)
   await page.goto('/dashboard/baleybots/new');
 
-  // Wait a bit for any redirects
-  await page.waitForTimeout(2000);
+  // Wait for navigation/redirects to complete
+  await page.waitForLoadState('networkidle');
 
   console.log('After navigation URL:', page.url());
 
@@ -54,8 +54,8 @@ test('Creator chat should not display raw JSON', async ({ page }) => {
 
   console.log('✅ Message sent, waiting for response...');
 
-  // Wait for response (up to 30 seconds)
-  await page.waitForTimeout(30000);
+  // Wait for response message to appear
+  await page.locator('[role="article"]').last().waitFor({ state: 'visible', timeout: 30000 });
 
   // Get all text content from the page
   const pageText = await page.textContent('body');
