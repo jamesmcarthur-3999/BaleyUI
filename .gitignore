@@ -27,6 +27,7 @@ dist/
 Thumbs.db
 
 # Logs
+.logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -63,6 +64,9 @@ package-lock.json
 # Local databases
 *.db
 !packages/db/**/*.db
+
+# Neon local dev
+.neon_local/
 
 # Playwright MCP artifacts
 .playwright-mcp/

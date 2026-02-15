@@ -198,7 +198,7 @@ function buildGoal(spec, contract, resolvedSkills) {
     lines.push('Output:');
     lines.push('- Return exactly one JSON object matching this key/type map:');
     for (const [key, value] of Object.entries(contract.output)) {
-      lines.push(`  - ${key}: ${value}`);
+      lines.push(`  - ${key}: ${normalizeOutputType(value)}`);
     }
     lines.push('- Contract rules:');
     for (const rule of contract.rules) {
@@ -238,6 +238,22 @@ function buildGoal(spec, contract, resolvedSkills) {
   return lines.join('\n').trim();
 }
 
+/**
+ * Normalize a contract output value to a BAL-compatible type string.
+ * BAL only supports: string, number, boolean, array, object, array<T>
+ * Complex nested schemas are normalized to "object" for BAL syntax.
+ */
+function normalizeOutputType(value) {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'object' && value !== null) {
+    // Nested object schema → normalize to "object" for BAL
+    return 'object';
+  }
+  return 'object';
+}
+
 function buildBalCode(spec, goal, contract, modelPolicy) {
   const resolvedModel = resolveModelRef(spec.model, modelPolicy);
 
@@ -257,7 +273,7 @@ function buildBalCode(spec, goal, contract, modelPolicy) {
   const hasOutput = contract.output && Object.keys(contract.output).length > 0;
   if (hasOutput) {
     const outputEntries = Object.entries(contract.output)
-      .map(([key, value]) => `    ${JSON.stringify(key)}: ${JSON.stringify(value)}`)
+      .map(([key, value]) => `    ${JSON.stringify(key)}: ${JSON.stringify(normalizeOutputType(value))}`)
       .join(',\n');
     return `${spec.id} {\n  \"goal\": ${JSON.stringify(goal)},\n  \"model\": ${JSON.stringify(resolvedModel)}${toolsBlock}${maxTokensBlock},\n  \"output\": {\n${outputEntries}\n  }\n}\n`;
   }

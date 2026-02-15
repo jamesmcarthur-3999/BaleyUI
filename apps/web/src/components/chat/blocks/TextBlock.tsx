@@ -12,10 +12,8 @@ interface TextBlockProps {
 
 export function TextBlock({ segment, className }: TextBlockProps) {
   // Strip raw JSON blocks from text (safety net for LLM echoing tool results)
-  // Only apply to finalized text — incomplete JSON during streaming would cause false positives
-  const displayContent = segment.isStreaming
-    ? segment.content
-    : stripLargeJsonBlocks(segment.content);
+  // Apply during streaming too - we check for specific creator bot keys so false positives are unlikely
+  const displayContent = stripLargeJsonBlocks(segment.content);
 
   return (
     <div className={cn(

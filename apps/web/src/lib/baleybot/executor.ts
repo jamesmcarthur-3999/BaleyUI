@@ -1,7 +1,7 @@
 /**
  * BAL Executor Service
  *
- * Executes BAL v2 via @baleybots/tools (wrapped by @baleyui/sdk).
+ * Executes BAL via @baleybots/tools (wrapped by @baleyui/sdk).
  * This keeps BaleyUI aligned with the canonical BAL implementation.
  */
 

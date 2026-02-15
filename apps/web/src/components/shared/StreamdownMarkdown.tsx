@@ -30,6 +30,13 @@ export function StreamdownMarkdown({ text, isStreaming = false, className }: Str
         isAnimating={isStreaming}
         animated={isStreaming ? { animation: 'fadeIn', duration: 150, sep: 'word' } : false}
         caret={isStreaming ? 'block' : undefined}
+        components={{
+          // Render paragraphs as divs to avoid nested <p> tag errors
+          // Apply paragraph styling via className to preserve prose formatting
+          p: ({ children, className: pClassName }) => (
+            <div className={pClassName}>{children}</div>
+          ),
+        }}
       >
         {text}
       </Streamdown>

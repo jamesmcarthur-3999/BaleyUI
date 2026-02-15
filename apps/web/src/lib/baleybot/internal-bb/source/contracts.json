@@ -17,7 +17,16 @@
       "balCode": "string",
       "explanation": "string",
       "entities": "array<object>",
-      "toolRationale": "object",
+      "toolRationale": {
+        "web_search": "?string",
+        "fetch_url": "?string",
+        "spawn_baleybot": "?string",
+        "send_notification": "?string",
+        "store_memory": "?string",
+        "schedule_task": "?string",
+        "create_agent": "?string",
+        "create_tool": "?string"
+      },
       "suggestedName": "string",
       "suggestedIcon": "string"
     },

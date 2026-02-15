@@ -29,6 +29,14 @@ const nextConfig: NextConfig = {
       '@baleybots/tools/dsl/parser': relativeDslDir + '/parser.js',
       '@baleybots/tools/dsl/types': relativeDslDir + '/types.js',
       '@baleybots/tools/dsl/type-builder': relativeDslDir + '/type-builder.js',
+      // Redirect @baleybots/auth to a lightweight shim that only exports the pure
+      // functions used by @baleybots/core (getRequestHeaders). This eliminates the
+      // transitive express dependency that Turbopack can't bundle (dynamic require).
+      '@baleybots/auth': './src/lib/baleybots-auth-shim.ts',
+      // @baleybots/core optionally imports these providers via try/catch. Turbopack
+      // treats dynamic import() as a hard requirement. Alias to empty so the import
+      // succeeds silently — actual provider availability is checked at runtime.
+      'ollama-ai-provider': './turbopack-empty.js',
       // Client-side fallbacks for Node.js builtins (equivalent to webpack resolve.fallback)
       fs: { browser: './turbopack-empty.js' },
       net: { browser: './turbopack-empty.js' },
@@ -45,6 +53,8 @@ const nextConfig: NextConfig = {
       '@baleybots/tools/dsl/parser': path.join(dslDir, 'parser.js'),
       '@baleybots/tools/dsl/types': path.join(dslDir, 'types.js'),
       '@baleybots/tools/dsl/type-builder': path.join(dslDir, 'type-builder.js'),
+      // Same shim as Turbopack — eliminates express from @baleybots/auth.
+      '@baleybots/auth': path.join(__dirname, 'src/lib/baleybots-auth-shim.ts'),
     };
     config.infrastructureLogging = {
       ...(config.infrastructureLogging || {}),
@@ -54,8 +64,6 @@ const nextConfig: NextConfig = {
     // @baleybots/core's adapters barrel loads platform/node (fs/promises, child_process)
     // at import time. These modules are never executed client-side — only the platform/browser
     // adapter runs in the browser. Provide empty fallbacks so webpack doesn't fail.
-    // NOTE: The @baleybots/auth → express chain was fixed upstream (baleybots/baleybots#37),
-    // but core's own platform/node code still needs these fallbacks.
     if (!isServer) {
       config.resolve.fallback = {
         ...(config.resolve.fallback || {}),
@@ -127,6 +135,7 @@ const nextConfig: NextConfig = {
     '@baleybots/tools',
     '@baleybots/chat',
     '@baleybots/react',
+    // @baleybots/auth is aliased to a lightweight shim (no express) via resolveAlias.
     // Turbopack can't resolve these through pnpm's isolated node_modules
     // (they're transitive deps of @baleyui/db). Let Node.js resolve at runtime.
     'drizzle-orm',

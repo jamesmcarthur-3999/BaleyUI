@@ -11,6 +11,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @baleyui/web dev",
+    "dev:logs": "bash scripts/dev-with-logs.sh",
     "build": "pnpm --filter @baleyui/web build",
     "start": "pnpm --filter @baleyui/web start",
     "lint": "pnpm -r lint",
@@ -22,7 +23,9 @@
     "db:migrate": "pnpm --filter @baleyui/db db:migrate",
     "db:deploy": "pnpm --filter @baleyui/db db:deploy",
     "db:push": "pnpm --filter @baleyui/db db:push",
-    "db:studio": "pnpm --filter @baleyui/db db:studio"
+    "db:studio": "pnpm --filter @baleyui/db db:studio",
+    "db:seed": "pnpm --filter @baleyui/db db:seed",
+    "setup": "bash scripts/setup.sh"
   },
   "devDependencies": {
     "dotenv": "^17.3.1",

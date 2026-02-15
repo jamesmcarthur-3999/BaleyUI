@@ -11,7 +11,7 @@
  * - @baleyui/db (database)
  *
  * It CAN import from:
- * - @baleybots/tools baleybots-dsl-v2 sub-module (pure lexer/parser)
+ * - @baleybots/tools DSL sub-module (pure lexer/parser)
  *   NOTE: Must use deep import to avoid barrel export that pulls in @baleybots/core
  */
 

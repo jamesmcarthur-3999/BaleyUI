@@ -1,11 +1,13 @@
 /**
  * Strip large JSON blocks from text content.
  * Safety net for cases where the LLM echoes tool results as text.
- * Only strips balanced JSON objects >200 chars containing 2+ quoted keys.
+ * Strips:
+ * - Balanced JSON objects >200 chars with 2+ quoted keys
+ * - JSON containing known creator bot output keys (balCode, entities, etc.)
  * Preserves JSON inside markdown code fences (e.g. ```json ... ```).
  */
 export function stripLargeJsonBlocks(text: string): string {
-  if (text.length < 200) return text;
+  // No minimum length check - we'll strip even small JSON blocks with creator keys
 
   // Build a set of character positions that fall inside markdown code fences.
   // We skip any JSON block whose opening brace is inside a fenced region.
@@ -18,6 +20,40 @@ export function stripLargeJsonBlocks(text: string): string {
 
   const isInCodeFence = (pos: number) =>
     codeFenceRanges.some(([s, e]) => pos >= s && pos < e);
+
+  // Known creator bot output keys that indicate structured data
+  const creatorBotKeys = [
+    'balCode',
+    'entities',
+    'explanation',
+    'toolRationale',
+    'suggestedName',
+    'suggestedIcon',
+    'tests',
+    'topology',
+    'strategy',
+    'overallAssessment',
+    'issues',
+    'suggestions',
+    'analysis',
+    'recommendations',
+    'warnings',
+    'remediationSteps',
+    'verificationPlan',
+    'monitoringAdvice',
+    'readinessGaps',
+    'productionChecklist',
+    'triggerRecommendations',
+    'components',
+    'summary',
+    'colors',
+    'typography',
+    'borderRadius',
+    'mood',
+    'animationStyle',
+    'entries',
+    'skippedReasons',
+  ];
 
   // Find outermost balanced { ... } blocks
   let result = text;
@@ -50,14 +86,21 @@ export function stripLargeJsonBlocks(text: string): string {
     if (end === -1) break; // Unclosed brace, stop
 
     const block = result.slice(start, end);
-    if (block.length < 200) {
-      searchFrom = end;
-      continue;
-    }
+
+    // Check if it contains known creator bot output keys
+    const hasCreatorKeys = creatorBotKeys.some((key) => block.includes(`"${key}"`));
 
     // Check if it looks like structured output (2+ quoted keys)
     const keyMatches = block.match(/"[a-zA-Z_]+"\s*:/g);
-    if (!keyMatches || keyMatches.length < 2) {
+    const hasMultipleKeys = keyMatches && keyMatches.length >= 2;
+
+    // Strip if either:
+    // 1. It's a large block (>200 chars) with multiple keys
+    // 2. It contains known creator bot output keys (regardless of size)
+    const shouldStrip =
+      (block.length >= 200 && hasMultipleKeys) || hasCreatorKeys;
+
+    if (!shouldStrip) {
       searchFrom = end;
       continue;
     }
@@ -65,7 +108,7 @@ export function stripLargeJsonBlocks(text: string): string {
     // Verify it's valid JSON
     try {
       JSON.parse(block);
-      // Valid JSON block >200 chars with multiple keys — strip it
+      // Valid JSON block that matches our criteria — strip it
       result = (result.slice(0, start) + result.slice(end)).trim();
       // Recompute code fence ranges since positions shifted
       codeFenceRanges.length = 0;
@@ -80,5 +123,6 @@ export function stripLargeJsonBlocks(text: string): string {
     }
   }
 
-  return result || text; // Never return empty
+  // Return the result even if empty — if the entire message was JSON, we want to strip it
+  return result;
 }

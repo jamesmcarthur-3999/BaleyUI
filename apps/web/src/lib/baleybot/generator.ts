@@ -23,7 +23,7 @@ const logger = createLogger('bal-generator');
 // ============================================================================
 
 const BAL_SYNTAX_REFERENCE = `
-# BAL (Baleybots Assembly Language) Syntax Reference (v2)
+# BAL (Baleybots Assembly Language) Syntax Reference
 
 BAL is used to define BaleyBot configurations. Each entity is an AI agent with a specific purpose.
 

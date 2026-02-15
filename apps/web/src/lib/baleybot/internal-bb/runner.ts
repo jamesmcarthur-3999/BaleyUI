@@ -544,7 +544,32 @@ export const balGeneratorOutputSchema = z.object({
   balCode: z.string(),
   explanation: z.string().catch(''),
   entities: z.array(balGeneratorEntitySchema).catch([]),
-  toolRationale: z.record(z.string(), z.string()).catch({}),
+  toolRationale: z
+    .union([
+      z.string().transform((str) => {
+        // Handle stringified JSON case
+        try {
+          const parsed = JSON.parse(str);
+          if (typeof parsed === 'object' && parsed !== null) {
+            return parsed;
+          }
+          return {};
+        } catch {
+          return {};
+        }
+      }),
+      z.object({
+        web_search: z.string().optional(),
+        fetch_url: z.string().optional(),
+        spawn_baleybot: z.string().optional(),
+        send_notification: z.string().optional(),
+        store_memory: z.string().optional(),
+        schedule_task: z.string().optional(),
+        create_agent: z.string().optional(),
+        create_tool: z.string().optional(),
+      }),
+    ])
+    .catch({}),
   suggestedName: z.string().catch('Unnamed BaleyBot'),
   suggestedIcon: z.string().catch('🤖'),
 });

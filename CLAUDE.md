@@ -315,11 +315,15 @@ processor("extract") { "result.data" }           # Data transform
 After implementing changes, verify the app ACTUALLY WORKS end-to-end, not just that lint/types/tests pass. Passing CI checks do not mean the app is functional. Launch the app or test the real user flow when possible.
 
 ```bash
+pnpm dev               # Dev server (terminal only)
+pnpm dev:logs          # Dev server with logs to .logs/<timestamp>/
 pnpm test              # Run all tests
 pnpm test:watch        # Watch mode
 pnpm type-check        # TypeScript checking
 pnpm lint              # ESLint
 ```
+
+`pnpm dev:logs` writes to `.logs/<timestamp>/` with `full.log`, `server.log`, and `client.log`. A `.logs/latest` symlink points to the most recent run. Only the last 10 runs are kept.
 
 ## Common Tasks
 
