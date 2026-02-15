@@ -464,11 +464,12 @@ export async function executeInternalBaleybot(
       }
     }
 
-    // Use caller's signal, or default to 2-minute timeout to prevent indefinite hangs
-    const signal = options.signal ?? AbortSignal.timeout(120_000);
+    // Respect caller cancellation/disconnect only. Long-running internal BB flows
+    // should not be hard-stopped by a fixed wall-clock timeout.
+    const signal = options.signal;
 
     // Check signal before execution
-    if (signal.aborted) {
+    if (signal?.aborted) {
       throw new Error('Execution aborted');
     }
 

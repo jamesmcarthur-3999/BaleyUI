@@ -55,6 +55,11 @@ export interface ContractGatewayRunOptions<TExecutionOptions, TOutput> {
     options?: TExecutionOptions
   ) => Promise<{ output: unknown; metadata?: ContractGatewayExecutionMetadata }>;
   executionOptions?: TExecutionOptions;
+  /**
+   * Optional per-attempt resolver for execution options.
+   * attempt=0 is the initial run, attempt>=1 are repair retries.
+   */
+  resolveExecutionOptions?: (attempt: number) => TExecutionOptions | undefined;
   fallbackMode?: FallbackMode;
   fallbackValue?: TOutput;
   repairAttempts?: number;
@@ -274,6 +279,7 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
     schema,
     execute,
     executionOptions,
+    resolveExecutionOptions,
     fallbackMode = 'throw',
     fallbackValue,
     repairAttempts = 1,
@@ -284,7 +290,16 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
   metrics.runs += 1;
 
   try {
-    let { output, metadata } = await execute(botName, input, executionOptions);
+    const getAttemptOptions = (attempt: number): TExecutionOptions | undefined =>
+      resolveExecutionOptions
+        ? resolveExecutionOptions(attempt)
+        : executionOptions;
+
+    let { output, metadata } = await execute(
+      botName,
+      input,
+      getAttemptOptions(0)
+    );
     let parsed = parseOutputAgainstSchema(schema, output);
 
     if (parsed.success) {
@@ -333,7 +348,11 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
         maxTokensHint: metadata?.maxTokensReached === true,
       });
 
-      const repaired = await execute(botName, repairPrompt, executionOptions);
+      const repaired = await execute(
+        botName,
+        repairPrompt,
+        getAttemptOptions(attempt)
+      );
       output = repaired.output;
       metadata = repaired.metadata;
       parsed = parseOutputAgainstSchema(schema, output);

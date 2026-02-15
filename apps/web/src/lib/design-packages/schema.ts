@@ -632,6 +632,172 @@ export function createDefaultBrandDossier(args: {
   };
 }
 
+function clampUnitInterval(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(0, Math.min(1, value));
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const normalized = value
+    .map((entry) => {
+      if (typeof entry === 'string') return entry.trim();
+      if (typeof entry === 'number' || typeof entry === 'boolean') return String(entry);
+      if (entry && typeof entry === 'object') {
+        const record = entry as Record<string, unknown>;
+        const candidate = [
+          record.note,
+          record.value,
+          record.text,
+          record.label,
+          record.summary,
+        ].find((item) => typeof item === 'string' && item.trim().length > 0);
+        if (typeof candidate === 'string') return candidate.trim();
+        try {
+          return JSON.stringify(entry);
+        } catch {
+          return '';
+        }
+      }
+      return '';
+    })
+    .filter((entry) => entry.length > 0);
+  return normalized;
+}
+
+function normalizeBrandSources(value: unknown): Array<z.infer<typeof brandSourceRecordSchema>> {
+  if (!Array.isArray(value)) return [];
+
+  const out: Array<z.infer<typeof brandSourceRecordSchema>> = [];
+  for (const [index, raw] of value.entries()) {
+    const record = asRecord(raw);
+    if (!record) continue;
+
+    const kind = record.kind;
+    const normalizedKind =
+      kind === 'url' || kind === 'image' || kind === 'pdf' || kind === 'text'
+        ? kind
+        : 'text';
+
+    out.push({
+      id:
+        typeof record.id === 'string' && record.id.trim().length > 0
+          ? record.id
+          : `source-${index + 1}`,
+      kind: normalizedKind,
+      label:
+        typeof record.label === 'string' && record.label.trim().length > 0
+          ? record.label
+          : `Source ${index + 1}`,
+      confidence: clampUnitInterval(record.confidence, 0.6),
+      notes: normalizeStringArray(record.notes),
+    });
+  }
+
+  return out;
+}
+
+function normalizeBrandConflicts(value: unknown): Array<z.infer<typeof brandConflictRecordSchema>> {
+  if (!Array.isArray(value)) return [];
+
+  const out: Array<z.infer<typeof brandConflictRecordSchema>> = [];
+  for (const raw of value) {
+    const record = asRecord(raw);
+    if (!record) continue;
+    if (
+      typeof record.topic !== 'string' ||
+      typeof record.detail !== 'string' ||
+      typeof record.resolution !== 'string'
+    ) {
+      continue;
+    }
+    out.push({
+      topic: record.topic,
+      detail: record.detail,
+      resolution: record.resolution,
+      confidence: clampUnitInterval(record.confidence, 0.5),
+    });
+  }
+  return out;
+}
+
+export function ensureBrandDossier(
+  input: unknown,
+  defaults?: {
+    mood?: (typeof DESIGN_MOODS)[number];
+    animationStyle?: (typeof ANIMATION_STYLES)[number];
+    accessibilityTarget?: 'aa' | 'aaa';
+    density?: 'compact' | 'comfortable' | 'spacious';
+    voiceTone?: string;
+  }
+): z.infer<typeof brandDossierSchema> {
+  const parsed = brandDossierSchema.safeParse(input);
+  if (parsed.success) return parsed.data;
+
+  const fallbackMood = defaults?.mood ?? 'professional';
+  const fallbackAnimationStyle = defaults?.animationStyle ?? 'professional';
+  const baseline = createDefaultBrandDossier({
+    mood: fallbackMood,
+    animationStyle: fallbackAnimationStyle,
+    accessibilityTarget: defaults?.accessibilityTarget ?? 'aa',
+    density: defaults?.density ?? 'comfortable',
+    voiceTone: defaults?.voiceTone ?? 'Clear and confident',
+  });
+
+  const record = asRecord(input);
+  if (!record) return baseline;
+
+  const confidence = asRecord(record.confidence);
+  const recommendedDefaults = asRecord(record.recommendedDefaults);
+  const normalizedSources = normalizeBrandSources(record.sources);
+
+  const normalizedCandidate = {
+    version: 1 as const,
+    createdAt:
+      typeof record.createdAt === 'string' && !Number.isNaN(Date.parse(record.createdAt))
+        ? new Date(record.createdAt).toISOString()
+        : baseline.createdAt,
+    sources: normalizedSources.length > 0 ? normalizedSources : baseline.sources,
+    extractedTokens: normalizeStringArray(record.extractedTokens),
+    typographySignals: normalizeStringArray(record.typographySignals),
+    motionSignals: normalizeStringArray(record.motionSignals),
+    layoutSignals: normalizeStringArray(record.layoutSignals),
+    voiceSignals: normalizeStringArray(record.voiceSignals),
+    conflicts: normalizeBrandConflicts(record.conflicts),
+    confidence: {
+      overall: clampUnitInterval(confidence?.overall, baseline.confidence.overall),
+      color: clampUnitInterval(confidence?.color, baseline.confidence.color),
+      typography: clampUnitInterval(confidence?.typography, baseline.confidence.typography),
+      motion: clampUnitInterval(confidence?.motion, baseline.confidence.motion),
+      layout: clampUnitInterval(confidence?.layout, baseline.confidence.layout),
+      voice: clampUnitInterval(confidence?.voice, baseline.confidence.voice),
+    },
+    recommendedDefaults: {
+      mood: coerceMood(recommendedDefaults?.mood ?? record.mood ?? fallbackMood),
+      animationStyle: coerceAnimationStyle(
+        recommendedDefaults?.animationStyle ?? record.animationStyle ?? fallbackAnimationStyle
+      ),
+      accessibilityTarget:
+        recommendedDefaults?.accessibilityTarget === 'aaa' ? 'aaa' : 'aa',
+      density:
+        recommendedDefaults?.density === 'compact' ||
+        recommendedDefaults?.density === 'comfortable' ||
+        recommendedDefaults?.density === 'spacious'
+          ? recommendedDefaults.density
+          : baseline.recommendedDefaults.density,
+      voiceTone:
+        typeof recommendedDefaults?.voiceTone === 'string' && recommendedDefaults.voiceTone.trim().length > 0
+          ? recommendedDefaults.voiceTone
+          : baseline.recommendedDefaults.voiceTone,
+    },
+  };
+
+  const normalized = brandDossierSchema.safeParse(normalizedCandidate);
+  return normalized.success ? normalized.data : baseline;
+}
+
 export function createDefaultGenerationReport(args: {
   selectedConceptId: string;
   overallScore?: number;
@@ -755,6 +921,45 @@ export function createDefaultArtifactManifest(): z.infer<typeof artifactManifest
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asStringRecord(value: unknown): Record<string, string> | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(record)) {
+    if (typeof entry === 'string' && entry.trim().length > 0) {
+      out[key] = entry;
+    }
+  }
+  return out;
+}
+
+function coerceMood(value: unknown): (typeof DESIGN_MOODS)[number] {
+  return typeof value === 'string' && (DESIGN_MOODS as readonly string[]).includes(value)
+    ? (value as (typeof DESIGN_MOODS)[number])
+    : 'professional';
+}
+
+function coerceAnimationStyle(value: unknown): (typeof ANIMATION_STYLES)[number] {
+  return typeof value === 'string' && (ANIMATION_STYLES as readonly string[]).includes(value)
+    ? (value as (typeof ANIMATION_STYLES)[number])
+    : 'professional';
+}
+
+function coerceSurfaceBlueprint(
+  candidate: unknown,
+  fallback: z.infer<typeof surfaceBlueprintSchema>
+): z.infer<typeof surfaceBlueprintSchema> {
+  const parsed = surfaceBlueprintSchema.safeParse(candidate);
+  return parsed.success ? parsed.data : fallback;
+}
+
 export function upconvertDesignPackageData(input: unknown): DesignPackageDataV2 {
   const parsedV2 = designPackageDataV2Schema.safeParse(input);
   if (parsedV2.success) {
@@ -773,6 +978,124 @@ export function upconvertDesignPackageData(input: unknown): DesignPackageDataV2 
         generatedAt: parsedV2.data.generationReport.generatedAt || new Date().toISOString(),
       },
     };
+  }
+
+  const partial = asRecord(input);
+  if (partial) {
+    const mood = coerceMood(partial.mood);
+    const animationStyle = coerceAnimationStyle(partial.animationStyle);
+    const defaultFoundation = {
+      brandPersonality: `${mood} and consistent`,
+      voiceTone: mood === 'playful' ? 'Friendly and energetic' : 'Clear and confident',
+      designPrinciples: defaultPrinciplesForMood(mood),
+      accessibilityTarget: 'aa' as const,
+      brandAlignment: 0.85,
+    };
+    const defaultMotion = defaultMotionSystem(animationStyle);
+    const defaultLayout = defaultLayoutSystem();
+    const defaultBlueprints = defaultSurfaceBlueprints(mood);
+
+    const colorsInput = asRecord(partial.colors);
+    const typographyInput = asRecord(partial.typography);
+    const foundationInput = asRecord(partial.foundation);
+    const motionInput = asRecord(partial.motionSystem);
+    const layoutInput = asRecord(partial.layoutSystem);
+    const blueprintsInput = asRecord(partial.surfaceBlueprints);
+    const generationReportInput = asRecord(partial.generationReport);
+
+    const typographyParsed = typographySchema.safeParse({
+      fontFamily:
+        typeof typographyInput?.fontFamily === 'string' && typographyInput.fontFamily.trim().length > 0
+          ? typographyInput.fontFamily
+          : 'Inter, sans-serif',
+      fontFamilyHeading:
+        typeof typographyInput?.fontFamilyHeading === 'string' && typographyInput.fontFamilyHeading.trim().length > 0
+          ? typographyInput.fontFamilyHeading
+          : undefined,
+      googleFontsUrl:
+        typeof typographyInput?.googleFontsUrl === 'string' && typographyInput.googleFontsUrl.trim().length > 0
+          ? typographyInput.googleFontsUrl
+          : undefined,
+    });
+
+    const foundationParsed = designFoundationSchema.safeParse({
+      ...defaultFoundation,
+      ...foundationInput,
+    });
+
+    const motionParsed = motionSystemSchema.safeParse({
+      ...defaultMotion,
+      ...motionInput,
+    });
+
+    const layoutParsed = layoutSystemSchema.safeParse({
+      ...defaultLayout,
+      ...layoutInput,
+    });
+
+    const manifestParsed = artifactManifestSchema.safeParse(partial.artifactManifest);
+    const normalizedDossier = ensureBrandDossier(partial.brandDossier, {
+      mood,
+      animationStyle,
+      accessibilityTarget: foundationParsed.success
+        ? foundationParsed.data.accessibilityTarget
+        : defaultFoundation.accessibilityTarget,
+      density: layoutParsed.success ? layoutParsed.data.density : defaultLayout.density,
+      voiceTone: foundationParsed.success
+        ? foundationParsed.data.voiceTone
+        : defaultFoundation.voiceTone,
+    });
+    const reportParsed = generationReportSchema.safeParse(partial.generationReport);
+
+    const selectedConceptId =
+      typeof generationReportInput?.selectedConceptId === 'string' &&
+      generationReportInput.selectedConceptId.trim().length > 0
+        ? generationReportInput.selectedConceptId
+        : 'directionA';
+
+    const v2Candidate: DesignPackageDataV2 = {
+      colors: {
+        light: completePalette(asStringRecord(colorsInput?.light), DEFAULT_LIGHT),
+        dark: completePalette(asStringRecord(colorsInput?.dark), DEFAULT_DARK),
+      },
+      typography: typographyParsed.success
+        ? typographyParsed.data
+        : {
+            fontFamily: 'Inter, sans-serif',
+          },
+      borderRadius:
+        typeof partial.borderRadius === 'string' && partial.borderRadius.trim().length > 0
+          ? partial.borderRadius
+          : '0.75rem',
+      mood,
+      animationStyle,
+      foundation: foundationParsed.success ? foundationParsed.data : defaultFoundation,
+      motionSystem: motionParsed.success ? motionParsed.data : defaultMotion,
+      layoutSystem: layoutParsed.success ? layoutParsed.data : defaultLayout,
+      surfaceBlueprints: {
+        landing: coerceSurfaceBlueprint(blueprintsInput?.landing, defaultBlueprints.landing),
+        customerApp: coerceSurfaceBlueprint(blueprintsInput?.customerApp, defaultBlueprints.customerApp),
+        internalApp: coerceSurfaceBlueprint(blueprintsInput?.internalApp, defaultBlueprints.internalApp),
+      },
+      artifactManifest: manifestParsed.success ? manifestParsed.data : createDefaultArtifactManifest(),
+      brandDossier: normalizedDossier,
+      generationReport: reportParsed.success
+        ? reportParsed.data
+        : createDefaultGenerationReport({
+            selectedConceptId,
+            overallScore:
+              typeof generationReportInput?.overallScore === 'number' &&
+              Number.isFinite(generationReportInput.overallScore)
+                ? Math.max(0, Math.min(100, generationReportInput.overallScore))
+                : 74,
+            verificationStatus: 'repaired',
+            degradedReasons: ['Partial model output was up-converted to a complete V2.5 package'],
+          }),
+      componentRegistry: partial.componentRegistry,
+      tailwindTheme: partial.tailwindTheme,
+    };
+
+    return designPackageDataV2Schema.parse(v2Candidate);
   }
 
   const legacy = legacyPackageDataSchema.parse(input);

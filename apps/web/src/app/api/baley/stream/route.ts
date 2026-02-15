@@ -545,7 +545,7 @@ export async function POST(req: NextRequest) {
                 }
 
                 const response = await fetch(att.downloadUrl, {
-                  signal: AbortSignal.timeout(30_000), // 30s timeout
+                  signal: req.signal,
                 });
                 const contentLength = parseInt(response.headers.get('content-length') ?? '0', 10);
                 if (contentLength > MAX_ATTACHMENT_FETCH_SIZE) {

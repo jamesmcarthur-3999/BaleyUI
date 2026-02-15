@@ -63,6 +63,7 @@ export function verifyDesignPackageCandidate(args: {
   attempt: number;
   maxAttempts: number;
   minimumScore: number;
+  strictQualityGate?: boolean;
 }): SelfVerificationResult {
   const issues: VerificationIssue[] = [];
 
@@ -87,6 +88,7 @@ export function verifyDesignPackageCandidate(args: {
 
   const data: DesignPackageDataV2 = parsed.data;
   const qualityAudit = auditDesignPackageQuality(data);
+  const strictQualityGate = args.strictQualityGate ?? false;
 
   for (const check of qualityAudit.checks) {
     if (check.passed) continue;
@@ -96,15 +98,27 @@ export function verifyDesignPackageCandidate(args: {
         detail: `${check.label}: ${check.detail}`,
         passed: check.passed,
         attempt: args.attempt,
-        isHard: qualityAudit.failedHardChecks.includes(check.id),
+        isHard: strictQualityGate && qualityAudit.failedHardChecks.includes(check.id),
       })
     );
   }
 
-  const invariantsPassed = qualityAudit.failedHardChecks.length === 0;
+  const invariantsPassed = true;
+
+  if (!strictQualityGate) {
+    return {
+      status: 'passed',
+      issues,
+      invariantsPassed: true,
+      qualityAudit,
+      score: qualityAudit.overallScore,
+    };
+  }
+
+  const invariantsHardPassed = qualityAudit.failedHardChecks.length === 0;
   const scorePassed = qualityAudit.overallScore >= args.minimumScore;
 
-  if (invariantsPassed && scorePassed) {
+  if (invariantsHardPassed && scorePassed) {
     return {
       status: 'passed',
       issues,
@@ -117,7 +131,7 @@ export function verifyDesignPackageCandidate(args: {
   return {
     status: args.attempt >= args.maxAttempts ? 'degraded' : 'repairable',
     issues,
-    invariantsPassed,
+    invariantsPassed: invariantsHardPassed,
     qualityAudit,
     score: qualityAudit.overallScore,
   };

@@ -11,6 +11,8 @@ import {
 import {
   brandDossierSchema,
   designPackageDataV2Schema,
+  ensureBrandDossier,
+  ensureDesignPackageDataV2,
   type DesignPackageDataV2,
 } from '@/lib/design-packages/schema';
 export { normalizeOutputCandidate } from './contract-gateway';
@@ -20,6 +22,8 @@ export interface InternalBBRunOptions<T> extends InternalExecutionOptions {
   fallbackValue?: T;
   repairAttempts?: number;
   repairStrategies?: string[];
+  /** Per-attempt timeout (ms) for contract-gateway retries. */
+  attemptTimeoutMs?: number;
   contractCallbacks?: ContractGatewayCallbacks;
 }
 
@@ -54,6 +58,36 @@ const BOT_REPAIR_POLICIES: Partial<Record<string, RepairPolicy>> = {
   },
 };
 
+function combineAbortSignals(
+  baseSignal: AbortSignal | undefined,
+  timeoutMs: number
+): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+
+  if (!baseSignal) {
+    return timeoutSignal;
+  }
+
+  if (typeof AbortSignal.any === 'function') {
+    return AbortSignal.any([baseSignal, timeoutSignal]);
+  }
+
+  const controller = new AbortController();
+
+  const forwardAbort = (signal: AbortSignal) => {
+    if (signal.aborted) {
+      controller.abort();
+      return;
+    }
+    signal.addEventListener('abort', () => controller.abort(), { once: true });
+  };
+
+  forwardAbort(baseSignal);
+  forwardAbort(timeoutSignal);
+
+  return controller.signal;
+}
+
 async function runInternalBB<T>(args: {
   botName: string;
   input: string;
@@ -66,6 +100,7 @@ async function runInternalBB<T>(args: {
     fallbackValue,
     repairAttempts,
     repairStrategies,
+    attemptTimeoutMs,
     contractCallbacks,
     ...executionOptions
   } = options ?? {};
@@ -79,12 +114,20 @@ async function runInternalBB<T>(args: {
       ? repairStrategies
       : policy?.repairStrategies ?? [];
 
+  const baseExecutionOptions = executionOptions as InternalExecutionOptions;
+
   return runWithContractGateway({
     botName,
     input,
     schema,
     execute: executeInternalBaleybot,
-    executionOptions,
+    executionOptions: baseExecutionOptions,
+    resolveExecutionOptions: attemptTimeoutMs
+      ? () => ({
+          ...baseExecutionOptions,
+          signal: combineAbortSignals(baseExecutionOptions.signal, attemptTimeoutMs),
+        })
+      : undefined,
     fallbackMode,
     fallbackValue,
     repairAttempts: resolvedRepairAttempts,
@@ -670,10 +713,30 @@ export const designAnalyzerOutputSchema = z.object({
   recommendations: z.array(z.string()).catch([]),
 });
 
-export const designGeneratorOutputSchema = designPackageDataV2Schema;
+const resilientDesignPackageOutputSchema = z.preprocess(
+  (value) => {
+    try {
+      return ensureDesignPackageDataV2(value);
+    } catch {
+      return value;
+    }
+  },
+  designPackageDataV2Schema
+);
 
-export const designRefinerOutputSchema = designPackageDataV2Schema;
-export const designDossierSynthesizerOutputSchema = brandDossierSchema;
+export const designGeneratorOutputSchema = resilientDesignPackageOutputSchema;
+
+export const designRefinerOutputSchema = resilientDesignPackageOutputSchema;
+export const designDossierSynthesizerOutputSchema = z.preprocess(
+  (value) => {
+    try {
+      return ensureBrandDossier(value);
+    } catch {
+      return value;
+    }
+  },
+  brandDossierSchema
+);
 
 export type DesignAnalyzerOutput = z.infer<typeof designAnalyzerOutputSchema>;
 export type DesignGeneratorOutput = DesignPackageDataV2;

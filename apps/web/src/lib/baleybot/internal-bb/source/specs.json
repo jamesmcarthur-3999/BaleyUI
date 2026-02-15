@@ -459,6 +459,7 @@
     "description": "Analyzes uploaded brand resources (images, PDFs, URLs, text) and extracts design attributes",
     "icon": "🎨",
     "model": "anthropic:balanced",
+    "maxTokens": 32768,
     "contractId": "design_analyzer_v1",
     "role": "Design Analyzer",
     "tools": [
@@ -490,6 +491,7 @@
     "description": "Synthesizes a canonical brand dossier from multi-source analysis evidence",
     "icon": "🧭",
     "model": "anthropic:powerful",
+    "maxTokens": 32768,
     "contractId": "design_dossier_synthesizer_v1",
     "role": "Design Dossier Synthesizer",
     "inputs": [
@@ -514,6 +516,7 @@
     "description": "Synthesizes a complete design package with light and dark modes from extracted design attributes",
     "icon": "🖌️",
     "model": "anthropic:powerful",
+    "maxTokens": 65536,
     "contractId": "design_generator_v1",
     "role": "Design Generator",
     "inputs": [
@@ -542,6 +545,7 @@
     "description": "Applies natural language feedback to modify an existing design package while preserving coherence",
     "icon": "✨",
     "model": "anthropic:powerful",
+    "maxTokens": 65536,
     "contractId": "design_refiner_v1",
     "role": "Design Refiner",
     "inputs": [

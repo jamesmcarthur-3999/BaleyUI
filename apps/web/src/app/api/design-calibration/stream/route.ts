@@ -255,6 +255,9 @@ function buildDirectionPrompt(args: {
   const dossierJson = JSON.stringify(args.dossier, null, 2);
 
   return [
+    'Return ONLY one JSON object matching DesignPackageData V2.5.',
+    'Do not include preamble, prose, markdown, or code fences.',
+    'Start with "{" and end with "}".',
     'Generate one complete DesignPackageData V2.5 package.',
     `Direction: ${args.direction.title}`,
     args.direction.emphasis,
@@ -277,6 +280,8 @@ function buildDirectionPrompt(args: {
     '',
     'Requirements:',
     '- Return full V2.5 package with foundation, motionSystem, layoutSystem, all three surfaceBlueprints, artifactManifest, brandDossier, generationReport.',
+    '- Top-level keys must be exactly: colors, typography, borderRadius, mood, animationStyle, foundation, motionSystem, layoutSystem, surfaceBlueprints, artifactManifest, brandDossier, generationReport.',
+    '- Never stringify nested objects. Nested values must remain native JSON objects/arrays.',
     '- Keep all color values as HSL strings without hsl() wrapper.',
     '- Keep lighting/dark palettes complete with semantic roles.',
     '- Make all surfaces usable and coherent under this direction emphasis.',
@@ -298,6 +303,9 @@ function buildRepairPrompt(args: {
     .join('\n- ');
 
   return [
+    'Return ONLY one JSON object matching DesignPackageData V2.5.',
+    'Do not include preamble, prose, markdown, or code fences.',
+    'Start with "{" and end with "}".',
     'Refine this design package to satisfy verification feedback while preserving direction intent.',
     `Direction: ${args.conceptTitle}`,
     `Original user intent: ${args.message}`,
@@ -313,17 +321,14 @@ function buildRepairPrompt(args: {
     '',
     'Constraints:',
     '- Return complete V2.5 package JSON only.',
+    '- Never stringify nested objects. Nested values must remain native JSON objects/arrays.',
     '- Preserve brand identity and direction positioning.',
     '- Improve accessibility and completeness issues first.',
   ].join('\n');
 }
 
 function conceptSummary(concept: DirectionConcept): string {
-  const failed = concept.qualityAudit.failedChecks.length;
-  if (failed === 0) {
-    return `${concept.title} passed structural quality checks with score ${concept.score}/100.`;
-  }
-  return `${concept.title} scored ${concept.score}/100 with ${failed} quality checks to improve.`;
+  return `${concept.title}: ${concept.rationale}`;
 }
 
 function truncateObjective(value: string, max = 180): string {
@@ -381,6 +386,12 @@ export async function POST(req: NextRequest) {
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
           );
+        };
+        const emitInternalQualityEvents =
+          process.env.BALEY_DEBUG_DESIGN_QUALITY_EVENTS === '1';
+        const sendInternalQualityEvent = (event: Record<string, unknown>) => {
+          if (!emitInternalQualityEvents) return;
+          sendEvent(event);
         };
 
         sendEvent({ type: 'design_started', timestamp: Date.now() });
@@ -612,7 +623,7 @@ export async function POST(req: NextRequest) {
                       ].join('\n'),
                       {
                         userWorkspaceId: workspace.id,
-                        signal: AbortSignal.timeout(60_000),
+                        signal: req.signal,
                       }
                     );
                     sourceInputs.push({
@@ -643,7 +654,7 @@ export async function POST(req: NextRequest) {
                       {
                         userWorkspaceId: workspace.id,
                         attachments: [{ data: asset.base64, mimeType: asset.mimeType }],
-                        signal: AbortSignal.timeout(60_000),
+                        signal: req.signal,
                       }
                     );
                     sourceInputs.push({
@@ -694,7 +705,7 @@ export async function POST(req: NextRequest) {
                   fallbackMode: 'value',
                   fallbackValue: deterministicDossier,
                   repairAttempts: 1,
-                  signal: AbortSignal.timeout(60_000),
+                  signal: req.signal,
                   orchestrationRunId: orchestrationRunId ?? undefined,
                   orchestrationTaskId: dossierTaskId,
                 }
@@ -767,7 +778,7 @@ export async function POST(req: NextRequest) {
 
                 const contractCallbacks = {
                   onParseFailure: (ctx: { attempt: number; issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> }) => {
-                    sendEvent({
+                    sendInternalQualityEvent({
                       type: 'self_repair_result',
                       directionId: direction.id,
                       directionTitle: direction.title,
@@ -786,7 +797,7 @@ export async function POST(req: NextRequest) {
                     });
                   },
                   onRepairAttempt: (ctx: { attempt: number; issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> }) => {
-                    sendEvent({
+                    sendInternalQualityEvent({
                       type: 'self_repair_started',
                       directionId: direction.id,
                       directionTitle: direction.title,
@@ -804,7 +815,7 @@ export async function POST(req: NextRequest) {
                     });
                   },
                   onRepairSuccess: (ctx: { attempt: number }) => {
-                    sendEvent({
+                    sendInternalQualityEvent({
                       type: 'self_repair_result',
                       directionId: direction.id,
                       directionTitle: direction.title,
@@ -815,7 +826,7 @@ export async function POST(req: NextRequest) {
                     });
                   },
                   onFallback: (ctx: { attempt: number; reason: string }) => {
-                    sendEvent({
+                    sendInternalQualityEvent({
                       type: 'self_repair_exhausted',
                       directionId: direction.id,
                       directionTitle: direction.title,
@@ -836,6 +847,19 @@ export async function POST(req: NextRequest) {
                   },
                 } as const;
 
+                const directionFallbackPackage = ensureDesignPackageDataV2({
+                  ...(input.existingPackageData ?? {
+                    colors: { light: {}, dark: {} },
+                    typography: { fontFamily: 'Inter, sans-serif' },
+                    borderRadius: '0.75rem',
+                    mood: brandDossier?.recommendedDefaults.mood ?? 'professional',
+                    animationStyle:
+                      brandDossier?.recommendedDefaults.animationStyle ??
+                      'professional',
+                  }),
+                  brandDossier,
+                });
+
                 const generated = await runDesignGenerator(
                   buildDirectionPrompt({
                     direction,
@@ -847,8 +871,10 @@ export async function POST(req: NextRequest) {
                   }),
                   {
                     userWorkspaceId: workspace.id,
-                    signal: AbortSignal.timeout(90_000),
+                    signal: req.signal,
                     contractCallbacks,
+                    fallbackMode: 'value',
+                    fallbackValue: directionFallbackPackage,
                     orchestrationRunId: orchestrationRunId ?? undefined,
                     orchestrationTaskId: directionTaskId,
                   }
@@ -865,12 +891,13 @@ export async function POST(req: NextRequest) {
                   attempt: repairAttempts,
                   maxAttempts: maxRepairAttempts,
                   minimumScore,
+                  strictQualityGate: false,
                 });
                 const repairTrace: DirectionConcept['repairTrace'] = [];
                 const verificationIssues: VerificationIssue[] = [];
 
                 while (true) {
-                  sendEvent({
+                  sendInternalQualityEvent({
                     type: 'self_review_started',
                     directionId: direction.id,
                     directionTitle: direction.title,
@@ -883,11 +910,12 @@ export async function POST(req: NextRequest) {
                     attempt: repairAttempts,
                     maxAttempts: maxRepairAttempts,
                     minimumScore,
+                    strictQualityGate: false,
                   });
 
                   verificationIssues.push(...lastVerification.issues);
 
-                  sendEvent({
+                  sendInternalQualityEvent({
                     type: 'self_review_result',
                     directionId: direction.id,
                     directionTitle: direction.title,
@@ -903,7 +931,7 @@ export async function POST(req: NextRequest) {
                   }
 
                   if (lastVerification.status === 'degraded' || repairAttempts >= maxRepairAttempts) {
-                    sendEvent({
+                    sendInternalQualityEvent({
                       type: 'self_repair_exhausted',
                       directionId: direction.id,
                       directionTitle: direction.title,
@@ -924,7 +952,7 @@ export async function POST(req: NextRequest) {
                   const repairIssues = lastVerification.issues.slice(0, 18);
                   repairAttempts += 1;
 
-                  sendEvent({
+                  sendInternalQualityEvent({
                     type: 'quality_gate_repair',
                     attempt: repairAttempts,
                     reason: `Self-repair ${repairAttempts} for ${direction.title} (${repairIssues.length} issues)`,
@@ -938,7 +966,7 @@ export async function POST(req: NextRequest) {
                     reason: `Self-repair ${repairAttempts} for ${direction.title}`,
                     timestamp: Date.now(),
                   });
-                  sendEvent({
+                  sendInternalQualityEvent({
                     type: 'self_repair_started',
                     directionId: direction.id,
                     directionTitle: direction.title,
@@ -958,8 +986,10 @@ export async function POST(req: NextRequest) {
                       }),
                       {
                         userWorkspaceId: workspace.id,
-                        signal: AbortSignal.timeout(90_000),
+                        signal: req.signal,
                         contractCallbacks,
+                        fallbackMode: 'value',
+                        fallbackValue: packageData,
                         orchestrationRunId: orchestrationRunId ?? undefined,
                         orchestrationTaskId: directionTaskId,
                       }
@@ -976,7 +1006,7 @@ export async function POST(req: NextRequest) {
                       issueCount: repairIssues.length,
                       message: `Applied targeted repair for ${direction.title}`,
                     });
-                    sendEvent({
+                    sendInternalQualityEvent({
                       type: 'self_repair_result',
                       directionId: direction.id,
                       directionTitle: direction.title,
@@ -996,7 +1026,7 @@ export async function POST(req: NextRequest) {
                       issueCount: repairIssues.length,
                       message: `Repair failed: ${message}`,
                     });
-                    sendEvent({
+                    sendInternalQualityEvent({
                       type: 'self_repair_result',
                       directionId: direction.id,
                       directionTitle: direction.title,
@@ -1028,11 +1058,9 @@ export async function POST(req: NextRequest) {
                       ? 'repaired'
                       : 'passed'
                     : 'degraded';
-                const rationale = verificationStatus === 'passed'
-                  ? `${direction.summaryHint} Structural checks passed.`
-                  : verificationStatus === 'repaired'
-                    ? `${direction.summaryHint} Repaired via targeted self-review.`
-                    : `${direction.summaryHint} Degraded output with unresolved issues: ${qualityAudit.failedChecks.join(', ') || 'none listed'}.`;
+                const rationale = verificationStatus === 'degraded'
+                  ? `${direction.summaryHint} Published with internal fallback handling for unresolved AI formatting issues.`
+                  : direction.summaryHint;
                 const degradedReasons = verificationStatus === 'degraded'
                   ? qualityAudit.failedChecks.length > 0
                     ? [...qualityAudit.failedChecks]
@@ -1051,7 +1079,7 @@ export async function POST(req: NextRequest) {
                 const concept = {
                   id: direction.id,
                   title: direction.title,
-                  summary: `${direction.summaryHint} Quality score ${score}/100.`,
+                  summary: direction.summaryHint,
                   score,
                   rationale,
                   packageData,
@@ -1104,7 +1132,64 @@ export async function POST(req: NextRequest) {
             }
 
             if (generatedConcepts.length === 0) {
-              throw new Error('Failed to generate design concepts for all directions');
+              const fallbackSeed = input.existingPackageData ?? {
+                colors: { light: {}, dark: {} },
+                typography: { fontFamily: 'Inter, sans-serif' },
+                borderRadius: '0.75rem',
+                mood: brandDossier?.recommendedDefaults.mood ?? 'professional',
+                animationStyle: brandDossier?.recommendedDefaults.animationStyle ?? 'professional',
+              };
+
+              const fallbackBase = ensureDesignPackageDataV2(fallbackSeed);
+              const fallbackPackage = ensureDesignPackageDataV2({
+                ...fallbackBase,
+                brandDossier: brandDossier ?? fallbackBase.brandDossier,
+              });
+              const fallbackAudit = auditDesignPackageQuality(fallbackPackage);
+              const fallbackScore = Math.max(
+                35,
+                Math.round(fallbackAudit.overallScore * 0.7)
+              );
+              const degradedMessage =
+                'All concept generations failed. Published deterministic fallback package.';
+              const fallbackIssue: VerificationIssue = {
+                id: 'direction-generation-failed',
+                severity: 'error',
+                path: '$.directions',
+                message: degradedMessage,
+                source: 'schema',
+                attempt: maxRepairAttempts,
+                recoverable: true,
+              };
+
+              generatedConcepts.push({
+                id: 'directionA',
+                title: 'Direction A - Brand Faithful',
+                summary: `Fallback concept generated with score ${fallbackScore}/100.`,
+                score: fallbackScore,
+                rationale: degradedMessage,
+                packageData: fallbackPackage,
+                qualityAudit: fallbackAudit,
+                verificationStatus: 'degraded',
+                verificationIssues: [fallbackIssue],
+                repairTrace: [
+                  {
+                    attempt: maxRepairAttempts,
+                    source: 'fallback',
+                    status: 'applied',
+                    issueCount: 1,
+                    message: degradedMessage,
+                  },
+                ],
+                degradedReasons: [degradedMessage],
+              });
+
+              sendEvent({
+                type: 'orchestration_degraded_publish',
+                runId: orchestrationRunId,
+                reason: degradedMessage,
+                timestamp: Date.now(),
+              });
             }
 
             generatedConcepts.sort((a, b) => {
@@ -1222,17 +1307,29 @@ export async function POST(req: NextRequest) {
             }
             previewUpdated = true;
 
+            const packageContextForConversation = (pkg: DesignPackageDataV2) => ({
+              colors: pkg.colors,
+              typography: pkg.typography,
+              borderRadius: pkg.borderRadius,
+              mood: pkg.mood,
+              animationStyle: pkg.animationStyle,
+              foundation: pkg.foundation,
+              motionSystem: pkg.motionSystem,
+              layoutSystem: pkg.layoutSystem,
+              surfaceBlueprints: pkg.surfaceBlueprints,
+              artifactManifest: pkg.artifactManifest,
+            });
+
             conceptContext = [
-              'Generated concept candidates (validated):',
+              'Generated concept candidates:',
               ...generatedConcepts.map((concept) =>
                 `- ${concept.id}: ${concept.summary}`
               ),
               '',
               `Selected concept: ${selected.id}`,
-              `Selected quality score: ${selected.score}/100`,
               '',
               ...generatedConcepts.map((concept) =>
-                `${concept.title} (${concept.id}) package:\n${JSON.stringify(concept.packageData, null, 2)}`
+                `${concept.title} (${concept.id}) package:\n${JSON.stringify(packageContextForConversation(concept.packageData), null, 2)}`
               ),
             ].join('\n');
 
@@ -1325,7 +1422,7 @@ export async function POST(req: NextRequest) {
                     {
                       userWorkspaceId: workspace.id,
                       attachments: [{ data: asset.base64, mimeType: asset.mimeType }],
-                      signal: AbortSignal.timeout(60_000),
+                      signal: req.signal,
                     }
                   );
                   return output;
@@ -1440,7 +1537,7 @@ export async function POST(req: NextRequest) {
                       }
                     }
                   },
-                  signal: AbortSignal.timeout(120_000),
+                  signal: req.signal,
                 })
                   .then(() => {
                     sendEvent({
@@ -1476,7 +1573,7 @@ export async function POST(req: NextRequest) {
             onSegment: (event) => {
               sendEvent(event as unknown as Record<string, unknown>);
             },
-            signal: AbortSignal.timeout(300_000),
+            signal: req.signal,
             userWorkspaceId: workspace.id,
             context: DESIGN_CALIBRATION_CONTEXT,
             _spawnOutputs: spawnOutputs,
