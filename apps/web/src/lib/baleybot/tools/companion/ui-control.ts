@@ -13,9 +13,11 @@
 import type { RuntimeToolDefinition } from '../../executor';
 import type { CompanionToolContext } from './index';
 import type { PlanPreviewData } from '../../creator-types';
+import type { AdaptiveTab } from '../../readiness';
 
 export function buildUIControlTools(
   _ctx: CompanionToolContext,
+  availableTabs?: AdaptiveTab[],
 ): Map<string, RuntimeToolDefinition> {
   const tools = new Map<string, RuntimeToolDefinition>();
 
@@ -167,11 +169,25 @@ export function buildUIControlTools(
     dangerLevel: 'safe',
     async function(args: Record<string, unknown>) {
       const surface = String(args.surface ?? '');
+      const reason = args.reason ? String(args.reason) : undefined;
+
+      // Validate against actual available tabs if provided
+      if (availableTabs && !availableTabs.includes(surface as AdaptiveTab)) {
+        return {
+          success: false,
+          error: `Surface "${surface}" is not available yet. Available surfaces: ${availableTabs.join(', ')}`,
+        };
+      }
+
+      // Fallback to static validation
       const validSurfaces = ['plan', 'visual', 'code', 'test', 'integrate'];
       if (!validSurfaces.includes(surface)) {
-        return { success: false, error: `Invalid surface: ${surface}. Must be one of: ${validSurfaces.join(', ')}` };
+        return {
+          success: false,
+          error: `Invalid surface: ${surface}. Must be one of: ${validSurfaces.join(', ')}`,
+        };
       }
-      const reason = args.reason ? String(args.reason) : undefined;
+
       return {
         action: 'show_surface',
         surface,

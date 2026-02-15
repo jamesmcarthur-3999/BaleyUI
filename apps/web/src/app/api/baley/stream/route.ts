@@ -30,6 +30,7 @@ import {
   buildCompanionTools,
   type CompanionToolContext,
 } from '@/lib/baleybot/tools/companion';
+import type { AdaptiveTab } from '@/lib/baleybot/readiness';
 import { buildConnectionTools } from '@/lib/baleybot/tools/companion/connections';
 import { buildIntegrationTools } from '@/lib/baleybot/tools/companion/integration';
 import {
@@ -327,7 +328,11 @@ export async function POST(req: NextRequest) {
       workspaceId: workspace.id,
       userId,
     };
-    const companionTools = buildCompanionTools(toolCtx);
+
+    // Extract availableTabs for surface validation in creator mode
+    const availableTabs = input.creatorContext?.uiState?.availableTabs as AdaptiveTab[] | undefined;
+
+    const companionTools = buildCompanionTools(toolCtx, availableTabs);
 
     // allTools starts with companion tools; creator tools are merged on top
     const allTools = new Map<string, RuntimeToolDefinition>(companionTools);

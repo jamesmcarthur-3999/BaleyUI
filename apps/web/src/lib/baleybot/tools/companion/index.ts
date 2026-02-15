@@ -6,6 +6,7 @@
  */
 
 import type { RuntimeToolDefinition } from '../../executor';
+import type { AdaptiveTab } from '../../readiness';
 import { buildConnectionTools } from './connections';
 import { buildToolTools } from './tools';
 import { buildApiKeyTools } from './api-keys';
@@ -28,7 +29,8 @@ export interface CompanionToolContext {
  * Each domain module returns a Map of tool definitions.
  */
 export function buildCompanionTools(
-  ctx: CompanionToolContext
+  ctx: CompanionToolContext,
+  availableTabs?: AdaptiveTab[]
 ): Map<string, RuntimeToolDefinition> {
   const allTools = new Map<string, RuntimeToolDefinition>();
 
@@ -43,7 +45,6 @@ export function buildCompanionTools(
     buildApprovalTools,
     buildIntelligenceTools,
     buildActionTools,
-    buildUIControlTools,
   ];
 
   for (const builder of domainBuilders) {
@@ -51,6 +52,12 @@ export function buildCompanionTools(
     for (const [name, tool] of tools) {
       allTools.set(name, tool);
     }
+  }
+
+  // buildUIControlTools needs availableTabs for surface validation
+  const uiTools = buildUIControlTools(ctx, availableTabs);
+  for (const [name, tool] of uiTools) {
+    allTools.set(name, tool);
   }
 
   return allTools;

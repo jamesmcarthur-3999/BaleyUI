@@ -28,6 +28,7 @@ import { finalizeSegments, getTextContent } from '@baleybots/chat';
 import { stripLargeJsonBlocks } from '@/components/chat/utils/strip-json';
 import type { ServerStreamEvent } from '@/lib/streaming/types';
 import type { CreatorOutput, PlanPreviewData } from '@/lib/baleybot/creator-types';
+import { toast } from '@/components/ui/use-toast';
 import type { TriggerConfig } from '@/lib/baleybot/types';
 
 // ============================================================================
@@ -279,10 +280,19 @@ export function useBaleyChat(config?: UseBaleyConfig) {
                     ]);
                   }
                 } else if (actionType === 'show_surface') {
-                  const surface = result.surface as string;
-                  const reason = result.reason as string | undefined;
-                  if (surface) {
-                    config?.creatorCallbacks?.onShowSurface?.(surface, reason);
+                  // Check if navigation failed
+                  if (result.success === false) {
+                    toast({
+                      title: 'Cannot switch surface',
+                      description: (result.error as string) || 'This surface is not available yet',
+                      variant: 'destructive',
+                    });
+                  } else {
+                    const surface = result.surface as string;
+                    const reason = result.reason as string | undefined;
+                    if (surface) {
+                      config?.creatorCallbacks?.onShowSurface?.(surface, reason);
+                    }
                   }
                 } else if (actionType === 'show_plan') {
                   const plan = result.plan as PlanPreviewData | undefined;

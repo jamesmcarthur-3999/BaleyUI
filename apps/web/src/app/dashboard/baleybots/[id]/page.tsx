@@ -1432,7 +1432,7 @@ export default function BaleybotPage() {
               </div>
 
               {/* Editor content */}
-              <div key={viewMode} className="flex-1 min-h-0 p-4 animate-fade-in">
+              <div className="flex-1 min-h-0 p-4">
                 <ErrorBoundary
                   fallback={
                     <div className="h-full flex items-center justify-center bg-muted/20 rounded-2xl">
@@ -1442,21 +1442,23 @@ export default function BaleybotPage() {
                 >
                   {/* Plan Preview */}
                   {viewMode === 'plan' && planData && (
-                    <PlanPreview
-                      plan={planData}
-                      onApprove={() => handleSendMessage('I approve the plan. Go ahead and build it.')}
-                      onRevise={() => {
-                        navigateToTab('plan' as AdaptiveTab);
-                        setMobileView('chat');
-                      }}
-                      isStreaming={isStreaming}
-                      className="h-full"
-                    />
+                    <div key="plan" className="h-full animate-fade-in">
+                      <PlanPreview
+                        plan={planData}
+                        onApprove={() => handleSendMessage('I approve the plan. Go ahead and build it.')}
+                        onRevise={() => {
+                          navigateToTab('plan' as AdaptiveTab);
+                          setMobileView('chat');
+                        }}
+                        isStreaming={isStreaming}
+                        className="h-full"
+                      />
+                    </div>
                   )}
 
                   {/* Visual Editor View */}
                   {viewMode === 'visual' && (
-                    <div className="h-full flex flex-col gap-3">
+                    <div key="visual" className="h-full flex flex-col gap-3 animate-fade-in">
                       <VisualEditor
                         balCode={balCode}
                         onChange={handleCodeChange}
@@ -1474,7 +1476,7 @@ export default function BaleybotPage() {
 
                   {/* Code Editor View */}
                   {viewMode === 'code' && (
-                    <div className="h-full">
+                    <div key="code" className="h-full animate-fade-in">
                       <BalCodeEditor
                         value={balCode}
                         onChange={handleCodeChange}
@@ -1489,7 +1491,7 @@ export default function BaleybotPage() {
 
                   {/* Test View */}
                   {viewMode === 'test' && savedBaleybotId && (
-                    <div className="h-full overflow-y-auto space-y-4">
+                    <div key="test" className="h-full overflow-y-auto space-y-4 animate-fade-in">
                       {/* AI-Driven Streaming Test Suite */}
                       <TestSuitePanel
                         testCases={testCases}
@@ -1554,7 +1556,7 @@ export default function BaleybotPage() {
 
                   {/* Integrate / Monitor View */}
                   {viewMode === 'integrate' && savedBaleybotId && (
-                    <div className="h-full overflow-y-auto space-y-4">
+                    <div key="integrate" className="h-full overflow-y-auto space-y-4 animate-fade-in">
                       <IntegrationDashboard
                         baleybotId={savedBaleybotId}
                         workspaceId={existingBaleybot?.workspaceId ?? ''}
