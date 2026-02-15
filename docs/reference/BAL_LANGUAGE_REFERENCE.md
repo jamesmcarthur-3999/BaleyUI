@@ -298,84 +298,50 @@ loop ("until": "result.quality > 0.9", "max": 5) {
 }
 ```
 
-### try / catch
+### map
 
-Handle errors gracefully with optional retry logic.
-
-```bal
-try ("retries": 3) {
-  risky_processor
-} catch {
-  fallback_handler
-}
-```
-
-- The `try` block executes the inner entity/composition
-- If it fails, the `catch` block runs instead
-- `retries` specifies how many times to retry before falling through to catch
-
-### route
-
-Multi-way routing based on a classifier entity's output.
+Process items in an array with the same entity/composition.
 
 ```bal
-classifier {
-  "goal": "Classify the input type",
-  "output": { "type": "enum('sales', 'support', 'billing')" }
-}
-
-sales_handler { "goal": "Handle sales inquiries" }
-support_handler { "goal": "Handle support requests" }
-billing_handler { "goal": "Handle billing questions" }
-
-route(classifier) {
-  "sales": sales_handler,
-  "support": support_handler,
-  "billing": billing_handler
-}
-```
-
-- The classifier entity runs first and produces a routing key
-- The matching handler is executed based on the classifier's output
-
-### gate
-
-Conditional gate — only executes the inner block if the condition is true.
-
-```bal
-gate("result.needsReview") {
-  reviewer
-}
-```
-
-- If the condition evaluates to true, the inner entity/composition executes
-- If false, the gate is skipped and execution continues
-
-### filter
-
-Array filtering with a predicate — processes only matching items.
-
-```bal
-filter("item.score > 0.5") {
+map result.items {
   enricher
 }
 ```
 
-- Filters an array from the previous result
-- Only items matching the predicate are passed to the inner entity
+- Iterates over each item in the iterable expression
+- Useful for per-record enrichment and normalization
 
-### processor
+### select
 
-Data transformation and extraction between steps.
+Project/reshape fields for downstream steps.
 
 ```bal
-processor("extract") {
-  "result.data"
+select {
+  summary
+  confidence
 }
 ```
 
-- Reshapes or extracts data from the previous step's output
-- Useful for narrowing data between chain steps
+- Restricts output to selected fields
+- Useful for narrowing context between chain steps
+
+### merge
+
+Combine parallel branch outputs into named fields.
+
+```bal
+parallel {
+  sentiment
+  keywords
+}
+merge {
+  "sentiment": "result.branch_0",
+  "keywords": "result.branch_1"
+}
+```
+
+- Creates a deterministic merged payload after parallel execution
+- Keeps downstream schemas explicit and stable
 
 ### Nested Compositions
 

@@ -178,6 +178,16 @@ export function DesignCalibrationWizard({
   const [brandDossier, setBrandDossier] = useState<Record<string, unknown> | null>(null);
   const [qualityRepairs, setQualityRepairs] = useState<Array<{ attempt: number; reason: string }>>([]);
   const [mergePreview, setMergePreview] = useState<Record<string, unknown> | null>(null);
+  const [selfReviewIssues, setSelfReviewIssues] = useState<
+    Array<{
+      directionId: string;
+      directionTitle: string;
+      attempt: number;
+      status: string;
+      score: number;
+      issues: Array<Record<string, unknown>>;
+    }>
+  >([]);
   const [mergeSelection, setMergeSelection] = useState<
     Partial<Record<'colors' | 'typography' | 'motionSystem' | 'layoutSystem' | 'surfaceBlueprints', DirectionId>>
   >({});
@@ -537,6 +547,60 @@ export function DesignCalibrationWizard({
 
       onQualityGateRepair: ({ attempt, reason }) => {
         setQualityRepairs((prev) => [...prev, { attempt, reason }]);
+      },
+
+      onSelfReviewStarted: ({ directionTitle, attempt }) => {
+        setQualityRepairs((prev) => [
+          ...prev,
+          {
+            attempt,
+            reason: `Self-review started for ${directionTitle}`,
+          },
+        ]);
+      },
+
+      onSelfReviewResult: ({ directionId, directionTitle, attempt, status, score, issues }) => {
+        setSelfReviewIssues((prev) => [
+          ...prev.slice(-9),
+          {
+            directionId,
+            directionTitle,
+            attempt,
+            status,
+            score,
+            issues,
+          },
+        ]);
+      },
+
+      onSelfRepairStarted: ({ directionTitle, attempt, issues }) => {
+        setQualityRepairs((prev) => [
+          ...prev,
+          {
+            attempt,
+            reason: `Self-repair ${attempt} for ${directionTitle} (${issues.length} issues)`,
+          },
+        ]);
+      },
+
+      onSelfRepairResult: ({ directionTitle, attempt, status, issues }) => {
+        setQualityRepairs((prev) => [
+          ...prev,
+          {
+            attempt,
+            reason: `Self-repair result for ${directionTitle}: ${status} (${issues.length} issues)`,
+          },
+        ]);
+      },
+
+      onSelfRepairExhausted: ({ directionTitle, attempt, issues }) => {
+        setQualityRepairs((prev) => [
+          ...prev,
+          {
+            attempt,
+            reason: `Repair exhausted for ${directionTitle} (${issues.length} unresolved issues)`,
+          },
+        ]);
       },
 
       onConceptMergePreview: (payload) => {
@@ -1090,7 +1154,7 @@ export function DesignCalibrationWizard({
               </div>
             )}
 
-            {(brandDossier || qualityRepairs.length > 0) && (
+            {(brandDossier || qualityRepairs.length > 0 || selfReviewIssues.length > 0) && (
               <div className="mt-4 rounded-xl border border-border/70 bg-card/85 p-3 shadow-sm backdrop-blur">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -1112,6 +1176,18 @@ export function DesignCalibrationWizard({
                     {qualityRepairs.slice(-3).map((repair) => (
                       <p key={`${repair.attempt}-${repair.reason}`} className="text-[10px] text-muted-foreground">
                         Attempt {repair.attempt}: {repair.reason}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {selfReviewIssues.length > 0 && (
+                  <div className="mt-2 grid gap-1.5">
+                    {selfReviewIssues.slice(-3).map((entry) => (
+                      <p
+                        key={`${entry.directionId}-${entry.attempt}-${entry.status}`}
+                        className="text-[10px] text-muted-foreground"
+                      >
+                        {entry.directionTitle} self-review {entry.attempt}: {entry.status} (score {entry.score}/100, issues {entry.issues.length})
                       </p>
                     ))}
                   </div>

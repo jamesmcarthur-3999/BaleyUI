@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "type-check": "tsc --noEmit",
+    "bal:v2:check": "node scripts/check-bal-v2-compliance.mjs",
     "internal-bb:compile": "node scripts/compile-internal-bb.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -57,6 +57,38 @@ export interface DesignCalibrationCallbacks {
   }) => void;
   onQualityGateRepair?: (payload: { attempt: number; reason: string }) => void;
   onConceptMergePreview?: (payload: Record<string, unknown>) => void;
+  onSelfReviewStarted?: (payload: {
+    directionId: string;
+    directionTitle: string;
+    attempt: number;
+  }) => void;
+  onSelfReviewResult?: (payload: {
+    directionId: string;
+    directionTitle: string;
+    attempt: number;
+    status: string;
+    score: number;
+    issues: Array<Record<string, unknown>>;
+  }) => void;
+  onSelfRepairStarted?: (payload: {
+    directionId: string;
+    directionTitle: string;
+    attempt: number;
+    issues: Array<Record<string, unknown>>;
+  }) => void;
+  onSelfRepairResult?: (payload: {
+    directionId: string;
+    directionTitle: string;
+    attempt: number;
+    status: string;
+    issues: Array<Record<string, unknown>>;
+  }) => void;
+  onSelfRepairExhausted?: (payload: {
+    directionId: string;
+    directionTitle: string;
+    attempt: number;
+    issues: Array<Record<string, unknown>>;
+  }) => void;
   onDesignConceptsStarted?: () => void;
   onDesignConceptsUpdate?: (concepts: DesignConceptPayload[]) => void;
   // Component generation events
@@ -108,6 +140,8 @@ interface DesignStreamEvent {
   attempt?: number;
   reason?: string;
   payload?: Record<string, unknown>;
+  status?: string;
+  issues?: Array<Record<string, unknown>>;
   // component_registered
   component?: Record<string, unknown>;
   // design_error / component_generation_error
@@ -232,6 +266,53 @@ export async function runDesignCalibrationStream(
         }
         case 'concept_merge_preview': {
           callbacks.onConceptMergePreview?.(event.payload ?? {});
+          break;
+        }
+        case 'self_review_started': {
+          callbacks.onSelfReviewStarted?.({
+            directionId: event.directionId ?? '',
+            directionTitle: event.directionTitle ?? '',
+            attempt: typeof event.attempt === 'number' ? event.attempt : 0,
+          });
+          break;
+        }
+        case 'self_review_result': {
+          callbacks.onSelfReviewResult?.({
+            directionId: event.directionId ?? '',
+            directionTitle: event.directionTitle ?? '',
+            attempt: typeof event.attempt === 'number' ? event.attempt : 0,
+            status: event.status ?? 'unknown',
+            score: typeof event.score === 'number' ? event.score : 0,
+            issues: event.issues ?? [],
+          });
+          break;
+        }
+        case 'self_repair_started': {
+          callbacks.onSelfRepairStarted?.({
+            directionId: event.directionId ?? '',
+            directionTitle: event.directionTitle ?? '',
+            attempt: typeof event.attempt === 'number' ? event.attempt : 0,
+            issues: event.issues ?? [],
+          });
+          break;
+        }
+        case 'self_repair_result': {
+          callbacks.onSelfRepairResult?.({
+            directionId: event.directionId ?? '',
+            directionTitle: event.directionTitle ?? '',
+            attempt: typeof event.attempt === 'number' ? event.attempt : 0,
+            status: event.status ?? 'unknown',
+            issues: event.issues ?? [],
+          });
+          break;
+        }
+        case 'self_repair_exhausted': {
+          callbacks.onSelfRepairExhausted?.({
+            directionId: event.directionId ?? '',
+            directionTitle: event.directionTitle ?? '',
+            attempt: typeof event.attempt === 'number' ? event.attempt : 0,
+            issues: event.issues ?? [],
+          });
           break;
         }
         case 'design_concepts_started': {

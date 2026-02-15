@@ -18,7 +18,7 @@ BaleyUI builds **AI-controlled systems**, not hard-coded software. Every feature
 ### Decision Framework (in priority order)
 
 1. **Can an existing internal BaleyBot do this?** — Internal bots cover creation, testing, deployment, review, NL-to-SQL, pattern learning, and more (see Internal BaleyBots table below)
-2. **Can a new BaleyBot via BAL composition handle it?** — chain, parallel, route, gate, loop, try/catch, filter, processor
+2. **Can a new BaleyBot via BAL composition handle it?** — chain, parallel, if/else, loop, map, select, merge
 3. **Can a built-in tool empower a BaleyBot to do it?** — Built-in tools like web_search, spawn_baleybot, schedule_task, store_memory, etc. (see Built-in Tools Reference below)
 4. **Does this need a new tool that BaleyBots use?** — Extend capability, not logic
 5. **Only if none of the above:** write deterministic code (DB operations, auth, streaming infrastructure, HTTP routing)
@@ -27,7 +27,7 @@ BaleyUI builds **AI-controlled systems**, not hard-coded software. Every feature
 
 - Hard-coded if/else trees for decisions a BaleyBot should make
 - Multi-step wizards where a conversational BaleyBot should guide the user
-- Static routing tables where `route()` composition should classify and dispatch
+- Static routing tables where BAL `if/else` + classifier output should dispatch
 - Manual review forms where `execution_reviewer` should analyze and suggest
 - Rigid pipelines where adaptive BAL chains should self-correct
 
@@ -296,11 +296,9 @@ chain { a b }                                    # Sequential
 parallel { a b }                                 # Concurrent
 if ("result.score > 0.8") { a } else { b }      # Conditional
 loop ("until": "result.done", "max": 5) { a }   # Iteration
-try ("retries": 3) { a } catch { b }            # Error handling
-route(classifier) { "type1": h1, "type2": h2 }  # Multi-way routing
-gate("result.needsReview") { reviewer }          # Conditional gate
-filter("item.score > 0.5") { enricher }          # Array filter
-processor("extract") { "result.data" }           # Data transform
+map result.items { enricher }                    # Per-item mapping
+select { "summary": "result.summary" }           # Output reshaping
+merge { "combined": "result.branch_0" }          # Merge branch outputs
 ```
 
 ## Testing & Verification

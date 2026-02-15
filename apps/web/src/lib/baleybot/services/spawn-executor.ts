@@ -21,6 +21,7 @@ import { getOrCreateSystemWorkspace } from '@/lib/system-workspace';
 import { getDefaultModelForTier } from '@/lib/models/model-registry';
 import { createLogger } from '@/lib/logger';
 import { normalizeOutputCandidate } from '../internal-bb/contract-gateway';
+import { parseBalCode } from '../bal-parser-pure';
 
 // ============================================================================
 // WORKSPACE POLICIES
@@ -44,25 +45,16 @@ type PolicyProvider = (workspaceId: string) => Promise<WorkspacePolicies | null>
 
 /**
  * Extract tool names from BAL code.
- * Supports both brace syntax (canonical BAL) and bracket syntax (legacy/test).
+ * Uses BAL parser output only.
  */
 export function extractToolsFromBAL(balCode: string): string[] {
-  const allTools: string[] = [];
-
-  // Brace syntax (canonical BAL): "tools": { "web_search", "fetch_url" }
-  for (const match of balCode.matchAll(/"tools"\s*:\s*\{(.*?)\}/gs)) {
-    const toolNames = match[1]?.match(/"([^"]+)"/g) || [];
-    allTools.push(...toolNames.map(t => t.replace(/"/g, '')));
-  }
-
-  // Bracket syntax (legacy/test): "tools": ["web_search"]
-  for (const match of balCode.matchAll(/"tools"\s*:\s*\[(.*?)\]/gs)) {
-    const toolNames = match[1]?.match(/"([^"]+)"/g) || [];
-    allTools.push(...toolNames.map(t => t.replace(/"/g, '')));
-  }
-
-  // Deduplicate
-  return [...new Set(allTools)];
+  const parsed = parseBalCode(balCode);
+  const tools = parsed.entities.flatMap((entity) =>
+    Array.isArray(entity.config.tools)
+      ? entity.config.tools.filter((tool): tool is string => typeof tool === 'string')
+      : []
+  );
+  return [...new Set(tools)];
 }
 
 /**

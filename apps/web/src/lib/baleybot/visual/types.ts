@@ -42,7 +42,7 @@ export interface VisualEdge {
   id: string;
   source: string;
   target: string;
-  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel' | 'loop' | 'spawn' | 'shared_data' | 'trigger' | 'try_catch' | 'route' | 'gate' | 'filter' | 'runtime';
+  type: 'chain' | 'conditional_pass' | 'conditional_fail' | 'parallel' | 'loop' | 'spawn' | 'shared_data' | 'trigger' | 'runtime';
   label?: string;
   animated?: boolean;
 }

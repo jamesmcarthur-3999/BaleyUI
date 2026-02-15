@@ -187,6 +187,20 @@ export function buildArtifactBundle(
       content: JSON.stringify(packageData.generationReport, null, 2),
     },
     {
+      path: 'verification-report.json',
+      kind: 'json',
+      description: 'Self-review status, issues, and repair trace',
+      content: JSON.stringify(
+        {
+          verificationStatus: packageData.generationReport.verificationStatus,
+          verificationIssues: packageData.generationReport.verificationIssues,
+          repairTrace: packageData.generationReport.repairTrace,
+        },
+        null,
+        2
+      ),
+    },
+    {
       path: 'blueprints/landing.json',
       kind: 'json',
       description: 'Landing page blueprint',

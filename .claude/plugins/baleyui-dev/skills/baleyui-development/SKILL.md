@@ -114,11 +114,10 @@ chain { a b }                                    # Sequential
 parallel { a b }                                 # Concurrent
 if ("result.score > 0.8") { a } else { b }      # Conditional
 loop ("until": "result.done", "max": 5) { a }   # Iteration
-try ("retries": 3) { a } catch { b }            # Error handling
-route(classifier) { "type1": h1, "type2": h2 }  # Multi-way routing
-gate("result.needsReview") { reviewer }          # Conditional gate
-filter("item.score > 0.5") { enricher }          # Array filter
-processor("extract") { "result.data" }           # Data transform
+if ("$classification.type == 'type1'") { h1 } else { h2 } # Routing pattern
+if ("result.needsReview") { reviewer }         # Conditional step
+map result.items { enricher }                  # Per-item processing
+select { result.data }                         # Data projection
 ```
 
 ### Critical BAL Gotchas
@@ -126,7 +125,7 @@ processor("extract") { "result.data" }           # Data transform
 1. **Tools use BRACE syntax**, NOT brackets:
    ```bal
    "tools": { "web_search", "fetch_url" }   # CORRECT
-   "tools": ["web_search", "fetch_url"]      # WRONG - lexer has no bracket tokens
+   tools: [ "web_search", "fetch_url" ]     # WRONG - legacy array syntax
    ```
 
 2. **Output fields are REQUIRED** (not optional). The SDK's `buildZodSchema()` produces required fields. **NEVER re-add `.optional()` to `buildZodSchema` field loop** - it breaks all internal bots with output blocks.

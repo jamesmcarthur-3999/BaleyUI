@@ -148,10 +148,10 @@ export interface ExecutorContext {
 }
 
 /**
- * Parsed control structure from BAL code (legacy shape; kept for compatibility)
+ * Parsed control structure from BAL code
  */
 interface ControlStructure {
-  type: 'chain' | 'when' | 'parallel';
+  type: 'chain' | 'parallel' | 'if' | 'loop' | 'map' | 'select' | 'merge';
   entityNames?: string[];
   condition?: string;
   branches?: Record<string, string>;

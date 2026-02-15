@@ -229,8 +229,9 @@ export const GET_DESIGN_PACKAGE_SCHEMA = {
         'brand_dossier',
         'quality_report',
         'concept_pack_manifest',
+        'verification_report',
       ],
-      description: 'Output format: brief, full, tailwind_only, registry_only, blueprints, artifact_bundle_manifest, brand_dossier, quality_report, concept_pack_manifest',
+      description: 'Output format: brief, full, tailwind_only, registry_only, blueprints, artifact_bundle_manifest, brand_dossier, quality_report, concept_pack_manifest, verification_report',
       default: 'brief',
     },
   },
@@ -522,6 +523,7 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
       { input: { format: 'brand_dossier' }, description: 'Get source evidence and inferred brand constraints' },
       { input: { format: 'quality_report' }, description: 'Get quality checks, scores, and repair trace metadata' },
       { input: { format: 'concept_pack_manifest' }, description: 'Get concept directions and selection metadata for merge/reuse' },
+      { input: { format: 'verification_report' }, description: 'Get verification status, issues, and repair trace for self-healing generation' },
     ],
   },
   {

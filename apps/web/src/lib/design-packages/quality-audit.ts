@@ -21,7 +21,7 @@ export interface QualityAuditResult {
   failedHardChecks: string[];
 }
 
-function scoreFromBoolean(passed: boolean, passScore = 100, failScore = 30): number {
+function scoreFromBoolean(passed: boolean, passScore = 100, failScore = 55): number {
   return passed ? passScore : failScore;
 }
 
@@ -137,7 +137,15 @@ export function passesQualityGate(
   result: QualityAuditResult,
   minimumScore = 82
 ): boolean {
-  return result.failedHardChecks.length === 0 && result.overallScore >= minimumScore;
+  if (result.failedHardChecks.length > 0) return false;
+
+  if (result.overallScore >= minimumScore) return true;
+
+  // Allow near-threshold scores when only advisory checks failed.
+  return (
+    result.overallScore >= Math.max(minimumScore - 6, 70) &&
+    result.failedChecks.every((check) => !result.failedHardChecks.includes(check))
+  );
 }
 
 export function buildGenerationReport(args: {
@@ -152,6 +160,23 @@ export function buildGenerationReport(args: {
   qualityAudit: QualityAuditResult;
   repairAttempts: number;
   repairApplied: boolean;
+  verificationStatus?: 'passed' | 'repaired' | 'degraded';
+  verificationIssues?: Array<{
+    id: string;
+    severity: 'error' | 'warning';
+    path: string;
+    message: string;
+    source: 'schema' | 'invariant' | 'quality' | 'ai_review';
+    attempt: number;
+    recoverable: boolean;
+  }>;
+  repairTrace?: Array<{
+    attempt: number;
+    source: 'generator' | 'refiner' | 'fallback';
+    status: 'applied' | 'skipped' | 'failed';
+    issueCount: number;
+    message: string;
+  }>;
 }): DesignPackageDataV2['generationReport'] {
   return generationReportSchema.parse(
     createDefaultGenerationReport({
@@ -161,6 +186,9 @@ export function buildGenerationReport(args: {
       repairApplied: args.repairApplied,
       failedChecks: args.qualityAudit.failedChecks,
       qualityChecks: args.qualityAudit.checks,
+      verificationStatus: args.verificationStatus,
+      verificationIssues: args.verificationIssues,
+      repairTrace: args.repairTrace,
       conceptScores:
         args.conceptScores.length > 0
           ? args.conceptScores

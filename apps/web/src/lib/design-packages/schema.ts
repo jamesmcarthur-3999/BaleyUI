@@ -189,6 +189,24 @@ const conceptScoreSchema = z.object({
   rationale: z.string().min(1),
 });
 
+const verificationIssueSchema = z.object({
+  id: z.string().min(1),
+  severity: z.enum(['error', 'warning']),
+  path: z.string().min(1),
+  message: z.string().min(1),
+  source: z.enum(['schema', 'invariant', 'quality', 'ai_review']),
+  attempt: z.number().int().min(0).max(10),
+  recoverable: z.boolean(),
+});
+
+const repairTraceEntrySchema = z.object({
+  attempt: z.number().int().min(0).max(10),
+  source: z.enum(['generator', 'refiner', 'fallback']),
+  status: z.enum(['applied', 'skipped', 'failed']),
+  issueCount: z.number().int().min(0).max(200),
+  message: z.string().min(1),
+});
+
 export const generationReportSchema = z.object({
   version: z.literal(1),
   generatedAt: z.string().datetime(),
@@ -199,6 +217,9 @@ export const generationReportSchema = z.object({
   failedChecks: z.array(z.string().min(1)),
   qualityChecks: z.array(qualityCheckResultSchema),
   conceptScores: z.array(conceptScoreSchema).min(1),
+  verificationStatus: z.enum(['passed', 'repaired', 'degraded']),
+  verificationIssues: z.array(verificationIssueSchema),
+  repairTrace: z.array(repairTraceEntrySchema),
 });
 
 export const designPackageDataV2Schema = z.object({
@@ -538,6 +559,23 @@ export function createDefaultGenerationReport(args: {
   overallScore?: number;
   repairAttempts?: number;
   repairApplied?: boolean;
+  verificationStatus?: 'passed' | 'repaired' | 'degraded';
+  verificationIssues?: Array<{
+    id: string;
+    severity: 'error' | 'warning';
+    path: string;
+    message: string;
+    source: 'schema' | 'invariant' | 'quality' | 'ai_review';
+    attempt: number;
+    recoverable: boolean;
+  }>;
+  repairTrace?: Array<{
+    attempt: number;
+    source: 'generator' | 'refiner' | 'fallback';
+    status: 'applied' | 'skipped' | 'failed';
+    issueCount: number;
+    message: string;
+  }>;
   failedChecks?: string[];
   conceptScores?: Array<{
     id: string;
@@ -561,6 +599,9 @@ export function createDefaultGenerationReport(args: {
     repairAttempts: args.repairAttempts ?? 0,
     repairApplied: args.repairApplied ?? false,
     failedChecks: args.failedChecks ?? [],
+    verificationStatus: args.verificationStatus ?? 'passed',
+    verificationIssues: args.verificationIssues ?? [],
+    repairTrace: args.repairTrace ?? [],
     qualityChecks: args.qualityChecks ?? [
       {
         id: 'wcag-core',
@@ -599,6 +640,7 @@ export function createDefaultArtifactManifest(): z.infer<typeof artifactManifest
       { path: 'tailwind-theme.json', kind: 'json', description: 'Tailwind-compatible token map and defaults' },
       { path: 'brand-dossier.v1.json', kind: 'json', description: 'Brand signal synthesis and confidence report' },
       { path: 'quality-report.json', kind: 'json', description: 'Generation quality checks and repair trace' },
+      { path: 'verification-report.json', kind: 'json', description: 'Self-review issues, status, and repair outcomes' },
       { path: 'blueprints/landing.json', kind: 'json', description: 'Landing page blueprint and interaction model' },
       { path: 'blueprints/customer-app.json', kind: 'json', description: 'Customer-facing app blueprint' },
       { path: 'blueprints/internal-app.json', kind: 'json', description: 'Internal app blueprint' },

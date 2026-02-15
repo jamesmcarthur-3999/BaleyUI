@@ -471,7 +471,8 @@ interface GetDesignPackageArgs {
     | 'artifact_bundle_manifest'
     | 'brand_dossier'
     | 'quality_report'
-    | 'concept_pack_manifest';
+    | 'concept_pack_manifest'
+    | 'verification_report';
 }
 
 async function getDesignPackageImpl(
@@ -563,6 +564,20 @@ async function getDesignPackageImpl(
           artifacts: data.artifactManifest.artifacts.filter((artifact) =>
             artifact.path.startsWith('concepts/')
           ),
+        } as Record<string, unknown>,
+      };
+    case 'verification_report':
+      return {
+        found: true,
+        format,
+        content: {
+          selectedConceptId: data.generationReport.selectedConceptId,
+          verificationStatus: data.generationReport.verificationStatus,
+          verificationIssues: data.generationReport.verificationIssues,
+          repairTrace: data.generationReport.repairTrace,
+          failedChecks: data.generationReport.failedChecks,
+          qualityChecks: data.generationReport.qualityChecks,
+          overallScore: data.generationReport.overallScore,
         } as Record<string, unknown>,
       };
     default:

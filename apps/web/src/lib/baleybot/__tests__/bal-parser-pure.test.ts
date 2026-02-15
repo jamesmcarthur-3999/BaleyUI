@@ -79,29 +79,28 @@ describe('parseBalCode entity properties', () => {
     expect(result.entities[0]?.config.tools).toEqual(['web_search']);
   });
 
-  it('parses tools with bracket syntax by normalizing to BAL set syntax', () => {
+  it('rejects legacy tools array syntax', () => {
     const result = parseBalCode(`
       bot {
         "goal": "Search things",
         "tools": ["web_search", "fetch_url"]
       }
     `);
-    expect(result.errors).toHaveLength(0);
-    expect(result.entities[0]?.config.tools).toEqual(['web_search', 'fetch_url']);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0]).toContain('BAL v1 syntax is not supported');
   });
 
-  it('normalizes unsupported scalar properties (reasoning, retries) and still parses', () => {
+  it('does not rewrite BAL code in compatibility normalization mode', () => {
     const code = `
       bot {
         "goal": "Search things",
-        "tools": ["web_search", "fetch_url"],
+        "tools": { "web_search", "fetch_url" },
         "reasoning": "high",
         "retries": 2
       }
     `;
     const normalized = normalizeBalCodeForCompatibility(code);
-    expect(normalized.includes('"reasoning"')).toBe(false);
-    expect(normalized.includes('"retries"')).toBe(false);
+    expect(normalized).toBe(code);
 
     const result = parseBalCode(code);
     expect(result.errors).toHaveLength(0);
@@ -109,7 +108,7 @@ describe('parseBalCode entity properties', () => {
     expect(result.entities[0]?.config.tools).toEqual(['web_search', 'fetch_url']);
   });
 
-  it('normalizes unsupported multiline object/array properties and still parses', () => {
+  it('retains extended properties during loose compatibility parsing', () => {
     const code = `
       bot {
         "goal": "Monitor",
@@ -128,9 +127,7 @@ describe('parseBalCode entity properties', () => {
       }
     `;
     const normalized = normalizeBalCodeForCompatibility(code);
-    expect(normalized.includes('"reasoning"')).toBe(false);
-    expect(normalized.includes('"can_request"')).toBe(false);
-    expect(normalized.includes('"trigger"')).toBe(false);
+    expect(normalized).toBe(code);
 
     const result = parseBalCode(code);
     expect(result.errors).toHaveLength(0);
@@ -172,7 +169,7 @@ describe('parseBalCode entity properties', () => {
     const result = parseBalCode(`
       helper_bot {
         goal: "Handle quick requests",
-        tools: ["web_search", "fetch_url"],
+        tools: { "web_search", "fetch_url" },
         reasoning: "high"
       }
     `);
@@ -691,7 +688,7 @@ describe('balToVisual entity data', () => {
         "goal": "Handle unsupported config safely",
         "reasoning": "high",
         "trigger": "schedule:0 * * * *",
-        "tools": ["web_search"]
+        "tools": { "web_search" }
       }
     `);
     expect(result.errors).toHaveLength(0);

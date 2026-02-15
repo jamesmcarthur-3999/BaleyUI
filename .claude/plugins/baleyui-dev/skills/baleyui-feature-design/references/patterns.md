@@ -226,7 +226,7 @@ notification_manager {
 # Pattern learner observes which notifications users act on
 chain {
   notification_manager => notifications
-  gate("notifications.adjustments.length > 0") {
+  if ("notifications.adjustments.length > 0") {
     pattern_learner with { data: $notifications.adjustments }
   }
 }
@@ -283,22 +283,27 @@ function ErrorDashboard() {
 chain {
   execution_reviewer => analysis
 
-  route(analysis.errorCategory) {
-    "bal_syntax": bal_generator with {
+  if ("$analysis.errorCategory == 'bal_syntax'") {
+    bal_generator with {
       fix: $analysis.suggestedFix,
       originalCode: $analysis.balCode
-    },
-    "missing_connection": connection_advisor with {
-      needed: $analysis.requiredConnection
-    },
-    "model_limitation": chain {
-      # Try a more capable model
-      gate("analysis.canUpgradeModel") {
-        processor("suggest") { $analysis.alternativeModel }
+    }
+  } else {
+    if ("$analysis.errorCategory == 'missing_connection'") {
+      connection_advisor with {
+        needed: $analysis.requiredConnection
       }
-    },
-    "tool_error": tool_executor with {
-      diagnose: $analysis.toolError
+    } else {
+      if ("$analysis.errorCategory == 'tool_error'") {
+        tool_executor with {
+          diagnose: $analysis.toolError
+        }
+      } else {
+        error_resolver with {
+          context: $analysis,
+          preferredModel: $analysis.alternativeModel
+        }
+      }
     }
   }
 }
@@ -357,14 +362,14 @@ function checkQuality(output: unknown): QualityResult {
 }
 ```
 
-### Right Approach: BAL chain with route() and gate()
+### Right Approach: BAL chain with classifier-driven branching
 
 ```bal
 quality_classifier {
   "goal": "Classify the type and sensitivity level of this BaleyBot output",
   "output": {
-    "contentType": "enum('text', 'code', 'data', 'mixed')",
-    "sensitivityLevel": "enum('public', 'internal', 'sensitive')",
+    "contentType": "string",
+    "sensitivityLevel": "string",
     "requiresReview": "boolean"
   }
 }
@@ -374,8 +379,8 @@ quality_reviewer {
            Consider the BaleyBot's stated goal and whether the output
            achieves it appropriately.",
   "output": {
-    "qualityScore": "number(0, 10)",
-    "issues": "array<object>",
+    "qualityScore": "number",
+    "issues": "array",
     "approved": "boolean",
     "feedback": "string"
   }
@@ -383,15 +388,22 @@ quality_reviewer {
 
 chain {
   quality_classifier => classification
-  route(classification.contentType) {
-    "code": code_reviewer,
-    "data": data_validator,
-    "text": quality_reviewer,
-    "mixed": parallel { code_reviewer quality_reviewer }
+  if ("$classification.contentType == 'code'") {
+    code_reviewer
+  } else {
+    if ("$classification.contentType == 'data'") {
+      data_validator
+    } else {
+      if ("$classification.contentType == 'text'") {
+        quality_reviewer
+      } else {
+        parallel { code_reviewer quality_reviewer }
+      }
+    }
   }
-  gate("classification.requiresReview") {
+  if ("classification.requiresReview") {
     # Human review only when BB flags it
-    processor("flag") { "needs_human_review" }
+    human_review_notifier
   }
 }
 ```

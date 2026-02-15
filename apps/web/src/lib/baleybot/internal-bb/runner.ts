@@ -6,6 +6,7 @@ import {
 import {
   runWithContractGateway,
   type FallbackMode,
+  type ContractGatewayCallbacks,
 } from './contract-gateway';
 import {
   brandDossierSchema,
@@ -18,6 +19,7 @@ export interface InternalBBRunOptions<T> extends InternalExecutionOptions {
   fallbackMode?: FallbackMode;
   fallbackValue?: T;
   repairAttempts?: number;
+  contractCallbacks?: ContractGatewayCallbacks;
 }
 
 async function runInternalBB<T>(args: {
@@ -27,7 +29,13 @@ async function runInternalBB<T>(args: {
   options?: InternalBBRunOptions<T>;
 }): Promise<T> {
   const { botName, input, schema, options } = args;
-  const { fallbackMode, fallbackValue, repairAttempts = 1, ...executionOptions } = options ?? {};
+  const {
+    fallbackMode,
+    fallbackValue,
+    repairAttempts = 1,
+    contractCallbacks,
+    ...executionOptions
+  } = options ?? {};
 
   return runWithContractGateway({
     botName,
@@ -38,6 +46,7 @@ async function runInternalBB<T>(args: {
     fallbackMode,
     fallbackValue,
     repairAttempts,
+    callbacks: contractCallbacks,
   });
 }
 

@@ -13,6 +13,7 @@
     "dev": "pnpm --filter @baleyui/web dev",
     "build": "pnpm --filter @baleyui/web build",
     "start": "pnpm --filter @baleyui/web start",
+    "bal:v2:check": "node apps/web/scripts/check-bal-v2-compliance.mjs",
     "lint": "pnpm -r lint",
     "type-check": "pnpm -r type-check",
     "test": "pnpm --filter @baleyui/web test",

@@ -80,7 +80,7 @@ describe('SpawnBaleybotExecutor', () => {
       const balCode = `
         analyzer {
           "goal": "Analyze data",
-          "tools": ["database_query", "web_search", "fetch_url"]
+          "tools": { "database_query", "web_search", "fetch_url" }
         }
       `;
 
@@ -100,14 +100,14 @@ describe('SpawnBaleybotExecutor', () => {
     });
 
     it('should handle single tool', () => {
-      const balCode = `bot { "tools": ["only_one"] }`;
+      const balCode = `bot { "tools": { "only_one" } }`;
 
       const tools = extractToolsFromBAL(balCode);
       expect(tools).toEqual(['only_one']);
     });
 
-    it('should handle empty tools array', () => {
-      const balCode = `bot { "tools": [] }`;
+    it('should handle empty tools set', () => {
+      const balCode = `bot { "tools": { } }`;
 
       const tools = extractToolsFromBAL(balCode);
       expect(tools).toEqual([]);
@@ -123,7 +123,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'data-bot',
-          balCode: 'bot { "tools": ["database_query", "web_search"] }',
+          balCode: 'bot { "tools": { "database_query", "web_search" } }',
         })
       );
 
@@ -155,7 +155,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'safe-bot',
-          balCode: 'bot { "tools": ["web_search", "fetch_url"] }',
+          balCode: 'bot { "tools": { "web_search", "fetch_url" } }',
         })
       );
 
@@ -185,7 +185,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'nested-bot',
-          balCode: 'bot { "tools": [] }',
+          balCode: 'bot { "tools": { } }',
         })
       );
 
@@ -218,7 +218,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'any-bot',
-          balCode: 'bot { "tools": ["database_query"] }',
+          balCode: 'bot { "tools": { "database_query" } }',
         })
       );
 
@@ -244,7 +244,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'restricted-bot',
-          balCode: 'bot { "tools": ["web_search", "database_query"] }',
+          balCode: 'bot { "tools": { "web_search", "database_query" } }',
         })
       );
 
@@ -277,7 +277,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'safe-bot',
-          balCode: 'bot { "tools": ["web_search"] }',
+          balCode: 'bot { "tools": { "web_search" } }',
         })
       );
 
@@ -340,7 +340,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'safe-bot',
-          balCode: 'bot { "tools": [] }',
+          balCode: 'bot { "tools": { } }',
         })
       );
 
@@ -378,7 +378,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'safe-bot',
-          balCode: 'bot { "tools": [] }',
+          balCode: 'bot { "tools": { } }',
         })
       );
 
@@ -410,7 +410,7 @@ describe('SpawnBaleybotExecutor', () => {
         mockBB({
           id: 'bb-1',
           name: 'deep-bot',
-          balCode: 'bot { "tools": [] }',
+          balCode: 'bot { "tools": { } }',
         })
       );
 

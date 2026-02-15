@@ -282,9 +282,9 @@ function suggestInputFilter(pattern: UsagePattern): OptimizationSuggestion | nul
     implementation:
       `Add a validation check before your BaleyBot:\n\n` +
       `1. Create a "validator" entity that checks input validity\n` +
-      `2. Use "when" directive to only proceed if valid:\n\n` +
+      `2. Use BAL v2 conditional flow to proceed only if valid:\n\n` +
       `validator {\n  "goal": "Check if input is valid for processing"\n}\n\n` +
-      `when validator {\n  "pass": "${pattern.baleybotName.toLowerCase().replace(/\s+/g, '_')}"\n}`,
+      `if ("validator.isValid") {\n  ${pattern.baleybotName.toLowerCase().replace(/\s+/g, '_')}\n} else {\n  fallback_handler\n}`,
     confidence: 'medium',
     impact: pattern.failureRate > 0.2 ? 'high' : 'medium',
   };

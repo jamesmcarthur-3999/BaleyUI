@@ -58,6 +58,27 @@ export interface ContractGatewayRunOptions<TExecutionOptions, TOutput> {
   fallbackMode?: FallbackMode;
   fallbackValue?: TOutput;
   repairAttempts?: number;
+  callbacks?: ContractGatewayCallbacks;
+}
+
+export interface ContractGatewayFailureContext {
+  botName: string;
+  input: string;
+  attempt: number;
+  issues: z.ZodIssue[];
+  outputPreview: string;
+}
+
+export interface ContractGatewayCallbacks {
+  onParseFailure?: (context: ContractGatewayFailureContext) => void;
+  onRepairAttempt?: (context: ContractGatewayFailureContext) => void;
+  onRepairSuccess?: (context: Omit<ContractGatewayFailureContext, 'issues' | 'outputPreview'>) => void;
+  onFallback?: (context: {
+    botName: string;
+    input: string;
+    attempt: number;
+    reason: string;
+  }) => void;
 }
 
 function summarizeOutput(output: unknown): string {
@@ -241,6 +262,7 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
     fallbackMode = 'throw',
     fallbackValue,
     repairAttempts = 1,
+    callbacks,
   } = args;
   const metrics = getBotMetrics(botName);
   metrics.runs += 1;
@@ -254,6 +276,13 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
     }
 
     metrics.parseFailures += 1;
+    callbacks?.onParseFailure?.({
+      botName,
+      input,
+      attempt: 0,
+      issues: parsed.issues,
+      outputPreview: summarizeOutput(parsed.normalizedOutput),
+    });
 
     log.warn('Internal BB output parse failed', {
       botName,
@@ -265,6 +294,13 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
     const maxRepairAttempts = Math.max(0, repairAttempts);
     for (let attempt = 1; attempt <= maxRepairAttempts; attempt += 1) {
       metrics.repairAttempts += 1;
+      callbacks?.onRepairAttempt?.({
+        botName,
+        input,
+        attempt,
+        issues: parsed.issues,
+        outputPreview: summarizeOutput(parsed.normalizedOutput),
+      });
       const repairPrompt = formatContractRepairPrompt({
         botName,
         originalInput: input,
@@ -278,6 +314,11 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
 
       if (parsed.success) {
         metrics.repairSuccesses += 1;
+        callbacks?.onRepairSuccess?.({
+          botName,
+          input,
+          attempt,
+        });
         log.info('Internal BB output repaired successfully', {
           botName,
           attempt,
@@ -295,6 +336,12 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
 
     if (fallbackMode === 'value' && fallbackValue !== undefined) {
       metrics.fallbackUsages += 1;
+      callbacks?.onFallback?.({
+        botName,
+        input,
+        attempt: Math.max(1, maxRepairAttempts),
+        reason: 'parse_failure_after_repairs',
+      });
       return fallbackValue;
     }
 
@@ -307,6 +354,12 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
   } catch (error) {
     if (fallbackMode === 'value' && fallbackValue !== undefined) {
       metrics.fallbackUsages += 1;
+      callbacks?.onFallback?.({
+        botName,
+        input,
+        attempt: Math.max(1, repairAttempts),
+        reason: error instanceof Error ? error.message : String(error),
+      });
       log.warn('Internal BB execution failed, using fallback value', {
         botName,
         error: error instanceof Error ? error.message : String(error),

@@ -196,6 +196,24 @@ export interface ConceptScore {
   rationale: string;
 }
 
+export interface VerificationIssue {
+  id: string;
+  severity: 'error' | 'warning';
+  path: string;
+  message: string;
+  source: 'schema' | 'invariant' | 'quality' | 'ai_review';
+  attempt: number;
+  recoverable: boolean;
+}
+
+export interface RepairTraceEntry {
+  attempt: number;
+  source: 'generator' | 'refiner' | 'fallback';
+  status: 'applied' | 'skipped' | 'failed';
+  issueCount: number;
+  message: string;
+}
+
 export interface GenerationReport {
   version: 1;
   generatedAt: string;
@@ -206,6 +224,9 @@ export interface GenerationReport {
   failedChecks: string[];
   qualityChecks: QualityCheckResult[];
   conceptScores: ConceptScore[];
+  verificationStatus: 'passed' | 'repaired' | 'degraded';
+  verificationIssues: VerificationIssue[];
+  repairTrace: RepairTraceEntry[];
 }
 
 // ============================================================================

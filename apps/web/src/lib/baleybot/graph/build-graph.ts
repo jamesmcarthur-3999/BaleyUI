@@ -158,7 +158,7 @@ function connectAll(
 ) {
   for (const source of sources) {
     for (const target of targets) {
-      if (source === target) continue;
+      if (source === target && kind !== 'loop') continue;
       const id = `${kind}:${source}->${target}:${label ?? ''}`;
       if (edges.some((edge) => edge.id === id)) continue;
       edges.push({
@@ -245,13 +245,21 @@ function traverseExpression(
 
   if (expr.type === 'loop') {
     const body = traverseExpression(expr.body, state);
+    const labelParts: string[] = [];
+    if (expr.until) {
+      labelParts.push(`until ${expr.until}`);
+    }
+    if (typeof expr.max === 'number') {
+      labelParts.push(`max ${expr.max}`);
+    }
+    const loopLabel = labelParts.length > 0 ? labelParts.join(' | ') : 'loop';
     if (body.exits.length > 0 && body.entries.length > 0) {
       connectAll(
         state.edges,
         body.exits,
         body.entries,
         'loop',
-        expr.until ? `until ${expr.until}` : 'loop',
+        loopLabel,
         true
       );
     }

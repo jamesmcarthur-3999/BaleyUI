@@ -50,9 +50,12 @@ import {
 import {
   auditDesignPackageQuality,
   buildGenerationReport,
-  passesQualityGate,
   type QualityAuditResult,
 } from '@/lib/design-packages/quality-audit';
+import {
+  verifyDesignPackageCandidate,
+  type VerificationIssue,
+} from '@/lib/design-packages/self-verify';
 
 const log = createLogger('design-calibration-stream');
 
@@ -106,6 +109,15 @@ interface DirectionConcept {
   rationale: string;
   packageData: DesignPackageDataV2;
   qualityAudit: QualityAuditResult;
+  verificationStatus: 'passed' | 'repaired' | 'degraded';
+  verificationIssues: VerificationIssue[];
+  repairTrace: Array<{
+    attempt: number;
+    source: 'generator' | 'refiner' | 'fallback';
+    status: 'applied' | 'skipped' | 'failed';
+    issueCount: number;
+    message: string;
+  }>;
 }
 
 const DESIGN_DIRECTIONS: Array<{
@@ -265,28 +277,30 @@ function buildDirectionPrompt(args: {
 }
 
 function buildRepairPrompt(args: {
-  concept: DirectionConcept;
+  conceptTitle: string;
+  packageData: DesignPackageDataV2;
+  issues: VerificationIssue[];
   controls: DesignCalibrationControls;
   message: string;
 }): string {
-  const failing = args.concept.qualityAudit.checks
-    .filter((check) => !check.passed)
-    .map((check) => `${check.id}: ${check.detail}`)
+  const failing = args.issues
+    .slice(0, 16)
+    .map((issue) => `${issue.id} [${issue.severity}] ${issue.path}: ${issue.message}`)
     .join('\n- ');
 
   return [
-    'Refine this design package to pass quality gating while preserving direction intent.',
-    `Direction: ${args.concept.title}`,
+    'Refine this design package to satisfy verification feedback while preserving direction intent.',
+    `Direction: ${args.conceptTitle}`,
     `Original user intent: ${args.message}`,
     '',
     'Controls:',
     JSON.stringify(args.controls, null, 2),
     '',
-    'Failed quality checks:',
-    failing ? `- ${failing}` : '- None listed, improve overall score conservatively.',
+    'Verification issues:',
+    failing ? `- ${failing}` : '- No issues listed, improve coherence conservatively.',
     '',
     'Current package JSON:',
-    JSON.stringify(args.concept.packageData, null, 2),
+    JSON.stringify(args.packageData, null, 2),
     '',
     'Constraints:',
     '- Return complete V2.5 package JSON only.',
@@ -544,6 +558,9 @@ export async function POST(req: NextRequest) {
 
             sendEvent({ type: 'design_concepts_started', timestamp: Date.now() });
 
+            const minimumScore = controls.contrastTarget === 'aaa' ? 90 : 82;
+            const maxRepairAttempts = 2;
+
             const generatedDirectionResults = await Promise.allSettled(
               DESIGN_DIRECTIONS.map(async (direction) => {
                 sendEvent({
@@ -552,6 +569,80 @@ export async function POST(req: NextRequest) {
                   directionTitle: direction.title,
                   timestamp: Date.now(),
                 });
+
+                const formatGatewayIssuePath = (path: ReadonlyArray<PropertyKey>): string =>
+                  path.length > 0 ? path.map((segment) => String(segment)).join('.') : '$';
+
+                const contractCallbacks = {
+                  onParseFailure: (ctx: { attempt: number; issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> }) => {
+                    sendEvent({
+                      type: 'self_repair_result',
+                      directionId: direction.id,
+                      directionTitle: direction.title,
+                      attempt: ctx.attempt,
+                      status: 'gateway_parse_failure',
+                      issues: ctx.issues.map((issue, index) => ({
+                        id: `gateway-parse-${index}`,
+                        severity: 'error',
+                        path: formatGatewayIssuePath(issue.path),
+                        message: issue.message,
+                        source: 'schema',
+                        attempt: ctx.attempt,
+                        recoverable: true,
+                      })),
+                      timestamp: Date.now(),
+                    });
+                  },
+                  onRepairAttempt: (ctx: { attempt: number; issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> }) => {
+                    sendEvent({
+                      type: 'self_repair_started',
+                      directionId: direction.id,
+                      directionTitle: direction.title,
+                      attempt: ctx.attempt,
+                      issues: ctx.issues.map((issue, index) => ({
+                        id: `gateway-repair-${index}`,
+                        severity: 'warning',
+                        path: formatGatewayIssuePath(issue.path),
+                        message: issue.message,
+                        source: 'schema',
+                        attempt: ctx.attempt,
+                        recoverable: true,
+                      })),
+                      timestamp: Date.now(),
+                    });
+                  },
+                  onRepairSuccess: (ctx: { attempt: number }) => {
+                    sendEvent({
+                      type: 'self_repair_result',
+                      directionId: direction.id,
+                      directionTitle: direction.title,
+                      attempt: ctx.attempt,
+                      status: 'gateway_repair_success',
+                      issues: [],
+                      timestamp: Date.now(),
+                    });
+                  },
+                  onFallback: (ctx: { attempt: number; reason: string }) => {
+                    sendEvent({
+                      type: 'self_repair_exhausted',
+                      directionId: direction.id,
+                      directionTitle: direction.title,
+                      attempt: ctx.attempt,
+                      issues: [
+                        {
+                          id: 'gateway-fallback',
+                          severity: 'error',
+                          path: '$.generation',
+                          message: ctx.reason,
+                          source: 'schema',
+                          attempt: ctx.attempt,
+                          recoverable: false,
+                        },
+                      ],
+                      timestamp: Date.now(),
+                    });
+                  },
+                } as const;
 
                 const generated = await runDesignGenerator(
                   buildDirectionPrompt({
@@ -565,20 +656,179 @@ export async function POST(req: NextRequest) {
                   {
                     userWorkspaceId: workspace.id,
                     signal: AbortSignal.timeout(90_000),
+                    contractCallbacks,
                   }
                 );
 
-                const packageData = ensureDesignPackageDataV2({
+                let packageData = ensureDesignPackageDataV2({
                   ...generated,
                   brandDossier,
                 });
 
+                let repairAttempts = 0;
+                let lastVerification = verifyDesignPackageCandidate({
+                  packageData,
+                  attempt: repairAttempts,
+                  maxAttempts: maxRepairAttempts,
+                  minimumScore,
+                });
+                const repairTrace: DirectionConcept['repairTrace'] = [];
+                const verificationIssues: VerificationIssue[] = [];
+
+                while (true) {
+                  sendEvent({
+                    type: 'self_review_started',
+                    directionId: direction.id,
+                    directionTitle: direction.title,
+                    attempt: repairAttempts,
+                    timestamp: Date.now(),
+                  });
+
+                  lastVerification = verifyDesignPackageCandidate({
+                    packageData,
+                    attempt: repairAttempts,
+                    maxAttempts: maxRepairAttempts,
+                    minimumScore,
+                  });
+
+                  verificationIssues.push(...lastVerification.issues);
+
+                  sendEvent({
+                    type: 'self_review_result',
+                    directionId: direction.id,
+                    directionTitle: direction.title,
+                    attempt: repairAttempts,
+                    status: lastVerification.status,
+                    score: lastVerification.score,
+                    issues: lastVerification.issues,
+                    timestamp: Date.now(),
+                  });
+
+                  if (lastVerification.status === 'passed') {
+                    break;
+                  }
+
+                  if (lastVerification.status === 'degraded' || repairAttempts >= maxRepairAttempts) {
+                    sendEvent({
+                      type: 'self_repair_exhausted',
+                      directionId: direction.id,
+                      directionTitle: direction.title,
+                      attempt: repairAttempts,
+                      issues: lastVerification.issues,
+                      timestamp: Date.now(),
+                    });
+                    repairTrace.push({
+                      attempt: repairAttempts,
+                      source: 'fallback',
+                      status: 'skipped',
+                      issueCount: lastVerification.issues.length,
+                      message: `Verification remained degraded for ${direction.title}`,
+                    });
+                    break;
+                  }
+
+                  const repairIssues = lastVerification.issues.slice(0, 18);
+                  repairAttempts += 1;
+
+                  sendEvent({
+                    type: 'quality_gate_repair',
+                    attempt: repairAttempts,
+                    reason: `Self-repair ${repairAttempts} for ${direction.title} (${repairIssues.length} issues)`,
+                    timestamp: Date.now(),
+                  });
+                  sendEvent({
+                    type: 'self_repair_started',
+                    directionId: direction.id,
+                    directionTitle: direction.title,
+                    attempt: repairAttempts,
+                    issues: repairIssues,
+                    timestamp: Date.now(),
+                  });
+
+                  try {
+                    const repaired = await runDesignRefiner(
+                      buildRepairPrompt({
+                        conceptTitle: direction.title,
+                        packageData,
+                        issues: repairIssues,
+                        controls,
+                        message: input.message,
+                      }),
+                      {
+                        userWorkspaceId: workspace.id,
+                        signal: AbortSignal.timeout(90_000),
+                        contractCallbacks,
+                      }
+                    );
+
+                    packageData = ensureDesignPackageDataV2({
+                      ...repaired,
+                      brandDossier,
+                    });
+                    repairTrace.push({
+                      attempt: repairAttempts,
+                      source: 'refiner',
+                      status: 'applied',
+                      issueCount: repairIssues.length,
+                      message: `Applied targeted repair for ${direction.title}`,
+                    });
+                    sendEvent({
+                      type: 'self_repair_result',
+                      directionId: direction.id,
+                      directionTitle: direction.title,
+                      attempt: repairAttempts,
+                      status: 'applied',
+                      issues: repairIssues,
+                      timestamp: Date.now(),
+                    });
+                  } catch (error) {
+                    const message = sanitizeStreamError(
+                      error instanceof Error ? error.message : String(error)
+                    );
+                    repairTrace.push({
+                      attempt: repairAttempts,
+                      source: 'refiner',
+                      status: 'failed',
+                      issueCount: repairIssues.length,
+                      message: `Repair failed: ${message}`,
+                    });
+                    sendEvent({
+                      type: 'self_repair_result',
+                      directionId: direction.id,
+                      directionTitle: direction.title,
+                      attempt: repairAttempts,
+                      status: 'failed',
+                      issues: [
+                        {
+                          id: 'repair-failed',
+                          severity: 'error',
+                          path: '$.generation',
+                          message,
+                          source: 'ai_review',
+                          attempt: repairAttempts,
+                          recoverable: false,
+                        },
+                      ],
+                      timestamp: Date.now(),
+                    });
+                    break;
+                  }
+                }
+
                 const qualityAudit = auditDesignPackageQuality(packageData);
                 const confidenceScore = Math.round((brandDossier!.confidence.overall * 100 + controls.brandAlignment) / 2);
                 const score = Math.max(0, Math.min(100, Math.round(qualityAudit.overallScore * 0.85 + confidenceScore * 0.15)));
-                const rationale = qualityAudit.failedChecks.length === 0
+                const verificationStatus: DirectionConcept['verificationStatus'] =
+                  lastVerification.status === 'passed'
+                    ? repairAttempts > 0
+                      ? 'repaired'
+                      : 'passed'
+                    : 'degraded';
+                const rationale = verificationStatus === 'passed'
                   ? `${direction.summaryHint} Structural checks passed.`
-                  : `${direction.summaryHint} Needs refinement on: ${qualityAudit.failedChecks.join(', ')}.`;
+                  : verificationStatus === 'repaired'
+                    ? `${direction.summaryHint} Repaired via targeted self-review.`
+                    : `${direction.summaryHint} Degraded output with unresolved issues: ${qualityAudit.failedChecks.join(', ') || 'none listed'}.`;
 
                 sendEvent({
                   type: 'concept_direction_scored',
@@ -597,6 +847,9 @@ export async function POST(req: NextRequest) {
                   rationale,
                   packageData,
                   qualityAudit,
+                  verificationStatus,
+                  verificationIssues,
+                  repairTrace,
                 } satisfies DirectionConcept;
               })
             );
@@ -611,50 +864,16 @@ export async function POST(req: NextRequest) {
               throw new Error('Failed to generate design concepts for all directions');
             }
 
-            generatedConcepts.sort((a, b) => b.score - a.score);
+            generatedConcepts.sort((a, b) => {
+              const aRank = (a.verificationStatus === 'degraded' ? 0 : 1) * 1000 + a.score;
+              const bRank = (b.verificationStatus === 'degraded' ? 0 : 1) * 1000 + b.score;
+              return bRank - aRank;
+            });
             const selected = generatedConcepts[0]!;
-            const minimumScore = controls.contrastTarget === 'aaa' ? 90 : 82;
-            let repairAttempts = 0;
-            let repairApplied = false;
-
-            while (!passesQualityGate(selected.qualityAudit, minimumScore) && repairAttempts < 2) {
-              repairAttempts += 1;
-              repairApplied = true;
-
-              sendEvent({
-                type: 'quality_gate_repair',
-                attempt: repairAttempts,
-                reason: `Repairing ${selected.title} to pass hard checks and minimum score ${minimumScore}`,
-                timestamp: Date.now(),
-              });
-
-              const repaired = await runDesignRefiner(
-                buildRepairPrompt({
-                  concept: selected,
-                  controls,
-                  message: input.message,
-                }),
-                {
-                  userWorkspaceId: workspace.id,
-                  signal: AbortSignal.timeout(90_000),
-                }
-              );
-
-              const repairedPackage = ensureDesignPackageDataV2({
-                ...repaired,
-                brandDossier,
-              });
-
-              selected.packageData = repairedPackage;
-              selected.qualityAudit = auditDesignPackageQuality(repairedPackage);
-              selected.score = Math.max(
-                selected.score,
-                selected.qualityAudit.overallScore
-              );
-              selected.rationale = selected.qualityAudit.failedChecks.length === 0
-                ? `${selected.title} repaired successfully and now passes quality gate.`
-                : `${selected.title} repaired but still has remaining quality issues: ${selected.qualityAudit.failedChecks.join(', ')}.`;
-            }
+            const repairAttempts = selected.repairTrace.filter(
+              (entry) => entry.source === 'refiner' && entry.status === 'applied'
+            ).length;
+            const repairApplied = repairAttempts > 0;
 
             const conceptScores = generatedConcepts.map((concept) => ({
               id: concept.id,
@@ -673,6 +892,9 @@ export async function POST(req: NextRequest) {
                 qualityAudit: selected.qualityAudit,
                 repairAttempts,
                 repairApplied,
+                verificationStatus: selected.verificationStatus,
+                verificationIssues: selected.verificationIssues,
+                repairTrace: selected.repairTrace,
               }),
             });
 
