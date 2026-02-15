@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Creator Bot JSON Display', () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to the app (port 3001)
-    await page.goto('http://localhost:3001');
+    // Navigate to the app
+    await page.goto('/');
 
     // Sign in via dev bypass (if available)
     // You may need to adjust this based on your auth setup
@@ -12,7 +12,7 @@ test.describe('Creator Bot JSON Display', () => {
 
   test('should NOT display raw JSON in creator chat', async ({ page }) => {
     // Navigate to create new baleybot page
-    await page.goto('http://localhost:3001/dashboard/baleybots/new');
+    await page.goto('/dashboard/baleybots/new');
 
     // Wait for the creator chat to load
     await page.waitForSelector('[data-testid="creator-chat"]', { timeout: 10000 }).catch(() => {
@@ -81,7 +81,7 @@ test.describe('Creator Bot JSON Display', () => {
   });
 
   test('should display clean narrative text only', async ({ page }) => {
-    await page.goto('http://localhost:3001/dashboard/baleybots/new');
+    await page.goto('/dashboard/baleybots/new');
 
     await page.waitForSelector('textarea', { timeout: 10000 });
     const input = await page.locator('textarea').first();

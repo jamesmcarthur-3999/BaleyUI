@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 // Simple test without auth requirements
 test('Creator chat should not display raw JSON', async ({ page }) => {
   // Navigate directly to the app
-  await page.goto('http://localhost:3001');
+  await page.goto('/');
 
   // Wait for page to load
   await page.waitForLoadState('domcontentloaded');
@@ -12,7 +12,7 @@ test('Creator chat should not display raw JSON', async ({ page }) => {
   console.log('URL:', page.url());
 
   // Try to navigate to the new bot page (may redirect to login)
-  await page.goto('http://localhost:3001/dashboard/baleybots/new');
+  await page.goto('/dashboard/baleybots/new');
 
   // Wait a bit for any redirects
   await page.waitForTimeout(2000);
