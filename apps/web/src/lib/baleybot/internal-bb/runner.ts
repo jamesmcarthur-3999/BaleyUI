@@ -7,6 +7,11 @@ import {
   runWithContractGateway,
   type FallbackMode,
 } from './contract-gateway';
+import {
+  brandDossierSchema,
+  designPackageDataV2Schema,
+  type DesignPackageDataV2,
+} from '@/lib/design-packages/schema';
 export { normalizeOutputCandidate } from './contract-gateway';
 
 export interface InternalBBRunOptions<T> extends InternalExecutionOptions {
@@ -606,51 +611,15 @@ export const designAnalyzerOutputSchema = z.object({
   recommendations: z.array(z.string()).catch([]),
 });
 
-const colorPaletteSchema = z.object({
-  background: z.string(),
-  foreground: z.string(),
-  card: z.string(),
-  cardForeground: z.string(),
-  primary: z.string(),
-  primaryForeground: z.string(),
-  secondary: z.string(),
-  secondaryForeground: z.string(),
-  muted: z.string(),
-  mutedForeground: z.string(),
-  accent: z.string(),
-  accentForeground: z.string(),
-  destructive: z.string(),
-  destructiveForeground: z.string(),
-  border: z.string(),
-  input: z.string(),
-  ring: z.string(),
-  success: z.string(),
-  warning: z.string(),
-  error: z.string(),
-  info: z.string(),
-}).passthrough();
+export const designGeneratorOutputSchema = designPackageDataV2Schema;
 
-export const designGeneratorOutputSchema = z.object({
-  colors: z.object({
-    light: colorPaletteSchema,
-    dark: colorPaletteSchema,
-  }),
-  typography: z.object({
-    fontFamily: z.string().catch('Inter, sans-serif'),
-    fontFamilyHeading: z.string().optional(),
-    googleFontsUrl: z.string().optional(),
-  }).passthrough(),
-  borderRadius: z.string().catch('0.75rem'),
-  mood: z.enum(['playful', 'professional', 'minimal', 'elegant', 'bold']).catch('professional'),
-  animationStyle: z.enum(['playful', 'professional', 'minimal']).catch('professional'),
-  suggestedName: z.string().catch('Custom Design'),
-});
-
-export const designRefinerOutputSchema = designGeneratorOutputSchema;
+export const designRefinerOutputSchema = designPackageDataV2Schema;
+export const designDossierSynthesizerOutputSchema = brandDossierSchema;
 
 export type DesignAnalyzerOutput = z.infer<typeof designAnalyzerOutputSchema>;
-export type DesignGeneratorOutput = z.infer<typeof designGeneratorOutputSchema>;
-export type DesignRefinerOutput = z.infer<typeof designRefinerOutputSchema>;
+export type DesignGeneratorOutput = DesignPackageDataV2;
+export type DesignRefinerOutput = DesignPackageDataV2;
+export type DesignDossierSynthesizerOutput = z.infer<typeof designDossierSynthesizerOutputSchema>;
 
 export async function runDesignAnalyzer(
   input: string,
@@ -684,6 +653,18 @@ export async function runDesignRefiner(
     botName: 'design_refiner',
     input,
     schema: designRefinerOutputSchema,
+    options,
+  });
+}
+
+export async function runDesignDossierSynthesizer(
+  input: string,
+  options?: InternalBBRunOptions<DesignDossierSynthesizerOutput>
+): Promise<DesignDossierSynthesizerOutput> {
+  return runInternalBB({
+    botName: 'design_dossier_synthesizer',
+    input,
+    schema: designDossierSynthesizerOutputSchema,
     options,
   });
 }

@@ -63,6 +63,7 @@ const ALL_INTERNAL_BOTS = [
   'creator_action_advisor',
   'deployment_advisor',
   'design_analyzer',
+  'design_dossier_synthesizer',
   'design_generator',
   'design_refiner',
   'execution_reviewer',
@@ -201,6 +202,8 @@ describe('internal-baleybots', () => {
       expect(balCode).toContain('get_workspace_health');
       expect(balCode).toContain('navigate_user_to');
       expect(balCode).toContain('list_baleybots');
+      expect(balCode).toContain('get_design_package');
+      expect(balCode).toContain('design_dossier_synthesizer');
     });
 
     it('test_validator balCode specifies claude-haiku model (fast tier for per-test validation)', () => {

@@ -24,6 +24,15 @@ export interface DesignCalibrationStreamConfig {
   existingPackageData?: DesignPackageData;
   attachmentIds?: string[];
   sessionId?: string;
+  controls?: DesignCalibrationControls;
+}
+
+export interface DesignCalibrationControls {
+  brandAlignment: number;
+  contrastTarget: 'aa' | 'aaa';
+  layoutDensity: 'compact' | 'comfortable' | 'spacious';
+  motionIntensity: 'subtle' | 'moderate' | 'expressive';
+  voiceTone: string;
 }
 
 export interface DesignCalibrationCallbacks {
@@ -37,6 +46,17 @@ export interface DesignCalibrationCallbacks {
   // Design-specific events
   onDesignPreviewUpdate: (data: DesignPackageData) => void;
   onDesignSaved: (packageId: string) => void;
+  onBrandDossierStarted?: () => void;
+  onBrandDossierReady?: (dossier: Record<string, unknown>) => void;
+  onConceptDirectionStarted?: (payload: { id: string; title: string }) => void;
+  onConceptDirectionScored?: (payload: {
+    id: string;
+    title: string;
+    score: number;
+    rationale: string;
+  }) => void;
+  onQualityGateRepair?: (payload: { attempt: number; reason: string }) => void;
+  onConceptMergePreview?: (payload: Record<string, unknown>) => void;
   onDesignConceptsStarted?: () => void;
   onDesignConceptsUpdate?: (concepts: DesignConceptPayload[]) => void;
   // Component generation events
@@ -49,9 +69,11 @@ export interface DesignCalibrationCallbacks {
 }
 
 export interface DesignConceptPayload {
-  id: 'landing' | 'customerApp' | 'internalApp';
+  id: 'directionA' | 'directionB' | 'directionC';
   title: string;
   summary: string;
+  score?: number;
+  rationale?: string;
   packageData: DesignPackageData;
 }
 
@@ -77,6 +99,15 @@ interface DesignStreamEvent {
   packageId?: string;
   // design concepts
   concepts?: DesignConceptPayload[];
+  // brand dossier + direction events
+  dossier?: Record<string, unknown>;
+  directionId?: string;
+  directionTitle?: string;
+  score?: number;
+  rationale?: string;
+  attempt?: number;
+  reason?: string;
+  payload?: Record<string, unknown>;
   // component_registered
   component?: Record<string, unknown>;
   // design_error / component_generation_error
@@ -102,6 +133,7 @@ export async function runDesignCalibrationStream(
       existingPackageData: config.existingPackageData,
       attachmentIds: config.attachmentIds,
       sessionId: config.sessionId,
+      controls: config.controls,
     },
     signal,
     onEvent: (event) => {
@@ -161,6 +193,45 @@ export async function runDesignCalibrationStream(
           if (event.packageId) {
             callbacks.onDesignSaved(event.packageId);
           }
+          break;
+        }
+        case 'brand_dossier_started': {
+          callbacks.onBrandDossierStarted?.();
+          break;
+        }
+        case 'brand_dossier_ready': {
+          callbacks.onBrandDossierReady?.(event.dossier ?? {});
+          break;
+        }
+        case 'concept_direction_started': {
+          if (event.directionId && event.directionTitle) {
+            callbacks.onConceptDirectionStarted?.({
+              id: event.directionId,
+              title: event.directionTitle,
+            });
+          }
+          break;
+        }
+        case 'concept_direction_scored': {
+          if (event.directionId && event.directionTitle && typeof event.score === 'number') {
+            callbacks.onConceptDirectionScored?.({
+              id: event.directionId,
+              title: event.directionTitle,
+              score: event.score,
+              rationale: event.rationale ?? '',
+            });
+          }
+          break;
+        }
+        case 'quality_gate_repair': {
+          callbacks.onQualityGateRepair?.({
+            attempt: typeof event.attempt === 'number' ? event.attempt : 0,
+            reason: event.reason ?? 'Repairing design package quality checks',
+          });
+          break;
+        }
+        case 'concept_merge_preview': {
+          callbacks.onConceptMergePreview?.(event.payload ?? {});
           break;
         }
         case 'design_concepts_started': {

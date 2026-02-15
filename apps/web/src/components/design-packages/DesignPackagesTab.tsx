@@ -112,6 +112,10 @@ export function DesignPackagesTab() {
       if (format === 'bundle') {
         const result = await utils.designPackages.exportBundle.fetch({ id });
         downloadBase64File(result.filename, result.base64, result.contentType);
+        toast({
+          title: 'Exported Artifact Bundle',
+          description: `${result.files.length} files packaged`,
+        });
       } else {
         const procedure = format === 'css'
           ? utils.designPackages.exportCSS
@@ -122,8 +126,8 @@ export function DesignPackagesTab() {
               : utils.designPackages.exportJSON;
         const result = await procedure.fetch({ id });
         downloadFile(result.filename, result.content);
+        toast({ title: `Exported as ${format.toUpperCase()}` });
       }
-      toast({ title: `Exported as ${format === 'bundle' ? 'BUNDLE' : format.toUpperCase()}` });
     } catch {
       toast({ title: 'Export failed', variant: 'destructive' });
     }

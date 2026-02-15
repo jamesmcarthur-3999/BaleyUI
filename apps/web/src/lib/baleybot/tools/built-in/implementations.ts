@@ -462,7 +462,16 @@ import { buildArtifactBundle } from '@/lib/design-packages/artifact-bundle';
 
 interface GetDesignPackageArgs {
   package_id?: string;
-  format?: 'brief' | 'full' | 'tailwind_only' | 'registry_only' | 'blueprints' | 'artifact_bundle_manifest';
+  format?:
+    | 'brief'
+    | 'full'
+    | 'tailwind_only'
+    | 'registry_only'
+    | 'blueprints'
+    | 'artifact_bundle_manifest'
+    | 'brand_dossier'
+    | 'quality_report'
+    | 'concept_pack_manifest';
 }
 
 async function getDesignPackageImpl(
@@ -532,6 +541,30 @@ async function getDesignPackageImpl(
         } as Record<string, unknown>,
       };
     }
+    case 'brand_dossier':
+      return {
+        found: true,
+        format,
+        content: data.brandDossier as unknown as Record<string, unknown>,
+      };
+    case 'quality_report':
+      return {
+        found: true,
+        format,
+        content: data.generationReport as unknown as Record<string, unknown>,
+      };
+    case 'concept_pack_manifest':
+      return {
+        found: true,
+        format,
+        content: {
+          selectedConceptId: data.generationReport.selectedConceptId,
+          conceptScores: data.generationReport.conceptScores,
+          artifacts: data.artifactManifest.artifacts.filter((artifact) =>
+            artifact.path.startsWith('concepts/')
+          ),
+        } as Record<string, unknown>,
+      };
     default:
       return { found: true, format, content: formatDesignBrief(pkg.name, designData, theme, registry) };
   }

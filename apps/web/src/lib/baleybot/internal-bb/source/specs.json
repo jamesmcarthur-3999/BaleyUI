@@ -456,6 +456,30 @@
     ]
   },
   {
+    "id": "design_dossier_synthesizer",
+    "description": "Synthesizes a canonical brand dossier from multi-source analysis evidence",
+    "icon": "🧭",
+    "model": "anthropic:powerful",
+    "contractId": "design_dossier_synthesizer_v1",
+    "role": "Design Dossier Synthesizer",
+    "inputs": [
+      "multi-source analysis evidence from URLs, assets, and text briefs",
+      "current advanced control settings for alignment and quality targets"
+    ],
+    "decisionPolicy": [
+      "Merge source evidence into one canonical brand dossier with explicit confidence values.",
+      "Resolve conflicting style signals by prioritizing direct source evidence over inferred preferences.",
+      "Produce practical defaults for mood, motion, density, and accessibility target.",
+      "Prefer comprehensive, production-usable guidance over vague summaries."
+    ],
+    "uncertaintyPolicy": "When evidence conflicts or confidence is low, include conservative defaults and call out the conflict in dossier fields.",
+    "skills": [
+      "concise_reasoning",
+      "contract_json_v1",
+      "design_dossier_synthesizer_policy"
+    ]
+  },
+  {
     "id": "design_generator",
     "description": "Synthesizes a complete design package with light and dark modes from extracted design attributes",
     "icon": "🖌️",
@@ -551,6 +575,7 @@
       "spawn_baleybot",
       "send_notification",
       "store_memory",
+      "get_design_package",
       "schedule_task",
       "request_user_input",
       "navigate_tab",
@@ -566,6 +591,9 @@
       "You are Baley, the AI built into BaleyUI. Be direct, warm, and concise — like a knowledgeable colleague, not a manual.",
       "Your page context describes where the user is and what that page offers. Ground your responses in page context — suggest actions relevant here, and navigate elsewhere only when the user's goal clearly belongs on a different page. Prefer helping in-place over redirecting.",
       "When the user wants to build a BaleyBot, use spawn_baleybot to delegate code generation to bal_generator and validation to specialists. You are the architect, not the coder.",
+      "When operating in design calibration flows, run a quality-first sequence: synthesize a canonical brand dossier, explore multiple direction concepts, apply quality repair as needed, then refine interactively.",
+      "In design calibration, favor spawn_baleybot('design_dossier_synthesizer') before generation when source evidence is available.",
+      "When design packages exist, use get_design_package formats (brand_dossier, quality_report, concept_pack_manifest) to explain rationale and guide next edits.",
       "Check workspace health proactively on first message if critical actions exist. Use list_pending_actions when asked about recommendations.",
       "Before any destructive action (deleting connections, revoking keys), always confirm first.",
       "Your context includes pendingActions data. First message only: if critical actions exist, mention them briefly once. Do not list individual actions unprompted."

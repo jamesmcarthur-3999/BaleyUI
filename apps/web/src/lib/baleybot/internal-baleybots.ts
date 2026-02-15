@@ -82,25 +82,18 @@ export async function getInternalBaleybot(
     // Check if BAL code needs updating (definition changed)
     const expectedBalCode = def.balCode.trim();
     if (existing.balCode !== expectedBalCode) {
-      // If admin has edited this bot, respect their changes (DB wins)
-      if (existing.adminEdited) {
-        logger.info('Skipping BAL code update for admin-edited internal BaleyBot', { name, id: existing.id });
-        const result = {
-          id: existing.id,
-          name: existing.name,
-          balCode: existing.balCode,
-        };
-        internalBBCache.set(name, result);
-        return result;
-      }
-
-      logger.info('Updating internal BaleyBot BAL code', { name, id: existing.id });
+      logger.info('Updating internal BaleyBot BAL code from source-of-truth', {
+        name,
+        id: existing.id,
+        wasAdminEdited: existing.adminEdited,
+      });
       await db
         .update(baleybots)
         .set({
           balCode: expectedBalCode,
           description: def.description,
           icon: def.icon,
+          adminEdited: false,
         })
         .where(eq(baleybots.id, existing.id));
     }

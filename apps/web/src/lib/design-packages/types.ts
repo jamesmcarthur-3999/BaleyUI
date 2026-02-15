@@ -27,6 +27,10 @@ export interface DesignPackageData {
   surfaceBlueprints?: SurfaceBlueprintSet;
   /** Generated artifact metadata for export bundles (V2) */
   artifactManifest?: ArtifactManifest;
+  /** Canonical source synthesis used to generate this package (V2.5) */
+  brandDossier?: BrandDossier;
+  /** Generation scoring and repair trace for quality gating (V2.5) */
+  generationReport?: GenerationReport;
   /** AI-generated component library (populated after save) */
   componentRegistry?: ComponentRegistry;
   /** Deterministic Tailwind theme tokens (populated after save) */
@@ -133,6 +137,75 @@ export interface ArtifactManifest {
   generatedAt: string;
   codeTarget: 'react-tailwind';
   artifacts: ArtifactManifestEntry[];
+}
+
+export interface BrandSourceRecord {
+  id: string;
+  kind: 'url' | 'image' | 'pdf' | 'text';
+  label: string;
+  confidence: number;
+  notes: string[];
+}
+
+export interface BrandConflictRecord {
+  topic: string;
+  detail: string;
+  resolution: string;
+  confidence: number;
+}
+
+export interface BrandDossier {
+  version: 1;
+  createdAt: string;
+  sources: BrandSourceRecord[];
+  extractedTokens: string[];
+  typographySignals: string[];
+  motionSignals: string[];
+  layoutSignals: string[];
+  voiceSignals: string[];
+  conflicts: BrandConflictRecord[];
+  confidence: {
+    overall: number;
+    color: number;
+    typography: number;
+    motion: number;
+    layout: number;
+    voice: number;
+  };
+  recommendedDefaults: {
+    mood: DesignMood;
+    animationStyle: AnimationStyle;
+    accessibilityTarget: 'aa' | 'aaa';
+    density: 'compact' | 'comfortable' | 'spacious';
+    voiceTone: string;
+  };
+}
+
+export interface QualityCheckResult {
+  id: string;
+  label: string;
+  passed: boolean;
+  score: number;
+  detail: string;
+}
+
+export interface ConceptScore {
+  id: string;
+  title: string;
+  score: number;
+  rationale: string;
+}
+
+export interface GenerationReport {
+  version: 1;
+  generatedAt: string;
+  selectedConceptId: string;
+  overallScore: number;
+  repairAttempts: number;
+  repairApplied: boolean;
+  failedChecks: string[];
+  qualityChecks: QualityCheckResult[];
+  conceptScores: ConceptScore[];
 }
 
 // ============================================================================

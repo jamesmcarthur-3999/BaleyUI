@@ -445,7 +445,7 @@ export const designPackagesRouter = router({
     }),
 
   /**
-   * Export all surface blueprints as structured JSON artifacts.
+   * Export blueprint-aligned JSON artifacts (surfaces + dossier + quality summary).
    */
   exportBlueprints: protectedProcedure
     .input(z.object({ id: uuidSchema }))
@@ -465,7 +465,15 @@ export const designPackagesRouter = router({
       const data = ensureDesignPackageDataV2(pkg.packageData);
       return {
         filename: `${pkg.name.toLowerCase().replace(/\s+/g, '-')}-blueprints.json`,
-        content: JSON.stringify(data.surfaceBlueprints, null, 2),
+        content: JSON.stringify(
+          {
+            surfaceBlueprints: data.surfaceBlueprints,
+            brandDossier: data.brandDossier,
+            generationReport: data.generationReport,
+          },
+          null,
+          2
+        ),
       };
     }),
 

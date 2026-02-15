@@ -241,6 +241,10 @@ BaleyUI uses BaleyBots internally ("eating our own cooking"). These are stored i
 | `test_interface_designer` | Designs optimal test UI for a BB |
 | `tool_executor` | Executes NL-defined workspace tools |
 | `context_processor` | Processes and enriches context for BB execution |
+| `design_analyzer` | Extracts design signals from URLs/assets/text |
+| `design_dossier_synthesizer` | Merges source evidence into canonical brand dossier |
+| `design_generator` | Generates full multi-surface design package |
+| `design_refiner` | Refines existing design package with feedback |
 
 ### Using Internal BaleyBots
 
@@ -255,24 +259,16 @@ const { output, executionId } = await executeInternalBaleybot('bal_generator', u
 
 All internal BaleyBot executions are tracked in `baleybotExecutions`.
 
-## BAL Output Type Rules
+## Internal BB Contract Rules
 
-### Supported types in `"output": { ... }` blocks:
-| BAL type | Zod schema | Use for |
-|----------|-----------|---------|
-| `"string"` | `z.string()` | Text fields |
-| `"number"` | `z.number()` | Numeric fields |
-| `"boolean"` | `z.boolean()` | True/false fields |
-| `"array"` | `z.array(z.string())` | Arrays of strings |
-| `"array<object>"` | `z.array(z.record(z.string(), z.unknown()))` | Arrays of objects |
-| `"array<number>"` | `z.array(z.number())` | Arrays of numbers |
-| `"array<string>"` | `z.array(z.string())` | Same as bare `"array"` |
-| `"array<boolean>"` | `z.array(z.boolean())` | Arrays of booleans |
-| `"object"` | `z.record(z.string(), z.unknown())` | Nested objects |
+### BAL output blocks (`"output": { ... }`) are scalar-safe only
+- Keep BAL output fields to concrete scalar-safe types where possible (`string`, `number`, `boolean`, `array<string>`, `array<number>`, `array<boolean>`).
+- Do **not** use generic `"object"` or `"array<object>"` in BAL structured output paths.
+- If a bot needs rich nested output, omit BAL `output` and enforce shape in the app-layer contract gateway with Zod schemas.
 
-### When to use `"array"` vs `"array<object>"`
-- Use `"array"` for simple string lists (e.g., `warnings`, `recommendations`, `nextSteps`)
-- Use `"array<object>"` for arrays of structured items (e.g., `entities`, `tests`, `suggestions` with inner fields)
+### Why
+- Provider structured-output contracts reject empty/generic object schemas in strict modes.
+- BaleyUI enforces typed parsing in `contract-gateway.ts`, with repair retries and deterministic fallback.
 
 ### The `normalizeOutputCandidate()` pattern
 Internal bot callers should wrap `output` in `normalizeOutputCandidate()` before `.parse()`:
@@ -282,9 +278,6 @@ const resolved = normalizeOutputCandidate(output);
 const result = schema.parse(resolved);
 ```
 See `runner.ts:normalizeOutputCandidate()` for the implementation.
-
-### Resilient Schemas for BAL Output
-BAL `array<object>` produces `z.array(z.record(z.string(), z.unknown()))` — the model doesn't know which inner fields are required. When consuming BAL output in caller schemas, use Zod `.default()` coercions for non-critical fields instead of strict `.min(1)` requirements. Only keep `.min(1)` on truly unrecoverable fields (e.g., `name`, `balCode`).
 
 ## BAL Syntax Reference
 

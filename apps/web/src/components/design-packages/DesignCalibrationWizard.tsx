@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { AppScaffoldPreview } from './AppScaffoldPreview';
 import { DESIGN_PRESETS } from '@/lib/design-packages/presets';
 import type { DesignPackageData } from '@/lib/design-packages/types';
+import { ensureDesignPackageDataV2 } from '@/lib/design-packages/schema';
 import {
   runDesignCalibrationStream,
   type DesignCalibrationCallbacks,
@@ -74,6 +75,7 @@ interface DesignCalibrationWizardProps {
 }
 
 type SurfaceTab = 'landing' | 'customerApp' | 'internalApp';
+type DirectionId = 'directionA' | 'directionB' | 'directionC';
 
 // ============================================================================
 // Constants
@@ -134,6 +136,16 @@ export function DesignCalibrationWizard({
   const [conceptsLoading, setConceptsLoading] = useState(false);
   const [designConcepts, setDesignConcepts] = useState<DesignConceptPayload[]>([]);
   const [activeSurfaceTab, setActiveSurfaceTab] = useState<SurfaceTab>('landing');
+  const [selectedDirectionId, setSelectedDirectionId] = useState<DirectionId | null>(null);
+  const [directionScores, setDirectionScores] = useState<
+    Record<string, { score: number; rationale: string }>
+  >({});
+  const [brandDossier, setBrandDossier] = useState<Record<string, unknown> | null>(null);
+  const [qualityRepairs, setQualityRepairs] = useState<Array<{ attempt: number; reason: string }>>([]);
+  const [mergePreview, setMergePreview] = useState<Record<string, unknown> | null>(null);
+  const [mergeSelection, setMergeSelection] = useState<
+    Partial<Record<'colors' | 'typography' | 'motionSystem' | 'layoutSystem' | 'surfaceBlueprints', DirectionId>>
+  >({});
 
   const [brandAlignment, setBrandAlignment] = useState(85);
   const [contrastTarget, setContrastTarget] = useState<'aa' | 'aaa'>('aa');
@@ -251,6 +263,35 @@ export function DesignCalibrationWizard({
       ? 'active' as const
       : 'placeholder' as const;
 
+  const getConceptByDirection = (directionId: DirectionId | undefined) =>
+    designConcepts.find((concept) => concept.id === directionId);
+
+  const previewMergedConcept = () => {
+    const baseDirection = selectedDirectionId ?? designConcepts[0]?.id;
+    if (!baseDirection) return;
+    const baseConcept = getConceptByDirection(baseDirection);
+    if (!baseConcept) return;
+
+    const colorsConcept = getConceptByDirection(mergeSelection.colors ?? baseDirection);
+    const typographyConcept = getConceptByDirection(mergeSelection.typography ?? baseDirection);
+    const motionConcept = getConceptByDirection(mergeSelection.motionSystem ?? baseDirection);
+    const layoutConcept = getConceptByDirection(mergeSelection.layoutSystem ?? baseDirection);
+    const blueprintConcept = getConceptByDirection(mergeSelection.surfaceBlueprints ?? baseDirection);
+
+    const merged = ensureDesignPackageDataV2({
+      ...baseConcept.packageData,
+      colors: colorsConcept?.packageData.colors ?? baseConcept.packageData.colors,
+      typography: typographyConcept?.packageData.typography ?? baseConcept.packageData.typography,
+      motionSystem: motionConcept?.packageData.motionSystem ?? baseConcept.packageData.motionSystem,
+      layoutSystem: layoutConcept?.packageData.layoutSystem ?? baseConcept.packageData.layoutSystem,
+      surfaceBlueprints:
+        blueprintConcept?.packageData.surfaceBlueprints ?? baseConcept.packageData.surfaceBlueprints,
+    });
+
+    setPackageData(merged);
+    pushHistory(merged);
+  };
+
   // ── Send Message ────────────────────────────────────────
 
   const sendMessage = async (text: string) => {
@@ -274,15 +315,6 @@ export function DesignCalibrationWizard({
       ? `Uploaded ${attachments.length} file${attachments.length > 1 ? 's' : ''}`
       : '');
     const userMessage = trimmed || 'Please analyze the uploaded brand assets and create a design system from them.';
-    const advancedSettingsContext = [
-      '[Design calibration controls]',
-      `brandAlignment: ${brandAlignment}%`,
-      `contrastTarget: ${contrastTarget.toUpperCase()}`,
-      `layoutDensity: ${layoutDensity}`,
-      `motionIntensity: ${motionIntensity}`,
-      `voiceTone: ${voiceTone}`,
-    ].join('\n');
-    const messageForApi = `${userMessage}\n\n${advancedSettingsContext}`;
 
     // Add user message
     const userMsg: DesignMessage = {
@@ -300,6 +332,11 @@ export function DesignCalibrationWizard({
     setIsStreaming(true);
     if (!packageData) {
       setDesignConcepts([]);
+      setSelectedDirectionId(null);
+      setDirectionScores({});
+      setBrandDossier(null);
+      setQualityRepairs([]);
+      setMergePreview(null);
     }
     outputAccRef.current = '';
     toolCallsRef.current = {};
@@ -447,6 +484,44 @@ export function DesignCalibrationWizard({
         onComplete(packageId);
       },
 
+      onBrandDossierStarted: () => {
+        setBrandDossier(null);
+      },
+
+      onBrandDossierReady: (dossier) => {
+        setBrandDossier(dossier);
+      },
+
+      onConceptDirectionScored: ({ id, score, rationale }) => {
+        setDirectionScores((prev) => ({
+          ...prev,
+          [id]: { score, rationale },
+        }));
+      },
+
+      onQualityGateRepair: ({ attempt, reason }) => {
+        setQualityRepairs((prev) => [...prev, { attempt, reason }]);
+      },
+
+      onConceptMergePreview: (payload) => {
+        setMergePreview(payload);
+        const selectedDirection = payload.selectedDirection;
+        if (
+          selectedDirection === 'directionA' ||
+          selectedDirection === 'directionB' ||
+          selectedDirection === 'directionC'
+        ) {
+          setSelectedDirectionId(selectedDirection);
+          setMergeSelection({
+            colors: selectedDirection,
+            typography: selectedDirection,
+            motionSystem: selectedDirection,
+            layoutSystem: selectedDirection,
+            surfaceBlueprints: selectedDirection,
+          });
+        }
+      },
+
       onDesignConceptsStarted: () => {
         setConceptsLoading(true);
       },
@@ -454,6 +529,9 @@ export function DesignCalibrationWizard({
       onDesignConceptsUpdate: (concepts) => {
         setConceptsLoading(false);
         setDesignConcepts(concepts);
+        if (!selectedDirectionId && concepts[0]) {
+          setSelectedDirectionId(concepts[0].id);
+        }
       },
 
       onComponentGenerationStarted: () => {
@@ -518,11 +596,18 @@ export function DesignCalibrationWizard({
     try {
       await runDesignCalibrationStream(
         {
-          message: messageForApi,
+          message: userMessage,
           conversationHistory,
           existingPackageData: packageData ?? undefined,
           attachmentIds: attachmentIds?.length ? attachmentIds : undefined,
           sessionId,
+          controls: {
+            brandAlignment,
+            contrastTarget,
+            layoutDensity,
+            motionIntensity,
+            voiceTone,
+          },
         },
         callbacks,
         abortController.signal,
@@ -561,7 +646,7 @@ export function DesignCalibrationWizard({
   const applyConcept = (concept: DesignConceptPayload) => {
     setPackageData(concept.packageData);
     pushHistory(concept.packageData);
-    setActiveSurfaceTab(concept.id);
+    setSelectedDirectionId(concept.id);
   };
 
   // ── Abort / Close ────────────────────────────────────────
@@ -746,7 +831,7 @@ export function DesignCalibrationWizard({
             {(conceptsLoading || designConcepts.length > 0) && (
               <div className="mt-4 rounded-xl border border-border bg-card p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs font-semibold text-foreground">Concept Gallery</p>
+                  <p className="text-xs font-semibold text-foreground">Concept Directions</p>
                   {conceptsLoading && (
                     <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                       <Loader2 className="h-3 w-3 animate-spin" />
@@ -757,19 +842,130 @@ export function DesignCalibrationWizard({
                 {designConcepts.length > 0 && (
                   <div className="grid gap-2 md:grid-cols-3">
                     {designConcepts.map((concept) => (
-                      <button
+                      <div
                         key={concept.id}
-                        onClick={() => applyConcept(concept)}
                         className={cn(
                           'rounded-lg border p-2 text-left transition-colors',
-                          packageData === concept.packageData
+                          selectedDirectionId === concept.id
                             ? 'border-primary bg-primary/5'
-                            : 'border-border bg-background hover:border-primary/40'
+                            : 'border-border bg-background'
                         )}
                       >
-                        <p className="text-xs font-semibold">{concept.title}</p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold">{concept.title}</p>
+                          {typeof (directionScores[concept.id]?.score ?? concept.score) === 'number' && (
+                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                              {(directionScores[concept.id]?.score ?? concept.score)}/100
+                            </span>
+                          )}
+                        </div>
                         <p className="mt-1 text-[11px] text-muted-foreground">{concept.summary}</p>
+                        {(directionScores[concept.id]?.rationale ?? concept.rationale) && (
+                          <p className="mt-1 text-[10px] text-muted-foreground/90">
+                            {directionScores[concept.id]?.rationale ?? concept.rationale}
+                          </p>
+                        )}
+                        <div className="mt-2 flex gap-1.5">
+                          <button
+                            onClick={() => applyConcept(concept)}
+                            className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium hover:border-primary/40"
+                          >
+                            Preview
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelectedDirectionId(concept.id);
+                              setMergeSelection((prev) => ({
+                                colors: prev.colors ?? concept.id,
+                                typography: prev.typography ?? concept.id,
+                                motionSystem: prev.motionSystem ?? concept.id,
+                                layoutSystem: prev.layoutSystem ?? concept.id,
+                                surfaceBlueprints: prev.surfaceBlueprints ?? concept.id,
+                              }));
+                            }}
+                            className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium hover:border-primary/40"
+                          >
+                            Use in Merge
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {designConcepts.length > 0 && (
+                  <div className="mt-3 rounded-lg border border-border bg-muted/30 p-2.5">
+                    <p className="text-[11px] font-semibold text-foreground">Merge Composer</p>
+                    <div className="mt-2 grid gap-2 md:grid-cols-5">
+                      {([
+                        ['colors', 'Palette'],
+                        ['typography', 'Type'],
+                        ['motionSystem', 'Motion'],
+                        ['layoutSystem', 'Layout'],
+                        ['surfaceBlueprints', 'Blueprints'],
+                      ] as const).map(([key, label]) => (
+                        <div key={key}>
+                          <label className="mb-1 block text-[10px] font-medium text-muted-foreground">{label}</label>
+                          <select
+                            value={mergeSelection[key] ?? selectedDirectionId ?? designConcepts[0]!.id}
+                            onChange={(e) =>
+                              setMergeSelection((prev) => ({
+                                ...prev,
+                                [key]: e.target.value as DirectionId,
+                              }))
+                            }
+                            className="h-7 w-full rounded-md border border-border bg-background px-1.5 text-[10px]"
+                          >
+                            {designConcepts.map((concept) => (
+                              <option key={`${key}-${concept.id}`} value={concept.id}>
+                                {concept.id}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <p className="text-[10px] text-muted-foreground">
+                        {mergePreview?.selectedDirection
+                          ? `Suggested base: ${String(mergePreview.selectedDirection)}`
+                          : 'Blend systems across directions and preview instantly.'}
+                      </p>
+                      <button
+                        onClick={previewMergedConcept}
+                        className="rounded-md bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground hover:bg-primary/90"
+                      >
+                        Preview Merge
                       </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(brandDossier || qualityRepairs.length > 0) && (
+              <div className="mt-4 rounded-xl border border-border bg-card p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Rationale</p>
+                    {brandDossier && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Source-backed dossier ready with confidence scoring and inferred defaults.
+                      </p>
+                    )}
+                  </div>
+                  {qualityRepairs.length > 0 && (
+                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                      {qualityRepairs.length} repair pass{qualityRepairs.length > 1 ? 'es' : ''}
+                    </span>
+                  )}
+                </div>
+                {qualityRepairs.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {qualityRepairs.slice(-3).map((repair) => (
+                      <p key={`${repair.attempt}-${repair.reason}`} className="text-[10px] text-muted-foreground">
+                        Attempt {repair.attempt}: {repair.reason}
+                      </p>
                     ))}
                   </div>
                 )}

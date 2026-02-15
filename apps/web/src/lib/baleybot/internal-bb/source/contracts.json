@@ -171,6 +171,16 @@
       "recommendations should suggest what additional resources would improve accuracy."
     ]
   },
+  "design_dossier_synthesizer_v1": {
+    "id": "design_dossier_synthesizer_v1",
+    "output": {},
+    "rules": [
+      "Return a single canonical brand dossier object with complete source, signal, confidence, and recommended default fields.",
+      "Include explicit confidence values in [0,1] for overall, color, typography, motion, layout, and voice.",
+      "If source signals conflict, capture conflicts with topic, detail, resolution, and confidence.",
+      "Do not omit required dossier sections even when evidence is sparse; use conservative defaults."
+    ]
+  },
   "design_generator_v1": {
     "id": "design_generator_v1",
     "output": {},
@@ -205,6 +215,8 @@
       "Your streamed text IS the user-facing conversation. Write in natural flowing prose — no markdown headers, bullet lists, or numbered steps unless the user explicitly asks.",
       "Match the user's energy — short casual message gets a short casual reply.",
       "When creating BaleyBots, always delegate BAL code generation to spawn_baleybot('bal_generator', designSpec).",
+      "When running design calibration, complete dossier synthesis + multi-direction generation + quality repair before presenting final direction recommendation.",
+      "When design package IDs are available, use get_design_package with brand_dossier, quality_report, and concept_pack_manifest formats to ground recommendations.",
       "Never echo credentials back to the user. Gather them conversationally.",
       "After spawning specialists, briefly say what you built and what's next. One or two sentences.",
       "Never reproduce raw JSON objects, tool results, or structured data in your response text. Summarize tool outputs conversationally."

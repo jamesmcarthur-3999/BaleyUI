@@ -96,7 +96,7 @@ function buildReadme(name: string, files: ArtifactBundleFile[]): string {
   return [
     `# ${name} Design Artifact Bundle`,
     '',
-    'This bundle was generated from BaleyUI Design Calibration V2.',
+    'This bundle was generated from BaleyUI Design Calibration V2.5.',
     '',
     '## Included files',
     ...files.map((f) => `- \`${f.path}\` — ${f.description}`),
@@ -121,6 +121,31 @@ export function buildArtifactBundle(
   const landing = packageData.surfaceBlueprints.landing;
   const customerApp = packageData.surfaceBlueprints.customerApp;
   const internalApp = packageData.surfaceBlueprints.internalApp;
+  const conceptScores = packageData.generationReport.conceptScores.length > 0
+    ? packageData.generationReport.conceptScores
+    : [
+        {
+          id: packageData.generationReport.selectedConceptId,
+          title: 'Selected Concept',
+          score: packageData.generationReport.overallScore,
+          rationale: 'Selected concept from generation report',
+        },
+      ];
+  const conceptSlug = (id: string) =>
+    id === 'directionA' ? 'direction-a' : id === 'directionB' ? 'direction-b' : id === 'directionC' ? 'direction-c' : id;
+  const conceptFiles: ArtifactBundleFile[] = conceptScores.map((concept) => ({
+    path: `concepts/${conceptSlug(concept.id)}.json`,
+    kind: 'json',
+    description: `${concept.title} concept score and rationale`,
+    content: JSON.stringify(
+      {
+        ...concept,
+        selected: concept.id === packageData.generationReport.selectedConceptId,
+      },
+      null,
+      2
+    ),
+  }));
 
   const files: ArtifactBundleFile[] = [
     {
@@ -150,6 +175,18 @@ export function buildArtifactBundle(
       content: JSON.stringify(tailwindTheme, null, 2),
     },
     {
+      path: 'brand-dossier.v1.json',
+      kind: 'json',
+      description: 'Canonical brand evidence dossier with confidence and defaults',
+      content: JSON.stringify(packageData.brandDossier, null, 2),
+    },
+    {
+      path: 'quality-report.json',
+      kind: 'json',
+      description: 'Generation quality checks, scores, and repair attempts',
+      content: JSON.stringify(packageData.generationReport, null, 2),
+    },
+    {
       path: 'blueprints/landing.json',
       kind: 'json',
       description: 'Landing page blueprint',
@@ -167,6 +204,7 @@ export function buildArtifactBundle(
       description: 'Internal application blueprint',
       content: JSON.stringify(internalApp, null, 2),
     },
+    ...conceptFiles,
     {
       path: 'templates/react-tailwind/landing-page.tsx',
       kind: 'tsx',
