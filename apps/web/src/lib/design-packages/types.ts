@@ -17,6 +17,16 @@ export interface DesignPackageData {
   borderRadius: string; // e.g. "0.75rem"
   mood: DesignMood;
   animationStyle: AnimationStyle;
+  /** Brand-level design intent and quality constraints (V2) */
+  foundation?: DesignFoundation;
+  /** Motion behavior defaults and accessibility posture (V2) */
+  motionSystem?: MotionSystem;
+  /** Density/grid/navigation defaults for generated surfaces (V2) */
+  layoutSystem?: LayoutSystem;
+  /** Explicit blueprints for multiple generated surfaces (V2) */
+  surfaceBlueprints?: SurfaceBlueprintSet;
+  /** Generated artifact metadata for export bundles (V2) */
+  artifactManifest?: ArtifactManifest;
   /** AI-generated component library (populated after save) */
   componentRegistry?: ComponentRegistry;
   /** Deterministic Tailwind theme tokens (populated after save) */
@@ -48,6 +58,81 @@ export interface ColorPalette {
   warning: string;
   error: string;
   info: string;
+}
+
+export interface DesignFoundation {
+  brandPersonality: string;
+  voiceTone: string;
+  designPrinciples: string[];
+  accessibilityTarget: 'aa' | 'aaa';
+  brandAlignment: number;
+}
+
+export interface MotionSystem {
+  intensity: 'subtle' | 'moderate' | 'expressive';
+  transitionStyle: string;
+  durationScale: {
+    fastMs: number;
+    normalMs: number;
+    slowMs: number;
+  };
+  easingPreset: string;
+  reducedMotionStrategy: string;
+}
+
+export interface LayoutSystem {
+  density: 'compact' | 'comfortable' | 'spacious';
+  spacingBasePx: number;
+  contentWidth: {
+    landing: 'narrow' | 'standard' | 'wide';
+    customerApp: 'standard' | 'wide';
+    internalApp: 'wide' | 'full';
+  };
+  navigationPattern: {
+    landing: 'top' | 'split' | 'minimal';
+    customerApp: 'top' | 'side' | 'hybrid';
+    internalApp: 'side' | 'dense-side' | 'hybrid';
+  };
+  grid: {
+    columns: number;
+    gutterPx: number;
+  };
+}
+
+export interface SurfaceBlueprintSection {
+  id: string;
+  title: string;
+  description: string;
+  priority: number;
+  components: string[];
+  interactionNotes: string[];
+}
+
+export interface SurfaceBlueprint {
+  purpose: string;
+  layoutSummary: string;
+  sectionOrder: SurfaceBlueprintSection[];
+  animationGuidelines: string[];
+  samplePrompt: string;
+}
+
+export interface SurfaceBlueprintSet {
+  landing: SurfaceBlueprint;
+  customerApp: SurfaceBlueprint;
+  internalApp: SurfaceBlueprint;
+}
+
+export interface ArtifactManifestEntry {
+  path: string;
+  kind: 'json' | 'css' | 'tsx' | 'md';
+  description: string;
+}
+
+export interface ArtifactManifest {
+  version: 2;
+  generatedAt: string;
+  codeTarget: 'react-tailwind';
+  artifacts: ArtifactManifestEntry[];
 }
 
 // ============================================================================

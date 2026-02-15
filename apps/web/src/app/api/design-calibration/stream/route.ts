@@ -27,27 +27,18 @@ import { DEFAULT_COMPONENT_SET } from '@/lib/design-packages/component-registry'
 import { formatDesignBrief } from '@/lib/design-packages/component-registry';
 import { MissingCredentialsError } from '@/lib/baleybot/services/ai-credentials-service';
 import {
-  normalizeOutputCandidate,
   runDesignAnalyzer,
+  runDesignGenerator,
 } from '@/lib/baleybot/internal-bb/runner';
+import { normalizeOutputCandidate } from '@/lib/baleybot/internal-bb/contract-gateway';
 import { inArray } from 'drizzle-orm';
+import {
+  designPackageDataInputSchema,
+  ensureDesignPackageDataV2,
+  type DesignPackageDataV2,
+} from '@/lib/design-packages/schema';
 
 const log = createLogger('design-calibration-stream');
-
-const packageDataSchema = z.object({
-  colors: z.object({
-    light: z.record(z.string(), z.string()),
-    dark: z.record(z.string(), z.string()),
-  }),
-  typography: z.object({
-    fontFamily: z.string(),
-    fontFamilyHeading: z.string().optional(),
-    googleFontsUrl: z.string().optional(),
-  }),
-  borderRadius: z.string(),
-  mood: z.string(),
-  animationStyle: z.string(),
-});
 
 const requestBodySchema = z.object({
   message: z.string().min(1).max(10000),
@@ -62,7 +53,7 @@ const requestBodySchema = z.object({
     )
     .max(100)
     .optional(),
-  existingPackageData: packageDataSchema.optional(),
+  existingPackageData: designPackageDataInputSchema.optional(),
   attachmentIds: z.array(z.string().uuid()).max(20).optional(),
   sessionId: z.string().max(255).optional(),
 });
@@ -139,6 +130,72 @@ interface FetchedAsset {
   mimeType: string;
   fileSize: number;
   base64: string;
+}
+
+interface DesignConcept {
+  id: 'landing' | 'customerApp' | 'internalApp';
+  title: string;
+  summary: string;
+  packageData: DesignPackageDataV2;
+}
+
+function evaluateDesignQuality(data: DesignPackageDataV2): {
+  wcagPasses: number;
+  wcagChecks: number;
+  hasMotionSystem: boolean;
+  hasLayoutSystem: boolean;
+  hasBlueprints: boolean;
+} {
+  const checks: Array<[string, string]> = [
+    [data.colors.light.foreground, data.colors.light.background],
+    [data.colors.light.primaryForeground, data.colors.light.primary],
+    [data.colors.dark.foreground, data.colors.dark.background],
+    [data.colors.dark.primaryForeground, data.colors.dark.primary],
+  ];
+
+  let wcagPasses = 0;
+  for (const [fg, bg] of checks) {
+    const ratio = (() => {
+      try {
+        const [h1, s1, l1] = fg.split(' ');
+        const [h2, s2, l2] = bg.split(' ');
+        const toNum = (value: string | undefined, suffix = '') =>
+          Number((value ?? '').replace(suffix, ''));
+        const lighten = (h: number, s: number, l: number) => {
+          const sNorm = s / 100;
+          const lNorm = l / 100;
+          const a = sNorm * Math.min(lNorm, 1 - lNorm);
+          const f = (n: number) => {
+            const k = (n + h / 30) % 12;
+            return lNorm - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+          };
+          const [r, g, b] = [f(0), f(8), f(4)];
+          const linear = (c: number) =>
+            c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+          return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+        };
+        const lum1 = lighten(toNum(h1), toNum(s1, '%'), toNum(l1, '%'));
+        const lum2 = lighten(toNum(h2), toNum(s2, '%'), toNum(l2, '%'));
+        const lighter = Math.max(lum1, lum2);
+        const darker = Math.min(lum1, lum2);
+        return (lighter + 0.05) / (darker + 0.05);
+      } catch {
+        return 0;
+      }
+    })();
+
+    if (ratio >= 4.5) {
+      wcagPasses += 1;
+    }
+  }
+
+  return {
+    wcagPasses,
+    wcagChecks: checks.length,
+    hasMotionSystem: !!data.motionSystem,
+    hasLayoutSystem: !!data.layoutSystem,
+    hasBlueprints: !!data.surfaceBlueprints,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -261,12 +318,109 @@ export async function POST(req: NextRequest) {
               '\nUse analyze_brand_asset to examine these files before generating.'
             : '';
 
+          const generatedConcepts: DesignConcept[] = [];
+          let conceptContext = '';
+          if (!input.existingPackageData) {
+            sendEvent({
+              type: 'design_concepts_started',
+              timestamp: Date.now(),
+            });
+
+            const conceptProfiles: Array<{
+              id: DesignConcept['id'];
+              title: string;
+              guidance: string;
+            }> = [
+              {
+                id: 'landing',
+                title: 'Landing Concept',
+                guidance: 'Bias for conversion-focused storytelling and clear CTA hierarchy.',
+              },
+              {
+                id: 'customerApp',
+                title: 'Customer App Concept',
+                guidance: 'Bias for customer clarity, task completion, and low cognitive load.',
+              },
+              {
+                id: 'internalApp',
+                title: 'Internal App Concept',
+                guidance: 'Bias for dense data operations and fast internal workflows.',
+              },
+            ];
+
+            const conceptResults = await Promise.allSettled(
+              conceptProfiles.map(async (profile) => {
+                const generated = await runDesignGenerator(
+                  [
+                    'Generate a DesignPackageData V2 payload.',
+                    `Surface focus: ${profile.id}`,
+                    profile.guidance,
+                    `User request: ${input.message}`,
+                    uploadedAssets.length > 0
+                      ? `Uploaded assets: ${uploadedAssets
+                          .map((asset) => `${asset.fileName} (${asset.mimeType})`)
+                          .join(', ')}`
+                      : '',
+                    historyText ? `Conversation context:\n${historyText}` : '',
+                  ]
+                    .filter(Boolean)
+                    .join('\n\n'),
+                  {
+                    userWorkspaceId: workspace.id,
+                    signal: AbortSignal.timeout(60_000),
+                  }
+                );
+
+                const packageData = ensureDesignPackageDataV2(generated);
+                const quality = evaluateDesignQuality(packageData);
+
+                return {
+                  id: profile.id,
+                  title: profile.title,
+                  summary:
+                    `${profile.title} with ${quality.wcagPasses}/${quality.wcagChecks} WCAG checks passing`,
+                  packageData,
+                } satisfies DesignConcept;
+              })
+            );
+
+            for (const result of conceptResults) {
+              if (result.status === 'fulfilled') {
+                generatedConcepts.push(result.value);
+              }
+            }
+
+            if (generatedConcepts.length > 0) {
+              sendEvent({
+                type: 'design_concepts_update',
+                concepts: generatedConcepts,
+                timestamp: Date.now(),
+              });
+
+              conceptContext = [
+                'Generated concept candidates (already validated):',
+                ...generatedConcepts.map((concept) =>
+                  `- ${concept.id}: ${concept.summary}`
+                ),
+                '',
+                ...generatedConcepts.map((concept) =>
+                  `${concept.title} (${concept.id}) package:\n${JSON.stringify(concept.packageData, null, 2)}`
+                ),
+                '',
+                'Use these concepts as the baseline set. Compare them, synthesize the strongest parts, and refine according to user feedback.',
+              ].join('\n');
+            }
+          }
+
           const fullInput = [
             historyText ? `Previous conversation:\n${historyText}\n\n` : '',
             `User: ${input.message}`,
             existingPackageContext,
             assetContext,
-          ].filter(Boolean).join('');
+            conceptContext ? `\n\n${conceptContext}` : '',
+          ]
+            .filter(Boolean)
+            .join('');
 
           // Build companion tools so Baley's BAL resolves all tool references
           const toolCtx: CompanionToolContext = {
@@ -290,7 +444,7 @@ export async function POST(req: NextRequest) {
             },
             function: async (args: Record<string, unknown>) => {
               try {
-                const parsed = packageDataSchema.parse(args.data);
+                const parsed = ensureDesignPackageDataV2(args.data);
                 previewUpdated = true;
                 sendEvent({
                   type: 'design_preview_update',
@@ -362,7 +516,7 @@ export async function POST(req: NextRequest) {
             },
             function: async (args: Record<string, unknown>) => {
               try {
-                const packageData = packageDataSchema.parse(args.packageData);
+                const packageData = ensureDesignPackageDataV2(args.packageData);
 
                 // Generate Tailwind theme tokens deterministically
                 const tailwindTheme = generateTailwindTheme(packageData as unknown as DesignPackageData);
@@ -491,17 +645,22 @@ export async function POST(req: NextRequest) {
           if (!previewUpdated) {
             const fallbackRaw =
               spawnOutputs.get('design_refiner') ??
-              spawnOutputs.get('design_generator');
+              spawnOutputs.get('design_generator') ??
+              generatedConcepts[0]?.packageData;
             const normalizedFallback = normalizeOutputCandidate(fallbackRaw);
 
             if (normalizedFallback && typeof normalizedFallback === 'object') {
-              const parsedFallback = packageDataSchema.safeParse(
-                normalizedFallback
-              );
-              if (parsedFallback.success) {
+              const parsedFallback = (() => {
+                try {
+                  return ensureDesignPackageDataV2(normalizedFallback);
+                } catch {
+                  return null;
+                }
+              })();
+              if (parsedFallback) {
                 sendEvent({
                   type: 'design_preview_update',
-                  data: parsedFallback.data,
+                  data: parsedFallback,
                   timestamp: Date.now(),
                 });
                 log.info('Applied fallback design preview from specialist output', {
@@ -513,7 +672,7 @@ export async function POST(req: NextRequest) {
               } else {
                 log.warn('Specialist output could not be parsed as design package', {
                   workspaceId: workspace.id,
-                  issues: parsedFallback.error.issues.slice(0, 3),
+                  normalizedType: typeof normalizedFallback,
                 });
               }
             }

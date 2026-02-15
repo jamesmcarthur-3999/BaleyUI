@@ -36,6 +36,7 @@ interface AppScaffoldPreviewProps {
   brandName?: string;
   className?: string;
   state?: ScaffoldState;
+  surface?: 'landing' | 'customerApp' | 'internalApp';
   /** Ref callback to access the inner container for direct CSS variable manipulation during streaming */
   containerRef?: (el: HTMLDivElement | null) => void;
 }
@@ -75,6 +76,24 @@ const STATUS_CSS_VAR: Record<string, string> = {
 
 const CHART_POINTS = [28, 42, 35, 55, 38, 62, 48, 70, 52, 74, 58, 80];
 
+const SURFACE_PREVIEW_META: Record<'landing' | 'customerApp' | 'internalApp', {
+  browserPath: string;
+  nav: string[];
+}> = {
+  landing: {
+    browserPath: '',
+    nav: ['Product', 'Pricing', 'Stories'],
+  },
+  customerApp: {
+    browserPath: '/dashboard',
+    nav: ['Dashboard', 'Customers', 'Analytics'],
+  },
+  internalApp: {
+    browserPath: '/ops',
+    nav: ['Ops', 'Queues', 'Reports'],
+  },
+};
+
 /* ─── SVG Helpers ───────────────────────────────────────── */
 
 function smoothPath(points: number[], w: number, h: number): string {
@@ -107,6 +126,7 @@ export function AppScaffoldPreview({
   brandName = 'Your App',
   className,
   state: stateProp,
+  surface = 'customerApp',
   containerRef,
 }: AppScaffoldPreviewProps) {
   const uid = useId().replace(/:/g, '');
@@ -155,6 +175,7 @@ export function AppScaffoldPreview({
   }
 
   const slug = brandName.toLowerCase().replace(/\s+/g, '');
+  const surfaceMeta = SURFACE_PREVIEW_META[surface];
   const CW = 560;
   const CH = 140;
   const line = smoothPath(CHART_POINTS, CW, CH);
@@ -226,7 +247,7 @@ export function AppScaffoldPreview({
               }}
             >
               <Shield className="h-3 w-3 shrink-0" style={{ color: 'hsl(var(--color-success))' }} />
-              <span className="truncate">https://app.{slug}.com/dashboard</span>
+              <span className="truncate">https://app.{slug}.com{surfaceMeta.browserPath}</span>
             </div>
           </div>
           <button
@@ -259,7 +280,7 @@ export function AppScaffoldPreview({
               <span className="text-sm font-semibold tracking-tight">{brandName}</span>
             </div>
             <nav className="flex items-center gap-0.5">
-              {['Dashboard', 'Customers', 'Analytics'].map((item, i) => (
+              {surfaceMeta.nav.map((item, i) => (
                 <span
                   key={item}
                   className="cursor-default px-2.5 py-1 text-[11px] font-medium"

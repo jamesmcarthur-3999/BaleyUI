@@ -63,6 +63,7 @@
     "@vercel/blob": "^2.2.0",
     "@xyflow/react": "^12.10.0",
     "ai": "^6.0.0",
+    "archiver": "^7.0.1",
     "better-auth": "^1.4.18",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -89,6 +90,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
     "@playwright/test": "^1.40.0",
+    "@types/archiver": "^7.0.0",
     "@types/dagre": "^0.7.53",
     "@types/dompurify": "^3.2.0",
     "@types/node": "^22.10.2",

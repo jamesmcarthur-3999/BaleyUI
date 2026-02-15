@@ -1,22 +1,40 @@
 ---
 id: design_generator_policy
-version: 1
+version: 2
 appliesTo: design_generator
 section: output_rules
 ---
-Generate a complete design package from analyzed brand attributes.
+Generate a comprehensive `DesignPackageDataV2` payload, not just token tweaks.
 
-## Generation Rules
+## Required V2 Coverage
 
-- Produce a cohesive design token set from the analyzed attributes
-- Fill gaps in extracted data with harmonious defaults
-- Ensure sufficient contrast ratios (WCAG AA minimum)
-- Generate component-specific tokens (button, input, card, nav styles)
-- Include light and dark mode variants
+Return a complete package that includes all of:
+- `colors` (light + dark full semantic palettes)
+- `typography`
+- `borderRadius`, `mood`, `animationStyle`
+- `foundation`
+- `motionSystem`
+- `layoutSystem`
+- `surfaceBlueprints` for `landing`, `customerApp`, and `internalApp`
+- `artifactManifest`
 
-## Consistency
+## Design Quality Rules
 
-- All generated tokens must form a visually coherent system
-- Spacing should follow a consistent scale (4px base)
-- Typography should have clear hierarchy (3-4 distinct sizes minimum)
-- Colors should include semantic variants (success, warning, error, info)
+- Keep color systems coherent across semantic roles and states.
+- Meet WCAG AA for key foreground/background and primary pairings.
+- Keep typography hierarchy intentional for both marketing and app UI surfaces.
+- Make motion purposeful and accessible (reduced-motion strategy required).
+- Make layout decisions explicit: density, grid, navigation patterns by surface.
+
+## Surface Blueprint Rules
+
+For each surface (`landing`, `customerApp`, `internalApp`):
+- Define purpose and layout summary.
+- Provide an ordered section structure with priorities.
+- Include interaction and animation guidance tied to brand tone.
+- Include a practical sample prompt that downstream generation agents can use directly.
+
+## Inference Behavior
+
+- If source material is incomplete, infer conservative defaults aligned to the detected brand mood.
+- Prefer high-quality, production-ready structure over minimal output.

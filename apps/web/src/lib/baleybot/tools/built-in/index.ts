@@ -219,8 +219,8 @@ export const GET_DESIGN_PACKAGE_SCHEMA = {
     },
     format: {
       type: 'string',
-      enum: ['brief', 'full', 'tailwind_only', 'registry_only'],
-      description: 'Output format: brief (concise guide ~2000 tokens), full (complete JSON), tailwind_only (theme tokens), registry_only (component library)',
+      enum: ['brief', 'full', 'tailwind_only', 'registry_only', 'blueprints', 'artifact_bundle_manifest'],
+      description: 'Output format: brief, full, tailwind_only, registry_only, blueprints (landing/customer/internal), artifact_bundle_manifest (bundle file manifest)',
       default: 'brief',
     },
   },
@@ -495,7 +495,7 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
   },
   {
     name: 'get_design_package',
-    description: 'Retrieve the workspace design package with color tokens, typography, component library, and Tailwind theme. Returns a formatted brief by default, or raw JSON. Use this to build UI that matches the workspace brand.',
+    description: 'Retrieve the workspace design package with tokens, typography, component library, blueprints, and artifact manifest. Returns a formatted brief by default, or raw JSON payloads.',
     inputSchema: GET_DESIGN_PACKAGE_SCHEMA as Record<string, unknown>,
     category: 'information',
     dangerLevel: 'safe',
@@ -503,10 +503,12 @@ export const BUILT_IN_TOOLS_METADATA: BuiltInToolMetadata[] = [
     capabilities: ['read'],
     capability: 'read',
     requirements: [],
-    tags: ['design', 'theme', 'brand', 'colors', 'components', 'tailwind'],
+    tags: ['design', 'theme', 'brand', 'colors', 'components', 'tailwind', 'blueprints', 'artifact-bundle'],
     examples: [
       { input: {}, description: 'Get the workspace default design package as a brief' },
       { input: { format: 'tailwind_only' }, description: 'Get just the Tailwind theme tokens' },
+      { input: { format: 'blueprints' }, description: 'Get structured landing/customer/internal blueprint payloads' },
+      { input: { format: 'artifact_bundle_manifest' }, description: 'Get reusable artifact bundle manifest and file map' },
     ],
   },
   {

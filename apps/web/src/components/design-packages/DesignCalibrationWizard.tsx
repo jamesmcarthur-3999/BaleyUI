@@ -7,6 +7,7 @@ import type { DesignPackageData } from '@/lib/design-packages/types';
 import {
   runDesignCalibrationStream,
   type DesignCalibrationCallbacks,
+  type DesignConceptPayload,
 } from '@/lib/design-packages/calibration-streaming';
 import { DesignTokenStreamParser } from '@/lib/design-packages/token-stream-parser';
 import { checkContrast } from '@/lib/design-packages/css-variables';
@@ -72,6 +73,8 @@ interface DesignCalibrationWizardProps {
   };
 }
 
+type SurfaceTab = 'landing' | 'customerApp' | 'internalApp';
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -128,6 +131,15 @@ export function DesignCalibrationWizard({
   const [generatedComponents, setGeneratedComponents] = useState<
     Array<{ componentName: string; action: string }>
   >([]);
+  const [conceptsLoading, setConceptsLoading] = useState(false);
+  const [designConcepts, setDesignConcepts] = useState<DesignConceptPayload[]>([]);
+  const [activeSurfaceTab, setActiveSurfaceTab] = useState<SurfaceTab>('landing');
+
+  const [brandAlignment, setBrandAlignment] = useState(85);
+  const [contrastTarget, setContrastTarget] = useState<'aa' | 'aaa'>('aa');
+  const [layoutDensity, setLayoutDensity] = useState<'compact' | 'comfortable' | 'spacious'>('comfortable');
+  const [motionIntensity, setMotionIntensity] = useState<'subtle' | 'moderate' | 'expressive'>('moderate');
+  const [voiceTone, setVoiceTone] = useState('clear and confident');
 
   // File upload state (shared hook)
   const [sessionId] = useState(() => crypto.randomUUID());
@@ -261,7 +273,16 @@ export function DesignCalibrationWizard({
     const displayContent = trimmed || (attachments
       ? `Uploaded ${attachments.length} file${attachments.length > 1 ? 's' : ''}`
       : '');
-    const messageForApi = trimmed || 'Please analyze the uploaded brand assets and create a design system from them.';
+    const userMessage = trimmed || 'Please analyze the uploaded brand assets and create a design system from them.';
+    const advancedSettingsContext = [
+      '[Design calibration controls]',
+      `brandAlignment: ${brandAlignment}%`,
+      `contrastTarget: ${contrastTarget.toUpperCase()}`,
+      `layoutDensity: ${layoutDensity}`,
+      `motionIntensity: ${motionIntensity}`,
+      `voiceTone: ${voiceTone}`,
+    ].join('\n');
+    const messageForApi = `${userMessage}\n\n${advancedSettingsContext}`;
 
     // Add user message
     const userMsg: DesignMessage = {
@@ -277,6 +298,9 @@ export function DesignCalibrationWizard({
 
     // Start streaming
     setIsStreaming(true);
+    if (!packageData) {
+      setDesignConcepts([]);
+    }
     outputAccRef.current = '';
     toolCallsRef.current = {};
     currentBlocksRef.current = [];
@@ -423,6 +447,15 @@ export function DesignCalibrationWizard({
         onComplete(packageId);
       },
 
+      onDesignConceptsStarted: () => {
+        setConceptsLoading(true);
+      },
+
+      onDesignConceptsUpdate: (concepts) => {
+        setConceptsLoading(false);
+        setDesignConcepts(concepts);
+      },
+
       onComponentGenerationStarted: () => {
         setComponentGenState('generating');
       },
@@ -476,6 +509,7 @@ export function DesignCalibrationWizard({
         morphTimersRef.current.forEach(clearTimeout);
         morphTimersRef.current = [];
         setIsStreaming(false);
+        setConceptsLoading(false);
         isSendingRef.current = false;
         abortControllerRef.current = null;
       },
@@ -522,6 +556,12 @@ export function DesignCalibrationWizard({
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, presetMsg]);
+  };
+
+  const applyConcept = (concept: DesignConceptPayload) => {
+    setPackageData(concept.packageData);
+    pushHistory(concept.packageData);
+    setActiveSurfaceTab(concept.id);
   };
 
   // ── Abort / Close ────────────────────────────────────────
@@ -672,12 +712,137 @@ export function DesignCalibrationWizard({
         {/* Left: Preview */}
         <div className="flex-1 min-w-0 overflow-y-auto bg-muted/30 p-5">
           <div className="mx-auto max-w-5xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1">
+                {([
+                  ['landing', 'Landing'],
+                  ['customerApp', 'Customer App'],
+                  ['internalApp', 'Internal App'],
+                ] as Array<[SurfaceTab, string]>).map(([tab, label]) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveSurfaceTab(tab)}
+                    className={cn(
+                      'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                      activeSurfaceTab === tab
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <AppScaffoldPreview
               data={packageData}
               brandName={existingPackage?.name ?? 'Your App'}
+              surface={activeSurfaceTab}
               state={scaffoldState}
               containerRef={(el) => { previewContainerRef.current = el; }}
             />
+
+            {(conceptsLoading || designConcepts.length > 0) && (
+              <div className="mt-4 rounded-xl border border-border bg-card p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold text-foreground">Concept Gallery</p>
+                  {conceptsLoading && (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Generating concepts
+                    </span>
+                  )}
+                </div>
+                {designConcepts.length > 0 && (
+                  <div className="grid gap-2 md:grid-cols-3">
+                    {designConcepts.map((concept) => (
+                      <button
+                        key={concept.id}
+                        onClick={() => applyConcept(concept)}
+                        className={cn(
+                          'rounded-lg border p-2 text-left transition-colors',
+                          packageData === concept.packageData
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border bg-background hover:border-primary/40'
+                        )}
+                      >
+                        <p className="text-xs font-semibold">{concept.title}</p>
+                        <p className="mt-1 text-[11px] text-muted-foreground">{concept.summary}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-4 grid gap-3 rounded-xl border border-border bg-card p-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                  Brand Alignment ({brandAlignment}%)
+                </label>
+                <input
+                  type="range"
+                  min={40}
+                  max={100}
+                  value={brandAlignment}
+                  onChange={(e) => setBrandAlignment(Number(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                  Contrast Target
+                </label>
+                <select
+                  value={contrastTarget}
+                  onChange={(e) => setContrastTarget(e.target.value as 'aa' | 'aaa')}
+                  className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                >
+                  <option value="aa">AA</option>
+                  <option value="aaa">AAA</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                  Layout Density
+                </label>
+                <select
+                  value={layoutDensity}
+                  onChange={(e) => setLayoutDensity(e.target.value as 'compact' | 'comfortable' | 'spacious')}
+                  className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                >
+                  <option value="compact">Compact</option>
+                  <option value="comfortable">Comfortable</option>
+                  <option value="spacious">Spacious</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                  Motion Intensity
+                </label>
+                <select
+                  value={motionIntensity}
+                  onChange={(e) => setMotionIntensity(e.target.value as 'subtle' | 'moderate' | 'expressive')}
+                  className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                >
+                  <option value="subtle">Subtle</option>
+                  <option value="moderate">Moderate</option>
+                  <option value="expressive">Expressive</option>
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                  Voice Tone
+                </label>
+                <input
+                  value={voiceTone}
+                  onChange={(e) => setVoiceTone(e.target.value)}
+                  className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+                  placeholder="clear and confident"
+                />
+              </div>
+            </div>
 
             {/* Preset chips when no package data */}
             {!packageData && !isStreaming && (

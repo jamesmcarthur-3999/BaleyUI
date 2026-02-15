@@ -81,10 +81,20 @@ const ALL_INTERNAL_BOTS = [
 ] as const;
 
 // Bots whose BAL the SDK parser can currently handle.
-// Most internal bots use complex output type syntax (array<object{...}>, enum(...), ?type)
-// that the SDK's type parser doesn't support yet.
-// nl_to_sql_postgres and nl_to_sql_mysql use only simple types (string, number, boolean, array, object).
+// Most internal bots still carry richer goals/policies that produce parser limitations.
 const BOTS_PARSEABLE_NOW = ['context_processor', 'nl_to_sql_postgres', 'nl_to_sql_mysql'] as const;
+
+// Structured output remains in BAL only where the contract is scalar-safe.
+const BOTS_WITH_BAL_OUTPUT = [
+  'nl_to_sql_postgres',
+  'nl_to_sql_mysql',
+  'platform_bug_triage',
+  'test_validator',
+] as const;
+
+const BOTS_WITHOUT_BAL_OUTPUT = ALL_INTERNAL_BOTS.filter(
+  (name) => !(BOTS_WITH_BAL_OUTPUT as readonly string[]).includes(name)
+);
 
 describe('internal-baleybots', () => {
   describe('INTERNAL_BALEYBOTS', () => {
@@ -128,7 +138,7 @@ describe('internal-baleybots', () => {
     // TODO: Enable after SDK parser adds complex type support (array<object{...}>, enum(...), ?type, unknown)
     it.todo('remaining 15 internal bots parse without errors (awaiting SDK complex type parser)');
 
-    it.each(BOTS_PARSEABLE_NOW)('%s balCode defines an output schema', (botName) => {
+    it.each(['nl_to_sql_postgres', 'nl_to_sql_mysql'] as const)('%s balCode defines an output schema', (botName) => {
       const bot = INTERNAL_BALEYBOTS[botName]!;
       const result = parseBalCode(bot.balCode);
       const entity = result.entities.find(e => e.name === botName);
@@ -136,7 +146,7 @@ describe('internal-baleybots', () => {
       expect(entity!.config.output, `${botName} missing output schema`).toBeDefined();
     });
 
-    it.todo('remaining 15 internal bots define output schemas (awaiting SDK complex type parser)');
+    it.todo('remaining internal bots parse without errors (awaiting SDK complex type parser)');
   });
 
   describe('INTERNAL_BALEYBOTS specific bot properties', () => {
@@ -176,16 +186,13 @@ describe('internal-baleybots', () => {
     it.todo('test_orchestrator output has topology and tests');
     it.todo('deployment_advisor output has trigger recommendations and checklist');
 
-    // Verify output fields via string matching (bypasses parser)
-    // Bots that use conversational mode (no structured output schema)
-    const CONVERSATIONAL_BOTS = new Set(['baley', 'integration_builder']);
-    const BOTS_WITH_OUTPUT = ALL_INTERNAL_BOTS.filter(name => !CONVERSATIONAL_BOTS.has(name));
-    it.each(BOTS_WITH_OUTPUT)('%s balCode contains an "output" block', (botName) => {
+    // Verify output block placement after reliability hardening.
+    it.each(BOTS_WITH_BAL_OUTPUT)('%s balCode contains an "output" block', (botName) => {
       const bot = INTERNAL_BALEYBOTS[botName]!;
       expect(bot.balCode).toContain('"output"');
     });
 
-    it.each([...CONVERSATIONAL_BOTS])('%s has no output block (conversational)', (botName) => {
+    it.each(BOTS_WITHOUT_BAL_OUTPUT)('%s has no BAL output block (gateway-enforced contract)', (botName) => {
       expect(INTERNAL_BALEYBOTS[botName]!.balCode).not.toContain('"output"');
     });
 
@@ -200,8 +207,8 @@ describe('internal-baleybots', () => {
       expect(INTERNAL_BALEYBOTS.test_validator!.balCode).toContain('anthropic:claude-haiku-4-5-20251001');
     });
 
-    it('creator_action_advisor output keeps structured actions typing', () => {
-      expect(INTERNAL_BALEYBOTS.creator_action_advisor!.balCode).toContain('"actions": "array<object>"');
+    it('creator_action_advisor relies on gateway parsing (no BAL output contract)', () => {
+      expect(INTERNAL_BALEYBOTS.creator_action_advisor!.balCode).not.toContain('"output"');
     });
   });
 

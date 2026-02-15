@@ -2,7 +2,7 @@
   {
     "id": "creator_action_advisor",
     "description": "Suggests the most relevant next creator actions based on workflow context",
-    "icon": "\ud83e\udde9",
+    "icon": "🧩",
     "model": "anthropic:fast",
     "contractId": "creator_action_advisor_v2",
     "role": "Creator Action Advisor",
@@ -27,7 +27,7 @@
   {
     "id": "bal_generator",
     "description": "Converts natural language descriptions into BAL code",
-    "icon": "\ud83d\udcdd",
+    "icon": "📝",
     "model": "anthropic:balanced",
     "maxTokens": 32768,
     "contractId": "bal_generator_v1",
@@ -54,7 +54,7 @@
   {
     "id": "pattern_learner",
     "description": "Analyzes tool approvals and suggests patterns for auto-approval",
-    "icon": "\ud83e\udde0",
+    "icon": "🧠",
     "model": "anthropic:fast",
     "contractId": "pattern_learner_v1",
     "role": "Approval Pattern Learning Assistant",
@@ -79,7 +79,7 @@
   {
     "id": "execution_reviewer",
     "description": "Reviews BaleyBot executions and suggests improvements",
-    "icon": "\ud83d\udd0d",
+    "icon": "🔍",
     "model": "anthropic:fast",
     "contractId": "execution_reviewer_v1",
     "role": "BaleyBot Review Agent",
@@ -104,7 +104,7 @@
   {
     "id": "nl_to_sql_postgres",
     "description": "Translates natural language queries to PostgreSQL",
-    "icon": "\ud83d\udc18",
+    "icon": "🐘",
     "model": "openai:fast",
     "contractId": "nl_to_sql_v1",
     "role": "PostgreSQL SQL Translator",
@@ -127,7 +127,7 @@
   {
     "id": "nl_to_sql_mysql",
     "description": "Translates natural language queries to MySQL",
-    "icon": "\ud83d\udc2c",
+    "icon": "🐬",
     "model": "openai:fast",
     "contractId": "nl_to_sql_v1",
     "role": "MySQL SQL Translator",
@@ -150,7 +150,7 @@
   {
     "id": "web_search_fallback",
     "description": "AI-powered web search when no Tavily API key is configured",
-    "icon": "\ud83d\udd0e",
+    "icon": "🔎",
     "model": "openai:fast",
     "contractId": "web_search_fallback_v1",
     "role": "Web Search Fallback Assistant",
@@ -171,7 +171,7 @@
   {
     "id": "connection_advisor",
     "description": "Advises on connection requirements and configuration for a BaleyBot",
-    "icon": "\ud83d\udd0c",
+    "icon": "🔌",
     "model": "anthropic:fast",
     "contractId": "connection_advisor_v2",
     "role": "Connection Advisor",
@@ -196,7 +196,7 @@
   {
     "id": "test_orchestrator",
     "description": "Topology-aware test orchestrator that designs tests based on BB structure (single, chain, parallel)",
-    "icon": "\ud83d\udd2c",
+    "icon": "🔬",
     "model": "anthropic:fast",
     "contractId": "test_orchestrator_v1",
     "role": "Topology-Aware Test Orchestrator",
@@ -218,7 +218,7 @@
   {
     "id": "test_generator",
     "description": "Generates test cases from a BaleyBot goal and structure",
-    "icon": "\ud83e\uddea",
+    "icon": "🧪",
     "model": "anthropic:fast",
     "contractId": "test_generator_v1",
     "role": "Test Case Generator",
@@ -239,7 +239,7 @@
   {
     "id": "deployment_advisor",
     "description": "Advises on triggers, scheduling, and activation for a BaleyBot",
-    "icon": "\ud83d\ude80",
+    "icon": "🚀",
     "model": "anthropic:fast",
     "contractId": "deployment_advisor_v1",
     "role": "Deployment Advisor",
@@ -261,7 +261,7 @@
   {
     "id": "test_validator",
     "description": "Validates whether a BaleyBot test output semantically satisfies the expected output",
-    "icon": "\u2705",
+    "icon": "✅",
     "model": "anthropic:fast",
     "contractId": "test_validator_v1",
     "role": "Test Output Validator",
@@ -284,7 +284,7 @@
   {
     "id": "test_results_analyzer",
     "description": "Analyzes test run results and provides actionable summary with improvement suggestions",
-    "icon": "\ud83d\udcca",
+    "icon": "📊",
     "model": "anthropic:fast",
     "contractId": "test_results_analyzer_v1",
     "role": "Test Results Analyzer",
@@ -307,12 +307,16 @@
   {
     "id": "integration_builder",
     "description": "Conversational integration guide that helps users deploy and connect BaleyBots to external systems",
-    "icon": "\ud83d\udd17",
+    "icon": "🔗",
     "model": "anthropic:fast",
     "contractId": "integration_builder_v2",
     "role": "Integration Builder",
     "maxTokens": 16384,
-    "tools": ["spawn_baleybot", "save_trigger_config", "enable_webhook"],
+    "tools": [
+      "spawn_baleybot",
+      "save_trigger_config",
+      "enable_webhook"
+    ],
     "inputs": [
       "BAL code and entity metadata for the BaleyBot being integrated",
       "user's integration intent and conversation history",
@@ -338,7 +342,7 @@
   {
     "id": "test_interface_designer",
     "description": "Analyzes BAL code and designs the optimal test interface for a BaleyBot",
-    "icon": "\ud83c\udfaf",
+    "icon": "🎯",
     "model": "anthropic:fast",
     "contractId": "test_interface_designer_v1",
     "role": "Test Interface Designer",
@@ -369,7 +373,7 @@
   {
     "id": "tool_executor",
     "description": "Executes NL-defined workspace tools without coupling to creator-specific behavior",
-    "icon": "\ud83d\udee0\ufe0f",
+    "icon": "🛠️",
     "model": "openai:fast",
     "contractId": "tool_executor_v1",
     "role": "Internal Tool Executor",
@@ -391,11 +395,14 @@
   {
     "id": "context_processor",
     "description": "Analyzes raw content and extracts structured shared context entries",
-    "icon": "\ud83d\udccb",
+    "icon": "📋",
     "model": "anthropic:fast",
     "contractId": "context_processor_v1",
     "role": "Context Processor",
-    "tools": ["web_search", "fetch_url"],
+    "tools": [
+      "web_search",
+      "fetch_url"
+    ],
     "inputs": [
       "raw content (pasted text, file content, images, PDFs, or documentation)",
       "content metadata (source filename, content type)",
@@ -421,10 +428,13 @@
     "id": "design_analyzer",
     "description": "Analyzes uploaded brand resources (images, PDFs, URLs, text) and extracts design attributes",
     "icon": "🎨",
-    "model": "anthropic:fast",
+    "model": "anthropic:balanced",
     "contractId": "design_analyzer_v1",
     "role": "Design Analyzer",
-    "tools": ["fetch_url", "web_search"],
+    "tools": [
+      "fetch_url",
+      "web_search"
+    ],
     "inputs": [
       "uploaded brand resources (images as base64, PDFs, website URLs, text descriptions)",
       "optional existing design package for comparison"
@@ -449,7 +459,7 @@
     "id": "design_generator",
     "description": "Synthesizes a complete design package with light and dark modes from extracted design attributes",
     "icon": "🖌️",
-    "model": "anthropic:fast",
+    "model": "anthropic:powerful",
     "contractId": "design_generator_v1",
     "role": "Design Generator",
     "inputs": [
@@ -477,7 +487,7 @@
     "id": "design_refiner",
     "description": "Applies natural language feedback to modify an existing design package while preserving coherence",
     "icon": "✨",
-    "model": "anthropic:fast",
+    "model": "anthropic:powerful",
     "contractId": "design_refiner_v1",
     "role": "Design Refiner",
     "inputs": [
@@ -503,25 +513,49 @@
   {
     "id": "baley",
     "description": "BaleyUI system assistant — workspace management, BaleyBot creation, troubleshooting, and proactive guidance",
-    "icon": "\u2726",
+    "icon": "✦",
     "model": "anthropic:powerful",
     "contractId": "baley_v1",
     "role": "BaleyUI System Assistant (Baley)",
     "maxTokens": 32768,
     "tools": [
-      "get_workspace_health", "navigate_user_to",
-      "list_connections", "test_connection", "set_default_connection", "create_connection", "delete_connection",
-      "list_tools", "create_tool", "delete_tool",
-      "list_api_keys", "create_api_key", "revoke_api_key",
-      "list_baleybots", "get_baleybot", "get_execution", "list_recent_executions",
+      "get_workspace_health",
+      "navigate_user_to",
+      "list_connections",
+      "test_connection",
+      "set_default_connection",
+      "create_connection",
+      "delete_connection",
+      "list_tools",
+      "create_tool",
+      "delete_tool",
+      "list_api_keys",
+      "create_api_key",
+      "revoke_api_key",
+      "list_baleybots",
+      "get_baleybot",
+      "get_execution",
+      "list_recent_executions",
       "get_analytics_summary",
-      "get_workspace_info", "update_workspace",
-      "list_approval_patterns", "revoke_approval_pattern",
-      "review_execution", "diagnose_failure", "suggest_approval_patterns",
-      "list_pending_actions", "apply_action",
-      "web_search", "fetch_url", "spawn_baleybot", "send_notification",
-      "store_memory", "schedule_task", "request_user_input",
-      "navigate_tab", "present_plan", "show_surface"
+      "get_workspace_info",
+      "update_workspace",
+      "list_approval_patterns",
+      "revoke_approval_pattern",
+      "review_execution",
+      "diagnose_failure",
+      "suggest_approval_patterns",
+      "list_pending_actions",
+      "apply_action",
+      "web_search",
+      "fetch_url",
+      "spawn_baleybot",
+      "send_notification",
+      "store_memory",
+      "schedule_task",
+      "request_user_input",
+      "navigate_tab",
+      "present_plan",
+      "show_surface"
     ],
     "inputs": [
       "user message with conversation history",
@@ -538,17 +572,22 @@
     ],
     "uncertaintyPolicy": "When uncertain, ask one focused question rather than assuming. If something fails, explain clearly and suggest a concrete next step.",
     "skills": [
-      "concise_reasoning", "platform_expertise", "conversational_tone",
-      "user_communication_actionable", "safety_non_destructive",
-      "creator_generation_policy", "creator_connection_management",
-      "creator_proactive_guidance", "consultative_curiosity",
+      "concise_reasoning",
+      "platform_expertise",
+      "conversational_tone",
+      "user_communication_actionable",
+      "safety_non_destructive",
+      "creator_generation_policy",
+      "creator_connection_management",
+      "creator_proactive_guidance",
+      "consultative_curiosity",
       "navigation_awareness"
     ]
   },
   {
     "id": "platform_bug_triage",
     "description": "Analyzes raw errors and determines if they are platform bugs worth tracking. Classifies user errors vs platform bugs. Provides root cause analysis and suggested fixes.",
-    "icon": "\ud83d\udc1b",
+    "icon": "🐛",
     "model": "anthropic:fast",
     "contractId": "platform_bug_triage_v1",
     "role": "Platform Bug Triage Analyst",
@@ -572,12 +611,15 @@
   {
     "id": "component_library_director",
     "description": "Orchestrates parallel component library generation from design tokens",
-    "icon": "\ud83c\udfad",
+    "icon": "🎭",
     "model": "anthropic:fast",
     "contractId": "component_library_director_v1",
     "role": "Component Library Director",
     "maxTokens": 32768,
-    "tools": ["spawn_baleybot", "register_component"],
+    "tools": [
+      "spawn_baleybot",
+      "register_component"
+    ],
     "inputs": [
       "complete design brief JSON with tokens, mood, animation style, and component list"
     ],
@@ -597,7 +639,7 @@
   {
     "id": "component_generator",
     "description": "Generates a batch of components with full sensory design matching a brand",
-    "icon": "\ud83c\udfa8",
+    "icon": "🎨",
     "model": "anthropic:fast",
     "contractId": "component_generator_v1",
     "role": "Component Generator",

@@ -238,6 +238,31 @@ function buildGoal(spec, contract, resolvedSkills) {
   return lines.join('\n').trim();
 }
 
+function isUnsupportedGenericObjectType(typeSpec) {
+  if (typeof typeSpec !== 'string') return false;
+  const normalized = typeSpec.replace(/\s+/g, '').toLowerCase();
+  return (
+    normalized === 'object' ||
+    normalized === '?object' ||
+    normalized === 'array<object>' ||
+    normalized === 'array<?object>'
+  );
+}
+
+function assertSupportedOutputContract(contract, specId) {
+  const output = contract?.output;
+  if (!output || typeof output !== 'object') return;
+
+  for (const [field, typeSpec] of Object.entries(output)) {
+    if (isUnsupportedGenericObjectType(typeSpec)) {
+      throw new Error(
+        `Bot '${specId}' contract field '${field}' uses unsupported generic type '${typeSpec}'. ` +
+        'Use a concrete scalar/array type in BAL output, or remove the BAL output block and enforce shape in app-layer contract-gateway.'
+      );
+    }
+  }
+}
+
 function buildBalCode(spec, goal, contract, modelPolicy) {
   const resolvedModel = resolveModelRef(spec.model, modelPolicy);
 
@@ -274,6 +299,7 @@ function generateDefinitions(specs, contracts, skills, modelPolicy) {
     if (!contract) {
       throw new Error(`Bot '${spec.id}' references unknown contract '${spec.contractId}'`);
     }
+    assertSupportedOutputContract(contract, spec.id);
 
     const resolvedSkills = spec.skills.map((skillId) => {
       const skill = skills.get(skillId);

@@ -16,6 +16,7 @@ import {
   type GeneratedInternalBaleybotDef,
 } from './internal-bb/generated-definitions';
 import { initializeBuiltInToolServices } from './services';
+import { normalizeOutputCandidate } from './internal-bb/contract-gateway';
 
 const logger = createLogger('internal-baleybots');
 
@@ -210,15 +211,8 @@ const INTERNAL_DEFAULT_MODEL: Record<'openai' | 'anthropic' | 'ollama', string> 
 };
 
 function applyInternalContractCompatibility(name: string, balCode: string): string {
-  if (name !== 'creator_action_advisor') {
-    return balCode;
-  }
-
-  // Compatibility for older edits that used actions: array<string> (or other array scalar contracts).
-  return balCode.replace(
-    /("actions"\s*:\s*")array<[^"]+>"/gi,
-    '$1array<object>"'
-  );
+  // Legacy output contract shims were removed in favor of app-layer parsing.
+  return balCode;
 }
 
 function rewriteModelProvidersForAvailability(
@@ -472,12 +466,14 @@ export async function executeInternalBaleybot(
       attachments: options.attachments,
     });
 
+    const normalizedOutput = normalizeOutputCandidate(result.output);
+
     // Update execution record (including usage data for analytics)
     await db
       .update(baleybotExecutions)
       .set({
         status: result.status === 'completed' ? 'completed' : 'failed',
-        output: result.output,
+        output: normalizedOutput,
         error: result.error,
         segments: result.segments,
         completedAt: new Date(),
@@ -495,7 +491,7 @@ export async function executeInternalBaleybot(
     }
 
     return {
-      output: result.output,
+      output: normalizedOutput,
       executionId: execution.id,
     };
   } catch (error: unknown) {

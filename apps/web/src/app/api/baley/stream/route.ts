@@ -41,7 +41,7 @@ import { creatorOutputSchema } from '@/lib/baleybot/creator-types';
 import type { TriggerConfig } from '@/lib/baleybot/types';
 import type { BaleybotStreamEvent } from '@baleybots/core';
 import type { RuntimeToolDefinition } from '@/lib/baleybot/executor';
-import { normalizeOutputCandidate } from '@/lib/baleybot/internal-bb/runner';
+import { normalizeOutputCandidate } from '@/lib/baleybot/internal-bb/contract-gateway';
 import { MissingCredentialsError } from '@/lib/baleybot/services/ai-credentials-service';
 import { reportPlatformError } from '@/lib/platform-bugs/report';
 import { getPageInfo } from '@/lib/routes';

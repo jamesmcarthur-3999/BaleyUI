@@ -177,7 +177,7 @@ async function triagePlatformBug(
   try {
     // Dynamically import to avoid circular deps and to keep the cold path light
     const { executeInternalBaleybot } = await import('@/lib/baleybot/internal-baleybots');
-    const { normalizeOutputCandidate } = await import('@/lib/baleybot/internal-bb/runner');
+    const { normalizeOutputCandidate } = await import('@/lib/baleybot/internal-bb/contract-gateway');
 
     // Gather recent similar bugs for context
     const recentBugs = await db.query.platformBugs.findMany({

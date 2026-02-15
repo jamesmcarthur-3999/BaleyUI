@@ -15,47 +15,15 @@ import {
   runDesignRefiner,
 } from '@/lib/baleybot/internal-bb/runner';
 import type { DesignPackageData } from '@/lib/design-packages/types';
-import { packageToCSS, packageToCSSString } from '@/lib/design-packages/css-variables';
+import { packageToCSSString } from '@/lib/design-packages/css-variables';
 import { generateTailwindTheme } from '@/lib/design-packages/tailwind-theme';
-
-const colorPaletteInput = z.object({
-  background: z.string(),
-  foreground: z.string(),
-  card: z.string(),
-  cardForeground: z.string(),
-  primary: z.string(),
-  primaryForeground: z.string(),
-  secondary: z.string(),
-  secondaryForeground: z.string(),
-  muted: z.string(),
-  mutedForeground: z.string(),
-  accent: z.string(),
-  accentForeground: z.string(),
-  destructive: z.string(),
-  destructiveForeground: z.string(),
-  border: z.string(),
-  input: z.string(),
-  ring: z.string(),
-  success: z.string(),
-  warning: z.string(),
-  error: z.string(),
-  info: z.string(),
-});
-
-const packageDataInput = z.object({
-  colors: z.object({
-    light: colorPaletteInput,
-    dark: colorPaletteInput,
-  }),
-  typography: z.object({
-    fontFamily: z.string(),
-    fontFamilyHeading: z.string().optional(),
-    googleFontsUrl: z.string().optional(),
-  }),
-  borderRadius: z.string(),
-  mood: z.enum(['playful', 'professional', 'minimal', 'elegant', 'bold']),
-  animationStyle: z.enum(['playful', 'professional', 'minimal']),
-});
+import {
+  designPackageDataInputSchema,
+  ensureDesignPackageDataV2,
+} from '@/lib/design-packages/schema';
+import {
+  buildArtifactBundleZip,
+} from '@/lib/design-packages/artifact-bundle';
 
 const sourceResourceSchema = z.object({
   name: z.string(),
@@ -68,13 +36,18 @@ export const designPackagesRouter = router({
    * List all design packages for the workspace.
    */
   list: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.db.query.designPackages.findMany({
+    const packages = await ctx.db.query.designPackages.findMany({
       where: and(
         eq(designPackages.workspaceId, ctx.workspace.id),
         isNull(designPackages.deletedAt)
       ),
       orderBy: [desc(designPackages.createdAt)],
     });
+
+    return packages.map((pkg) => ({
+      ...pkg,
+      packageData: ensureDesignPackageDataV2(pkg.packageData),
+    }));
   }),
 
   /**
@@ -98,7 +71,10 @@ export const designPackagesRouter = router({
         });
       }
 
-      return pkg;
+      return {
+        ...pkg,
+        packageData: ensureDesignPackageDataV2(pkg.packageData),
+      };
     }),
 
   /**
@@ -201,7 +177,7 @@ export const designPackagesRouter = router({
   refine: protectedProcedure
     .input(
       z.object({
-        currentPackageData: packageDataInput,
+        currentPackageData: designPackageDataInputSchema,
         prompt: z.string().min(1).max(2000),
       })
     )
@@ -231,13 +207,15 @@ export const designPackagesRouter = router({
       z.object({
         name: nameSchema,
         description: descriptionSchema,
-        packageData: packageDataInput,
+        packageData: designPackageDataInputSchema,
         sourceType: z.enum(['ai_generated', 'manual', 'preset']).optional().default('ai_generated'),
         sourceResources: z.array(sourceResourceSchema).optional(),
         isDefault: z.boolean().optional().default(false),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const packageData = ensureDesignPackageDataV2(input.packageData);
+
       // If setting as default, unset any existing default
       if (input.isDefault) {
         await ctx.db
@@ -258,7 +236,7 @@ export const designPackagesRouter = router({
           workspaceId: ctx.workspace.id,
           name: input.name,
           description: input.description ?? null,
-          packageData: input.packageData as DesignPackageData,
+          packageData: packageData as DesignPackageData,
           sourceType: input.sourceType,
           sourceResources: input.sourceResources ?? null,
           isDefault: input.isDefault,
@@ -267,7 +245,12 @@ export const designPackagesRouter = router({
         })
         .returning();
 
-      return pkg;
+      return pkg
+        ? {
+            ...pkg,
+            packageData: ensureDesignPackageDataV2(pkg.packageData),
+          }
+        : pkg;
     }),
 
   /**
@@ -279,7 +262,7 @@ export const designPackagesRouter = router({
         id: uuidSchema,
         name: nameSchema.optional(),
         description: descriptionSchema,
-        packageData: packageDataInput.optional(),
+        packageData: designPackageDataInputSchema.optional(),
         refinementPrompt: z.string().max(2000).optional(),
       })
     )
@@ -299,7 +282,10 @@ export const designPackagesRouter = router({
         });
       }
 
-      let newPackageData = input.packageData;
+      const currentPackageData = ensureDesignPackageDataV2(existing.packageData);
+      let newPackageData = input.packageData
+        ? ensureDesignPackageDataV2(input.packageData)
+        : undefined;
 
       // If refinement prompt is provided, use design_refiner
       if (input.refinementPrompt && !newPackageData) {
@@ -307,7 +293,7 @@ export const designPackagesRouter = router({
           'Refine the following design package based on user feedback.',
           '',
           'Current design package:',
-          JSON.stringify(existing.packageData, null, 2),
+          JSON.stringify(currentPackageData, null, 2),
           '',
           'User feedback:',
           input.refinementPrompt,
@@ -317,7 +303,7 @@ export const designPackagesRouter = router({
           userWorkspaceId: ctx.workspace.id,
         });
 
-        newPackageData = refined as DesignPackageData;
+        newPackageData = ensureDesignPackageDataV2(refined);
       }
 
       const updates: Record<string, unknown> = {
@@ -328,7 +314,7 @@ export const designPackagesRouter = router({
 
       if (input.name) updates.name = input.name;
       if (input.description !== undefined) updates.description = input.description ?? null;
-      if (newPackageData) updates.packageData = newPackageData;
+      if (newPackageData) updates.packageData = newPackageData as DesignPackageData;
 
       const [updated] = await ctx.db
         .update(designPackages)
@@ -336,7 +322,12 @@ export const designPackagesRouter = router({
         .where(eq(designPackages.id, input.id))
         .returning();
 
-      return updated;
+      return updated
+        ? {
+            ...updated,
+            packageData: ensureDesignPackageDataV2(updated.packageData),
+          }
+        : updated;
     }),
 
   /**
@@ -391,7 +382,7 @@ export const designPackagesRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Design package not found' });
       }
 
-      const data = pkg.packageData as DesignPackageData;
+      const data = ensureDesignPackageDataV2(pkg.packageData);
       const lightCSS = packageToCSSString(data, 'root', 'light');
       const darkCSS = packageToCSSString(data, 'root', 'dark');
 
@@ -419,7 +410,7 @@ export const designPackagesRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Design package not found' });
       }
 
-      const data = pkg.packageData as DesignPackageData;
+      const data = ensureDesignPackageDataV2(pkg.packageData);
       const theme = data.tailwindTheme ?? generateTailwindTheme(data);
 
       return {
@@ -446,10 +437,62 @@ export const designPackagesRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Design package not found' });
       }
 
+      const data = ensureDesignPackageDataV2(pkg.packageData);
       return {
         filename: `${pkg.name.toLowerCase().replace(/\s+/g, '-')}-design-package.json`,
-        content: JSON.stringify(pkg.packageData, null, 2),
+        content: JSON.stringify(data, null, 2),
       };
+    }),
+
+  /**
+   * Export all surface blueprints as structured JSON artifacts.
+   */
+  exportBlueprints: protectedProcedure
+    .input(z.object({ id: uuidSchema }))
+    .query(async ({ ctx, input }) => {
+      const pkg = await ctx.db.query.designPackages.findFirst({
+        where: and(
+          eq(designPackages.id, input.id),
+          eq(designPackages.workspaceId, ctx.workspace.id),
+          isNull(designPackages.deletedAt)
+        ),
+      });
+
+      if (!pkg) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Design package not found' });
+      }
+
+      const data = ensureDesignPackageDataV2(pkg.packageData);
+      return {
+        filename: `${pkg.name.toLowerCase().replace(/\s+/g, '-')}-blueprints.json`,
+        content: JSON.stringify(data.surfaceBlueprints, null, 2),
+      };
+    }),
+
+  /**
+   * Export the full reusable artifact bundle as a ZIP file payload.
+   */
+  exportBundle: protectedProcedure
+    .input(z.object({ id: uuidSchema }))
+    .query(async ({ ctx, input }) => {
+      const pkg = await ctx.db.query.designPackages.findFirst({
+        where: and(
+          eq(designPackages.id, input.id),
+          eq(designPackages.workspaceId, ctx.workspace.id),
+          isNull(designPackages.deletedAt)
+        ),
+      });
+
+      if (!pkg) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Design package not found' });
+      }
+
+      const zipped = await buildArtifactBundleZip(
+        pkg.name,
+        ensureDesignPackageDataV2(pkg.packageData)
+      );
+
+      return zipped;
     }),
 
   /**

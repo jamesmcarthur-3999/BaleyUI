@@ -37,6 +37,8 @@ export interface DesignCalibrationCallbacks {
   // Design-specific events
   onDesignPreviewUpdate: (data: DesignPackageData) => void;
   onDesignSaved: (packageId: string) => void;
+  onDesignConceptsStarted?: () => void;
+  onDesignConceptsUpdate?: (concepts: DesignConceptPayload[]) => void;
   // Component generation events
   onComponentGenerationStarted?: () => void;
   onComponentRegistered?: (component: Record<string, unknown>) => void;
@@ -44,6 +46,13 @@ export interface DesignCalibrationCallbacks {
   onComponentGenerationError?: (message: string) => void;
   onError: (message: string) => void;
   onDone: () => void;
+}
+
+export interface DesignConceptPayload {
+  id: 'landing' | 'customerApp' | 'internalApp';
+  title: string;
+  summary: string;
+  packageData: DesignPackageData;
 }
 
 // ============================================================================
@@ -66,6 +75,8 @@ interface DesignStreamEvent {
   data?: DesignPackageData;
   // design_saved
   packageId?: string;
+  // design concepts
+  concepts?: DesignConceptPayload[];
   // component_registered
   component?: Record<string, unknown>;
   // design_error / component_generation_error
@@ -149,6 +160,16 @@ export async function runDesignCalibrationStream(
         case 'design_saved': {
           if (event.packageId) {
             callbacks.onDesignSaved(event.packageId);
+          }
+          break;
+        }
+        case 'design_concepts_started': {
+          callbacks.onDesignConceptsStarted?.();
+          break;
+        }
+        case 'design_concepts_update': {
+          if (event.concepts && Array.isArray(event.concepts)) {
+            callbacks.onDesignConceptsUpdate?.(event.concepts);
           }
           break;
         }

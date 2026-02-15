@@ -20,6 +20,7 @@ import type { BaleybotStreamEvent } from '@baleybots/core';
 import { getOrCreateSystemWorkspace } from '@/lib/system-workspace';
 import { getDefaultModelForTier } from '@/lib/models/model-registry';
 import { createLogger } from '@/lib/logger';
+import { normalizeOutputCandidate } from '../internal-bb/contract-gateway';
 
 // ============================================================================
 // WORKSPACE POLICIES
@@ -461,13 +462,14 @@ export function createSpawnBaleybotExecutor(options?: {
       );
 
       const durationMs = Date.now() - startTime;
+      const normalizedOutput = normalizeOutputCandidate(result.output);
 
       // Update execution record with result
       if (result.status === 'completed') {
         await updateExecutionRecord(
           executionId,
           'completed',
-          result.output,
+          normalizedOutput,
           undefined,
           durationMs
         );
@@ -475,7 +477,7 @@ export function createSpawnBaleybotExecutor(options?: {
         await updateExecutionRecord(
           executionId,
           'failed',
-          result.output,
+          normalizedOutput,
           result.error,
           durationMs
         );
@@ -484,14 +486,14 @@ export function createSpawnBaleybotExecutor(options?: {
 
       // Store full output in side channel for downstream consumers
       if (ctx._spawnOutputs) {
-        ctx._spawnOutputs.set(targetBB.name, result.output);
+        ctx._spawnOutputs.set(targetBB.name, normalizedOutput);
       }
 
       // Return raw structured output for machine-readability plus a concise summary for UX.
-      const summary = buildSpawnSummary(targetBB.name, result.output);
+      const summary = buildSpawnSummary(targetBB.name, normalizedOutput);
 
       return {
-        output: result.output,
+        output: normalizedOutput,
         summary,
         executionId,
         durationMs,

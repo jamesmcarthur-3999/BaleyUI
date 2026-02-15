@@ -456,11 +456,13 @@ async function requestUserInputImpl(
 import { db, designPackages, eq, and, isNull } from '@baleyui/db';
 import { generateTailwindTheme } from '@/lib/design-packages/tailwind-theme';
 import { formatDesignBrief, createEmptyRegistry, upsertComponent } from '@/lib/design-packages/component-registry';
-import type { DesignPackageData, ComponentDefinition, ComponentCategory, ComponentRegistry } from '@/lib/design-packages/types';
+import type { DesignPackageData, ComponentDefinition, ComponentCategory } from '@/lib/design-packages/types';
+import { ensureDesignPackageDataV2 } from '@/lib/design-packages/schema';
+import { buildArtifactBundle } from '@/lib/design-packages/artifact-bundle';
 
 interface GetDesignPackageArgs {
   package_id?: string;
-  format?: 'brief' | 'full' | 'tailwind_only' | 'registry_only';
+  format?: 'brief' | 'full' | 'tailwind_only' | 'registry_only' | 'blueprints' | 'artifact_bundle_manifest';
 }
 
 async function getDesignPackageImpl(
@@ -490,8 +492,9 @@ async function getDesignPackageImpl(
     return { found: false, format, content: 'No design package found for this workspace.' };
   }
 
-  const data = pkg.packageData as DesignPackageData;
-  const theme = data.tailwindTheme ?? generateTailwindTheme(data);
+  const data = ensureDesignPackageDataV2(pkg.packageData);
+  const designData = data as unknown as DesignPackageData;
+  const theme = data.tailwindTheme ?? generateTailwindTheme(designData);
   const registry = data.componentRegistry ?? createEmptyRegistry();
 
   switch (format) {
@@ -499,7 +502,7 @@ async function getDesignPackageImpl(
       return {
         found: true,
         format,
-        content: formatDesignBrief(pkg.name, data, theme, registry),
+        content: formatDesignBrief(pkg.name, designData, theme, registry),
       };
     case 'full':
       return {
@@ -511,8 +514,26 @@ async function getDesignPackageImpl(
       return { found: true, format, content: theme as unknown as Record<string, unknown> };
     case 'registry_only':
       return { found: true, format, content: registry as unknown as Record<string, unknown> };
+    case 'blueprints':
+      return {
+        found: true,
+        format,
+        content: data.surfaceBlueprints as unknown as Record<string, unknown>,
+      };
+    case 'artifact_bundle_manifest': {
+      const bundle = buildArtifactBundle(pkg.name, data);
+      return {
+        found: true,
+        format,
+        content: {
+          packageName: pkg.name,
+          manifest: data.artifactManifest,
+          files: bundle.files.map(({ path, kind, description }) => ({ path, kind, description })),
+        } as Record<string, unknown>,
+      };
+    }
     default:
-      return { found: true, format, content: formatDesignBrief(pkg.name, data, theme, registry) };
+      return { found: true, format, content: formatDesignBrief(pkg.name, designData, theme, registry) };
   }
 }
 

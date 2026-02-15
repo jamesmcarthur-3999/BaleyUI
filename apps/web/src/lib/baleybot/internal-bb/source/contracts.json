@@ -1,9 +1,7 @@
 {
   "creator_action_advisor_v2": {
     "id": "creator_action_advisor_v2",
-    "output": {
-      "actions": "array<object>"
-    },
+    "output": {},
     "rules": [
       "Return 0-3 actions only.",
       "Each action requires label, prompt, and mode when applicable.",
@@ -13,14 +11,7 @@
   },
   "bal_generator_v1": {
     "id": "bal_generator_v1",
-    "output": {
-      "balCode": "string",
-      "explanation": "string",
-      "entities": "array<object>",
-      "toolRationale": "object",
-      "suggestedName": "string",
-      "suggestedIcon": "string"
-    },
+    "output": {},
     "rules": [
       "Return exactly one JSON object.",
       "balCode must be syntactically valid BAL.",
@@ -29,11 +20,7 @@
   },
   "pattern_learner_v1": {
     "id": "pattern_learner_v1",
-    "output": {
-      "suggestions": "array<object>",
-      "warnings": "array<string>",
-      "recommendations": "array<string>"
-    },
+    "output": {},
     "rules": [
       "Use conservative risk assessments.",
       "trustLevel must be provisional, trusted, or permanent.",
@@ -42,13 +29,7 @@
   },
   "execution_reviewer_v1": {
     "id": "execution_reviewer_v1",
-    "output": {
-      "overallAssessment": "string",
-      "summary": "string",
-      "issues": "array<object>",
-      "suggestions": "array<object>",
-      "metrics": "object"
-    },
+    "output": {},
     "rules": [
       "Focus on user-impacting issues first.",
       "Severity values must be error, warning, or suggestion.",
@@ -68,9 +49,7 @@
   },
   "web_search_fallback_v1": {
     "id": "web_search_fallback_v1",
-    "output": {
-      "results": "array<object>"
-    },
+    "output": {},
     "rules": [
       "Return 3-5 results when possible.",
       "Each result must include title, url, and snippet fields.",
@@ -79,13 +58,7 @@
   },
   "connection_advisor_v2": {
     "id": "connection_advisor_v2",
-    "output": {
-      "analysis": "object",
-      "recommendations": "array<string>",
-      "warnings": "array<string>",
-      "remediationSteps": "array<object>",
-      "verificationPlan": "array<object>"
-    },
+    "output": {},
     "rules": [
       "Separate deterministic requirements from optimization recommendations.",
       "Call out missing required connections clearly.",
@@ -95,12 +68,7 @@
   },
   "test_orchestrator_v1": {
     "id": "test_orchestrator_v1",
-    "output": {
-      "topology": "string",
-      "topologyDescription": "string",
-      "tests": "array<object>",
-      "strategy": "string"
-    },
+    "output": {},
     "rules": [
       "Generate 4-10 tests when enough context exists.",
       "Align match strategy to topology and input type.",
@@ -109,10 +77,7 @@
   },
   "test_generator_v1": {
     "id": "test_generator_v1",
-    "output": {
-      "tests": "array<object>",
-      "strategy": "string"
-    },
+    "output": {},
     "rules": [
       "Generate 3-8 tests across unit, integration, and e2e where relevant.",
       "Choose matchStrategy intentionally.",
@@ -121,12 +86,7 @@
   },
   "deployment_advisor_v1": {
     "id": "deployment_advisor_v1",
-    "output": {
-      "triggerRecommendations": "array<object>",
-      "monitoringAdvice": "object",
-      "readinessGaps": "array<string>",
-      "productionChecklist": "array<string>"
-    },
+    "output": {},
     "rules": [
       "Trigger type must be one of manual, schedule, webhook, other_bb, db_event, mcp_event.",
       "Checklist items must be concrete and testable.",
@@ -149,16 +109,7 @@
   },
   "test_results_analyzer_v1": {
     "id": "test_results_analyzer_v1",
-    "output": {
-      "overallStatus": "string",
-      "summary": "string",
-      "passRate": "number",
-      "topology": "string",
-      "patterns": "array<object>",
-      "botImprovements": "array<object>",
-      "pipelineInsights": "array<object>",
-      "nextSteps": "array<string>"
-    },
+    "output": {},
     "rules": [
       "overallStatus must be passed, mixed, or failed.",
       "Use passRate in [0,1].",
@@ -177,12 +128,7 @@
   },
   "test_interface_designer_v1": {
     "id": "test_interface_designer_v1",
-    "output": {
-      "mode": "string",
-      "components": "array<object>",
-      "testSuggestions": "array<string>",
-      "rationale": "string"
-    },
+    "output": {},
     "rules": [
       "mode must be one of: chat, form, hybrid, file, webhook.",
       "components array must use recognized type ids: chat_input, json_form, file_input, webhook_simulator, run_button, result_view, cluster_trace, url_input, context_setup.",
@@ -194,11 +140,7 @@
   },
   "tool_executor_v1": {
     "id": "tool_executor_v1",
-    "output": {
-      "success": "boolean",
-      "result": "object",
-      "text": "string"
-    },
+    "output": {},
     "rules": [
       "Execute only what is requested by the tool definition and input arguments.",
       "Return success=false with a clear text reason on failure.",
@@ -207,11 +149,7 @@
   },
   "context_processor_v1": {
     "id": "context_processor_v1",
-    "output": {
-      "entries": "array<object>",
-      "summary": "string",
-      "skippedReasons": "array<string>"
-    },
+    "output": {},
     "rules": [
       "Return 1-20 entries per processing run.",
       "Each entry object must include: key (string), value (string), category (string), description (string).",
@@ -223,14 +161,7 @@
   },
   "design_analyzer_v1": {
     "id": "design_analyzer_v1",
-    "output": {
-      "colors": "array<object>",
-      "typography": "object",
-      "spacing": "object",
-      "mood": "string",
-      "confidence": "number",
-      "recommendations": "array<string>"
-    },
+    "output": {},
     "rules": [
       "Each color object must include: hex (string), hsl (string), role (string: primary/secondary/accent/background/text/border/success/warning/error/info).",
       "Typography object must include: primaryFont (string). Optional: fontUrl (string), scale (string), weights (array<string>).",
@@ -242,14 +173,7 @@
   },
   "design_generator_v1": {
     "id": "design_generator_v1",
-    "output": {
-      "colors": "object",
-      "typography": "object",
-      "borderRadius": "string",
-      "mood": "string",
-      "animationStyle": "string",
-      "suggestedName": "string"
-    },
+    "output": {},
     "rules": [
       "colors must be an object with 'light' and 'dark' keys, each containing a full ColorPalette with 21 HSL color strings.",
       "ColorPalette keys: background, foreground, card, cardForeground, primary, primaryForeground, secondary, secondaryForeground, muted, mutedForeground, accent, accentForeground, destructive, destructiveForeground, border, input, ring, success, warning, error, info.",
@@ -263,14 +187,7 @@
   },
   "design_refiner_v1": {
     "id": "design_refiner_v1",
-    "output": {
-      "colors": "object",
-      "typography": "object",
-      "borderRadius": "string",
-      "mood": "string",
-      "animationStyle": "string",
-      "suggestedName": "string"
-    },
+    "output": {},
     "rules": [
       "Return the complete modified design package, not just changed fields.",
       "colors must be an object with 'light' and 'dark' keys, each containing a full ColorPalette with 21 HSL color strings.",
@@ -319,10 +236,7 @@
   },
   "component_library_director_v1": {
     "id": "component_library_director_v1",
-    "output": {
-      "components": "array<object>",
-      "summary": "string"
-    },
+    "output": {},
     "rules": [
       "Spawn 7 component_generator instances — one per category (action, layout, form, data, feedback, navigation, overlay).",
       "Each spawn gets: the design brief + its assigned component names.",
@@ -332,9 +246,7 @@
   },
   "component_generator_v1": {
     "id": "component_generator_v1",
-    "output": {
-      "components": "array<object>"
-    },
+    "output": {},
     "rules": [
       "Return an array of component objects. Each must have: name, category, variants[].",
       "Each variant must have: name, classes, usage. Optional: animations, customCSS, typographyOverrides, designNotes.",
