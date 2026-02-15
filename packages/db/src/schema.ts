@@ -1031,6 +1031,79 @@ export const baleybotExecutions = pgTable(
 );
 
 // ============================================================================
+// ORCHESTRATION RUNS + TASKS (Swarm execution traces)
+// ============================================================================
+
+export const orchestrationRuns = pgTable(
+  'orchestration_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    rootExecutionId: uuid('root_execution_id').references(() => baleybotExecutions.id, {
+      onDelete: 'set null',
+    }),
+    entryBot: varchar('entry_bot', { length: 255 }).notNull(),
+    status: varchar('status', { length: 50 }).notNull().default('running'), // running, completed, failed, cancelled
+    objective: text('objective').notNull(),
+    strategy: jsonb('strategy').default({}).notNull(),
+    summary: text('summary'),
+    metrics: jsonb('metrics').default({}).notNull(),
+    startedAt: timestamp('started_at').defaultNow().notNull(),
+    completedAt: timestamp('completed_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('orchestration_runs_workspace_idx').on(table.workspaceId),
+    index('orchestration_runs_status_idx').on(table.status),
+    index('orchestration_runs_started_idx').on(table.startedAt),
+    index('orchestration_runs_root_exec_idx').on(table.rootExecutionId),
+  ]
+);
+
+export const orchestrationTasks = pgTable(
+  'orchestration_tasks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    runId: uuid('run_id')
+      .references(() => orchestrationRuns.id, { onDelete: 'cascade' })
+      .notNull(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    parentTaskId: uuid('parent_task_id'),
+    executionId: uuid('execution_id').references(() => baleybotExecutions.id, {
+      onDelete: 'set null',
+    }),
+    assignedBot: varchar('assigned_bot', { length: 255 }).notNull(),
+    expectedArtifact: varchar('expected_artifact', { length: 255 }),
+    status: varchar('status', { length: 50 }).notNull().default('pending'), // pending, running, completed, failed, skipped
+    attempt: integer('attempt').default(0).notNull(),
+    depth: integer('depth').default(0).notNull(),
+    fingerprint: varchar('fingerprint', { length: 255 }),
+    input: jsonb('input'),
+    output: jsonb('output'),
+    error: text('error'),
+    issuePack: jsonb('issue_pack'),
+    strategyHints: jsonb('strategy_hints').default([]).notNull(),
+    startedAt: timestamp('started_at'),
+    completedAt: timestamp('completed_at'),
+    durationMs: integer('duration_ms'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('orchestration_tasks_run_idx').on(table.runId),
+    index('orchestration_tasks_workspace_idx').on(table.workspaceId),
+    index('orchestration_tasks_parent_idx').on(table.parentTaskId),
+    index('orchestration_tasks_status_idx').on(table.status),
+    index('orchestration_tasks_bot_idx').on(table.assignedBot),
+    index('orchestration_tasks_fingerprint_idx').on(table.fingerprint),
+    index('orchestration_tasks_run_status_idx').on(table.runId, table.status),
+  ]
+);
+
+// ============================================================================
 // BALEYBOT TRIGGERS (BB completion chains)
 // ============================================================================
 
@@ -1947,10 +2020,47 @@ export const companionConversationsRelations = relations(companionConversations,
   }),
 }));
 
-export const baleybotExecutionsRelations = relations(baleybotExecutions, ({ one }) => ({
+export const baleybotExecutionsRelations = relations(baleybotExecutions, ({ one, many }) => ({
   baleybot: one(baleybots, {
     fields: [baleybotExecutions.baleybotId],
     references: [baleybots.id],
+  }),
+  orchestrationRuns: many(orchestrationRuns),
+  orchestrationTasks: many(orchestrationTasks),
+}));
+
+export const orchestrationRunsRelations = relations(orchestrationRuns, ({ one, many }) => ({
+  workspace: one(workspaces, {
+    fields: [orchestrationRuns.workspaceId],
+    references: [workspaces.id],
+  }),
+  rootExecution: one(baleybotExecutions, {
+    fields: [orchestrationRuns.rootExecutionId],
+    references: [baleybotExecutions.id],
+  }),
+  tasks: many(orchestrationTasks),
+}));
+
+export const orchestrationTasksRelations = relations(orchestrationTasks, ({ one, many }) => ({
+  run: one(orchestrationRuns, {
+    fields: [orchestrationTasks.runId],
+    references: [orchestrationRuns.id],
+  }),
+  workspace: one(workspaces, {
+    fields: [orchestrationTasks.workspaceId],
+    references: [workspaces.id],
+  }),
+  execution: one(baleybotExecutions, {
+    fields: [orchestrationTasks.executionId],
+    references: [baleybotExecutions.id],
+  }),
+  parentTask: one(orchestrationTasks, {
+    fields: [orchestrationTasks.parentTaskId],
+    references: [orchestrationTasks.id],
+    relationName: 'orchestrationTaskParent',
+  }),
+  childTasks: many(orchestrationTasks, {
+    relationName: 'orchestrationTaskParent',
   }),
 }));
 
@@ -2085,6 +2195,8 @@ export const workspacesRelations = relations(workspaces, ({ many, one }) => ({
   recommendations: many(recommendations),
   sharedContext: many(sharedContext),
   designPackages: many(designPackages),
+  orchestrationRuns: many(orchestrationRuns),
+  orchestrationTasks: many(orchestrationTasks),
 }));
 
 export const recommendationsRelations = relations(recommendations, ({ one }) => ({

@@ -23,6 +23,12 @@ vi.mock('@baleyui/db', () => ({
       workspacePolicies: {
         findFirst: vi.fn(),
       },
+      orchestrationTasks: {
+        findFirst: vi.fn().mockResolvedValue({ startedAt: new Date() }),
+      },
+      orchestrationRuns: {
+        findFirst: vi.fn(),
+      },
     },
     insert: vi.fn(() => ({
       values: vi.fn(() => ({
@@ -37,6 +43,8 @@ vi.mock('@baleyui/db', () => ({
   },
   baleybots: { id: 'id', workspaceId: 'workspaceId', name: 'name' },
   baleybotExecutions: { id: 'id' },
+  orchestrationRuns: { id: 'id', workspaceId: 'workspaceId' },
+  orchestrationTasks: { id: 'id', workspaceId: 'workspaceId', runId: 'runId', createdAt: 'createdAt' },
   workspacePolicies: { workspaceId: 'workspaceId' },
   eq: vi.fn(),
   and: vi.fn(),

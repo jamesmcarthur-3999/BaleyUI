@@ -53,12 +53,20 @@ export interface ContractGatewayRunOptions<TExecutionOptions, TOutput> {
     botName: string,
     input: string,
     options?: TExecutionOptions
-  ) => Promise<{ output: unknown }>;
+  ) => Promise<{ output: unknown; metadata?: ContractGatewayExecutionMetadata }>;
   executionOptions?: TExecutionOptions;
   fallbackMode?: FallbackMode;
   fallbackValue?: TOutput;
   repairAttempts?: number;
+  repairStrategies?: string[];
   callbacks?: ContractGatewayCallbacks;
+}
+
+export interface ContractGatewayExecutionMetadata {
+  finishReasons?: string[];
+  maxTokensReached?: boolean;
+  tokenCount?: number;
+  model?: string;
 }
 
 export interface ContractGatewayFailureContext {
@@ -67,6 +75,7 @@ export interface ContractGatewayFailureContext {
   attempt: number;
   issues: z.ZodIssue[];
   outputPreview: string;
+  metadata?: ContractGatewayExecutionMetadata;
 }
 
 export interface ContractGatewayCallbacks {
@@ -229,6 +238,8 @@ export function formatContractRepairPrompt(args: {
   originalInput: string;
   previousOutput: unknown;
   issues: z.ZodIssue[];
+  strategyHint?: string;
+  maxTokensHint?: boolean;
 }): string {
   const issueSummary = args.issues
     .slice(0, 8)
@@ -238,6 +249,10 @@ export function formatContractRepairPrompt(args: {
   return [
     `Repair your previous ${args.botName} output so it matches your output contract exactly.`,
     'Return only one valid JSON object and nothing else.',
+    args.maxTokensHint
+      ? 'Your prior response likely truncated due token limits. Continue from the previous object and complete all required fields.'
+      : '',
+    args.strategyHint ? `Repair strategy: ${args.strategyHint}` : '',
     '',
     'Original request:',
     args.originalInput,
@@ -262,13 +277,14 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
     fallbackMode = 'throw',
     fallbackValue,
     repairAttempts = 1,
+    repairStrategies = [],
     callbacks,
   } = args;
   const metrics = getBotMetrics(botName);
   metrics.runs += 1;
 
   try {
-    let { output } = await execute(botName, input, executionOptions);
+    let { output, metadata } = await execute(botName, input, executionOptions);
     let parsed = parseOutputAgainstSchema(schema, output);
 
     if (parsed.success) {
@@ -282,6 +298,7 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
       attempt: 0,
       issues: parsed.issues,
       outputPreview: summarizeOutput(parsed.normalizedOutput),
+      metadata,
     });
 
     log.warn('Internal BB output parse failed', {
@@ -289,6 +306,7 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
       issues: parsed.issues,
       outputType: typeof output,
       outputPreview: summarizeOutput(output),
+      metadata,
     });
 
     const maxRepairAttempts = Math.max(0, repairAttempts);
@@ -300,16 +318,24 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
         attempt,
         issues: parsed.issues,
         outputPreview: summarizeOutput(parsed.normalizedOutput),
+        metadata,
       });
+      const strategyHint =
+        repairStrategies.length > 0
+          ? repairStrategies[(attempt - 1) % repairStrategies.length]
+          : undefined;
       const repairPrompt = formatContractRepairPrompt({
         botName,
         originalInput: input,
         previousOutput: parsed.normalizedOutput,
         issues: parsed.issues,
+        strategyHint,
+        maxTokensHint: metadata?.maxTokensReached === true,
       });
 
       const repaired = await execute(botName, repairPrompt, executionOptions);
       output = repaired.output;
+      metadata = repaired.metadata;
       parsed = parseOutputAgainstSchema(schema, output);
 
       if (parsed.success) {
@@ -331,6 +357,7 @@ export async function runWithContractGateway<TOutput, TExecutionOptions>(
         attempt,
         issues: parsed.issues,
         outputPreview: summarizeOutput(output),
+        metadata,
       });
     }
 

@@ -43,6 +43,14 @@ import {
   type DesignPackageDataV2,
 } from '@/lib/design-packages/schema';
 import {
+  startOrchestrationRun,
+  completeOrchestrationRun,
+  startOrchestrationTask,
+  completeOrchestrationTask,
+  failOrchestrationTask,
+  listOrchestrationTasks,
+} from '@/lib/baleybot/services/orchestration-runtime-service';
+import {
   buildBrandDossier,
   type BrandDossierSignalInput,
   type BrandDossierSourceInput,
@@ -118,6 +126,7 @@ interface DirectionConcept {
     issueCount: number;
     message: string;
   }>;
+  degradedReasons: string[];
 }
 
 const DESIGN_DIRECTIONS: Array<{
@@ -317,6 +326,12 @@ function conceptSummary(concept: DirectionConcept): string {
   return `${concept.title} scored ${concept.score}/100 with ${failed} quality checks to improve.`;
 }
 
+function truncateObjective(value: string, max = 180): string {
+  const compact = value.replace(/\s+/g, ' ').trim();
+  if (compact.length <= max) return compact;
+  return `${compact.slice(0, max - 1).trimEnd()}...`;
+}
+
 export async function POST(req: NextRequest) {
   const requestId = req.headers.get('x-request-id') ?? undefined;
 
@@ -358,6 +373,8 @@ export async function POST(req: NextRequest) {
         const spawnOutputs = new Map<string, unknown>();
         let previewUpdated = false;
         let selectedConceptPackage: DesignPackageDataV2 | null = null;
+        let orchestrationRunId: string | null = null;
+        let orchestrationObjective = '';
 
         const sendEvent = (event: Record<string, unknown>) => {
           lastEmitAt = Date.now();
@@ -367,6 +384,83 @@ export async function POST(req: NextRequest) {
         };
 
         sendEvent({ type: 'design_started', timestamp: Date.now() });
+
+        const startTask = async (args: {
+          assignedBot: string;
+          expectedArtifact?: string;
+          parentTaskId?: string | null;
+          depth?: number;
+          input?: unknown;
+          strategyHints?: string[];
+        }) => {
+          if (!orchestrationRunId) {
+            throw new Error('Orchestration run has not started');
+          }
+          const started = await startOrchestrationTask({
+            runId: orchestrationRunId,
+            workspaceId: workspace.id,
+            assignedBot: args.assignedBot,
+            expectedArtifact: args.expectedArtifact ?? null,
+            parentTaskId: args.parentTaskId ?? null,
+            depth: args.depth ?? 0,
+            attempt: 0,
+            input: args.input ?? null,
+            strategyHints: args.strategyHints ?? [],
+          });
+          sendEvent({
+            type: 'orchestration_task_started',
+            runId: orchestrationRunId,
+            taskId: started.taskId,
+            parentTaskId: args.parentTaskId ?? null,
+            assignedBot: args.assignedBot,
+            expectedArtifact: args.expectedArtifact,
+            depth: args.depth ?? 0,
+            timestamp: Date.now(),
+          });
+          return started.taskId;
+        };
+
+        const completeTask = async (args: {
+          taskId: string;
+          status?: 'completed' | 'skipped';
+          output?: unknown;
+        }) => {
+          if (!orchestrationRunId) return;
+          await completeOrchestrationTask({
+            taskId: args.taskId,
+            status: args.status ?? 'completed',
+            output: args.output,
+          });
+          sendEvent({
+            type: 'orchestration_task_done',
+            runId: orchestrationRunId,
+            taskId: args.taskId,
+            status: args.status ?? 'completed',
+            timestamp: Date.now(),
+          });
+        };
+
+        const failTask = async (args: {
+          taskId: string;
+          error: string;
+          issuePack?: unknown;
+          recoverable?: boolean;
+        }) => {
+          if (!orchestrationRunId) return;
+          await failOrchestrationTask({
+            taskId: args.taskId,
+            error: args.error,
+            issuePack: args.issuePack,
+          });
+          sendEvent({
+            type: 'orchestration_task_failed',
+            runId: orchestrationRunId,
+            taskId: args.taskId,
+            message: args.error,
+            recoverable: Boolean(args.recoverable),
+            timestamp: Date.now(),
+          });
+        };
 
         const heartbeat = setInterval(() => {
           if (Date.now() - lastEmitAt < 4000) return;
@@ -387,6 +481,40 @@ export async function POST(req: NextRequest) {
         );
 
         try {
+          orchestrationObjective = `Design calibration for: ${truncateObjective(input.message)}`;
+          const orchestrationRun = await startOrchestrationRun({
+            workspaceId: workspace.id,
+            entryBot: 'design_calibration_orchestrator',
+            objective: orchestrationObjective,
+            strategy: {
+              mode: 'swarm-orchestrator',
+              directions: DESIGN_DIRECTIONS.map((direction) => direction.id),
+              controls,
+            },
+          });
+          orchestrationRunId = orchestrationRun.runId;
+          sendEvent({
+            type: 'orchestration_run_started',
+            runId: orchestrationRunId,
+            objective: orchestrationObjective,
+            strategy: {
+              mode: 'swarm-orchestrator',
+              directions: DESIGN_DIRECTIONS.map((direction) => direction.id),
+            },
+            timestamp: Date.now(),
+          });
+          sendEvent({
+            type: 'orchestration_plan_ready',
+            runId: orchestrationRunId,
+            steps: [
+              'Ingest brand evidence and synthesize dossier',
+              'Generate three direction concepts in parallel',
+              'Run self-review + targeted repair per direction',
+              'Merge best concept and publish preview',
+            ],
+            timestamp: Date.now(),
+          });
+
           const uploadedAssets: FetchedAsset[] = [];
           if (input.attachmentIds && input.attachmentIds.length > 0) {
             const assetRows = await db.query.designPackageAssets.findMany({
@@ -441,120 +569,163 @@ export async function POST(req: NextRequest) {
 
           if (!input.existingPackageData) {
             sendEvent({ type: 'brand_dossier_started', timestamp: Date.now() });
-
-            const sourceInputs: BrandDossierSourceInput[] = [
-              {
-                id: 'user-brief',
-                kind: 'text',
-                label: 'User brief',
-                confidence: 0.75,
-                notes: [input.message.slice(0, 220)],
+            const dossierTaskId = await startTask({
+              assignedBot: 'design_dossier_synthesizer',
+              expectedArtifact: 'brand_dossier',
+              depth: 0,
+              input: {
+                message: input.message,
+                attachmentCount: uploadedAssets.length,
               },
-            ];
-            const signalInputs: BrandDossierSignalInput[] = [];
-
-            const urls = extractUrls(`${input.message}\n${historyText}`);
-            if (urls.length > 0) {
-              const urlAnalysis = await Promise.allSettled(
-                urls.map(async (url, index) => {
-                  const analyzer = await runDesignAnalyzer(
-                    [
-                      `Analyze brand signals from URL: ${url}`,
-                      'Use fetch_url with format:"html" to inspect CSS, style tags, and typography.',
-                    ].join('\n'),
-                    {
-                      userWorkspaceId: workspace.id,
-                      signal: AbortSignal.timeout(60_000),
-                    }
-                  );
-                  sourceInputs.push({
-                    id: `url-${index + 1}`,
-                    kind: 'url',
-                    label: url,
-                    confidence: Math.max(0.55, analyzer.confidence),
-                    notes: analyzer.recommendations.slice(0, 3),
-                  });
-                  signalInputs.push(summarizeAnalyzerSignals(analyzer));
-                })
-              );
-
-              const urlFailures = urlAnalysis.filter((result) => result.status === 'rejected');
-              if (urlFailures.length > 0) {
-                log.warn('Some URL analyses failed', {
-                  workspaceId: workspace.id,
-                  failedCount: urlFailures.length,
-                });
-              }
-            }
-
-            if (uploadedAssets.length > 0) {
-              const assetAnalysis = await Promise.allSettled(
-                uploadedAssets.map(async (asset, index) => {
-                  const analyzer = await runDesignAnalyzer(
-                    `Analyze this brand asset for colors, typography, motion cues, layout density, and voice.`,
-                    {
-                      userWorkspaceId: workspace.id,
-                      attachments: [{ data: asset.base64, mimeType: asset.mimeType }],
-                      signal: AbortSignal.timeout(60_000),
-                    }
-                  );
-                  sourceInputs.push({
-                    id: `asset-${index + 1}`,
-                    kind: asset.mimeType === 'application/pdf' ? 'pdf' : 'image',
-                    label: asset.fileName,
-                    confidence: Math.max(0.5, analyzer.confidence),
-                    notes: analyzer.recommendations.slice(0, 3),
-                  });
-                  signalInputs.push(summarizeAnalyzerSignals(analyzer));
-                })
-              );
-
-              const assetFailures = assetAnalysis.filter((result) => result.status === 'rejected');
-              if (assetFailures.length > 0) {
-                log.warn('Some asset analyses failed', {
-                  workspaceId: workspace.id,
-                  failedCount: assetFailures.length,
-                });
-              }
-            }
-
-            const deterministicDossier = buildBrandDossier({
-              sources: sourceInputs,
-              signals: signalInputs,
-              mood: 'professional',
-              animationStyle: 'professional',
-              accessibilityTarget: controls.contrastTarget,
-              density: controls.layoutDensity,
-              voiceTone: controls.voiceTone,
+              strategyHints: ['comprehensive-crawl', 'evidence-first'],
             });
-
-            brandDossier = await runDesignDossierSynthesizer(
-              [
-                'Synthesize this canonical brand dossier from evidence. Return only the final dossier JSON.',
-                '',
-                'Current dossier draft:',
-                JSON.stringify(deterministicDossier, null, 2),
-                '',
-                'Advanced controls:',
-                JSON.stringify(controls, null, 2),
-                '',
-                'User request:',
-                input.message,
-              ].join('\n'),
-              {
-                userWorkspaceId: workspace.id,
-                fallbackMode: 'value',
-                fallbackValue: deterministicDossier,
-                repairAttempts: 1,
-                signal: AbortSignal.timeout(60_000),
-              }
-            );
-
             sendEvent({
-              type: 'brand_dossier_ready',
-              dossier: brandDossier,
+              type: 'orchestration_task_progress',
+              runId: orchestrationRunId,
+              taskId: dossierTaskId,
+              status: 'running',
+              message: 'Collecting source evidence and synthesizing brand dossier',
+              attemptNumber: 0,
               timestamp: Date.now(),
             });
+            try {
+
+              const sourceInputs: BrandDossierSourceInput[] = [
+                {
+                  id: 'user-brief',
+                  kind: 'text',
+                  label: 'User brief',
+                  confidence: 0.75,
+                  notes: [input.message.slice(0, 220)],
+                },
+              ];
+              const signalInputs: BrandDossierSignalInput[] = [];
+
+              const urls = extractUrls(`${input.message}\n${historyText}`);
+              if (urls.length > 0) {
+                const urlAnalysis = await Promise.allSettled(
+                  urls.map(async (url, index) => {
+                    const analyzer = await runDesignAnalyzer(
+                      [
+                        `Analyze brand signals from URL: ${url}`,
+                        'Use fetch_url with format:"html" to inspect CSS, style tags, and typography.',
+                      ].join('\n'),
+                      {
+                        userWorkspaceId: workspace.id,
+                        signal: AbortSignal.timeout(60_000),
+                      }
+                    );
+                    sourceInputs.push({
+                      id: `url-${index + 1}`,
+                      kind: 'url',
+                      label: url,
+                      confidence: Math.max(0.55, analyzer.confidence),
+                      notes: analyzer.recommendations.slice(0, 3),
+                    });
+                    signalInputs.push(summarizeAnalyzerSignals(analyzer));
+                  })
+                );
+
+                const urlFailures = urlAnalysis.filter((result) => result.status === 'rejected');
+                if (urlFailures.length > 0) {
+                  log.warn('Some URL analyses failed', {
+                    workspaceId: workspace.id,
+                    failedCount: urlFailures.length,
+                  });
+                }
+              }
+
+              if (uploadedAssets.length > 0) {
+                const assetAnalysis = await Promise.allSettled(
+                  uploadedAssets.map(async (asset, index) => {
+                    const analyzer = await runDesignAnalyzer(
+                      `Analyze this brand asset for colors, typography, motion cues, layout density, and voice.`,
+                      {
+                        userWorkspaceId: workspace.id,
+                        attachments: [{ data: asset.base64, mimeType: asset.mimeType }],
+                        signal: AbortSignal.timeout(60_000),
+                      }
+                    );
+                    sourceInputs.push({
+                      id: `asset-${index + 1}`,
+                      kind: asset.mimeType === 'application/pdf' ? 'pdf' : 'image',
+                      label: asset.fileName,
+                      confidence: Math.max(0.5, analyzer.confidence),
+                      notes: analyzer.recommendations.slice(0, 3),
+                    });
+                    signalInputs.push(summarizeAnalyzerSignals(analyzer));
+                  })
+                );
+
+                const assetFailures = assetAnalysis.filter((result) => result.status === 'rejected');
+                if (assetFailures.length > 0) {
+                  log.warn('Some asset analyses failed', {
+                    workspaceId: workspace.id,
+                    failedCount: assetFailures.length,
+                  });
+                }
+              }
+
+              const deterministicDossier = buildBrandDossier({
+                sources: sourceInputs,
+                signals: signalInputs,
+                mood: 'professional',
+                animationStyle: 'professional',
+                accessibilityTarget: controls.contrastTarget,
+                density: controls.layoutDensity,
+                voiceTone: controls.voiceTone,
+              });
+
+              brandDossier = await runDesignDossierSynthesizer(
+                [
+                  'Synthesize this canonical brand dossier from evidence. Return only the final dossier JSON.',
+                  '',
+                  'Current dossier draft:',
+                  JSON.stringify(deterministicDossier, null, 2),
+                  '',
+                  'Advanced controls:',
+                  JSON.stringify(controls, null, 2),
+                  '',
+                  'User request:',
+                  input.message,
+                ].join('\n'),
+                {
+                  userWorkspaceId: workspace.id,
+                  fallbackMode: 'value',
+                  fallbackValue: deterministicDossier,
+                  repairAttempts: 1,
+                  signal: AbortSignal.timeout(60_000),
+                  orchestrationRunId: orchestrationRunId ?? undefined,
+                  orchestrationTaskId: dossierTaskId,
+                }
+              );
+
+              sendEvent({
+                type: 'brand_dossier_ready',
+                dossier: brandDossier,
+                timestamp: Date.now(),
+              });
+              await completeTask({
+                taskId: dossierTaskId,
+                output: {
+                  confidence: brandDossier.confidence.overall,
+                  sourceCount: brandDossier.sources.length,
+                },
+              });
+            } catch (dossierError) {
+              const dossierMessage = sanitizeStreamError(
+                dossierError instanceof Error ? dossierError.message : String(dossierError)
+              );
+              await failTask({
+                taskId: dossierTaskId,
+                error: dossierMessage,
+                issuePack: {
+                  phase: 'brand_dossier',
+                },
+                recoverable: false,
+              });
+              throw dossierError;
+            }
 
             sendEvent({ type: 'design_concepts_started', timestamp: Date.now() });
 
@@ -563,12 +734,33 @@ export async function POST(req: NextRequest) {
 
             const generatedDirectionResults = await Promise.allSettled(
               DESIGN_DIRECTIONS.map(async (direction) => {
+                const directionTaskId = await startTask({
+                  assignedBot: 'design_generator',
+                  expectedArtifact: `${direction.id}.design_package`,
+                  depth: 1,
+                  input: {
+                    directionId: direction.id,
+                    directionTitle: direction.title,
+                  },
+                  strategyHints: ['multi-direction', 'self-review-repair'],
+                });
                 sendEvent({
                   type: 'concept_direction_started',
                   directionId: direction.id,
                   directionTitle: direction.title,
                   timestamp: Date.now(),
                 });
+                sendEvent({
+                  type: 'orchestration_task_progress',
+                  runId: orchestrationRunId,
+                  taskId: directionTaskId,
+                  status: 'running',
+                  message: `Generating ${direction.title}`,
+                  attemptNumber: 0,
+                  timestamp: Date.now(),
+                });
+
+                try {
 
                 const formatGatewayIssuePath = (path: ReadonlyArray<PropertyKey>): string =>
                   path.length > 0 ? path.map((segment) => String(segment)).join('.') : '$';
@@ -657,6 +849,8 @@ export async function POST(req: NextRequest) {
                     userWorkspaceId: workspace.id,
                     signal: AbortSignal.timeout(90_000),
                     contractCallbacks,
+                    orchestrationRunId: orchestrationRunId ?? undefined,
+                    orchestrationTaskId: directionTaskId,
                   }
                 );
 
@@ -737,6 +931,14 @@ export async function POST(req: NextRequest) {
                     timestamp: Date.now(),
                   });
                   sendEvent({
+                    type: 'orchestration_task_retry',
+                    runId: orchestrationRunId,
+                    taskId: directionTaskId,
+                    attemptNumber: repairAttempts,
+                    reason: `Self-repair ${repairAttempts} for ${direction.title}`,
+                    timestamp: Date.now(),
+                  });
+                  sendEvent({
                     type: 'self_repair_started',
                     directionId: direction.id,
                     directionTitle: direction.title,
@@ -758,6 +960,8 @@ export async function POST(req: NextRequest) {
                         userWorkspaceId: workspace.id,
                         signal: AbortSignal.timeout(90_000),
                         contractCallbacks,
+                        orchestrationRunId: orchestrationRunId ?? undefined,
+                        orchestrationTaskId: directionTaskId,
                       }
                     );
 
@@ -829,6 +1033,11 @@ export async function POST(req: NextRequest) {
                   : verificationStatus === 'repaired'
                     ? `${direction.summaryHint} Repaired via targeted self-review.`
                     : `${direction.summaryHint} Degraded output with unresolved issues: ${qualityAudit.failedChecks.join(', ') || 'none listed'}.`;
+                const degradedReasons = verificationStatus === 'degraded'
+                  ? qualityAudit.failedChecks.length > 0
+                    ? [...qualityAudit.failedChecks]
+                    : ['verification remained degraded after repair attempts']
+                  : [];
 
                 sendEvent({
                   type: 'concept_direction_scored',
@@ -839,7 +1048,7 @@ export async function POST(req: NextRequest) {
                   timestamp: Date.now(),
                 });
 
-                return {
+                const concept = {
                   id: direction.id,
                   title: direction.title,
                   summary: `${direction.summaryHint} Quality score ${score}/100.`,
@@ -850,7 +1059,41 @@ export async function POST(req: NextRequest) {
                   verificationStatus,
                   verificationIssues,
                   repairTrace,
+                  degradedReasons,
                 } satisfies DirectionConcept;
+                await completeTask({
+                  taskId: directionTaskId,
+                  output: {
+                    directionId: direction.id,
+                    verificationStatus,
+                    score,
+                    failedChecks: qualityAudit.failedChecks,
+                  },
+                });
+                sendEvent({
+                  type: 'orchestration_task_progress',
+                  runId: orchestrationRunId,
+                  taskId: directionTaskId,
+                  status: 'completed',
+                  message: `${direction.title} completed with status ${verificationStatus}`,
+                  attemptNumber: repairAttempts,
+                  timestamp: Date.now(),
+                });
+                return concept;
+                } catch (directionError) {
+                  const directionMessage = sanitizeStreamError(
+                    directionError instanceof Error ? directionError.message : String(directionError)
+                  );
+                  await failTask({
+                    taskId: directionTaskId,
+                    error: directionMessage,
+                    issuePack: {
+                      directionId: direction.id,
+                    },
+                    recoverable: true,
+                  });
+                  throw directionError;
+                }
               })
             );
 
@@ -870,16 +1113,40 @@ export async function POST(req: NextRequest) {
               return bRank - aRank;
             });
             const selected = generatedConcepts[0]!;
+            sendEvent({
+              type: 'orchestration_merge_started',
+              runId: orchestrationRunId,
+              selectedDirection: selected.id,
+              timestamp: Date.now(),
+            });
             const repairAttempts = selected.repairTrace.filter(
               (entry) => entry.source === 'refiner' && entry.status === 'applied'
             ).length;
             const repairApplied = repairAttempts > 0;
+            const selectedDegradedReasons = selected.degradedReasons;
 
             const conceptScores = generatedConcepts.map((concept) => ({
               id: concept.id,
               title: concept.title,
               score: concept.score,
               rationale: concept.rationale,
+            }));
+            const orchestrationTaskRows = orchestrationRunId
+              ? await listOrchestrationTasks({
+                  workspaceId: workspace.id,
+                  runId: orchestrationRunId,
+                  limit: 250,
+                })
+              : [];
+            const taskSummary = orchestrationTaskRows.map((row) => ({
+              taskId: row.id,
+              assignedBot: row.assignedBot,
+              expectedArtifact: row.expectedArtifact ?? undefined,
+              status: row.status as 'pending' | 'running' | 'completed' | 'failed' | 'skipped',
+              attempt: row.attempt,
+              depth: row.depth,
+              durationMs: row.durationMs ?? undefined,
+              error: row.error ?? undefined,
             }));
 
             selected.packageData = ensureDesignPackageDataV2({
@@ -895,6 +1162,10 @@ export async function POST(req: NextRequest) {
                 verificationStatus: selected.verificationStatus,
                 verificationIssues: selected.verificationIssues,
                 repairTrace: selected.repairTrace,
+                orchestrationRunId: orchestrationRunId ?? undefined,
+                taskSummary,
+                degradedReasons: selectedDegradedReasons,
+                replanTrace: [],
               }),
             });
 
@@ -934,6 +1205,21 @@ export async function POST(req: NextRequest) {
               data: selected.packageData,
               timestamp: Date.now(),
             });
+            sendEvent({
+              type: 'orchestration_merge_done',
+              runId: orchestrationRunId,
+              selectedDirection: selected.id,
+              degraded: selected.verificationStatus === 'degraded',
+              timestamp: Date.now(),
+            });
+            if (selected.verificationStatus === 'degraded') {
+              sendEvent({
+                type: 'orchestration_degraded_publish',
+                runId: orchestrationRunId,
+                reasons: selectedDegradedReasons,
+                timestamp: Date.now(),
+              });
+            }
             previewUpdated = true;
 
             conceptContext = [
@@ -949,6 +1235,20 @@ export async function POST(req: NextRequest) {
                 `${concept.title} (${concept.id}) package:\n${JSON.stringify(concept.packageData, null, 2)}`
               ),
             ].join('\n');
+
+            if (orchestrationRunId) {
+              await completeOrchestrationRun({
+                runId: orchestrationRunId,
+                status: 'completed',
+                summary: `Selected ${selected.id} (${selected.title}) with verification status ${selected.verificationStatus}.`,
+                metrics: {
+                  conceptCount: generatedConcepts.length,
+                  selectedDirection: selected.id,
+                  selectedScore: selected.score,
+                  degraded: selected.verificationStatus === 'degraded',
+                },
+              });
+            }
           }
 
           const fullInput = [
@@ -1218,6 +1518,20 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          if (orchestrationRunId) {
+            await completeOrchestrationRun({
+              runId: orchestrationRunId,
+              status: 'completed',
+              summary: previewUpdated
+                ? 'Design calibration stream completed with preview update.'
+                : 'Design calibration stream completed without preview update.',
+              metrics: {
+                previewUpdated,
+                hasSelectedConcept: Boolean(selectedConceptPackage),
+              },
+            });
+          }
+
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           clearInterval(heartbeat);
           controller.close();
@@ -1240,6 +1554,17 @@ export async function POST(req: NextRequest) {
               type: 'design_error',
               message: sanitizeStreamError(rawMessage),
               timestamp: Date.now(),
+            });
+          }
+          if (orchestrationRunId) {
+            await completeOrchestrationRun({
+              runId: orchestrationRunId,
+              status: 'failed',
+              summary: sanitizeStreamError(rawMessage),
+              metrics: {
+                previewUpdated,
+                failed: true,
+              },
             });
           }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));

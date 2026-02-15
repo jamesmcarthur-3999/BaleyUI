@@ -19,8 +19,40 @@ export interface InternalBBRunOptions<T> extends InternalExecutionOptions {
   fallbackMode?: FallbackMode;
   fallbackValue?: T;
   repairAttempts?: number;
+  repairStrategies?: string[];
   contractCallbacks?: ContractGatewayCallbacks;
 }
+
+interface RepairPolicy {
+  repairAttempts: number;
+  repairStrategies: string[];
+}
+
+const BOT_REPAIR_POLICIES: Partial<Record<string, RepairPolicy>> = {
+  design_dossier_synthesizer: {
+    repairAttempts: 2,
+    repairStrategies: [
+      'Reconcile conflicting source evidence conservatively and keep all required dossier keys.',
+      'Prioritize explicit source evidence over inferred style cues; lower confidence where uncertain.',
+    ],
+  },
+  design_generator: {
+    repairAttempts: 3,
+    repairStrategies: [
+      'Ensure strict schema completeness first; fill any missing sections with conservative defaults.',
+      'Repair semantic coherence across colors, typography, motion, layout, and blueprints.',
+      'Preserve direction intent while fixing only malformed or missing fields.',
+    ],
+  },
+  design_refiner: {
+    repairAttempts: 3,
+    repairStrategies: [
+      'Apply minimal targeted corrections while preserving user-requested changes.',
+      'Rebuild only malformed sections and keep unaffected package sections stable.',
+      'If conflicting goals exist, prioritize accessibility and schema validity.',
+    ],
+  },
+};
 
 async function runInternalBB<T>(args: {
   botName: string;
@@ -32,10 +64,20 @@ async function runInternalBB<T>(args: {
   const {
     fallbackMode,
     fallbackValue,
-    repairAttempts = 1,
+    repairAttempts,
+    repairStrategies,
     contractCallbacks,
     ...executionOptions
   } = options ?? {};
+  const policy = BOT_REPAIR_POLICIES[botName];
+  const resolvedRepairAttempts =
+    typeof repairAttempts === 'number'
+      ? repairAttempts
+      : policy?.repairAttempts ?? 1;
+  const resolvedRepairStrategies =
+    Array.isArray(repairStrategies) && repairStrategies.length > 0
+      ? repairStrategies
+      : policy?.repairStrategies ?? [];
 
   return runWithContractGateway({
     botName,
@@ -45,7 +87,8 @@ async function runInternalBB<T>(args: {
     executionOptions,
     fallbackMode,
     fallbackValue,
-    repairAttempts,
+    repairAttempts: resolvedRepairAttempts,
+    repairStrategies: resolvedRepairStrategies,
     callbacks: contractCallbacks,
   });
 }

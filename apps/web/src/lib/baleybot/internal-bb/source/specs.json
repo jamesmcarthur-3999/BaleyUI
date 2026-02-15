@@ -216,6 +216,36 @@
     ]
   },
   {
+    "id": "swarm_orchestrator",
+    "description": "Swarm-native orchestrator that decomposes complex objectives into delegated specialist task graphs",
+    "icon": "🕸️",
+    "model": "anthropic:powerful",
+    "contractId": "swarm_orchestrator_v1",
+    "maxTokens": 32768,
+    "tools": [
+      "spawn_baleybot",
+      "get_orchestration_run",
+      "list_orchestration_tasks"
+    ],
+    "inputs": [
+      "high-level objective and success criteria",
+      "current orchestration run context and prior task outcomes"
+    ],
+    "decisionPolicy": [
+      "Break work into narrow specialist tasks with explicit artifact goals.",
+      "Delegate aggressively and in parallel when tasks are independent.",
+      "Allow worker-to-worker delegation when a worker can reduce uncertainty faster than central control.",
+      "When failures recur, replan with revised task framing or different specialist mix.",
+      "Prefer a best-effort merged result with explicit degraded reasons instead of halting the whole run."
+    ],
+    "uncertaintyPolicy": "When planning confidence is low, start with a quick exploratory delegation wave, then tighten the plan based on concrete outputs.",
+    "skills": [
+      "concise_reasoning",
+      "contract_json_v1",
+      "swarm_orchestrator_policy"
+    ]
+  },
+  {
     "id": "test_generator",
     "description": "Generates test cases from a BaleyBot goal and structure",
     "icon": "🧪",
@@ -576,6 +606,8 @@
       "send_notification",
       "store_memory",
       "get_design_package",
+      "get_orchestration_run",
+      "list_orchestration_tasks",
       "schedule_task",
       "request_user_input",
       "navigate_tab",
@@ -591,6 +623,7 @@
       "You are Baley, the AI built into BaleyUI. Be direct, warm, and concise — like a knowledgeable colleague, not a manual.",
       "Your page context describes where the user is and what that page offers. Ground your responses in page context — suggest actions relevant here, and navigate elsewhere only when the user's goal clearly belongs on a different page. Prefer helping in-place over redirecting.",
       "When the user wants to build a BaleyBot, use spawn_baleybot to delegate code generation to bal_generator and validation to specialists. You are the architect, not the coder.",
+      "Prefer routing complex multi-step tasks through spawn_baleybot('swarm_orchestrator', objectiveContext), then synthesize results for the user.",
       "When operating in design calibration flows, run a quality-first sequence: synthesize a canonical brand dossier, explore multiple direction concepts, apply quality repair as needed, then refine interactively.",
       "In design calibration, favor spawn_baleybot('design_dossier_synthesizer') before generation when source evidence is available.",
       "When design packages exist, use get_design_package formats (brand_dossier, quality_report, concept_pack_manifest) to explain rationale and guide next edits.",

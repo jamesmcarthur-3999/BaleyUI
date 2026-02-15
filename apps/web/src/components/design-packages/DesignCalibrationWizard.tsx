@@ -77,6 +77,19 @@ interface DesignCalibrationWizardProps {
 type SurfaceTab = 'landing' | 'customerApp' | 'internalApp';
 type DirectionId = 'directionA' | 'directionB' | 'directionC';
 
+interface OrchestrationTaskView {
+  taskId: string;
+  parentTaskId?: string | null;
+  assignedBot: string;
+  expectedArtifact?: string;
+  depth: number;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  attempt: number;
+  message?: string;
+  durationMs?: number;
+  error?: string;
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -191,6 +204,13 @@ export function DesignCalibrationWizard({
   const [mergeSelection, setMergeSelection] = useState<
     Partial<Record<'colors' | 'typography' | 'motionSystem' | 'layoutSystem' | 'surfaceBlueprints', DirectionId>>
   >({});
+  const [orchestrationRun, setOrchestrationRun] = useState<{
+    runId: string;
+    objective: string;
+    steps: string[];
+  } | null>(null);
+  const [orchestrationTasks, setOrchestrationTasks] = useState<Record<string, OrchestrationTaskView>>({});
+  const [orchestrationDegradedReasons, setOrchestrationDegradedReasons] = useState<string[]>([]);
 
   const [brandAlignment, setBrandAlignment] = useState(85);
   const [contrastTarget, setContrastTarget] = useState<'aa' | 'aaa'>('aa');
@@ -375,6 +395,9 @@ export function DesignCalibrationWizard({
 
     // Start streaming
     setIsStreaming(true);
+    setOrchestrationRun(null);
+    setOrchestrationTasks({});
+    setOrchestrationDegradedReasons([]);
     if (!packageData) {
       setDesignConcepts([]);
       setSelectedDirectionId(null);
@@ -622,6 +645,116 @@ export function DesignCalibrationWizard({
         }
       },
 
+      onOrchestrationRunStarted: ({ runId, objective }) => {
+        setOrchestrationRun({
+          runId,
+          objective,
+          steps: [],
+        });
+      },
+
+      onOrchestrationPlanReady: ({ runId, steps }) => {
+        setOrchestrationRun((prev) => {
+          if (!prev || prev.runId !== runId) return prev;
+          return { ...prev, steps };
+        });
+      },
+
+      onOrchestrationTaskStarted: ({
+        taskId,
+        parentTaskId,
+        assignedBot,
+        expectedArtifact,
+        depth,
+      }) => {
+        setOrchestrationTasks((prev) => ({
+          ...prev,
+          [taskId]: {
+            taskId,
+            parentTaskId,
+            assignedBot,
+            expectedArtifact,
+            depth,
+            status: 'running',
+            attempt: 0,
+          },
+        }));
+      },
+
+      onOrchestrationTaskProgress: ({ taskId, status, message, attempt }) => {
+        setOrchestrationTasks((prev) => {
+          const existing = prev[taskId];
+          if (!existing) return prev;
+          return {
+            ...prev,
+            [taskId]: {
+              ...existing,
+              status: (status as OrchestrationTaskView['status']) ?? existing.status,
+              attempt,
+              message,
+            },
+          };
+        });
+      },
+
+      onOrchestrationTaskRetry: ({ taskId, attempt, reason }) => {
+        setOrchestrationTasks((prev) => {
+          const existing = prev[taskId];
+          if (!existing) return prev;
+          return {
+            ...prev,
+            [taskId]: {
+              ...existing,
+              attempt,
+              message: reason,
+              status: 'running',
+            },
+          };
+        });
+      },
+
+      onOrchestrationTaskDone: ({ taskId, status, durationMs }) => {
+        setOrchestrationTasks((prev) => {
+          const existing = prev[taskId];
+          if (!existing) return prev;
+          return {
+            ...prev,
+            [taskId]: {
+              ...existing,
+              status: (status as OrchestrationTaskView['status']) ?? 'completed',
+              durationMs,
+            },
+          };
+        });
+      },
+
+      onOrchestrationTaskFailed: ({ taskId, error }) => {
+        setOrchestrationTasks((prev) => {
+          const existing = prev[taskId];
+          if (!existing) return prev;
+          return {
+            ...prev,
+            [taskId]: {
+              ...existing,
+              status: 'failed',
+              error,
+            },
+          };
+        });
+      },
+
+      onOrchestrationMergeDone: ({ degraded }) => {
+        if (!degraded) return;
+        setOrchestrationDegradedReasons((prev) => {
+          if (prev.length > 0) return prev;
+          return ['Generated package required degraded publish safeguards'];
+        });
+      },
+
+      onOrchestrationDegradedPublish: ({ reasons }) => {
+        setOrchestrationDegradedReasons(reasons);
+      },
+
       onDesignConceptsStarted: () => {
         setConceptsLoading(true);
       },
@@ -776,6 +909,10 @@ export function DesignCalibrationWizard({
 
   const selectedConcept = selectedDirectionId ? getConceptByDirection(selectedDirectionId) : designConcepts[0];
   const compareConcept = compareDirectionId ? getConceptByDirection(compareDirectionId) : null;
+  const orchestrationTaskList = Object.values(orchestrationTasks).sort((a, b) => {
+    if (a.depth !== b.depth) return a.depth - b.depth;
+    return a.taskId.localeCompare(b.taskId);
+  });
 
   // ── Render helpers ───────────────────────────────────────
   // NOTE: This will be replaced by the unified chat library
@@ -1188,6 +1325,89 @@ export function DesignCalibrationWizard({
                         className="text-[10px] text-muted-foreground"
                       >
                         {entry.directionTitle} self-review {entry.attempt}: {entry.status} (score {entry.score}/100, issues {entry.issues.length})
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(orchestrationRun || orchestrationTaskList.length > 0) && (
+              <div className="mt-4 rounded-xl border border-border/70 bg-card/85 p-3 shadow-sm backdrop-blur">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-foreground">Swarm Orchestration Timeline</p>
+                    {orchestrationRun && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {orchestrationRun.objective}
+                      </p>
+                    )}
+                  </div>
+                  {orchestrationTaskList.length > 0 && (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                      {orchestrationTaskList.length} task{orchestrationTaskList.length > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {orchestrationRun?.steps && orchestrationRun.steps.length > 0 && (
+                  <div className="mt-2 grid gap-1">
+                    {orchestrationRun.steps.map((step) => (
+                      <p key={step} className="text-[10px] text-muted-foreground">
+                        {step}
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+                {orchestrationTaskList.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {orchestrationTaskList.slice(0, 8).map((task) => (
+                      <div
+                        key={task.taskId}
+                        className="rounded-md border border-border/60 bg-background/75 px-2 py-1.5 text-[10px]"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-foreground">
+                            {task.assignedBot}
+                            {task.expectedArtifact ? ` · ${task.expectedArtifact}` : ''}
+                          </span>
+                          <span
+                            className={cn(
+                              'rounded-full px-1.5 py-0.5 font-semibold',
+                              task.status === 'completed' && 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300',
+                              task.status === 'failed' && 'bg-destructive/12 text-destructive',
+                              task.status === 'running' && 'bg-amber-500/12 text-amber-700 dark:text-amber-300',
+                              task.status === 'pending' && 'bg-muted text-muted-foreground',
+                              task.status === 'skipped' && 'bg-muted/80 text-muted-foreground'
+                            )}
+                          >
+                            {task.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-muted-foreground">
+                          depth {task.depth}
+                          {task.attempt > 0 ? ` · retry ${task.attempt}` : ''}
+                          {typeof task.durationMs === 'number' ? ` · ${(task.durationMs / 1000).toFixed(1)}s` : ''}
+                        </p>
+                        {(task.message || task.error) && (
+                          <p className="mt-1 text-muted-foreground">
+                            {truncate(task.error ?? task.message ?? '', 120)}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {orchestrationDegradedReasons.length > 0 && (
+                  <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5">
+                    <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                      Degraded but usable output
+                    </p>
+                    {orchestrationDegradedReasons.map((reason) => (
+                      <p key={reason} className="mt-0.5 text-[10px] text-amber-700/90 dark:text-amber-300/90">
+                        {reason}
                       </p>
                     ))}
                   </div>

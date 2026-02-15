@@ -43,6 +43,10 @@ import type { BaleybotStreamEvent } from '@baleybots/core';
 import type { RuntimeToolDefinition } from '@/lib/baleybot/executor';
 import { normalizeOutputCandidate } from '@/lib/baleybot/internal-bb/contract-gateway';
 import { MissingCredentialsError } from '@/lib/baleybot/services/ai-credentials-service';
+import {
+  getOrchestrationRun,
+  listOrchestrationTasks,
+} from '@/lib/baleybot/services/orchestration-runtime-service';
 import { reportPlatformError } from '@/lib/platform-bugs/report';
 import { getPageInfo } from '@/lib/routes';
 
@@ -677,6 +681,92 @@ export async function POST(req: NextRequest) {
                     ),
                     timestamp: new Date().toISOString(),
                   });
+
+                  if (seg.toolName === 'spawn_baleybot' && seg.result && typeof seg.result === 'object') {
+                    const spawnResult = seg.result as Record<string, unknown>;
+                    const runId =
+                      typeof spawnResult.orchestrationRunId === 'string'
+                        ? spawnResult.orchestrationRunId
+                        : null;
+                    const taskId =
+                      typeof spawnResult.orchestrationTaskId === 'string'
+                        ? spawnResult.orchestrationTaskId
+                        : null;
+
+                    if (runId) {
+                      void getOrchestrationRun({
+                        workspaceId: workspace.id,
+                        runId,
+                      })
+                        .then((run) => {
+                          if (!run) return;
+                          sendEvent({
+                            type: 'orchestration_run_started',
+                            runId: run.id,
+                            objective: run.objective,
+                            strategy: (run.strategy ?? {}) as Record<string, unknown>,
+                            timestamp: Date.now(),
+                          });
+                        })
+                        .catch((err) => {
+                          log.warn('Failed to fetch orchestration run metadata', {
+                            runId,
+                            error: err instanceof Error ? err.message : String(err),
+                          });
+                        });
+                    }
+
+                    if (runId && taskId) {
+                      sendEvent({
+                        type: 'orchestration_task_started',
+                        runId,
+                        taskId,
+                        assignedBot: pendingSpawnNames.get(String(seg.id ?? '')) ?? 'spawned-worker',
+                        depth: 0,
+                        timestamp: Date.now(),
+                      });
+
+                      void listOrchestrationTasks({
+                        workspaceId: workspace.id,
+                        ids: [taskId],
+                        limit: 1,
+                      })
+                        .then((rows) => {
+                          const row = rows[0];
+                          if (!row) return;
+                          if (row.status === 'failed') {
+                            sendEvent({
+                              type: 'orchestration_task_failed',
+                              runId,
+                              taskId: row.id,
+                              message: row.error ?? 'Task failed',
+                              recoverable: true,
+                              timestamp: Date.now(),
+                            });
+                            return;
+                          }
+
+                          sendEvent({
+                            type: row.status === 'completed' || row.status === 'skipped'
+                              ? 'orchestration_task_done'
+                              : 'orchestration_task_progress',
+                            runId,
+                            taskId: row.id,
+                            status: row.status,
+                            durationMs: row.durationMs ?? undefined,
+                            message: row.status,
+                            attemptNumber: row.attempt,
+                            timestamp: Date.now(),
+                          });
+                        })
+                        .catch((err) => {
+                          log.warn('Failed to fetch orchestration task metadata', {
+                            taskId,
+                            error: err instanceof Error ? err.message : String(err),
+                          });
+                        });
+                    }
+                  }
                 }
               },
             }

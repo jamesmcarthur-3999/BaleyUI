@@ -22,6 +22,13 @@ import { getDefaultModelForTier } from '@/lib/models/model-registry';
 import { createLogger } from '@/lib/logger';
 import { normalizeOutputCandidate } from '../internal-bb/contract-gateway';
 import { parseBalCode } from '../bal-parser-pure';
+import { createHash } from 'node:crypto';
+import {
+  startOrchestrationRun,
+  startOrchestrationTask,
+  completeOrchestrationTask,
+  failOrchestrationTask,
+} from './orchestration-runtime-service';
 
 // ============================================================================
 // WORKSPACE POLICIES
@@ -121,7 +128,16 @@ export type SpawnBaleybotExecutor = (
   baleybotIdOrName: string,
   input: unknown,
   ctx: BuiltInToolContext,
-  options?: { modelTierOverride?: string; toolCallId?: string }
+  options?: {
+    modelTierOverride?: string;
+    toolCallId?: string;
+    taskId?: string;
+    parentTaskId?: string;
+    objective?: string;
+    expectedArtifact?: string;
+    strategyHints?: string[];
+    allowChildSpawns?: boolean;
+  }
 ) => Promise<SpawnBaleybotResult>;
 
 /**
@@ -134,15 +150,53 @@ interface SpawnContext extends BuiltInToolContext {
   maxSpawnDepth?: number;
   /** Parent execution ID for tracing spawn chains */
   parentExecutionId?: string;
+  /** Root execution ID for swarm telemetry */
+  rootExecutionId?: string;
+  /** Active orchestration run ID */
+  orchestrationRunId?: string;
+  /** Active orchestration task ID */
+  orchestrationTaskId?: string;
+  /** Whether this execution scope can spawn more workers */
+  allowChildSpawns?: boolean;
 }
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const DEFAULT_MAX_SPAWN_DEPTH = 5; // Maximum nesting level
+const DEFAULT_MAX_SPAWN_DEPTH = 64; // High by default; emergency guard for recursion bugs only.
+const MAX_REPEAT_PER_FINGERPRINT = 9;
 
 const log = createLogger('spawn-executor');
+
+const spawnFingerprintCounts = new Map<string, number>();
+
+function safeStableInput(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === undefined) return 'undefined';
+  if (value === null) return 'null';
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === 'string' ? serialized : String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function buildFingerprint(args: {
+  targetBot: string;
+  input: unknown;
+  parentTaskId?: string;
+  expectedArtifact?: string;
+}): string {
+  const raw = [
+    args.targetBot,
+    args.parentTaskId ?? '',
+    args.expectedArtifact ?? '',
+    safeStableInput(args.input).slice(0, 1500),
+  ].join('|');
+  return createHash('sha256').update(raw).digest('hex').slice(0, 32);
+}
 
 // ============================================================================
 // IMPLEMENTATION
@@ -303,20 +357,26 @@ export function createSpawnBaleybotExecutor(options?: {
     baleybotIdOrName: string,
     input: unknown,
     ctx: BuiltInToolContext,
-    spawnOptions?: { modelTierOverride?: string; toolCallId?: string }
+    spawnOptions?: {
+      modelTierOverride?: string;
+      toolCallId?: string;
+      taskId?: string;
+      parentTaskId?: string;
+      objective?: string;
+      expectedArtifact?: string;
+      strategyHints?: string[];
+      allowChildSpawns?: boolean;
+    }
   ): Promise<SpawnBaleybotResult> {
     const startTime = Date.now();
     const spawnCtx = ctx as SpawnContext;
 
-    // Check spawn depth to prevent infinite recursion
-    const currentDepth = spawnCtx.spawnDepth ?? 0;
-    if (currentDepth >= maxDepth) {
-      throw new Error(
-        `Maximum spawn depth (${maxDepth}) exceeded. ` +
-          'This may indicate a circular dependency between BaleyBots. ' +
-          `Current spawn chain depth: ${currentDepth}`
-      );
+    if (spawnCtx.allowChildSpawns === false) {
+      throw new Error('This execution scope is not allowed to spawn additional workers.');
     }
+
+    // Track depth but keep defaults permissive. Only fail on clear recursion risk.
+    const currentDepth = spawnCtx.spawnDepth ?? 0;
 
     // When spawning from the system workspace (internal BBs), prefer system versions
     // to prevent user-created BBs from shadowing internal ones. Also prefer
@@ -338,18 +398,18 @@ export function createSpawnBaleybotExecutor(options?: {
 
     // Fetch and enforce workspace policies
     const policies = await getPolicies(ctx.workspaceId);
+    const effectiveDepthLimit =
+      policies?.maxSpawnDepth ?? spawnCtx.maxSpawnDepth ?? maxDepth;
+
+    if (currentDepth >= effectiveDepthLimit) {
+      throw new Error(
+        `Maximum spawn depth (${effectiveDepthLimit}) exceeded. ` +
+          'This indicates likely recursion or circular delegation. ' +
+          `Current spawn chain depth: ${currentDepth}`
+      );
+    }
 
     if (policies) {
-      // Check spawn depth against policy (if specified)
-      if (policies.maxSpawnDepth !== null && policies.maxSpawnDepth !== undefined) {
-        if (currentDepth >= policies.maxSpawnDepth) {
-          throw new Error(
-            `Workspace policy limits spawn depth to ${policies.maxSpawnDepth}. ` +
-            `Current depth: ${currentDepth}`
-          );
-        }
-      }
-
       // Check if target BB uses forbidden tools
       if (targetBB.balCode) {
         const usedTools = extractToolsFromBAL(targetBB.balCode);
@@ -363,12 +423,61 @@ export function createSpawnBaleybotExecutor(options?: {
       }
     }
 
+    const fingerprint = buildFingerprint({
+      targetBot: targetBB.name,
+      input,
+      parentTaskId: spawnOptions?.parentTaskId ?? spawnCtx.orchestrationTaskId,
+      expectedArtifact: spawnOptions?.expectedArtifact,
+    });
+    const rootExecutionId =
+      spawnCtx.rootExecutionId ?? spawnCtx.parentExecutionId ?? ctx.executionId;
+    const fingerprintKey = `${rootExecutionId}:${fingerprint}`;
+    const repeatCount = (spawnFingerprintCounts.get(fingerprintKey) ?? 0) + 1;
+    spawnFingerprintCounts.set(fingerprintKey, repeatCount);
+    if (repeatCount > MAX_REPEAT_PER_FINGERPRINT) {
+      throw new Error(
+        `Delegation appears stuck in a no-progress loop for task fingerprint '${fingerprint}'.`
+      );
+    }
+
     log.info(`Executing BB "${targetBB.name}" (${targetBB.id}) at depth ${currentDepth}`, {
       baleybotId: targetBB.id,
       baleybotName: targetBB.name,
       depth: currentDepth,
       input,
+      fingerprint,
     });
+
+    let orchestrationRunId = spawnCtx.orchestrationRunId ?? null;
+    if (!orchestrationRunId) {
+      const run = await startOrchestrationRun({
+        workspaceId: ctx.workspaceId,
+        rootExecutionId,
+        entryBot: spawnCtx.baleybotId || 'unknown',
+        objective: spawnOptions?.objective ?? `Delegate work to ${targetBB.name}`,
+        strategy: {
+          mode: 'swarm',
+          expectedArtifact: spawnOptions?.expectedArtifact ?? null,
+          allowChildSpawns: spawnOptions?.allowChildSpawns ?? true,
+        },
+      });
+      orchestrationRunId = run.runId;
+    }
+
+    const startedTask = await startOrchestrationTask({
+      taskId: spawnOptions?.taskId,
+      runId: orchestrationRunId,
+      workspaceId: ctx.workspaceId,
+      parentTaskId: spawnOptions?.parentTaskId ?? spawnCtx.orchestrationTaskId ?? null,
+      assignedBot: targetBB.name,
+      expectedArtifact: spawnOptions?.expectedArtifact ?? null,
+      attempt: 0,
+      depth: currentDepth + 1,
+      fingerprint,
+      input,
+      strategyHints: spawnOptions?.strategyHints ?? [],
+    });
+    const orchestrationTaskId = startedTask.taskId;
 
     // Create execution record
     const executionId = await createExecutionRecord(
@@ -408,8 +517,15 @@ export function createSpawnBaleybotExecutor(options?: {
         userId: ctx.userId,
         _spawnOutputs: ctx._spawnOutputs,
         spawnDepth: currentDepth + 1,
-        maxSpawnDepth: maxDepth,
+        maxSpawnDepth: effectiveDepthLimit,
         parentExecutionId: ctx.executionId,
+        rootExecutionId,
+        orchestrationRunId,
+        orchestrationTaskId,
+        allowChildSpawns:
+          typeof spawnOptions?.allowChildSpawns === 'boolean'
+            ? spawnOptions.allowChildSpawns
+            : true,
       };
 
       // Get runtime tools for the spawned BB
@@ -465,6 +581,12 @@ export function createSpawnBaleybotExecutor(options?: {
           undefined,
           durationMs
         );
+        await completeOrchestrationTask({
+          taskId: orchestrationTaskId,
+          executionId,
+          output: normalizedOutput,
+          status: 'completed',
+        });
       } else if (result.status === 'failed') {
         await updateExecutionRecord(
           executionId,
@@ -473,6 +595,12 @@ export function createSpawnBaleybotExecutor(options?: {
           result.error,
           durationMs
         );
+        await failOrchestrationTask({
+          taskId: orchestrationTaskId,
+          executionId,
+          error: result.error ?? `Spawned BaleyBot "${targetBB.name}" failed`,
+          issuePack: { status: result.status },
+        });
         throw new Error(`Spawned BaleyBot "${targetBB.name}" failed: ${result.error}`);
       }
 
@@ -489,6 +617,8 @@ export function createSpawnBaleybotExecutor(options?: {
         summary,
         executionId,
         durationMs,
+        orchestrationRunId: orchestrationRunId ?? undefined,
+        orchestrationTaskId,
       };
     } catch (error) {
       const durationMs = Date.now() - startTime;
@@ -502,6 +632,16 @@ export function createSpawnBaleybotExecutor(options?: {
         errorMessage,
         durationMs
       );
+      await failOrchestrationTask({
+        taskId: orchestrationTaskId,
+        executionId,
+        error: errorMessage,
+        issuePack: {
+          fingerprint,
+          repeatCount,
+          expectedArtifact: spawnOptions?.expectedArtifact ?? null,
+        },
+      });
 
       throw error;
     }

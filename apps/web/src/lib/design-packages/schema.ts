@@ -132,6 +132,62 @@ export const artifactManifestSchema = z.object({
   artifacts: z.array(artifactEntrySchema).min(1),
 });
 
+export const paletteArtifactSchema = z.object({
+  directionId: z.string().min(1).optional(),
+  colors: z.object({
+    light: colorPaletteSchema,
+    dark: colorPaletteSchema,
+  }),
+  rationale: z.string().min(1).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+});
+
+export const typographyArtifactSchema = z.object({
+  directionId: z.string().min(1).optional(),
+  typography: typographySchema,
+  borderRadius: z.string().min(1),
+  mood: z.enum(DESIGN_MOODS),
+  animationStyle: z.enum(ANIMATION_STYLES),
+  rationale: z.string().min(1).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+});
+
+export const foundationArtifactSchema = z.object({
+  directionId: z.string().min(1).optional(),
+  foundation: designFoundationSchema,
+  rationale: z.string().min(1).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+});
+
+export const motionArtifactSchema = z.object({
+  directionId: z.string().min(1).optional(),
+  motionSystem: motionSystemSchema,
+  rationale: z.string().min(1).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+});
+
+export const layoutArtifactSchema = z.object({
+  directionId: z.string().min(1).optional(),
+  layoutSystem: layoutSystemSchema,
+  rationale: z.string().min(1).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+});
+
+export const surfaceBlueprintArtifactSchema = z.object({
+  directionId: z.string().min(1).optional(),
+  surface: z.enum(['landing', 'customerApp', 'internalApp']),
+  blueprint: surfaceBlueprintSchema,
+  rationale: z.string().min(1).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+});
+
+export const qualityArtifactSchema = z.object({
+  directionId: z.string().min(1).optional(),
+  overallScore: z.number().min(0).max(100),
+  failedChecks: z.array(z.string().min(1)),
+  notes: z.array(z.string().min(1)).default([]),
+});
+
 const brandSourceRecordSchema = z.object({
   id: z.string().min(1),
   kind: z.enum(['url', 'image', 'pdf', 'text']),
@@ -207,6 +263,24 @@ const repairTraceEntrySchema = z.object({
   message: z.string().min(1),
 });
 
+const orchestrationTaskSummarySchema = z.object({
+  taskId: z.string().min(1),
+  assignedBot: z.string().min(1),
+  expectedArtifact: z.string().min(1).optional(),
+  status: z.enum(['pending', 'running', 'completed', 'failed', 'skipped']),
+  attempt: z.number().int().min(0).max(20),
+  depth: z.number().int().min(0).max(128),
+  durationMs: z.number().int().min(0).optional(),
+  error: z.string().optional(),
+});
+
+const replanTraceEntrySchema = z.object({
+  step: z.string().min(1),
+  reason: z.string().min(1),
+  action: z.string().min(1),
+  timestamp: z.number().int().min(0),
+});
+
 export const generationReportSchema = z.object({
   version: z.literal(1),
   generatedAt: z.string().datetime(),
@@ -220,6 +294,10 @@ export const generationReportSchema = z.object({
   verificationStatus: z.enum(['passed', 'repaired', 'degraded']),
   verificationIssues: z.array(verificationIssueSchema),
   repairTrace: z.array(repairTraceEntrySchema),
+  orchestrationRunId: z.string().min(1).optional(),
+  taskSummary: z.array(orchestrationTaskSummarySchema).default([]),
+  degradedReasons: z.array(z.string().min(1)).default([]),
+  replanTrace: z.array(replanTraceEntrySchema).default([]),
 });
 
 export const designPackageDataV2Schema = z.object({
@@ -559,6 +637,24 @@ export function createDefaultGenerationReport(args: {
   overallScore?: number;
   repairAttempts?: number;
   repairApplied?: boolean;
+  orchestrationRunId?: string;
+  taskSummary?: Array<{
+    taskId: string;
+    assignedBot: string;
+    expectedArtifact?: string;
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+    attempt: number;
+    depth: number;
+    durationMs?: number;
+    error?: string;
+  }>;
+  degradedReasons?: string[];
+  replanTrace?: Array<{
+    step: string;
+    reason: string;
+    action: string;
+    timestamp: number;
+  }>;
   verificationStatus?: 'passed' | 'repaired' | 'degraded';
   verificationIssues?: Array<{
     id: string;
@@ -602,6 +698,10 @@ export function createDefaultGenerationReport(args: {
     verificationStatus: args.verificationStatus ?? 'passed',
     verificationIssues: args.verificationIssues ?? [],
     repairTrace: args.repairTrace ?? [],
+    orchestrationRunId: args.orchestrationRunId,
+    taskSummary: args.taskSummary ?? [],
+    degradedReasons: args.degradedReasons ?? [],
+    replanTrace: args.replanTrace ?? [],
     qualityChecks: args.qualityChecks ?? [
       {
         id: 'wcag-core',

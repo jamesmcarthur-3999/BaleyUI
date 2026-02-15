@@ -16,6 +16,8 @@ import type {
   StoreMemoryResult,
   GetDesignPackageResult,
   RegisterComponentResult,
+  GetOrchestrationRunResult,
+  ListOrchestrationTasksResult,
 } from './index';
 
 // Re-export BuiltInToolContext for use by catalog-service
@@ -33,6 +35,8 @@ import {
   REQUEST_USER_INPUT_SCHEMA,
   GET_DESIGN_PACKAGE_SCHEMA,
   REGISTER_COMPONENT_SCHEMA,
+  GET_ORCHESTRATION_RUN_SCHEMA,
+  LIST_ORCHESTRATION_TASKS_SCHEMA,
   BUILT_IN_TOOLS_METADATA,
 } from './index';
 import type { RequestUserInputResult } from './request-user-input';
@@ -56,6 +60,10 @@ import {
 } from '../../services/ephemeral-tool-service';
 import { promoteToolToWorkspace } from '../../services/promotion-service';
 import { validateUrl } from './url-validator';
+import {
+  getOrchestrationRun as getOrchestrationRunRecord,
+  listOrchestrationTasks as listOrchestrationTaskRecords,
+} from '../../services/orchestration-runtime-service';
 
 // ============================================================================
 // WEB SEARCH
@@ -216,6 +224,12 @@ interface SpawnBaleybotArgs {
   baleybot: string;
   input?: unknown;
   model?: 'fast' | 'balanced' | 'powerful';
+  taskId?: string;
+  parentTaskId?: string;
+  objective?: string;
+  expectedArtifact?: string;
+  strategyHints?: string[];
+  allowChildSpawns?: boolean;
 }
 
 // This will be injected at runtime with actual execution capability
@@ -223,7 +237,16 @@ type SpawnBaleybotExecutor = (
   baleybotIdOrName: string,
   input: unknown,
   ctx: BuiltInToolContext,
-  options?: { modelTierOverride?: string; toolCallId?: string }
+  options?: {
+    modelTierOverride?: string;
+    toolCallId?: string;
+    taskId?: string;
+    parentTaskId?: string;
+    objective?: string;
+    expectedArtifact?: string;
+    strategyHints?: string[];
+    allowChildSpawns?: boolean;
+  }
 ) => Promise<SpawnBaleybotResult>;
 
 let spawnBaleybotExecutor: SpawnBaleybotExecutor | null = null;
@@ -240,7 +263,22 @@ async function spawnBaleybotImpl(
     throw new Error('spawn_baleybot executor not configured');
   }
 
-  return spawnBaleybotExecutor(args.baleybot, args.input, ctx, args.model ? { modelTierOverride: args.model } : undefined);
+  const executorOptions = {
+    ...(args.model ? { modelTierOverride: args.model } : {}),
+    ...(args.taskId ? { taskId: args.taskId } : {}),
+    ...(args.parentTaskId ? { parentTaskId: args.parentTaskId } : {}),
+    ...(args.objective ? { objective: args.objective } : {}),
+    ...(args.expectedArtifact ? { expectedArtifact: args.expectedArtifact } : {}),
+    ...(args.strategyHints ? { strategyHints: args.strategyHints } : {}),
+    ...(typeof args.allowChildSpawns === 'boolean' ? { allowChildSpawns: args.allowChildSpawns } : {}),
+  };
+
+  return spawnBaleybotExecutor(
+    args.baleybot,
+    args.input,
+    ctx,
+    Object.keys(executorOptions).length > 0 ? executorOptions : undefined
+  );
 }
 
 // ============================================================================
@@ -585,6 +623,78 @@ async function getDesignPackageImpl(
   }
 }
 
+interface GetOrchestrationRunArgs {
+  run_id: string;
+}
+
+async function getOrchestrationRunImpl(
+  args: GetOrchestrationRunArgs,
+  ctx: BuiltInToolContext
+): Promise<GetOrchestrationRunResult> {
+  const run = await getOrchestrationRunRecord({
+    workspaceId: ctx.workspaceId,
+    runId: args.run_id,
+  });
+
+  if (!run) {
+    return {
+      found: false,
+    };
+  }
+
+  return {
+    found: true,
+    run: {
+      id: run.id,
+      rootExecutionId: run.rootExecutionId,
+      entryBot: run.entryBot,
+      status: run.status,
+      objective: run.objective,
+      strategy: run.strategy,
+      summary: run.summary,
+      metrics: run.metrics,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+    },
+  };
+}
+
+interface ListOrchestrationTasksArgs {
+  run_id?: string;
+  task_ids?: string[];
+  limit?: number;
+}
+
+async function listOrchestrationTasksImpl(
+  args: ListOrchestrationTasksArgs,
+  ctx: BuiltInToolContext
+): Promise<ListOrchestrationTasksResult> {
+  const rows = await listOrchestrationTaskRecords({
+    workspaceId: ctx.workspaceId,
+    runId: args.run_id,
+    ids: args.task_ids,
+    limit: args.limit,
+  });
+
+  return {
+    found: rows.length > 0,
+    tasks: rows.map((row) => ({
+      id: row.id,
+      runId: row.runId,
+      parentTaskId: row.parentTaskId,
+      assignedBot: row.assignedBot,
+      expectedArtifact: row.expectedArtifact,
+      status: row.status,
+      attempt: row.attempt,
+      depth: row.depth,
+      startedAt: row.startedAt,
+      completedAt: row.completedAt,
+      durationMs: row.durationMs,
+      error: row.error,
+    })),
+  };
+}
+
 // ============================================================================
 // REGISTER COMPONENT
 // ============================================================================
@@ -733,6 +843,15 @@ export function getBuiltInRuntimeTools(
       async (args: Record<string, unknown>, toolCtx: BuiltInToolContext, executionOptions?: { toolCallId?: string }) =>
         streamingSpawnExecutor(String(args.baleybot), args.input, toolCtx, {
           toolCallId: executionOptions?.toolCallId,
+          modelTierOverride: typeof args.model === 'string' ? args.model : undefined,
+          taskId: typeof args.taskId === 'string' ? args.taskId : undefined,
+          parentTaskId: typeof args.parentTaskId === 'string' ? args.parentTaskId : undefined,
+          objective: typeof args.objective === 'string' ? args.objective : undefined,
+          expectedArtifact: typeof args.expectedArtifact === 'string' ? args.expectedArtifact : undefined,
+          strategyHints: Array.isArray(args.strategyHints)
+            ? args.strategyHints.filter((hint): hint is string => typeof hint === 'string')
+            : undefined,
+          allowChildSpawns: typeof args.allowChildSpawns === 'boolean' ? args.allowChildSpawns : undefined,
         }),
       ctx
     ));
@@ -846,6 +965,22 @@ export function getBuiltInRuntimeTools(
     'Retrieve the workspace design package with tokens, components, and theme',
     GET_DESIGN_PACKAGE_SCHEMA as Record<string, unknown>,
     wrapImpl<GetDesignPackageArgs>(getDesignPackageImpl),
+    ctx
+  ));
+
+  tools.set('get_orchestration_run', createRuntimeTool(
+    'get_orchestration_run',
+    'Retrieve orchestration run telemetry for a swarm execution',
+    GET_ORCHESTRATION_RUN_SCHEMA as Record<string, unknown>,
+    wrapImpl<GetOrchestrationRunArgs>(getOrchestrationRunImpl),
+    ctx
+  ));
+
+  tools.set('list_orchestration_tasks', createRuntimeTool(
+    'list_orchestration_tasks',
+    'List orchestration task telemetry and statuses for a run or recent activity',
+    LIST_ORCHESTRATION_TASKS_SCHEMA as Record<string, unknown>,
+    wrapImpl<ListOrchestrationTasksArgs>(listOrchestrationTasksImpl),
     ctx
   ));
 

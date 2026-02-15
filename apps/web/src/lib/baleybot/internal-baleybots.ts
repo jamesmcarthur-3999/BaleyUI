@@ -195,6 +195,19 @@ export interface InternalExecutionOptions {
   attachments?: Array<{ data: string; mimeType: string }>;
   /** Side channel: spawn_baleybot stores full output here (keyed by bot name) */
   _spawnOutputs?: Map<string, unknown>;
+  /** Optional swarm orchestration run ID to attach nested spawns to */
+  orchestrationRunId?: string;
+  /** Optional active orchestration task ID for child lineage */
+  orchestrationTaskId?: string;
+  /** Whether this execution is allowed to spawn additional workers */
+  allowChildSpawns?: boolean;
+}
+
+export interface InternalExecutionMetadata {
+  finishReasons: string[];
+  maxTokensReached: boolean;
+  tokenCount?: number;
+  model?: string;
 }
 
 const INTERNAL_DEFAULT_MODEL: Record<'openai' | 'anthropic' | 'ollama', string> = {
@@ -247,7 +260,7 @@ export async function executeInternalBaleybot(
   name: string,
   input: string,
   options: InternalExecutionOptions = {}
-): Promise<{ output: unknown; executionId: string }> {
+): Promise<{ output: unknown; executionId: string; metadata: InternalExecutionMetadata }> {
   // Parallel initialization: fetch internal BB definition and system workspace concurrently
   const [internalBB, systemWorkspaceId] = await Promise.all([
     getInternalBaleybot(name),
@@ -333,6 +346,12 @@ export async function executeInternalBaleybot(
       executionId: execution.id,
       userId: 'system',
       _spawnOutputs: options._spawnOutputs,
+      orchestrationRunId: options.orchestrationRunId,
+      orchestrationTaskId: options.orchestrationTaskId,
+      allowChildSpawns:
+        typeof options.allowChildSpawns === 'boolean'
+          ? options.allowChildSpawns
+          : true,
     };
 
     // Load ALL tool categories (built-in + DB + MCP + workspace) for full parity
@@ -483,9 +502,28 @@ export async function executeInternalBaleybot(
       throw new Error(result.error || 'Internal BaleyBot execution failed');
     }
 
+    const finishReasons = result.segments
+      .filter((segment) => {
+        const maybe = segment as Record<string, unknown>;
+        return maybe.type === 'done';
+      })
+      .map((segment) => {
+        const maybe = segment as Record<string, unknown>;
+        return String(maybe.reason ?? '');
+      })
+      .filter((reason) => reason.length > 0);
+
+    const metadata: InternalExecutionMetadata = {
+      finishReasons,
+      maxTokensReached: finishReasons.includes('max_tokens_reached'),
+      tokenCount: result.tokenCount,
+      model: result.model,
+    };
+
     return {
       output: normalizedOutput,
       executionId: execution.id,
+      metadata,
     };
   } catch (error: unknown) {
     // Update execution with error

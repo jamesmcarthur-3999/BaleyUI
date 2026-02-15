@@ -177,6 +177,24 @@ export function buildGenerationReport(args: {
     issueCount: number;
     message: string;
   }>;
+  orchestrationRunId?: string;
+  taskSummary?: Array<{
+    taskId: string;
+    assignedBot: string;
+    expectedArtifact?: string;
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+    attempt: number;
+    depth: number;
+    durationMs?: number;
+    error?: string;
+  }>;
+  degradedReasons?: string[];
+  replanTrace?: Array<{
+    step: string;
+    reason: string;
+    action: string;
+    timestamp: number;
+  }>;
 }): DesignPackageDataV2['generationReport'] {
   return generationReportSchema.parse(
     createDefaultGenerationReport({
@@ -189,6 +207,10 @@ export function buildGenerationReport(args: {
       verificationStatus: args.verificationStatus,
       verificationIssues: args.verificationIssues,
       repairTrace: args.repairTrace,
+      orchestrationRunId: args.orchestrationRunId,
+      taskSummary: args.taskSummary,
+      degradedReasons: args.degradedReasons,
+      replanTrace: args.replanTrace,
       conceptScores:
         args.conceptScores.length > 0
           ? args.conceptScores

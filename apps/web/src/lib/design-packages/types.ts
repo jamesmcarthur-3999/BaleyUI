@@ -139,6 +139,62 @@ export interface ArtifactManifest {
   artifacts: ArtifactManifestEntry[];
 }
 
+export interface PaletteArtifact {
+  directionId?: string;
+  colors: {
+    light: ColorPalette;
+    dark: ColorPalette;
+  };
+  rationale?: string;
+  confidence?: number;
+}
+
+export interface TypographyArtifact {
+  directionId?: string;
+  typography: DesignPackageData['typography'];
+  borderRadius: string;
+  mood: DesignMood;
+  animationStyle: AnimationStyle;
+  rationale?: string;
+  confidence?: number;
+}
+
+export interface FoundationArtifact {
+  directionId?: string;
+  foundation: DesignFoundation;
+  rationale?: string;
+  confidence?: number;
+}
+
+export interface MotionArtifact {
+  directionId?: string;
+  motionSystem: MotionSystem;
+  rationale?: string;
+  confidence?: number;
+}
+
+export interface LayoutArtifact {
+  directionId?: string;
+  layoutSystem: LayoutSystem;
+  rationale?: string;
+  confidence?: number;
+}
+
+export interface SurfaceBlueprintArtifact {
+  directionId?: string;
+  surface: 'landing' | 'customerApp' | 'internalApp';
+  blueprint: SurfaceBlueprint;
+  rationale?: string;
+  confidence?: number;
+}
+
+export interface QualityArtifact {
+  directionId?: string;
+  overallScore: number;
+  failedChecks: string[];
+  notes: string[];
+}
+
 export interface BrandSourceRecord {
   id: string;
   kind: 'url' | 'image' | 'pdf' | 'text';
@@ -214,6 +270,24 @@ export interface RepairTraceEntry {
   message: string;
 }
 
+export interface OrchestrationTaskSummary {
+  taskId: string;
+  assignedBot: string;
+  expectedArtifact?: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  attempt: number;
+  depth: number;
+  durationMs?: number;
+  error?: string;
+}
+
+export interface ReplanTraceEntry {
+  step: string;
+  reason: string;
+  action: string;
+  timestamp: number;
+}
+
 export interface GenerationReport {
   version: 1;
   generatedAt: string;
@@ -227,6 +301,10 @@ export interface GenerationReport {
   verificationStatus: 'passed' | 'repaired' | 'degraded';
   verificationIssues: VerificationIssue[];
   repairTrace: RepairTraceEntry[];
+  orchestrationRunId?: string;
+  taskSummary: OrchestrationTaskSummary[];
+  degradedReasons: string[];
+  replanTrace: ReplanTraceEntry[];
 }
 
 // ============================================================================

@@ -75,6 +75,16 @@
       "Include expectedSteps only when topology is non-single."
     ]
   },
+  "swarm_orchestrator_v1": {
+    "id": "swarm_orchestrator_v1",
+    "output": {},
+    "rules": [
+      "Decompose complex objectives into explicit delegated tasks with clear expected artifacts.",
+      "Use spawn_baleybot aggressively for specialist execution, including worker-to-worker delegation where useful.",
+      "After each major wave, inspect orchestration state and replan when tasks fail or stall.",
+      "Publish best-available output with explicit degraded reasons instead of all-or-nothing failure."
+    ]
+  },
   "test_generator_v1": {
     "id": "test_generator_v1",
     "output": {},
