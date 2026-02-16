@@ -87,9 +87,7 @@ export function detectProviderFromApiKey(apiKey: string): ProviderType | null {
  * Parse a model string into provider and model ID
  */
 export function parseModelString(modelString: string): { provider: ProviderType; modelId: string } | null {
-  // Try `|` first (canonical), fall back to `:` for backwards compat
-  const sep = modelString.includes('|') ? '|' : ':';
-  const parts = modelString.split(sep);
+  const parts = modelString.split('|');
   if (parts.length !== 2) return null;
 
   const [provider, modelId] = parts;

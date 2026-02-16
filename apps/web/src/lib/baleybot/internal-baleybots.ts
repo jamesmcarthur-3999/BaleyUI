@@ -238,7 +238,7 @@ function rewriteModelProvidersForAvailability(
   const fallbackModel = INTERNAL_DEFAULT_MODEL[fallbackProvider];
 
   return balCode.replace(
-    /"model"\s*:\s*"([^":|]+)[:|]([^"]+)"/g,
+    /"model"\s*:\s*"([^"|]+)\|([^"]+)"/g,
     (fullMatch, provider) => {
       const normalizedProvider = String(provider).toLowerCase() as
         | 'openai'
