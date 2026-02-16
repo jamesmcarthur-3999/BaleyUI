@@ -827,7 +827,7 @@ export function createMockBlock(overrides: Partial<MockBlock> = {}): MockBlock {
     name: 'Test Block',
     type: 'decision',
     description: 'A test block',
-    model: 'anthropic:claude-sonnet-4-20250514',
+    model: 'anthropic|claude-sonnet-4-20250514',
     code: null,
     generatedCode: null,
     codeGeneratedAt: null,

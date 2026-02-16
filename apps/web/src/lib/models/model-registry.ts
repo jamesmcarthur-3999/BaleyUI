@@ -132,7 +132,7 @@ export async function getDefaultModelForTier(provider: ProviderType, tier: strin
         ),
       ),
     });
-    return model ? `${model.provider}:${model.modelId}` : null;
+    return model ? `${model.provider}|${model.modelId}` : null;
   } catch {
     return null;
   }
@@ -154,7 +154,7 @@ export async function getFamilyLatest(family: string): Promise<string | null> {
         ),
       ),
     });
-    return model ? `${model.provider}:${model.modelId}` : null;
+    return model ? `${model.provider}|${model.modelId}` : null;
   } catch {
     return null;
   }
@@ -165,7 +165,7 @@ export async function getFamilyLatest(family: string): Promise<string | null> {
 // ============================================================================
 
 /**
- * "anthropic:claude-sonnet-4-20250514" → "Sonnet"
+ * "anthropic|claude-sonnet-4-20250514" → "Sonnet"
  */
 export async function resolveDisplayName(modelString: string): Promise<string> {
   const parsed = parseModelString(modelString);
@@ -256,7 +256,7 @@ export async function checkModelDeprecations(workspaceId: string): Promise<void>
 
     // 2. For each deprecated model, find BBs that reference it
     for (const model of deprecatedModels) {
-      const modelString = `${model.provider}:${model.modelId}`;
+      const modelString = `${model.provider}|${model.modelId}`;
       const affectedBBs = await db.query.baleybots.findMany({
         where: and(
           eq(baleybots.workspaceId, workspaceId),

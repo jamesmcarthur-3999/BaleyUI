@@ -21,35 +21,35 @@ const BUILTIN_BOTS = {
   'code-analyzer': `
 code_analyzer {
   "goal": "Analyze the provided code and identify potential bugs, security issues, code smells, and suggest improvements. Be concise but thorough.",
-  "model": "openai:gpt-4o"
+  "model": "openai|gpt-4o"
 }
 `,
   // Sentiment analyzer
   'sentiment': `
 sentiment_analyzer {
   "goal": "Analyze the sentiment of the input text. Return: sentiment (positive/negative/neutral), confidence (0-1), and key emotional words.",
-  "model": "openai:gpt-4o"
+  "model": "openai|gpt-4o"
 }
 `,
   // Summarizer
   'summarize': `
 summarizer {
   "goal": "Create a concise summary of the input text, highlighting key points and main ideas.",
-  "model": "openai:gpt-4o"
+  "model": "openai|gpt-4o"
 }
 `,
   // Test generator
   'test-gen': `
 test_generator {
   "goal": "Generate unit tests for the provided code. Use appropriate testing patterns and cover edge cases.",
-  "model": "openai:gpt-4o"
+  "model": "openai|gpt-4o"
 }
 `,
   // Documentation writer
   'doc-writer': `
 doc_writer {
   "goal": "Generate clear documentation for the provided code including function descriptions, parameters, return values, and usage examples.",
-  "model": "openai:gpt-4o"
+  "model": "openai|gpt-4o"
 }
 `,
 };
@@ -107,7 +107,7 @@ Examples:
   npx tsx scripts/baleybot-cli.ts execute --bot code-analyzer --input "function add(a,b){return a+b}"
 
   # Use custom BAL code
-  npx tsx scripts/baleybot-cli.ts execute --code 'helper {"goal":"Help user","model":"openai:gpt-4o"}' --input "Hello"
+  npx tsx scripts/baleybot-cli.ts execute --code 'helper {"goal":"Help user","model":"openai|gpt-4o"}' --input "Hello"
 
   # Analyze sentiment
   npx tsx scripts/baleybot-cli.ts execute --bot sentiment --input "I love this product!"

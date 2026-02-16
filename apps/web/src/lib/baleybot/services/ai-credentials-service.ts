@@ -64,13 +64,13 @@ export function decryptMaybe(value?: string): string | undefined {
 function getDefaultModel(provider: AIProviderType): string {
   switch (provider) {
     case 'openai':
-      return 'openai:gpt-4o-mini';
+      return 'openai|gpt-4o-mini';
     case 'anthropic':
-      return 'anthropic:claude-sonnet-4-20250514';
+      return 'anthropic|claude-sonnet-4-20250514';
     case 'ollama':
-      return 'ollama:llama3.2';
+      return 'ollama|llama3.2';
     default:
-      return 'openai:gpt-4o-mini';
+      return 'openai|gpt-4o-mini';
   }
 }
 

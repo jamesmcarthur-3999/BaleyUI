@@ -211,9 +211,9 @@ export interface InternalExecutionMetadata {
 }
 
 const INTERNAL_DEFAULT_MODEL: Record<'openai' | 'anthropic' | 'ollama', string> = {
-  openai: 'openai:gpt-5-mini',
-  anthropic: 'anthropic:claude-sonnet-4-20250514',
-  ollama: 'ollama:llama3.2',
+  openai: 'openai|gpt-5-mini',
+  anthropic: 'anthropic|claude-sonnet-4-20250514',
+  ollama: 'ollama|llama3.2',
 };
 
 function applyInternalContractCompatibility(name: string, balCode: string): string {
@@ -238,7 +238,7 @@ function rewriteModelProvidersForAvailability(
   const fallbackModel = INTERNAL_DEFAULT_MODEL[fallbackProvider];
 
   return balCode.replace(
-    /"model"\s*:\s*"([^":]+):([^"]+)"/g,
+    /"model"\s*:\s*"([^":|]+)[:|]([^"]+)"/g,
     (fullMatch, provider) => {
       const normalizedProvider = String(provider).toLowerCase() as
         | 'openai'
@@ -327,7 +327,7 @@ export async function executeInternalBaleybot(
       options.context,
       aiProviders.length > 0
         ? `Available AI providers: ${aiProviders.join(', ')}. Default to the first available provider when choosing a model.`
-        : 'No AI providers connected. Use "anthropic:claude-sonnet-4-20250514" as default model.',
+        : 'No AI providers connected. Use "anthropic|claude-sonnet-4-20250514" as default model.',
     ].filter(Boolean).join('\n');
 
     // Build full input with context

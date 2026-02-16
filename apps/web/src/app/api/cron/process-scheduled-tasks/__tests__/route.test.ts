@@ -166,7 +166,7 @@ describe('GET /api/cron/process-scheduled-tasks', () => {
     mockInsertReturning.mockResolvedValue([{ id: 'exec-1' }]);
     mockGetWorkspaceAICredentials.mockResolvedValue({
       apiKey: 'sk-test',
-      model: 'openai:gpt-4o',
+      model: 'openai|gpt-4o',
     });
     mockExecuteBALCode.mockResolvedValue({ status: 'success', result: 'done' });
 

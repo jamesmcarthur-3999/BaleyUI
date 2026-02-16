@@ -66,7 +66,7 @@ Here's what a simple BaleyBot looks like in BAL:
 ```bal
 assistant {
   "goal": "Help users find information about any topic",
-  "model": "anthropic:claude-sonnet-4-20250514",
+  "model": "anthropic|claude-sonnet-4-20250514",
   "tools": ["web_search", "fetch_url"]
 }
 ```

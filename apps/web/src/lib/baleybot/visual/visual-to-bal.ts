@@ -426,7 +426,7 @@ export function applyNodeIntentFromParsed(
         applied: false,
         balCode: fallbackBalCode,
         summary: 'No changes applied.',
-        error: 'Could not detect a model id (example: openai:gpt-4o-mini).',
+        error: 'Could not detect a model id (example: openai|gpt-4o-mini).',
       };
     }
     entities[selectedIndex]!.config.model = model;
@@ -738,16 +738,16 @@ function extractGoalOverride(instruction: string): string | null {
 }
 
 function extractModelOverride(instruction: string): string | null {
-  const modelMatch = instruction.match(/\b(openai|anthropic):[a-zA-Z0-9._:-]+\b/i);
+  const modelMatch = instruction.match(/\b(openai|anthropic)\|[a-zA-Z0-9._:-]+\b/i);
   if (modelMatch?.[0]) {
     return modelMatch[0];
   }
 
   const lower = instruction.toLowerCase();
-  if (/\bgpt[- ]?4o mini\b/.test(lower)) return 'openai:gpt-4o-mini';
-  if (/\bgpt[- ]?4o\b/.test(lower)) return 'openai:gpt-4o';
-  if (/\bclaude\b.*\bhaiku\b/.test(lower)) return 'anthropic:claude-3-5-haiku-20241022';
-  if (/\bclaude\b.*\bsonnet\b/.test(lower)) return 'anthropic:claude-sonnet-4-20250514';
+  if (/\bgpt[- ]?4o mini\b/.test(lower)) return 'openai|gpt-4o-mini';
+  if (/\bgpt[- ]?4o\b/.test(lower)) return 'openai|gpt-4o';
+  if (/\bclaude\b.*\bhaiku\b/.test(lower)) return 'anthropic|claude-3-5-haiku-20241022';
+  if (/\bclaude\b.*\bsonnet\b/.test(lower)) return 'anthropic|claude-sonnet-4-20250514';
   return null;
 }
 

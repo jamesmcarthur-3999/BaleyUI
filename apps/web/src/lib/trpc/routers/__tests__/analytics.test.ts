@@ -27,8 +27,8 @@ describe('Analytics Router Logic', () => {
   describe('getCostSummary', () => {
     it('returns cost breakdown by BaleyBot', async () => {
       const costByBotResult = [
-        { baleybotId: 'bb-1', baleybotName: 'Classifier', model: 'openai:gpt-4o', inputTokens: 1000, outputTokens: 500, totalCost: 0.0075, executions: 10 },
-        { baleybotId: 'bb-2', baleybotName: 'Summarizer', model: 'openai:gpt-4o-mini', inputTokens: 5000, outputTokens: 2000, totalCost: 0.002, executions: 50 },
+        { baleybotId: 'bb-1', baleybotName: 'Classifier', model: 'openai|gpt-4o', inputTokens: 1000, outputTokens: 500, totalCost: 0.0075, executions: 10 },
+        { baleybotId: 'bb-2', baleybotName: 'Summarizer', model: 'openai|gpt-4o-mini', inputTokens: 5000, outputTokens: 2000, totalCost: 0.002, executions: 50 },
       ];
 
       ctx.db.select.mockReturnValue({
@@ -50,8 +50,8 @@ describe('Analytics Router Logic', () => {
 
     it('returns cost breakdown by model', async () => {
       const costByModelResult = [
-        { model: 'openai:gpt-4o', inputTokens: 10000, outputTokens: 5000, totalCost: 0.075, executions: 100 },
-        { model: 'anthropic:claude-sonnet-4-20250514', inputTokens: 8000, outputTokens: 3000, totalCost: 0.069, executions: 80 },
+        { model: 'openai|gpt-4o', inputTokens: 10000, outputTokens: 5000, totalCost: 0.075, executions: 100 },
+        { model: 'anthropic|claude-sonnet-4-20250514', inputTokens: 8000, outputTokens: 3000, totalCost: 0.069, executions: 80 },
       ];
 
       ctx.db.select.mockReturnValue({
@@ -67,7 +67,7 @@ describe('Analytics Router Logic', () => {
       const result = await ctx.db.select({}).from({}).innerJoin({}).where({}).groupBy({});
 
       expect(result).toHaveLength(2);
-      expect(result[0].model).toBe('openai:gpt-4o');
+      expect(result[0].model).toBe('openai|gpt-4o');
     });
 
     it('returns zero total cost when no executions', async () => {

@@ -199,7 +199,7 @@ export const CREATE_AGENT_SCHEMA = {
     },
     model: {
       type: 'string',
-      description: 'Model to use (e.g., "anthropic:claude-sonnet-4-20250514")',
+      description: 'Model to use (e.g., "anthropic|claude-sonnet-4-20250514")',
     },
     tools: {
       type: 'array',

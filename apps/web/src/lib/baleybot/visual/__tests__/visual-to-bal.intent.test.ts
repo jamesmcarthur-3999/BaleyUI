@@ -8,7 +8,7 @@ const baseParsed: ParsedEntities = {
       name: 'monitor',
       config: {
         goal: 'Monitor database for new signups',
-        model: 'openai:gpt-4o-mini',
+        model: 'openai|gpt-4o-mini',
         tools: ['web_search'],
       },
     },
@@ -16,7 +16,7 @@ const baseParsed: ParsedEntities = {
       name: 'notify',
       config: {
         goal: 'Send notifications for new signups',
-        model: 'openai:gpt-4o-mini',
+        model: 'openai|gpt-4o-mini',
         tools: ['send_notification'],
       },
     },
@@ -199,12 +199,12 @@ loop ("until": "result.passed == true", "max": 3) {
       parsed,
       {
         nodeId: 'validator',
-        changes: { model: 'openai:gpt-4o-mini' },
+        changes: { model: 'openai|gpt-4o-mini' },
       },
       originalBalCode
     );
 
-    expect(updated).toContain('"model": "openai:gpt-4o-mini"');
+    expect(updated).toContain('"model": "openai|gpt-4o-mini"');
     expect(updated).toContain('loop ("until": "result.passed == true", "max": 3)');
   });
 

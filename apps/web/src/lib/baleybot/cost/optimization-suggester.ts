@@ -77,9 +77,9 @@ const MODEL_TIERS: ModelTier[] = [
   {
     name: 'Premium',
     models: [
-      'anthropic:claude-3-opus-20240229',
-      'openai:gpt-4-turbo',
-      'openai:gpt-4o',
+      'anthropic|claude-3-opus-20240229',
+      'openai|gpt-4-turbo',
+      'openai|gpt-4o',
     ],
     avgCostPer1kTokens: 0.015,
     capabilities: ['complex_reasoning', 'creative', 'long_context', 'coding'],
@@ -87,8 +87,8 @@ const MODEL_TIERS: ModelTier[] = [
   {
     name: 'Standard',
     models: [
-      'anthropic:claude-sonnet-4-20250514',
-      'openai:gpt-4o',
+      'anthropic|claude-sonnet-4-20250514',
+      'openai|gpt-4o',
     ],
     avgCostPer1kTokens: 0.005,
     capabilities: ['reasoning', 'analysis', 'coding', 'structured_output'],
@@ -96,9 +96,9 @@ const MODEL_TIERS: ModelTier[] = [
   {
     name: 'Economy',
     models: [
-      'anthropic:claude-3-5-haiku-20241022',
-      'openai:gpt-4o-mini',
-      'openai:gpt-3.5-turbo',
+      'anthropic|claude-3-5-haiku-20241022',
+      'openai|gpt-4o-mini',
+      'openai|gpt-3.5-turbo',
     ],
     avgCostPer1kTokens: 0.0005,
     capabilities: ['simple_tasks', 'classification', 'extraction', 'formatting'],

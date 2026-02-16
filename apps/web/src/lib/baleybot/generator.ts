@@ -31,7 +31,7 @@ BAL is used to define BaleyBot configurations. Each entity is an AI agent with a
 \`\`\`bal
 entity_name {
   "goal": "What this entity should accomplish",
-  "model": "provider:model-name",  // Optional, e.g., "openai:gpt-4o-mini"
+  "model": "provider|model-name",  // Optional, e.g., "openai|gpt-4o-mini"
   "tools": { "tool1", "tool2" },   // Tools available to the entity
   "output": {                      // Optional output schema
     "field1": "type",
@@ -83,14 +83,14 @@ run("Your input text here")
 \`\`\`bal
 activity_poller {
   "goal": "Poll database for new user events every 5 minutes",
-  "model": "openai:gpt-4o-mini",
+  "model": "openai|gpt-4o-mini",
   "tools": { "query_database" },
   "history": "none"
 }
 
 trend_analyzer {
   "goal": "Analyze event patterns and identify trends",
-  "model": "anthropic:claude-sonnet-4-20250514",
+  "model": "anthropic|claude-sonnet-4-20250514",
   "tools": { "query_database", "send_notification" },
   "output": {
     "trends": "array",

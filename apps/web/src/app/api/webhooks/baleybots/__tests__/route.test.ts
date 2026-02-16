@@ -167,7 +167,7 @@ function setupValidWebhook() {
   mockInsertReturning.mockResolvedValue([{ id: 'exec-1' }]);
   mockGetWorkspaceAICredentials.mockResolvedValue({
     apiKey: 'sk-test',
-    model: 'anthropic:claude-sonnet-4-20250514',
+    model: 'anthropic|claude-sonnet-4-20250514',
   });
   mockExecuteBALCode.mockResolvedValue({ status: 'success', result: 'done' });
 }

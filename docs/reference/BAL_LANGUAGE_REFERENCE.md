@@ -61,7 +61,7 @@ analyzer {
 # Entity with multiple properties
 writer {
   "goal": "Write a professional summary based on the analysis",
-  "model": "anthropic:claude-sonnet-4-20250514",
+  "model": "anthropic|claude-sonnet-4-20250514",
   "output": {
     "summary": "string",
     "word_count": "number"
@@ -90,15 +90,15 @@ Specify which AI model to use.
 ```bal
 coder {
   "goal": "Write Python code",
-  "model": "openai:gpt-4.1"
+  "model": "openai|gpt-4.1"
 }
 ```
 
 **Available models:**
-- `anthropic:claude-sonnet-4-20250514` (default)
-- `anthropic:claude-3-5-haiku-20241022`
-- `openai:gpt-4.1`
-- `openai:gpt-4.1-mini`
+- `anthropic|claude-sonnet-4-20250514` (default)
+- `anthropic|claude-3-5-haiku-20241022`
+- `openai|gpt-4.1`
+- `openai|gpt-4.1-mini`
 
 ### tools (optional)
 

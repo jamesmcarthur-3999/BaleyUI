@@ -8,7 +8,7 @@ import { executeBALCode } from '../packages/sdk/src/bal-executor.js';
 const balCode = `
 claude_code_analyzer {
   "goal": "You are a code analysis assistant. When given code, explain what it does step by step, identify the algorithm or pattern being used, and suggest any improvements or potential issues.",
-  "model": "anthropic:claude-sonnet-4-20250514"
+  "model": "anthropic|claude-sonnet-4-20250514"
 }
 `;
 

@@ -156,13 +156,13 @@ describe('internal-baleybots', () => {
     it('nl_to_sql_postgres uses gpt-5-mini', () => {
       const result = parseBalCode(INTERNAL_BALEYBOTS.nl_to_sql_postgres!.balCode);
       const entity = result.entities.find(e => e.name === 'nl_to_sql_postgres');
-      expect(entity?.config.model).toBe('openai:gpt-5-mini');
+      expect(entity?.config.model).toBe('openai|gpt-5-mini');
     });
 
     it('nl_to_sql_mysql uses gpt-5-mini', () => {
       const result = parseBalCode(INTERNAL_BALEYBOTS.nl_to_sql_mysql!.balCode);
       const entity = result.entities.find(e => e.name === 'nl_to_sql_mysql');
-      expect(entity?.config.model).toBe('openai:gpt-5-mini');
+      expect(entity?.config.model).toBe('openai|gpt-5-mini');
     });
 
     it('nl_to_sql_postgres output has expected fields', () => {
@@ -207,7 +207,7 @@ describe('internal-baleybots', () => {
     });
 
     it('test_validator balCode specifies claude-haiku model (fast tier for per-test validation)', () => {
-      expect(INTERNAL_BALEYBOTS.test_validator!.balCode).toContain('anthropic:claude-haiku-4-5-20251001');
+      expect(INTERNAL_BALEYBOTS.test_validator!.balCode).toContain('anthropic|claude-haiku-4-5-20251001');
     });
 
     it('creator_action_advisor relies on gateway parsing (no BAL output contract)', () => {

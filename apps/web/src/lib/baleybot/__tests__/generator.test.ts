@@ -3,13 +3,13 @@ import { generateBal } from '../generator';
 
 vi.mock('../internal-bb/runner', () => ({
   runBalGenerator: vi.fn().mockResolvedValue({
-    balCode: 'test_entity { "goal": "Test", "model": "openai:gpt-4o-mini" }',
+    balCode: 'test_entity { "goal": "Test", "model": "openai|gpt-4o-mini" }',
     explanation: 'A simple test bot',
     entities: [
       {
         name: 'test_entity',
         goal: 'Test',
-        model: 'openai:gpt-4o-mini',
+        model: 'openai|gpt-4o-mini',
         tools: [],
         canRequest: [],
       },

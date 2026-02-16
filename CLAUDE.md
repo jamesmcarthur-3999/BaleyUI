@@ -285,7 +285,7 @@ See `runner.ts:normalizeOutputCandidate()` for the implementation.
 # Single BaleyBot with all properties
 assistant {
   "goal": "Help users with questions",
-  "model": "anthropic:claude-sonnet-4-20250514",
+  "model": "anthropic|claude-sonnet-4-20250514",
   "tools": { "web_search", "fetch_url" },
   "maxTokens": 4096
 }

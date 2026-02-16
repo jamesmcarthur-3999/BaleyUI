@@ -39,7 +39,7 @@ export interface EphemeralAgentConfig {
   name: string;
   /** What the agent should accomplish */
   goal: string;
-  /** AI model to use (e.g., "openai:gpt-4o", "anthropic:claude-sonnet-4-20250514") */
+  /** AI model to use (e.g., "openai|gpt-4o", "anthropic|claude-sonnet-4-20250514") */
   model?: string;
   /** List of tool names this agent can use (from parent context) */
   tools?: string[];
@@ -107,7 +107,7 @@ export function createEphemeralAgentService(): EphemeralAgentService {
       } = {
         name: config.name,
         goal: config.goal,
-        model: config.model || 'openai:gpt-4o-mini',
+        model: config.model || 'openai|gpt-4o-mini',
       };
 
       if (Object.keys(agentTools).length > 0) {

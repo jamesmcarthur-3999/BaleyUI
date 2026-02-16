@@ -134,11 +134,11 @@ describe('balToVisual edge generation', () => {
   it('creates nodes for all entities', () => {
     const result = balToVisual(`
       bot_a { "goal": "A", "tools": { "web_search", "fetch_url" } }
-      bot_b { "goal": "B", "model": "openai:gpt-4o" }
+      bot_b { "goal": "B", "model": "openai|gpt-4o" }
     `);
     expect(result.graph.nodes).toHaveLength(2);
     expect(result.graph.nodes[0]?.data.tools).toEqual(['web_search', 'fetch_url']);
-    expect(result.graph.nodes[1]?.data.model).toBe('openai:gpt-4o');
+    expect(result.graph.nodes[1]?.data.model).toBe('openai|gpt-4o');
   });
 
   it('returns empty graph for invalid BAL', () => {

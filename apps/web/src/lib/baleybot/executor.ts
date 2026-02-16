@@ -309,8 +309,8 @@ export function getPreferredProvider(balCode: string): AIProviderType | null {
     const providers = new Set<AIProviderType>();
 
     for (const entity of ast.entities.values()) {
-      if (entity.model && typeof entity.model === 'string' && entity.model.includes(':')) {
-        const [provider] = entity.model.split(':');
+      if (entity.model && typeof entity.model === 'string' && entity.model.includes('|')) {
+        const [provider] = entity.model.split('|');
         if (provider === 'openai' || provider === 'anthropic' || provider === 'ollama') {
           providers.add(provider);
         }
@@ -338,9 +338,9 @@ export function getPreferredModel(balCode: string): string {
       }
     }
 
-    return 'openai:gpt-5-mini'; // Default fallback
+    return 'openai|gpt-5-mini'; // Default fallback
   } catch {
-    return 'openai:gpt-5-mini';
+    return 'openai|gpt-5-mini';
   }
 }
 
@@ -457,13 +457,13 @@ export async function executeBaleybot(
   if (actualProvider && actualProvider !== preferredProvider) {
     // Model string needs to match the actual provider we're using
     if (actualProvider === 'openai') {
-      model = 'openai:gpt-4o'; // Fall back to capable OpenAI model
+      model = 'openai|gpt-4o'; // Fall back to capable OpenAI model
       logger.info('Model override: falling back to OpenAI', {
         originalModel: getPreferredModel(balCode),
         newModel: model,
       });
     } else if (actualProvider === 'anthropic') {
-      model = 'anthropic:claude-sonnet-4-20250514';
+      model = 'anthropic|claude-sonnet-4-20250514';
       logger.info('Model override: falling back to Anthropic', {
         originalModel: getPreferredModel(balCode),
         newModel: model,

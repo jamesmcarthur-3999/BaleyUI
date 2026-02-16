@@ -26,9 +26,9 @@ export interface ModelInfo {
 // ============================================================================
 
 export const DEFAULT_MODELS: Record<ProviderType, string> = {
-  openai: 'openai:gpt-5-mini',
-  anthropic: 'anthropic:claude-sonnet-4-20250514',
-  ollama: 'ollama:llama3.2',
+  openai: 'openai|gpt-5-mini',
+  anthropic: 'anthropic|claude-sonnet-4-20250514',
+  ollama: 'ollama|llama3.2',
 } as const;
 
 // ============================================================================
@@ -87,7 +87,9 @@ export function detectProviderFromApiKey(apiKey: string): ProviderType | null {
  * Parse a model string into provider and model ID
  */
 export function parseModelString(modelString: string): { provider: ProviderType; modelId: string } | null {
-  const parts = modelString.split(':');
+  // Try `|` first (canonical), fall back to `:` for backwards compat
+  const sep = modelString.includes('|') ? '|' : ':';
+  const parts = modelString.split(sep);
   if (parts.length !== 2) return null;
 
   const [provider, modelId] = parts;
@@ -104,7 +106,7 @@ export function parseModelString(modelString: string): { provider: ProviderType;
  * Format a model string from provider and model ID
  */
 export function formatModelString(provider: ProviderType, modelId: string): string {
-  return `${provider}:${modelId}`;
+  return `${provider}|${modelId}`;
 }
 
 /**

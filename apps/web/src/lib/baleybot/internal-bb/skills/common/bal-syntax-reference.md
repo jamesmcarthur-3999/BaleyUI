@@ -7,7 +7,7 @@ section: output_rules
 Single source of truth for BAL syntax. All generated balCode MUST follow these rules exactly.
 
 ## Entity Definition
-`name { "goal": "...", "model": "provider:model-id" }`
+`name { "goal": "...", "model": "provider|model-id" }`
 
 ## Supported Properties (ONLY these)
 goal, model, tools, output, history, maxTokens
@@ -30,21 +30,21 @@ Do NOT use generic `object` or `array<object>` in internal BB BAL output blocks.
 
 Single entity:
 ```
-researcher { "goal": "Search the web and summarize findings", "model": "anthropic:claude-sonnet-4-20250514", "tools": { "web_search", "fetch_url" } }
+researcher { "goal": "Search the web and summarize findings", "model": "anthropic|claude-sonnet-4-20250514", "tools": { "web_search", "fetch_url" } }
 ```
 
 Multi-entity pipeline:
 ```
-researcher { "goal": "Search for information", "model": "anthropic:claude-sonnet-4-20250514", "tools": { "web_search" } }
-summarizer { "goal": "Summarize research findings", "model": "anthropic:claude-sonnet-4-20250514" }
+researcher { "goal": "Search for information", "model": "anthropic|claude-sonnet-4-20250514", "tools": { "web_search" } }
+summarizer { "goal": "Summarize research findings", "model": "anthropic|claude-sonnet-4-20250514" }
 chain { researcher summarizer }
 ```
 
 Conditional routing:
 ```
-classifier { "goal": "Classify input as technical or general", "model": "anthropic:claude-sonnet-4-20250514", "output": { "category": "string" } }
-tech_expert { "goal": "Answer technical questions in depth", "model": "anthropic:claude-sonnet-4-20250514", "tools": { "web_search" } }
-general_helper { "goal": "Answer general questions concisely", "model": "anthropic:claude-sonnet-4-20250514" }
+classifier { "goal": "Classify input as technical or general", "model": "anthropic|claude-sonnet-4-20250514", "output": { "category": "string" } }
+tech_expert { "goal": "Answer technical questions in depth", "model": "anthropic|claude-sonnet-4-20250514", "tools": { "web_search" } }
+general_helper { "goal": "Answer general questions concisely", "model": "anthropic|claude-sonnet-4-20250514" }
 if ("result.category == 'technical'") { tech_expert } else { general_helper }
 ```
 
