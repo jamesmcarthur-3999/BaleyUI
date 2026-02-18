@@ -65,8 +65,8 @@ export type WorkspaceHealth = ReturnType<typeof useWorkspaceHealth>;
 
 /** Configuration for the useBaleyChat hook. */
 export interface UseBaleyConfig {
-  /** Operating mode: 'general' for companion, 'creator' for bot builder. */
-  mode?: 'general' | 'creator';
+  /** Operating mode: 'general' for companion, 'creator' for bot builder, 'canvas' for live app builder. */
+  mode?: 'general' | 'creator' | 'canvas';
 
   /** Callbacks for creator-specific events (only used when mode is 'creator'). */
   creatorCallbacks?: {
@@ -96,6 +96,22 @@ export interface UseBaleyConfig {
       triggerConfigured: boolean;
       webhookEnabled: boolean;
     };
+  };
+
+  /** Context passed to the canvas builder (only used when mode is 'canvas'). */
+  canvasContext?: {
+    sessionId: string;
+    scaffoldTemplate?: string;
+    designPackageId?: string;
+  };
+
+  /** Callbacks for canvas-specific events (only used when mode is 'canvas'). */
+  canvasCallbacks?: {
+    onFileOp?: (op: { type: 'write' | 'delete'; path: string; content?: string }) => void;
+    onRunCommand?: (command: string) => void;
+    onPresentPlan?: (plan: PlanPreviewData) => void;
+    onDeploy?: (method: string, name: string) => void;
+    onRequestErrors?: () => void;
   };
 }
 
@@ -210,6 +226,11 @@ export function useBaleyChat(config?: UseBaleyConfig) {
       // Add creator context if in creator mode
       if (config?.mode === 'creator' && config.creatorContext) {
         body.creatorContext = config.creatorContext;
+      }
+
+      // Add canvas context if in canvas mode
+      if (config?.mode === 'canvas' && config.canvasContext) {
+        body.canvasContext = config.canvasContext;
       }
 
       const response = await fetch('/api/baley/stream', {
@@ -373,6 +394,45 @@ export function useBaleyChat(config?: UseBaleyConfig) {
 
             // creator_navigate_tab, creator_show_plan, creator_show_surface
             // are now handled via action objects in tool_execution_output above.
+
+            // ----------------------------------------------------------------
+            // Canvas-specific events
+            // ----------------------------------------------------------------
+            else if (event.type === 'canvas_file_op') {
+              const op = event.op as string;
+              const path = event.path as string;
+              const content = event.content as string | undefined;
+              if (op === 'write' && path) {
+                config?.canvasCallbacks?.onFileOp?.({ type: 'write', path, content });
+              } else if (op === 'delete' && path) {
+                config?.canvasCallbacks?.onFileOp?.({ type: 'delete', path });
+              }
+            }
+
+            else if (event.type === 'canvas_run_command') {
+              const command = event.command as string;
+              if (command) {
+                config?.canvasCallbacks?.onRunCommand?.(command);
+              }
+            }
+
+            else if (event.type === 'canvas_present_plan') {
+              const plan = event.plan as PlanPreviewData | undefined;
+              if (plan) {
+                config?.canvasCallbacks?.onPresentPlan?.(plan);
+              }
+            }
+
+            else if (event.type === 'canvas_deploy') {
+              config?.canvasCallbacks?.onDeploy?.(
+                event.method as string,
+                event.name as string,
+              );
+            }
+
+            else if (event.type === 'canvas_request_errors') {
+              config?.canvasCallbacks?.onRequestErrors?.();
+            }
           } catch {
             // Skip malformed JSON lines
           }

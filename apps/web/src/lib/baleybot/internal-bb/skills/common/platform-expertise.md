@@ -23,6 +23,20 @@ Always available. No connection required.
 - **api_key** — user provides API key (e.g., Stripe, Sentry)
 - **oauth** — user authorizes via OAuth flow (e.g., GitHub, Notion, HubSpot)
 
+## Canvas Builder Tools
+When in canvas builder mode, these tools are available for building live web apps in a WebContainer:
+- **write_file** — Write/create a file in the project (triggers HMR)
+- **read_file** — Read file content from the server-side file index
+- **delete_file** — Delete a file from the project
+- **run_command** — Execute npm/npx/pnpm/node/tsc commands
+- **get_file_tree** — List all project files with sizes
+- **get_compile_errors** — Request compile/build error report
+- **apply_design_package** — Inject design tokens as CSS/Tailwind files
+- **present_plan** — Show a structured build plan for user approval
+- **deploy_app** — Package and deploy (export ZIP or host)
+
+Canvas projects use Next.js 15 + Tailwind CSS v4 + React 19. Always write complete file contents (no partial edits). Use present_plan before major work.
+
 ## Tool Health
 Each tool has a status: **ready** (usable now), **needs-setup** (connection missing/incomplete), **error** (connection broken).
 Only recommend tools with ready or needs-setup status. Flag needs-setup tools as requiring user action.

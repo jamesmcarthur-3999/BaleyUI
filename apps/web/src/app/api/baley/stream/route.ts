@@ -20,7 +20,7 @@ import { auth } from '@/lib/auth/server';
 import { headers } from 'next/headers';
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { db, companionConversations } from '@baleyui/db';
+import { db, companionConversations, designPackages } from '@baleyui/db';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { createLogger } from '@/lib/logger';
 import { apiErrors } from '@/lib/api/error-response';
@@ -49,6 +49,14 @@ import {
 } from '@/lib/baleybot/services/orchestration-runtime-service';
 import { reportPlatformError } from '@/lib/platform-bugs/report';
 import { getPageInfo } from '@/lib/routes';
+import { buildCanvasRuntimeTools } from '@/lib/baleybot/tools/canvas';
+import {
+  getOrCreateCanvasSession,
+  updateCanvasSession,
+} from '@/lib/canvas/session-persistence';
+import type { CanvasSessionState } from '@/lib/canvas/session-state';
+import { eq } from 'drizzle-orm';
+import type { DesignPackageData } from '@/lib/design-packages/types';
 
 const log = createLogger('baley-stream');
 
@@ -90,6 +98,14 @@ const baleyStreamBodySchema = z
         })
       )
       .max(5)
+      .optional(),
+    // Canvas mode fields (presence = canvas builder mode)
+    canvasContext: z
+      .object({
+        sessionId: z.string().min(1).max(200),
+        scaffoldTemplate: z.enum(['nextjs-shadcn']).optional(),
+        designPackageId: z.string().uuid().optional(),
+      })
       .optional(),
     // Creator mode fields (presence = creator mode)
     creatorContext: z
@@ -319,6 +335,7 @@ export async function POST(req: NextRequest) {
     }
 
     const isCreatorMode = !!input.creatorContext;
+    const isCanvasMode = !!input.canvasContext;
 
     // Rate limit
     const rateLimitKey = isCreatorMode
@@ -366,6 +383,31 @@ export async function POST(req: NextRequest) {
         });
         for (const [k, v] of integrationTools) allTools.set(k, v);
       }
+    }
+
+    // Canvas mode: load/create session and inject canvas tools
+    let canvasSession: CanvasSessionState | null = null;
+    if (isCanvasMode) {
+      const cc = input.canvasContext!;
+      canvasSession = await getOrCreateCanvasSession({
+        workspaceId: workspace.id,
+        sessionId: cc.sessionId,
+        scaffoldTemplate: cc.scaffoldTemplate,
+        designPackageId: cc.designPackageId,
+        userId,
+      });
+
+      const canvasTools = buildCanvasRuntimeTools({
+        sessionState: canvasSession,
+        emitCanvasEvent: (event) => sendEvent(event),
+        resolveDesignPackage: async (id: string): Promise<DesignPackageData | null> => {
+          const row = await db.query.designPackages.findFirst({
+            where: eq(designPackages.id, id),
+          });
+          return (row?.packageData as DesignPackageData) ?? null;
+        },
+      });
+      for (const [k, v] of canvasTools) allTools.set(k, v);
     }
 
     // 4. Build context string
@@ -464,6 +506,29 @@ export async function POST(req: NextRequest) {
         ];
         contextParts.push(uiLines.join('\n'));
       }
+    }
+
+    // Canvas mode: inject canvas-specific context
+    if (isCanvasMode && canvasSession) {
+      const fileTree = canvasSession.getFileTree();
+      const fileListStr = fileTree.length > 0
+        ? fileTree.map((f) => `  ${f.path} (${f.size}B)`).join('\n')
+        : '  (empty project)';
+      contextParts.push([
+        'Canvas Builder Mode — you are building a live web app in a WebContainer.',
+        `Project files:\n${fileListStr}`,
+        '',
+        'Available canvas tools: write_file, read_file, delete_file, run_command, get_file_tree, get_compile_errors, apply_design_package, present_plan, deploy_app',
+        '',
+        'Guidelines:',
+        '- Write complete, working React/Next.js code using Tailwind CSS',
+        '- Use write_file to create/update files — changes appear live via HMR',
+        '- Always write full file contents (no partial edits)',
+        '- Use read_file to check existing file content before modifying',
+        '- Use get_compile_errors if the user reports issues',
+        '- Use present_plan to show a build plan before starting major work',
+        '- The project uses Next.js 15 + Tailwind CSS v4 + React 19',
+      ].join('\n'));
     }
 
     const fullContext = contextParts.length > 0 ? contextParts.join('\n\n') : undefined;
@@ -816,6 +881,27 @@ export async function POST(req: NextRequest) {
               specialist: specialistFindings,
               timestamp: Date.now(),
             });
+          }
+
+          // Canvas mode: persist session state
+          if (isCanvasMode && canvasSession) {
+            try {
+              const conversationLog = [
+                ...(input.conversationHistory ?? []),
+                { role: 'user', content: input.message, timestamp: new Date().toISOString() },
+                { role: 'assistant', content: outputStr, timestamp: new Date().toISOString() },
+              ];
+              await updateCanvasSession(
+                input.canvasContext!.sessionId,
+                workspace.id,
+                canvasSession,
+                conversationLog,
+              );
+            } catch (persistErr) {
+              log.error('Failed to persist canvas session', {
+                error: persistErr instanceof Error ? persistErr.message : String(persistErr),
+              });
+            }
           }
 
           // Log conversation to companionConversations table

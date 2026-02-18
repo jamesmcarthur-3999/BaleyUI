@@ -2357,3 +2357,110 @@ export const testCasesRelations = relations(testCases, ({ one }) => ({
     references: [blocks.id],
   }),
 }));
+
+// ============================================================================
+// CANVAS SESSIONS (Chat + Canvas builder state)
+// ============================================================================
+
+/**
+ * Persists Chat+Canvas builder sessions: file index, ops log, conversation.
+ * The server-side file index mirrors what exists in the client WebContainer.
+ */
+export const canvasSessions = pgTable(
+  'canvas_sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    sessionId: varchar('session_id', { length: 200 }).notNull(),
+    name: varchar('name', { length: 255 }).default('Untitled Project'),
+    status: varchar('status', { length: 50 }).default('active').notNull(), // 'active' | 'completed' | 'archived'
+
+    /** JSONB map of path -> { content, language } */
+    files: jsonb('files'),
+    /** JSONB array of file operation log entries */
+    fileOpsLog: jsonb('file_ops_log'),
+    /** JSONB array of command execution log entries */
+    commandsLog: jsonb('commands_log'),
+
+    scaffoldTemplate: varchar('scaffold_template', { length: 100 }).default('nextjs-shadcn'),
+    designPackageId: uuid('design_package_id')
+      .references(() => designPackages.id),
+    /** JSONB array of conversation history */
+    conversationHistory: jsonb('conversation_history'),
+
+    createdBy: varchar('created_by', { length: 255 }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('canvas_sessions_workspace_idx').on(table.workspaceId),
+    index('canvas_sessions_session_idx').on(table.sessionId),
+  ],
+);
+
+export const canvasSessionsRelations = relations(canvasSessions, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [canvasSessions.workspaceId],
+    references: [workspaces.id],
+  }),
+  designPackage: one(designPackages, {
+    fields: [canvasSessions.designPackageId],
+    references: [designPackages.id],
+  }),
+}));
+
+// ============================================================================
+// HOSTED APPS
+// ============================================================================
+
+export const hostedApps = pgTable(
+  'hosted_apps',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    slug: varchar('slug', { length: 255 }).notNull(),
+    description: text('description'),
+
+    /** JSONB map of path -> file content */
+    files: jsonb('files').notNull(),
+    canvasSessionId: uuid('canvas_session_id')
+      .references(() => canvasSessions.id),
+    designPackageId: uuid('design_package_id')
+      .references(() => designPackages.id),
+
+    framework: varchar('framework', { length: 50 }).default('nextjs').notNull(),
+    status: varchar('status', { length: 50 }).default('published').notNull(), // 'draft' | 'published' | 'archived'
+    version: integer('version').default(1).notNull(),
+    publishedAt: timestamp('published_at'),
+
+    createdBy: varchar('created_by', { length: 255 }),
+    deletedAt: timestamp('deleted_at'),
+    deletedBy: varchar('deleted_by', { length: 255 }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('hosted_apps_workspace_idx').on(table.workspaceId),
+    index('hosted_apps_slug_idx').on(table.slug),
+  ],
+);
+
+export const hostedAppsRelations = relations(hostedApps, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [hostedApps.workspaceId],
+    references: [workspaces.id],
+  }),
+  canvasSession: one(canvasSessions, {
+    fields: [hostedApps.canvasSessionId],
+    references: [canvasSessions.id],
+  }),
+  designPackage: one(designPackages, {
+    fields: [hostedApps.designPackageId],
+    references: [designPackages.id],
+  }),
+}));
