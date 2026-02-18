@@ -186,7 +186,7 @@ export function LiveAppView({ className }: LiveAppViewProps) {
             id="canvas-iframe"
             src={iframeUrl}
             className="flex-1 w-full border-none bg-white"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            sandbox="allow-scripts allow-forms allow-popups"
             title="Live App Preview"
           />
         </div>

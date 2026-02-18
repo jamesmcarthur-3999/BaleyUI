@@ -90,7 +90,7 @@ const nextConfig: NextConfig = {
       "img-src 'self' data: blob: https://*.public.blob.vercel-storage.com",
       "font-src 'self' https://fonts.gstatic.com",
       `connect-src ${connectSrc}`,
-      "frame-src 'self' https://challenges.cloudflare.com",
+      "frame-src 'self' https://challenges.cloudflare.com https://*.webcontainer.io https://*.webcontainer-api.io",
       "worker-src 'self' blob:",
       "object-src 'none'",
       "base-uri 'self'",

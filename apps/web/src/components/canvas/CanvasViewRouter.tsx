@@ -60,7 +60,7 @@ export function CanvasViewRouter({ onSendMessage }: CanvasViewRouterProps) {
       return <PlanView plan={view.plan} onSendMessage={onSendMessage} />;
 
     case 'brand':
-      return <BrandDesignView designSessionId={view.designSessionId} />;
+      return <BrandDesignView />;
 
     case 'live':
       return <LiveAppView />;

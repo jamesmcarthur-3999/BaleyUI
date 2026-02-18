@@ -9,53 +9,21 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { CANVAS_QUICK_ACTIONS } from '@/components/canvas/quick-actions';
+import { useCanvasStore } from '@/stores/canvas';
 
 // ============================================================================
-// QUICK-START CARDS
+// ICON MAP
 // ============================================================================
 
-interface QuickStartCard {
-  id: string;
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  prompt: string;
-}
-
-const QUICK_START_CARDS: QuickStartCard[] = [
-  {
-    id: 'dashboard',
-    icon: <BarChart3 className="h-5 w-5" />,
-    title: 'Analytics Dashboard',
-    description: 'Real-time metrics with charts and filters',
-    prompt:
-      'Build me an analytics dashboard with a sidebar navigation, KPI cards at the top, and interactive charts showing revenue, users, and engagement metrics.',
-  },
-  {
-    id: 'landing',
-    icon: <Sparkles className="h-5 w-5" />,
-    title: 'Landing Page',
-    description: 'Modern landing page with hero section',
-    prompt:
-      'Build a modern SaaS landing page with a hero section, feature grid, pricing cards, testimonials carousel, and a CTA footer.',
-  },
-  {
-    id: 'ecommerce',
-    icon: <ShoppingCart className="h-5 w-5" />,
-    title: 'E-commerce Store',
-    description: 'Product catalog with cart and checkout',
-    prompt:
-      'Build an e-commerce product catalog page with a grid of product cards (image, title, price, rating), filters sidebar, search bar, and a shopping cart drawer.',
-  },
-  {
-    id: 'chat',
-    icon: <MessageSquare className="h-5 w-5" />,
-    title: 'Chat Interface',
-    description: 'Real-time messaging UI with threads',
-    prompt:
-      'Build a chat application interface with a contacts sidebar, message thread area with bubbles, typing indicators, and a message input with emoji picker.',
-  },
-];
+// Icons are view-specific (WelcomeView renders cards; ChatPanel renders text pills).
+// Map action IDs to their icons here so quick-actions.ts stays icon-free.
+const ACTION_ICONS: Record<string, React.ReactNode> = {
+  dashboard: <BarChart3 className="h-5 w-5" />,
+  landing: <Sparkles className="h-5 w-5" />,
+  ecommerce: <ShoppingCart className="h-5 w-5" />,
+  chat: <MessageSquare className="h-5 w-5" />,
+};
 
 // ============================================================================
 // COMPONENT
@@ -67,6 +35,8 @@ interface WelcomeViewProps {
 }
 
 export function WelcomeView({ onSendMessage, className }: WelcomeViewProps) {
+  const startBrand = useCanvasStore((s) => s.startBrand);
+
   return (
     <div
       className={cn(
@@ -90,32 +60,35 @@ export function WelcomeView({ onSendMessage, className }: WelcomeViewProps) {
 
       {/* Quick-start cards */}
       <div className="grid grid-cols-2 gap-3 max-w-lg w-full">
-        {QUICK_START_CARDS.map((card) => (
+        {CANVAS_QUICK_ACTIONS.map((action) => (
           <button
-            key={card.id}
-            onClick={() => onSendMessage(card.prompt)}
+            key={action.id}
+            onClick={() => onSendMessage(action.prompt)}
             className="group relative flex flex-col items-start gap-2 rounded-xl border border-border/50 bg-card/50 p-4 text-left transition-all hover:border-primary/30 hover:bg-card/80 hover:shadow-sm"
           >
             <div className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-lg bg-muted/60 flex items-center justify-center text-muted-foreground group-hover:text-primary group-hover:bg-primary/10 transition-colors">
-                {card.icon}
+                {ACTION_ICONS[action.id]}
               </div>
             </div>
             <div>
-              <h3 className="text-sm font-medium">{card.title}</h3>
+              <h3 className="text-sm font-medium">{action.label}</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {card.description}
+                {action.description}
               </p>
             </div>
           </button>
         ))}
       </div>
 
-      {/* Or section */}
-      <div className="mt-6 flex items-center gap-3 text-xs text-muted-foreground">
+      {/* Brand design entry point */}
+      <button
+        onClick={() => startBrand()}
+        className="mt-6 flex items-center gap-3 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
         <Palette className="h-3.5 w-3.5" />
         <span>or start from your brand design package</span>
-      </div>
+      </button>
     </div>
   );
 }

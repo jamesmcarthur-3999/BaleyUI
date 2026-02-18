@@ -340,7 +340,9 @@ export async function POST(req: NextRequest) {
     // Rate limit
     const rateLimitKey = isCreatorMode
       ? `creator:stream:${workspace.id}:${userId}`
-      : `companion:stream:${workspace.id}:${userId}`;
+      : isCanvasMode
+        ? `canvas:stream:${workspace.id}:${userId}`
+        : `companion:stream:${workspace.id}:${userId}`;
     await checkRateLimit(rateLimitKey, RATE_LIMITS.creatorMessage);
 
     // 3. Build tools

@@ -87,11 +87,11 @@ ${headingFont ? `h1, h2, h3, h4, h5, h6 {\n  font-family: ${headingFont};\n}` : 
     'src/app/globals.css': globalsCss,
   };
 
-  // If there's a Google Fonts URL, update layout.tsx to include it
-  if (data.typography.googleFontsUrl) {
-    result['src/app/layout.tsx'] = buildLayoutWithFonts(
-      data.typography.googleFontsUrl,
-    );
+  // If there's a Google Fonts URL, update layout.tsx to include it.
+  // Validate the URL comes from fonts.googleapis.com to prevent template injection.
+  const fontsUrl = data.typography.googleFontsUrl;
+  if (fontsUrl && fontsUrl.startsWith('https://fonts.googleapis.com/')) {
+    result['src/app/layout.tsx'] = buildLayoutWithFonts(fontsUrl);
   }
 
   return result;

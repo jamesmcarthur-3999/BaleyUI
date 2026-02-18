@@ -9,7 +9,6 @@ import { cn } from '@/lib/utils';
 // ============================================================================
 
 interface BrandDesignViewProps {
-  designSessionId: string;
   className?: string;
 }
 
@@ -21,15 +20,13 @@ interface BrandDesignViewProps {
  * For V1, this renders a placeholder. The existing DesignCalibrationWizard
  * components will be embedded here in a follow-up.
  */
-export function BrandDesignView({
-  designSessionId,
-  className,
-}: BrandDesignViewProps) {
+export function BrandDesignView({ className }: BrandDesignViewProps) {
   const startLive = useCanvasStore((s) => s.startLive);
   const setDesignPackageId = useCanvasStore((s) => s.setDesignPackageId);
 
-  const handleBrandLocked = (designPackageId: string) => {
-    setDesignPackageId(designPackageId);
+  const handleSkipBrand = () => {
+    // Skip brand setup — no design package ID, canvas will use scaffold defaults
+    setDesignPackageId(null);
     startLive();
   };
 
@@ -44,12 +41,10 @@ export function BrandDesignView({
           Set up your brand colors, typography, and design tokens. These will be
           applied to every component Baley builds.
         </p>
-        <p className="text-xs text-muted-foreground">
-          Session: {designSessionId.slice(0, 8)}...
-        </p>
-        {/* TODO: Embed DesignCalibrationWizard components inline */}
+        {/* TODO: Embed DesignCalibrationWizard inline once it's been rebuilt
+            against the SDK streaming system. For now, offer skip. */}
         <button
-          onClick={() => handleBrandLocked(designSessionId)}
+          onClick={handleSkipBrand}
           className="mt-4 text-sm text-primary hover:underline"
         >
           Skip brand setup (use defaults)

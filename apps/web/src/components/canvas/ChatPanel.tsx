@@ -140,8 +140,8 @@ export function ChatPanel({
         )}
       </div>
 
-      {/* Input area */}
-      <div className="shrink-0 border-t border-border/30 p-3">
+      {/* Input area — needs `relative` so the drag overlay (absolute inset-0) is scoped here */}
+      <div className="relative shrink-0 border-t border-border/30 p-3">
         {/* Attachment previews */}
         {pendingAttachments.length > 0 && (
           <div className="mb-2">

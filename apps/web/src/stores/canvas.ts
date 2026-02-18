@@ -50,7 +50,7 @@ interface CanvasState {
   // Actions
   setView: (view: CanvasView) => void;
   showPlan: (plan: PlanPreviewData) => void;
-  startBrand: (designSessionId: string) => void;
+  startBrand: (designSessionId?: string) => void;
   startLive: () => void;
   setContainerStatus: (status: ContainerStatus, errorMessage?: string) => void;
   startDeploy: () => void;
@@ -88,7 +88,7 @@ export const useCanvasStore = create<CanvasState>()(
       showPlan: (plan) =>
         set({ view: { kind: 'plan', plan } }),
 
-      startBrand: (designSessionId) =>
+      startBrand: (designSessionId = crypto.randomUUID()) =>
         set({ view: { kind: 'brand', designSessionId } }),
 
       startLive: () =>

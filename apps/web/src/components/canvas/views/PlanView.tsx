@@ -18,7 +18,6 @@ interface PlanViewProps {
 
 export function PlanView({ plan, onSendMessage, className }: PlanViewProps) {
   const startLive = useCanvasStore((s) => s.startLive);
-  const startBrand = useCanvasStore((s) => s.startBrand);
 
   const handleApprove = () => {
     // TODO: Check if workspace has design package; if not, go to brand first
@@ -54,36 +53,35 @@ export function PlanView({ plan, onSendMessage, className }: PlanViewProps) {
             </h3>
             <div className="space-y-2">
               {plan.entities.map((entity, i) => (
-                <div
-                  key={entity.name || i}
-                  className="flex items-start gap-3 rounded-lg border border-border/50 bg-card/50 p-4"
-                >
-                  <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                    <Bot className="h-4 w-4 text-primary" />
+                <div key={entity.name || i}>
+                  <div className="flex items-start gap-3 rounded-lg border border-border/50 bg-card/50 p-4">
+                    <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <Bot className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-sm font-medium">{entity.name}</h4>
+                      {entity.purpose && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {entity.purpose}
+                        </p>
+                      )}
+                      {entity.tools && entity.tools.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {entity.tools.map((tool) => (
+                            <span
+                              key={tool}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground"
+                            >
+                              {tool}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <h4 className="text-sm font-medium">{entity.name}</h4>
-                    {entity.purpose && (
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {entity.purpose}
-                      </p>
-                    )}
-                    {entity.tools && entity.tools.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {entity.tools.map((tool) => (
-                          <span
-                            key={tool}
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground"
-                          >
-                            {tool}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {/* Arrow connector (except last) */}
+                  {/* Downward arrow connector between cards */}
                   {i < plan.entities.length - 1 && (
-                    <div className="absolute left-[2.5rem] mt-12">
+                    <div className="flex justify-start py-1 pl-[1.875rem]">
                       <ArrowRight className="h-3 w-3 text-muted-foreground/40 rotate-90" />
                     </div>
                   )}

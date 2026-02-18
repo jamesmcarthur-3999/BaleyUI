@@ -10,6 +10,7 @@ import {
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useCanvasStore } from '@/stores/canvas';
+import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 
 // ============================================================================
@@ -25,6 +26,7 @@ export function DeployView({ className }: DeployViewProps) {
   const sessionId = useCanvasStore((s) => s.sessionId);
   const [isExporting, setIsExporting] = useState(false);
   const [exportDone, setExportDone] = useState(false);
+  const { toast } = useToast();
 
   const handleExportZip = async () => {
     if (!sessionId) return;
@@ -42,7 +44,11 @@ export function DeployView({ className }: DeployViewProps) {
       URL.revokeObjectURL(url);
       setExportDone(true);
     } catch (error) {
-      console.error('Export failed:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Export failed',
+        description: error instanceof Error ? error.message : 'Could not export the project. Please try again.',
+      });
     } finally {
       setIsExporting(false);
     }

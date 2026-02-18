@@ -2446,7 +2446,7 @@ export const hostedApps = pgTable(
   },
   (table) => [
     index('hosted_apps_workspace_idx').on(table.workspaceId),
-    index('hosted_apps_slug_idx').on(table.slug),
+    uniqueIndex('hosted_apps_workspace_slug_idx').on(table.workspaceId, table.slug),
   ],
 );
 

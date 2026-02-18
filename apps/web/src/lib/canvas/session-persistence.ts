@@ -6,7 +6,7 @@
 
 import { db, canvasSessions } from '@baleyui/db';
 import { eq, and } from 'drizzle-orm';
-import { CanvasSessionState, type CanvasFileEntry } from './session-state';
+import { CanvasSessionState, type CanvasFileEntry, type FileOp, type CommandLogEntry } from './session-state';
 import { getScaffoldTemplate } from './scaffold-templates';
 
 // ============================================================================
@@ -38,8 +38,8 @@ export async function getOrCreateCanvasSession(opts: {
       opts.workspaceId,
       {
         files: (existing.files ?? {}) as Record<string, CanvasFileEntry>,
-        fileOpsLog: (existing.fileOpsLog ?? []) as CanvasSessionState extends { fileOpsLog: infer T } ? T : never,
-        commandsLog: (existing.commandsLog ?? []) as CanvasSessionState extends { commandsLog: infer T } ? T : never,
+        fileOpsLog: (existing.fileOpsLog ?? []) as FileOp[],
+        commandsLog: (existing.commandsLog ?? []) as CommandLogEntry[],
       },
     );
   }

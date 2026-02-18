@@ -8,7 +8,7 @@ import {
   ResizableHandle,
 } from '@/components/ui/resizable';
 import { ChatPanel } from '@/components/canvas/ChatPanel';
-import type { ChatQuickAction } from '@/components/canvas/ChatPanel';
+import { CANVAS_QUICK_ACTIONS } from '@/components/canvas/quick-actions';
 import { CanvasShell } from '@/components/canvas/CanvasShell';
 import { useBaleyChat } from '@/hooks/useBaleyChat';
 import { useCanvasStore } from '@/stores/canvas';
@@ -20,33 +20,6 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, MessageSquare, PanelRight } from 'lucide-react';
 import { ROUTES } from '@/lib/routes';
 import { cn } from '@/lib/utils';
-
-// ============================================================================
-// QUICK ACTIONS
-// ============================================================================
-
-const QUICK_ACTIONS: ChatQuickAction[] = [
-  {
-    id: 'dashboard',
-    label: 'Analytics Dashboard',
-    prompt: 'Build me an analytics dashboard with KPI cards, interactive charts, and a sidebar navigation.',
-  },
-  {
-    id: 'landing',
-    label: 'Landing Page',
-    prompt: 'Build a modern SaaS landing page with hero section, features grid, and pricing cards.',
-  },
-  {
-    id: 'ecommerce',
-    label: 'E-commerce Store',
-    prompt: 'Build an e-commerce product catalog with filters, product cards, and a shopping cart.',
-  },
-  {
-    id: 'chat-app',
-    label: 'Chat Interface',
-    prompt: 'Build a chat application with contacts sidebar, message thread, and emoji picker.',
-  },
-];
 
 // ============================================================================
 // PAGE
@@ -66,9 +39,11 @@ export default function ChatCanvasPage() {
 
   // Canvas store
   const canvasView = useCanvasStore((s) => s.view);
+  const canvasFiles = useCanvasStore((s) => s.files);
   const showPlan = useCanvasStore((s) => s.showPlan);
-  const startLive = useCanvasStore((s) => s.startLive);
+  const startDeploy = useCanvasStore((s) => s.startDeploy);
   const setSessionId = useCanvasStore((s) => s.setSessionId);
+  const setCompileErrors = useCanvasStore((s) => s.setCompileErrors);
   const writeFileToStore = useCanvasStore((s) => s.writeFile);
   const deleteFileFromStore = useCanvasStore((s) => s.deleteFile);
 
@@ -86,6 +61,9 @@ export default function ChatCanvasPage() {
   const webContainer = useWebContainer({
     enabled: isLive,
     fileSystemTree: scaffoldTree,
+    // Replay files that were written before the container booted
+    pendingFiles: isLive ? canvasFiles : undefined,
+    onCompileErrors: setCompileErrors,
   });
 
   // Baley chat hook — canvas builder mode
@@ -113,10 +91,11 @@ export default function ChatCanvasPage() {
         setMobileView('canvas');
       },
       onDeploy: (_method, _name) => {
-        // Handled by DeployView
+        startDeploy();
+        setMobileView('canvas');
       },
       onRequestErrors: () => {
-        // WebContainer compile errors are tracked via process stderr
+        // Compile errors flow through the useWebContainer onCompileErrors callback
       },
     },
     // Also support creator callbacks for plan presentation
@@ -130,27 +109,13 @@ export default function ChatCanvasPage() {
 
   const { messages, isStreaming, send, stop } = baley;
 
-  // Handle sending messages
   const handleSendMessage = (message: string, attachments?: ChatAttachment[]) => {
-    // If we're still in welcome/plan state and user sends a message,
-    // transition to live mode to start building
-    if (canvasView.kind === 'welcome') {
-      // First message — Baley will present a plan or start building
-    }
     send(message, attachments);
   };
 
-  // Handle chat-only messages (no attachments, from canvas quick actions)
   const handleCanvasMessage = (message: string) => {
     send(message);
   };
-
-  // "Approve & Build" from PlanView transitions to live mode
-  useEffect(() => {
-    if (canvasView.kind === 'live' && canvasView.containerStatus === 'booting') {
-      // WebContainer hook will handle the boot sequence
-    }
-  }, [canvasView]);
 
   // Auto-send initial prompt if provided
   useEffect(() => {
@@ -163,7 +128,8 @@ export default function ChatCanvasPage() {
   const hasStarted = messages.length > 0;
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-hero">
+    // fixed inset-0 escapes the dashboard AppShell so the canvas is truly full-screen
+    <div className="fixed inset-0 z-50 flex flex-col bg-gradient-hero">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border/30 bg-background/80 backdrop-blur-sm">
         <Button
@@ -220,17 +186,17 @@ export default function ChatCanvasPage() {
       {/* Desktop: resizable two-panel layout */}
       <div className="flex-1 min-h-0 hidden md:block">
         <ResizablePanelGroup orientation="horizontal" className="h-full">
-          <ResizablePanel defaultSize={35} minSize={25} maxSize={50}>
+          <ResizablePanel defaultSize="35%" minSize="20%" maxSize="55%">
             <ChatPanel
               messages={messages}
               isStreaming={isStreaming}
               onSend={handleSendMessage}
               onStop={stop}
-              quickActions={!hasStarted ? QUICK_ACTIONS : undefined}
+              quickActions={!hasStarted ? CANVAS_QUICK_ACTIONS : undefined}
             />
           </ResizablePanel>
           <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={65} minSize={40}>
+          <ResizablePanel defaultSize="65%" minSize="45%">
             <CanvasShell onSendMessage={handleCanvasMessage} />
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -244,7 +210,7 @@ export default function ChatCanvasPage() {
             isStreaming={isStreaming}
             onSend={handleSendMessage}
             onStop={stop}
-            quickActions={!hasStarted ? QUICK_ACTIONS : undefined}
+            quickActions={!hasStarted ? CANVAS_QUICK_ACTIONS : undefined}
             className="h-full"
           />
         ) : (
