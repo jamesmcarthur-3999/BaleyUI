@@ -153,7 +153,7 @@ export default async function HomePage() {
                   <div className="pl-4 sm:pl-6">
                     <span className="text-accent">&quot;model&quot;</span>
                     <span className="text-muted-foreground">: </span>
-                    <span className="text-foreground">&quot;anthropic:claude-sonnet-4-20250514&quot;</span>
+                    <span className="text-foreground">&quot;anthropic|claude-sonnet-4-20250514&quot;</span>
                     <span className="text-muted-foreground">,</span>
                   </div>
                   <div className="pl-4 sm:pl-6">

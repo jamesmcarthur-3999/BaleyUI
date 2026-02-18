@@ -106,7 +106,7 @@ vi.mock('@/lib/baleybot/services', () => ({
 }));
 
 vi.mock('@/lib/baleybot/executor', () => ({
-  getPreferredModel: vi.fn(() => 'anthropic:claude-sonnet-4-20250514'),
+  getPreferredModel: vi.fn(() => 'anthropic|claude-sonnet-4-20250514'),
 }));
 
 vi.mock('@/lib/baleybot/services/execution-tools-loader', () => ({

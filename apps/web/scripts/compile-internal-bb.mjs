@@ -17,7 +17,7 @@ function resolveModelRef(modelRef, modelPolicy) {
   }
 
   const trimmed = modelRef.trim();
-  const parts = trimmed.split(':');
+  const parts = trimmed.split('|');
   if (parts.length !== 2) {
     // Already a plain model id without provider prefix. Let baleybots detect provider.
     return trimmed;

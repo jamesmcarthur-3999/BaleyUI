@@ -490,8 +490,8 @@ export function createSpawnBaleybotExecutor(options?: {
       // Apply model tier override if requested
       let balCode = targetBB.balCode;
       if (spawnOptions?.modelTierOverride) {
-        // Extract current provider from BAL code (e.g., "anthropic" from "anthropic:claude-haiku-...")
-        const modelMatch = balCode.match(/"model"\s*:\s*"([^":]+):/);
+        // Extract current provider from BAL code (e.g., "anthropic" from "anthropic|claude-haiku-...")
+        const modelMatch = balCode.match(/"model"\s*:\s*"([^"|]+)\|/);
         const provider = modelMatch?.[1] as 'openai' | 'anthropic' | 'ollama' | undefined;
         if (provider) {
           const resolvedModel = await getDefaultModelForTier(provider, spawnOptions.modelTierOverride);

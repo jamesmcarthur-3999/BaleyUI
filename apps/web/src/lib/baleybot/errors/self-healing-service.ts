@@ -74,8 +74,8 @@ const DEFAULT_CONFIG: SelfHealingConfig = {
   baseDelayMs: 1000,
   maxDelayMs: 30000,
   fallbackModels: [
-    'openai:gpt-4o-mini',
-    'anthropic:claude-3-5-haiku-20241022',
+    'openai|gpt-4o-mini',
+    'anthropic|claude-3-5-haiku-20241022',
   ],
   notifyOnToolFailure: true,
 };

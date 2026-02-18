@@ -377,7 +377,7 @@ export function NodeEditor({
                     ? Object.entries(modelsByProvider).map(([provider, models]) => (
                         <optgroup key={provider} label={PROVIDER_LABELS[provider] ?? provider}>
                           {models.map((model) => (
-                            <option key={model.modelId} value={`${model.provider}:${model.modelId}`}>
+                            <option key={model.modelId} value={`${model.provider}|${model.modelId}`}>
                               {model.displayName} · {TIER_LABELS[model.tier] ?? model.tier}
                               {model.inputCostPer1mTokens ? ` · ~$${model.inputCostPer1mTokens}` : ''}
                             </option>

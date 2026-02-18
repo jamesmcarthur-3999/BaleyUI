@@ -156,7 +156,7 @@ BaleyBots are AI-powered workflow units defined in BAL (Baleybots Assembly Langu
 assistant {
   "goal": "Help users answer questions about our product",
   "tools": ["web_search", "fetch_url"],
-  "model": "anthropic:claude-sonnet-4-20250514"
+  "model": "anthropic|claude-sonnet-4-20250514"
 }
 ```
 

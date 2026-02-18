@@ -61,15 +61,15 @@ export interface UsageTrend {
  */
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   // OpenAI
-  'openai:gpt-4o': { input: 2.5, output: 10 },
-  'openai:gpt-4o-mini': { input: 0.15, output: 0.6 },
-  'openai:gpt-4-turbo': { input: 10, output: 30 },
-  'openai:gpt-3.5-turbo': { input: 0.5, output: 1.5 },
+  'openai|gpt-4o': { input: 2.5, output: 10 },
+  'openai|gpt-4o-mini': { input: 0.15, output: 0.6 },
+  'openai|gpt-4-turbo': { input: 10, output: 30 },
+  'openai|gpt-3.5-turbo': { input: 0.5, output: 1.5 },
 
   // Anthropic
-  'anthropic:claude-sonnet-4-20250514': { input: 3, output: 15 },
-  'anthropic:claude-3-5-haiku-20241022': { input: 0.25, output: 1.25 },
-  'anthropic:claude-3-opus-20240229': { input: 15, output: 75 },
+  'anthropic|claude-sonnet-4-20250514': { input: 3, output: 15 },
+  'anthropic|claude-3-5-haiku-20241022': { input: 0.25, output: 1.25 },
+  'anthropic|claude-3-opus-20240229': { input: 15, output: 75 },
 
   // Default fallback
   default: { input: 1, output: 3 },

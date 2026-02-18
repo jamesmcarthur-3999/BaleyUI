@@ -7,31 +7,31 @@ import { balToVisual } from '../bal-parser-pure';
 const FIVE_AGENT_HUB_BAL = `
 coordinator {
   "goal": "Coordinate and distribute work across specialists",
-  "model": "anthropic:claude-sonnet-4-20250514",
+  "model": "anthropic|claude-sonnet-4-20250514",
   "tools": { "spawn_baleybot", "store_memory" }
 }
 
 researcher {
   "goal": "Research topics using web search",
-  "model": "openai:gpt-4o-mini",
+  "model": "openai|gpt-4o-mini",
   "tools": { "web_search", "store_memory" }
 }
 
 fetcher {
   "goal": "Fetch and parse web content",
-  "model": "openai:gpt-4o-mini",
+  "model": "openai|gpt-4o-mini",
   "tools": { "fetch_url", "store_memory" }
 }
 
 analyzer {
   "goal": "Analyze collected data",
-  "model": "anthropic:claude-sonnet-4-20250514",
+  "model": "anthropic|claude-sonnet-4-20250514",
   "tools": { "store_memory", "shared_storage" }
 }
 
 reporter {
   "goal": "Generate summary reports",
-  "model": "anthropic:claude-sonnet-4-20250514",
+  "model": "anthropic|claude-sonnet-4-20250514",
   "tools": { "send_notification", "store_memory" }
 }
 
@@ -118,9 +118,9 @@ describe('5-node hub-and-spoke layout', () => {
   it('preserves entity models correctly', () => {
     const result = balToVisual(FIVE_AGENT_HUB_BAL);
     const coordinator = result.graph.nodes.find(n => n.id === 'coordinator');
-    expect(coordinator?.data.model).toBe('anthropic:claude-sonnet-4-20250514');
+    expect(coordinator?.data.model).toBe('anthropic|claude-sonnet-4-20250514');
     const researcher = result.graph.nodes.find(n => n.id === 'researcher');
-    expect(researcher?.data.model).toBe('openai:gpt-4o-mini');
+    expect(researcher?.data.model).toBe('openai|gpt-4o-mini');
   });
 });
 

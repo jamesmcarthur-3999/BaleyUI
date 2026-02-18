@@ -637,7 +637,7 @@ export function VisualEditor({
                 'focus:outline-none focus:ring-2 focus:ring-primary/20',
                 readOnly && 'cursor-not-allowed opacity-75'
               )}
-              placeholder={`# Enter BAL code here\nentity_name {\n  "goal": "What this entity should accomplish",\n  "model": "openai:gpt-4o-mini",\n  "tools": { "web_search" }\n}`}
+              placeholder={`# Enter BAL code here\nentity_name {\n  "goal": "What this entity should accomplish",\n  "model": "openai|gpt-4o-mini",\n  "tools": { "web_search" }\n}`}
             />
           </div>
         )}

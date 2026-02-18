@@ -669,14 +669,14 @@ describe('Built-in Tool Implementations', () => {
       const result = await tool.function({
         name: 'helper',
         goal: 'Summarize documents',
-        model: 'openai:gpt-4o',
+        model: 'openai|gpt-4o',
         tools: ['web_search'],
         input: 'Summarize this',
       });
 
       expect(result).toEqual(mockResult);
       expect(mockCreateAndExecute).toHaveBeenCalledWith(
-        { name: 'helper', goal: 'Summarize documents', model: 'openai:gpt-4o', tools: ['web_search'] },
+        { name: 'helper', goal: 'Summarize documents', model: 'openai|gpt-4o', tools: ['web_search'] },
         'Summarize this',
         expect.any(Map)
       );

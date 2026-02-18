@@ -2819,7 +2819,7 @@ export const baleybotsRouter = router({
               }
             }
             if (typeof entity.model === 'string') {
-              const provider = entity.model.split(':')[0];
+              const provider = entity.model.split('|')[0];
               if (provider) requiredProviders.add(provider);
             }
           }

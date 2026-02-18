@@ -580,7 +580,7 @@ export interface ExecutionResult {
   segments: BaleybotStreamEvent[];
   durationMs: number;
   tokenCount?: number;
-  /** Model used for execution (e.g. "openai:gpt-4o") */
+  /** Model used for execution (e.g. "openai|gpt-4o") */
   model?: string;
   /** Input tokens consumed */
   tokensInput?: number;

@@ -219,8 +219,8 @@ export class BaleybotRuntime {
   }
 
   private detectModel(): string {
-    if (process.env.ANTHROPIC_API_KEY) return 'anthropic:claude-sonnet-4-20250514';
-    if (process.env.OPENAI_API_KEY) return 'openai:gpt-4o';
+    if (process.env.ANTHROPIC_API_KEY) return 'anthropic|claude-sonnet-4-20250514';
+    if (process.env.OPENAI_API_KEY) return 'openai|gpt-4o';
     return 'unknown';
   }
 }

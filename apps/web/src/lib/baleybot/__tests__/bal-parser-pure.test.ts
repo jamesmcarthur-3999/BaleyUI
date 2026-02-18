@@ -39,11 +39,11 @@ describe('parseBalCode entity properties', () => {
     const result = parseBalCode(`
       bot {
         "goal": "Do work",
-        "model": "anthropic:claude-sonnet-4-20250514"
+        "model": "anthropic|claude-sonnet-4-20250514"
       }
     `);
     expect(result.errors).toHaveLength(0);
-    expect(result.entities[0]?.config.model).toBe('anthropic:claude-sonnet-4-20250514');
+    expect(result.entities[0]?.config.model).toBe('anthropic|claude-sonnet-4-20250514');
   });
 
   it('parses tools with brace syntax', () => {
@@ -112,7 +112,7 @@ describe('parseBalCode entity properties', () => {
     const code = `
       bot {
         "goal": "Monitor",
-        "model": "anthropic:claude-sonnet-4-20250514",
+        "model": "anthropic|claude-sonnet-4-20250514",
         "reasoning": {
           "effort": "high"
         },
@@ -273,7 +273,7 @@ describe('parseBalCode entity properties', () => {
     const result = parseBalCode(`
       full_bot {
         "goal": "Do everything",
-        "model": "openai:gpt-4o",
+        "model": "openai|gpt-4o",
         "tools": { "web_search", "fetch_url" },
         "history": "inherit",
         "output": {
@@ -285,7 +285,7 @@ describe('parseBalCode entity properties', () => {
     expect(result.errors).toHaveLength(0);
     const config = result.entities[0]?.config;
     expect(config?.goal).toBe('Do everything');
-    expect(config?.model).toBe('openai:gpt-4o');
+    expect(config?.model).toBe('openai|gpt-4o');
     expect(config?.tools).toEqual(['web_search', 'fetch_url']);
     expect(config?.history).toBe('inherit');
     const output = config?.output as Record<string, string>;
@@ -323,20 +323,20 @@ describe('parseBalCode multiple entities', () => {
     const result = parseBalCode(`
       fast_bot {
         "goal": "Quick processing",
-        "model": "openai:gpt-4o-mini",
+        "model": "openai|gpt-4o-mini",
         "tools": { "web_search" }
       }
       smart_bot {
         "goal": "Deep analysis",
-        "model": "anthropic:claude-sonnet-4-20250514",
+        "model": "anthropic|claude-sonnet-4-20250514",
         "tools": { "fetch_url" },
         "history": "inherit"
       }
     `);
     expect(result.errors).toHaveLength(0);
     expect(result.entities).toHaveLength(2);
-    expect(result.entities[0]?.config.model).toBe('openai:gpt-4o-mini');
-    expect(result.entities[1]?.config.model).toBe('anthropic:claude-sonnet-4-20250514');
+    expect(result.entities[0]?.config.model).toBe('openai|gpt-4o-mini');
+    expect(result.entities[1]?.config.model).toBe('anthropic|claude-sonnet-4-20250514');
     expect(result.entities[1]?.config.history).toBe('inherit');
   });
 });
@@ -454,14 +454,14 @@ describe('parseBalCode real-world scenarios', () => {
     const result = parseBalCode(`
       activity_poller {
         "goal": "Poll database for new user events every 5 minutes",
-        "model": "openai:gpt-4o-mini",
+        "model": "openai|gpt-4o-mini",
         "tools": { "query_database" },
         "history": "none"
       }
 
       trend_analyzer {
         "goal": "Analyze event patterns and identify trends",
-        "model": "anthropic:claude-sonnet-4-20250514",
+        "model": "anthropic|claude-sonnet-4-20250514",
         "tools": { "query_database", "send_notification" },
         "output": {
           "trends": "array",
@@ -486,7 +486,7 @@ describe('parseBalCode real-world scenarios', () => {
 
     // Check entity details
     const poller = result.entities.find(e => e.name === 'activity_poller');
-    expect(poller?.config.model).toBe('openai:gpt-4o-mini');
+    expect(poller?.config.model).toBe('openai|gpt-4o-mini');
     expect(poller?.config.tools).toEqual(['query_database']);
     expect(poller?.config.history).toBe('none');
 
@@ -504,7 +504,7 @@ describe('parseBalCode real-world scenarios', () => {
     const result = parseBalCode(`
       coordinator {
         "goal": "Coordinate sub-tasks",
-        "model": "anthropic:claude-sonnet-4-20250514",
+        "model": "anthropic|claude-sonnet-4-20250514",
         "tools": { "spawn_baleybot", "store_memory" }
       }
       web_worker {
@@ -525,7 +525,7 @@ describe('parseBalCode real-world scenarios', () => {
     const result = parseBalCode(`
       example_bot {
         "goal": "Create BaleyBots from user descriptions",
-        "model": "anthropic:claude-sonnet-4-20250514",
+        "model": "anthropic|claude-sonnet-4-20250514",
         "output": {
           "entities": "array",
           "balCode": "string",
@@ -572,7 +572,7 @@ describe('validateBalCode', () => {
   it('warns when entity is missing a goal', () => {
     const result = parseBalCode(`
       bot {
-        "model": "openai:gpt-4o"
+        "model": "openai|gpt-4o"
       }
     `);
     // The parser may still parse it — but validateBalCode should warn
@@ -581,7 +581,7 @@ describe('validateBalCode', () => {
     if (result.errors.length === 0) {
       const validation = validateBalCode(`
         bot {
-          "model": "openai:gpt-4o"
+          "model": "openai|gpt-4o"
         }
       `);
       // Should have a warning about missing goal
@@ -603,7 +603,7 @@ describe('validateBalCode', () => {
     const result = validateBalCode(`
       analyzer {
         "goal": "Analyze data",
-        "model": "openai:gpt-4o",
+        "model": "openai|gpt-4o",
         "tools": { "web_search" },
         "output": {
           "result": "string"
@@ -648,10 +648,10 @@ describe('balToVisual entity data', () => {
     const result = balToVisual(`
       bot {
         "goal": "Do work",
-        "model": "openai:gpt-4o"
+        "model": "openai|gpt-4o"
       }
     `);
-    expect(result.graph.nodes[0]?.data.model).toBe('openai:gpt-4o');
+    expect(result.graph.nodes[0]?.data.model).toBe('openai|gpt-4o');
   });
 
   it('extracts tools to visual node data', () => {
@@ -938,7 +938,7 @@ describe('parseBalCode compositions preserve entity properties', () => {
       }
       processor {
         "goal": "Process data",
-        "model": "openai:gpt-4o-mini",
+        "model": "openai|gpt-4o-mini",
         "output": {
           "result": "string"
         }
@@ -948,7 +948,7 @@ describe('parseBalCode compositions preserve entity properties', () => {
     expect(result.errors).toHaveLength(0);
     expect(result.chain).toEqual(['fetcher', 'processor']);
     expect(result.entities[0]?.config.tools).toEqual(['web_search', 'fetch_url']);
-    expect(result.entities[1]?.config.model).toBe('openai:gpt-4o-mini');
+    expect(result.entities[1]?.config.model).toBe('openai|gpt-4o-mini');
     const output = result.entities[1]?.config.output as Record<string, string>;
     expect(output?.result).toBe('string');
   });
